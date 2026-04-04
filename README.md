@@ -105,8 +105,12 @@ Pre-built binaries are available on the [Releases](https://github.com/worthapenn
 |------|---------|---------|
 | [Rust](https://rustup.rs/) | 1.75+ | Backend compilation |
 | [Node.js](https://nodejs.org/) | 20+ | Frontend tooling |
-| [pnpm](https://pnpm.io/) | 9+ | Package manager |
 | [Docker](https://www.docker.com/) | 24+ | MySQL test containers |
+
+**Linux/WSL additional system dependencies** (for Tauri desktop build):
+```bash
+sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libssl-dev
+```
 
 ### Setup
 
@@ -116,34 +120,37 @@ git clone https://github.com/worthapenny/mysql-ai-studio.git
 cd mysql-ai-studio
 
 # Install frontend dependencies
-pnpm install
+npm install
 
-# Start a MySQL test container
-docker compose up -d mysql
+# Start MySQL test container
+make db-up
 
-# Run the development server (launches both Rust backend and React frontend)
-pnpm tauri dev
+# Run all tests (Rust integration tests against Docker MySQL + frontend unit tests)
+make test
+```
+
+### Running the App
+
+```bash
+# Option 1: Full desktop app (requires system deps above)
+make dev
+
+# Option 2: Web preview in browser (no system deps needed)
+make dev-web
+# Then open http://localhost:1420 in your browser
 ```
 
 ### Useful Commands
 
 ```bash
-# Run frontend unit tests
-pnpm test
-
-# Run backend unit tests
-cargo test --manifest-path src-tauri/Cargo.toml
-
-# Run E2E tests (requires running app)
-pnpm test:e2e
-
-# Lint and format
-pnpm lint
-cargo fmt --manifest-path src-tauri/Cargo.toml
-cargo clippy --manifest-path src-tauri/Cargo.toml
-
-# Build for production
-pnpm tauri build
+make test           # Run all tests (Rust + frontend)
+make test-rust      # Run Rust integration tests against Docker MySQL (40 tests)
+make test-frontend  # Run frontend unit tests (8 tests)
+make db-up          # Start MySQL 8 Docker container on port 13306
+make db-down        # Stop and remove MySQL container
+make db-reset       # Restart MySQL container fresh
+make lint           # Run clippy + tsc type checking
+make setup          # Install all dependencies (requires sudo)
 ```
 
 ### Environment Variables
@@ -206,36 +213,42 @@ MYSQL_AI_STUDIO_OLLAMA_URL=http://localhost:11434
 mysql-ai-studio/
 ├── src/                        # React frontend source
 │   ├── components/             #   UI components
-│   │   ├── editor/             #     SQL editor (Monaco)
-│   │   ├── grid/               #     Data grid (TanStack Table)
-│   │   ├── schema/             #     Schema browser & ERD
-│   │   ├── connections/        #     Connection management
-│   │   ├── dashboard/          #     Performance dashboard
-│   │   └── ai/                 #     AI chat & suggestions
-│   ├── hooks/                  #   Custom React hooks
+│   │   ├── connection/         #     Connection dialog
+│   │   ├── editor/             #     SQL editor (Monaco) & tabs
+│   │   ├── grid/               #     Results data grid (TanStack Table)
+│   │   └── layout/             #     App shell, sidebar, panels, status bar
+│   ├── lib/                    #   Tauri IPC bridge & utilities
 │   ├── stores/                 #   Zustand state stores
-│   ├── services/               #   Tauri IPC & API layer
+│   │   └── __tests__/          #     Store unit tests
 │   ├── types/                  #   TypeScript type definitions
 │   └── styles/                 #   Global styles & themes
 ├── src-tauri/                  # Rust backend source
 │   ├── src/
-│   │   ├── commands/           #   Tauri command handlers
-│   │   ├── db/                 #   Database connection & query engine
-│   │   ├── ai/                 #   AI/LLM integration
-│   │   ├── ssh/                #   SSH tunnel management
-│   │   ├── export/             #   Data export engines
-│   │   └── admin/              #   Server administration
-│   ├── Cargo.toml              #   Rust dependencies
+│   │   ├── commands/           #   Tauri IPC command handlers (17 commands)
+│   │   ├── lib.rs              #   App state & command registration
+│   │   └── main.rs             #   Entry point
+│   ├── crates/
+│   │   ├── mas-core/           #   Connection manager, query executor, schema inspector
+│   │   │   └── tests/          #     Integration tests (35 tests against Docker MySQL)
+│   │   ├── mas-export/         #   CSV, JSON, SQL, Markdown exporters
+│   │   └── mas-admin/          #   Process list, server variables, kill process
+│   ├── Cargo.toml              #   Workspace & dependencies
 │   └── tauri.conf.json         #   Tauri configuration
-├── tests/                      # E2E tests (Playwright)
-├── docs/                       # Documentation
-│   ├── design/                 #   Design & requirements docs
-│   └── assets/                 #   Images & screenshots
-├── docker-compose.yml          # MySQL test containers
+├── tests/                      # Test fixtures
+│   └── fixtures/
+│       └── sql/                #   seed.sql, seed_large.sql
+├── docs/design/                # Design documentation
+│   ├── ARCHITECTURE.md         #   System architecture (1,781 lines)
+│   ├── DESIGN_REQUIREMENTS.md  #   Requirements & competitive analysis
+│   ├── DEVELOPMENT_PLAN.md     #   11-phase development plan
+│   ├── TESTING_STRATEGY.md     #   Testing strategy (240+ test cases)
+│   └── TECH_DECISIONS.md       #   10 Architecture Decision Records
+├── docker-compose.test.yml     # MySQL 8, 5.7, MariaDB test containers
+├── Makefile                    # Dev convenience commands
 ├── package.json                # Frontend dependencies
 ├── vite.config.ts              # Vite configuration
-├── tailwind.config.ts          # Tailwind configuration
-├── tsconfig.json               # TypeScript configuration
+├── vitest.config.ts            # Test configuration
+├── tailwind.config.js          # Tailwind CSS configuration
 └── README.md                   # This file
 ```
 
