@@ -36,3 +36,4 @@ test-results/
 *.AppImage
 *.deb
 *.rpm
+src-tauri/gen/
