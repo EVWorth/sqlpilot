@@ -6,7 +6,6 @@ use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
 use sqlx::MySqlPool;
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::info;
 
 pub struct ActiveConnection {
     pub info: ConnectionInfo,
@@ -24,14 +23,16 @@ impl ConnectionManager {
         }
     }
 
+    #[tracing::instrument(skip(self, profile), fields(host = %profile.host, port = %profile.port, user = %profile.username))]
     pub async fn connect(&self, profile: &ConnectionProfile) -> Result<ConnectionInfo, CoreError> {
         let conn_id = uuid::Uuid::new_v4().to_string();
 
-        info!(
+        tracing::debug!(
             connection_id = %conn_id,
-            host = %profile.host,
-            port = %profile.port,
-            "Establishing MySQL connection"
+            pool_min = profile.pool_min,
+            pool_max = profile.pool_max,
+            default_database = ?profile.default_database,
+            "Creating connection pool"
         );
 
         let mut options = MySqlConnectOptions::new()
@@ -46,6 +47,8 @@ impl ConnectionManager {
                 options = options.database(db);
             }
         }
+
+        tracing::debug!(connection_id = %conn_id, "Connecting to MySQL server");
 
         let pool = MySqlPoolOptions::new()
             .min_connections(profile.pool_min)
@@ -62,13 +65,19 @@ impl ConnectionManager {
             })
             .connect_with(options)
             .await
-            .map_err(|e| CoreError::Connection(format!("Failed to connect: {}", e)))?;
+            .map_err(|e| {
+                tracing::warn!(connection_id = %conn_id, error = %e, "Connection failed");
+                CoreError::Connection(format!("Failed to connect: {}", e))
+            })?;
 
         // Get server version
         let version: (String,) = sqlx::query_as("SELECT VERSION()")
             .fetch_one(&pool)
             .await
-            .map_err(|e| CoreError::Connection(format!("Failed to get server version: {}", e)))?;
+            .map_err(|e| {
+                tracing::warn!(connection_id = %conn_id, error = %e, "Failed to get server version");
+                CoreError::Connection(format!("Failed to get server version: {}", e))
+            })?;
 
         let info = ConnectionInfo {
             id: conn_id.clone(),
@@ -87,20 +96,23 @@ impl ConnectionManager {
             pool,
         });
 
-        info!(connection_id = %info.id, version = %info.server_version, "Connected successfully");
+        tracing::info!(connection_id = %info.id, version = %info.server_version, "Connected successfully");
         Ok(info)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn disconnect(&self, connection_id: &str) -> Result<(), CoreError> {
         if let Some((_, conn)) = self.connections.remove(connection_id) {
             conn.pool.close().await;
-            info!(connection_id = %connection_id, "Disconnected");
+            tracing::info!(connection_id = %connection_id, "Disconnected");
             Ok(())
         } else {
+            tracing::warn!(connection_id = %connection_id, "Connection not found for disconnect");
             Err(CoreError::NotFound(format!("Connection not found: {}", connection_id)))
         }
     }
 
+    #[tracing::instrument(skip(profile), fields(host = %profile.host, port = %profile.port))]
     pub async fn test_connection(profile: &ConnectionProfile) -> Result<TestConnectionResult, CoreError> {
         let start = Instant::now();
 
@@ -117,6 +129,8 @@ impl ConnectionManager {
             }
         }
 
+        tracing::debug!("Testing connection");
+
         match MySqlPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_secs(10))
@@ -130,22 +144,29 @@ impl ConnectionManager {
                 pool.close().await;
                 let latency = start.elapsed().as_millis() as u64;
                 match version {
-                    Ok((v,)) => Ok(TestConnectionResult {
-                        success: true,
-                        message: format!("Connected to MySQL {}", v),
-                        server_version: Some(v),
-                        latency_ms: latency,
-                    }),
-                    Err(e) => Ok(TestConnectionResult {
-                        success: false,
-                        message: format!("Connected but failed to query: {}", e),
-                        server_version: None,
-                        latency_ms: latency,
-                    }),
+                    Ok((v,)) => {
+                        tracing::info!(version = %v, latency_ms = latency, "Test connection succeeded");
+                        Ok(TestConnectionResult {
+                            success: true,
+                            message: format!("Connected to MySQL {}", v),
+                            server_version: Some(v),
+                            latency_ms: latency,
+                        })
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, latency_ms = latency, "Test connection: connected but query failed");
+                        Ok(TestConnectionResult {
+                            success: false,
+                            message: format!("Connected but failed to query: {}", e),
+                            server_version: None,
+                            latency_ms: latency,
+                        })
+                    }
                 }
             }
             Err(e) => {
                 let latency = start.elapsed().as_millis() as u64;
+                tracing::warn!(error = %e, latency_ms = latency, "Test connection failed");
                 Ok(TestConnectionResult {
                     success: false,
                     message: format!("Connection failed: {}", e),
@@ -156,18 +177,25 @@ impl ConnectionManager {
         }
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get_pool(&self, connection_id: &str) -> Result<MySqlPool, CoreError> {
         self.connections
             .get(connection_id)
             .map(|conn| conn.pool.clone())
-            .ok_or_else(|| CoreError::NotFound(format!("Connection not found: {}", connection_id)))
+            .ok_or_else(|| {
+                tracing::debug!(connection_id = %connection_id, "Pool not found");
+                CoreError::NotFound(format!("Connection not found: {}", connection_id))
+            })
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn list_connections(&self) -> Vec<ConnectionInfo> {
-        self.connections
+        let connections: Vec<ConnectionInfo> = self.connections
             .iter()
             .map(|entry| entry.value().info.clone())
-            .collect()
+            .collect();
+        tracing::debug!(count = connections.len(), "Listed active connections");
+        connections
     }
 }
 

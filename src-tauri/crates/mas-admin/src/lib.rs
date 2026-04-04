@@ -31,7 +31,9 @@ impl AdminService {
         Self { connection_manager }
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn get_process_list(&self, connection_id: &str) -> Result<Vec<ProcessInfo>, CoreError> {
+        tracing::debug!("Fetching process list");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT ID,
@@ -48,7 +50,7 @@ impl AdminService {
             .await
             .map_err(|e| CoreError::Query(e.to_string()))?;
 
-        Ok(rows.iter().map(|row| ProcessInfo {
+        let processes: Vec<ProcessInfo> = rows.iter().map(|row| ProcessInfo {
             id: row.try_get::<i64, _>("ID").unwrap_or_default(),
             user: row.try_get("USER").unwrap_or_default(),
             host: row.try_get("HOST").unwrap_or_default(),
@@ -57,28 +59,37 @@ impl AdminService {
             time: row.try_get::<i64, _>("TIME").unwrap_or_default(),
             state: row.try_get("STATE").ok().flatten(),
             info: row.try_get("INFO").ok().flatten(),
-        }).collect())
+        }).collect();
+        tracing::debug!(count = processes.len(), "Retrieved process list");
+        Ok(processes)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn get_server_variables(&self, connection_id: &str) -> Result<Vec<ServerVariable>, CoreError> {
+        tracing::debug!("Fetching server variables");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query("SHOW GLOBAL VARIABLES")
             .fetch_all(&pool)
             .await
             .map_err(|e| CoreError::Query(e.to_string()))?;
 
-        Ok(rows.iter().map(|row| ServerVariable {
+        let variables: Vec<ServerVariable> = rows.iter().map(|row| ServerVariable {
             name: row.try_get("Variable_name").unwrap_or_default(),
             value: row.try_get("Value").unwrap_or_default(),
-        }).collect())
+        }).collect();
+        tracing::debug!(count = variables.len(), "Retrieved server variables");
+        Ok(variables)
     }
 
+    #[tracing::instrument(skip(self))]
     pub async fn kill_process(&self, connection_id: &str, process_id: i64) -> Result<(), CoreError> {
+        tracing::info!(process_id = process_id, "Killing MySQL process");
         let pool = self.connection_manager.get_pool(connection_id)?;
         sqlx::query(&format!("KILL {}", process_id))
             .execute(&pool)
             .await
             .map_err(|e| CoreError::Query(e.to_string()))?;
+        tracing::info!(process_id = process_id, "Process killed successfully");
         Ok(())
     }
 }

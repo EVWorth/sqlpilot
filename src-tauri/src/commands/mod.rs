@@ -17,156 +17,258 @@ pub struct AppState {
 
 // Connection commands
 #[tauri::command]
+#[tracing::instrument(skip(state, profile), fields(profile_name = %profile.name))]
 pub async fn save_connection_profile(
     state: State<'_, AppState>,
     profile: ConnectionProfile,
 ) -> Result<String, String> {
-    state.connection_store.save(&profile).map_err(|e| e.to_string())?;
+    state.connection_store.save(&profile).map_err(|e| {
+        tracing::error!(error = %e, "Failed to save connection profile");
+        e.to_string()
+    })?;
+    tracing::info!(profile_id = %profile.id, "Connection profile saved");
     Ok(profile.id.clone())
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn list_connection_profiles(
     state: State<'_, AppState>,
 ) -> Result<Vec<ConnectionProfile>, String> {
-    state.connection_store.list().map_err(|e| e.to_string())
+    let profiles = state.connection_store.list().map_err(|e| {
+        tracing::error!(error = %e, "Failed to list connection profiles");
+        e.to_string()
+    })?;
+    tracing::info!(count = profiles.len(), "Listed connection profiles");
+    Ok(profiles)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn delete_connection_profile(
     state: State<'_, AppState>,
     profile_id: String,
 ) -> Result<(), String> {
-    state.connection_store.delete(&profile_id).map_err(|e| e.to_string())
+    state.connection_store.delete(&profile_id).map_err(|e| {
+        tracing::error!(error = %e, profile_id = %profile_id, "Failed to delete connection profile");
+        e.to_string()
+    })?;
+    tracing::info!("Connection profile deleted");
+    Ok(())
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(profile), fields(profile_name = %profile.name, host = %profile.host, port = %profile.port))]
 pub async fn test_connection(
     profile: ConnectionProfile,
 ) -> Result<TestConnectionResult, String> {
-    ConnectionManager::test_connection(&profile).await.map_err(|e| e.to_string())
+    let result = ConnectionManager::test_connection(&profile).await.map_err(|e| {
+        tracing::error!(error = %e, "Test connection failed");
+        e.to_string()
+    })?;
+    tracing::info!(success = result.success, latency_ms = result.latency_ms, "Test connection completed");
+    Ok(result)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn connect(
     state: State<'_, AppState>,
     profile_id: String,
 ) -> Result<ConnectionInfo, String> {
-    let profile = state.connection_store.get(&profile_id).map_err(|e| e.to_string())?;
-    state.connection_manager.connect(&profile).await.map_err(|e| e.to_string())
+    let profile = state.connection_store.get(&profile_id).map_err(|e| {
+        tracing::error!(error = %e, "Failed to get profile for connect");
+        e.to_string()
+    })?;
+    let info = state.connection_manager.connect(&profile).await.map_err(|e| {
+        tracing::error!(error = %e, "Connect failed");
+        e.to_string()
+    })?;
+    tracing::info!(connection_id = %info.id, server_version = %info.server_version, "Connected");
+    Ok(info)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn disconnect(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<(), String> {
-    state.connection_manager.disconnect(&connection_id).await.map_err(|e| e.to_string())
+    state.connection_manager.disconnect(&connection_id).await.map_err(|e| {
+        tracing::error!(error = %e, "Disconnect failed");
+        e.to_string()
+    })?;
+    tracing::info!("Disconnected");
+    Ok(())
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn list_connections(
     state: State<'_, AppState>,
 ) -> Result<Vec<ConnectionInfo>, String> {
-    Ok(state.connection_manager.list_connections())
+    let connections = state.connection_manager.list_connections();
+    tracing::info!(count = connections.len(), "Listed connections");
+    Ok(connections)
 }
 
 // Query commands
 #[tauri::command]
+#[tracing::instrument(skip(state), fields(connection_id = %connection_id, sql_preview = %sql.chars().take(100).collect::<String>()))]
 pub async fn execute_query(
     state: State<'_, AppState>,
     connection_id: String,
     sql: String,
 ) -> Result<Vec<QueryResult>, String> {
-    state.query_executor.execute(&connection_id, &sql).await.map_err(|e| e.to_string())
+    let results = state.query_executor.execute(&connection_id, &sql).await.map_err(|e| {
+        tracing::error!(error = %e, "Query execution failed");
+        e.to_string()
+    })?;
+    let total_rows: u64 = results.iter().map(|r| r.rows_affected).sum();
+    tracing::info!(statement_count = results.len(), total_rows = total_rows, "Query executed");
+    Ok(results)
 }
 
 // Schema commands
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn get_databases(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<DatabaseInfo>, String> {
-    state.schema_inspector.get_databases(&connection_id).await.map_err(|e| e.to_string())
+    let dbs = state.schema_inspector.get_databases(&connection_id).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get databases");
+        e.to_string()
+    })?;
+    tracing::info!(count = dbs.len(), "Listed databases");
+    Ok(dbs)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn get_tables(
     state: State<'_, AppState>,
     connection_id: String,
     database: String,
 ) -> Result<Vec<TableInfo>, String> {
-    state.schema_inspector.get_tables(&connection_id, &database).await.map_err(|e| e.to_string())
+    let tables = state.schema_inspector.get_tables(&connection_id, &database).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get tables");
+        e.to_string()
+    })?;
+    tracing::info!(count = tables.len(), "Listed tables");
+    Ok(tables)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn get_columns(
     state: State<'_, AppState>,
     connection_id: String,
     database: String,
     table: String,
 ) -> Result<Vec<ColumnInfo>, String> {
-    state.schema_inspector.get_columns(&connection_id, &database, &table).await.map_err(|e| e.to_string())
+    let columns = state.schema_inspector.get_columns(&connection_id, &database, &table).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get columns");
+        e.to_string()
+    })?;
+    tracing::info!(count = columns.len(), "Listed columns");
+    Ok(columns)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn get_indexes(
     state: State<'_, AppState>,
     connection_id: String,
     database: String,
     table: String,
 ) -> Result<Vec<IndexInfo>, String> {
-    state.schema_inspector.get_indexes(&connection_id, &database, &table).await.map_err(|e| e.to_string())
+    let indexes = state.schema_inspector.get_indexes(&connection_id, &database, &table).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get indexes");
+        e.to_string()
+    })?;
+    tracing::info!(count = indexes.len(), "Listed indexes");
+    Ok(indexes)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn get_table_ddl(
     state: State<'_, AppState>,
     connection_id: String,
     database: String,
     table: String,
 ) -> Result<String, String> {
-    state.schema_inspector.get_table_ddl(&connection_id, &database, &table).await.map_err(|e| e.to_string())
+    let ddl = state.schema_inspector.get_table_ddl(&connection_id, &database, &table).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get table DDL");
+        e.to_string()
+    })?;
+    tracing::info!(ddl_length = ddl.len(), "Retrieved table DDL");
+    Ok(ddl)
 }
 
 // Export commands
 #[tauri::command]
+#[tracing::instrument(skip(result), fields(format = %format, rows = result.rows.len(), cols = result.columns.len()))]
 pub async fn export_results(
     result: QueryResult,
     format: String,
     table_name: Option<String>,
 ) -> Result<String, String> {
-    match format.as_str() {
+    let output = match format.as_str() {
         "csv" => Ok(mas_export::export_csv(&result)),
         "json" => Ok(mas_export::export_json(&result)),
         "sql" => Ok(mas_export::export_sql_insert(&result, &table_name.unwrap_or("table".to_string()))),
         "markdown" => Ok(mas_export::export_markdown(&result)),
-        _ => Err(format!("Unknown format: {}", format)),
-    }
+        _ => {
+            tracing::error!(format = %format, "Unknown export format");
+            Err(format!("Unknown format: {}", format))
+        }
+    }?;
+    tracing::info!(output_bytes = output.len(), "Export completed");
+    Ok(output)
 }
 
 // Admin commands
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn get_process_list(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<mas_admin::ProcessInfo>, String> {
-    state.admin_service.get_process_list(&connection_id).await.map_err(|e| e.to_string())
+    let processes = state.admin_service.get_process_list(&connection_id).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get process list");
+        e.to_string()
+    })?;
+    tracing::info!(count = processes.len(), "Listed processes");
+    Ok(processes)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn get_server_variables(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<mas_admin::ServerVariable>, String> {
-    state.admin_service.get_server_variables(&connection_id).await.map_err(|e| e.to_string())
+    let vars = state.admin_service.get_server_variables(&connection_id).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get server variables");
+        e.to_string()
+    })?;
+    tracing::info!(count = vars.len(), "Listed server variables");
+    Ok(vars)
 }
 
 #[tauri::command]
+#[tracing::instrument(skip(state))]
 pub async fn kill_process(
     state: State<'_, AppState>,
     connection_id: String,
     process_id: i64,
 ) -> Result<(), String> {
-    state.admin_service.kill_process(&connection_id, process_id).await.map_err(|e| e.to_string())
+    state.admin_service.kill_process(&connection_id, process_id).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to kill process");
+        e.to_string()
+    })?;
+    tracing::info!("Process killed");
+    Ok(())
 }

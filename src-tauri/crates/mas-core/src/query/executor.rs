@@ -4,7 +4,6 @@ use crate::models::{ColumnMeta, QueryResult, SqlValue};
 use sqlx::{Column, Row, TypeInfo};
 use std::sync::Arc;
 use std::time::Instant;
-use tracing::info;
 
 pub struct QueryExecutor {
     connection_manager: Arc<ConnectionManager>,
@@ -15,6 +14,7 @@ impl QueryExecutor {
         Self { connection_manager }
     }
 
+    #[tracing::instrument(skip(self), fields(connection_id = %connection_id, statement_count))]
     pub async fn execute(
         &self,
         connection_id: &str,
@@ -22,6 +22,10 @@ impl QueryExecutor {
     ) -> Result<Vec<QueryResult>, CoreError> {
         let pool = self.connection_manager.get_pool(connection_id)?;
         let statements = split_statements(sql);
+
+        tracing::Span::current().record("statement_count", statements.len());
+        tracing::trace!(sql = %sql, "Full SQL input");
+
         let mut results = Vec::new();
 
         for (idx, stmt) in statements.iter().enumerate() {
@@ -31,6 +35,10 @@ impl QueryExecutor {
             }
 
             let query_id = uuid::Uuid::new_v4().to_string();
+            let preview: String = trimmed.chars().take(200).collect();
+            tracing::debug!(query_id = %query_id, statement_index = idx, sql_preview = %preview, "Executing statement");
+            tracing::trace!(query_id = %query_id, sql = %trimmed, "Full statement SQL");
+
             let start = Instant::now();
 
             let is_select = trimmed.to_uppercase().starts_with("SELECT")
@@ -67,7 +75,16 @@ impl QueryExecutor {
 
                 let row_count = result_rows.len() as u64;
 
-                info!(
+                if execution_time > 1000 {
+                    tracing::warn!(
+                        query_id = %query_id,
+                        rows = row_count,
+                        time_ms = execution_time,
+                        "Slow query detected"
+                    );
+                }
+
+                tracing::info!(
                     query_id = %query_id,
                     rows = row_count,
                     time_ms = execution_time,
@@ -91,7 +108,16 @@ impl QueryExecutor {
 
                 let execution_time = start.elapsed().as_millis() as u64;
 
-                info!(
+                if execution_time > 1000 {
+                    tracing::warn!(
+                        query_id = %query_id,
+                        rows_affected = result.rows_affected(),
+                        time_ms = execution_time,
+                        "Slow statement detected"
+                    );
+                }
+
+                tracing::info!(
                     query_id = %query_id,
                     rows_affected = result.rows_affected(),
                     time_ms = execution_time,

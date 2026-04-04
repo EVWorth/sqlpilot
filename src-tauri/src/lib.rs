@@ -6,23 +6,49 @@ use mas_core::query::QueryExecutor;
 use mas_core::schema::SchemaInspector;
 use mas_admin::AdminService;
 use std::sync::Arc;
+use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,mysql_ai_studio=debug,mas_core=debug")),
-        )
-        .init();
-
-    tracing::info!("Starting MySQL AI Studio");
-
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("mysql-ai-studio");
     std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+
+    let log_dir = data_dir.join("logs");
+    std::fs::create_dir_all(&log_dir).expect("Failed to create log directory");
+
+    // Console layer: colored, human-readable, INFO+ (or overridden by RUST_LOG)
+    let console_filter = EnvFilter::try_from_default_env()
+        .unwrap_or_else(|_| EnvFilter::new("info,mysql_ai_studio_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug"));
+    let console_layer = tracing_subscriber::fmt::layer()
+        .with_filter(console_filter);
+
+    // File layer: JSON-structured, rolling daily, DEBUG level
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "mysql-ai-studio.log");
+    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
+    let file_filter = EnvFilter::new("debug,mysql_ai_studio_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug");
+    let file_layer = tracing_subscriber::fmt::layer()
+        .json()
+        .with_writer(non_blocking)
+        .with_filter(file_filter);
+
+    tracing_subscriber::registry()
+        .with(console_layer)
+        .with(file_layer)
+        .init();
+
+    tracing::info!(
+        version = env!("CARGO_PKG_VERSION"),
+        data_dir = %data_dir.display(),
+        log_dir = %log_dir.display(),
+        "Starting MySQL AI Studio"
+    );
+
+    // Keep the non-blocking guard alive for the lifetime of the app
+    // by leaking it (it flushes on drop, but we need it alive until exit)
+    std::mem::forget(_guard);
 
     let store = ConnectionStore::new(&data_dir.join("connections.db"))
         .expect("Failed to initialize connection store");

@@ -14,6 +14,7 @@ impl ConnectionStore {
         let db = SqliteConn::open(path)?;
         let store = Self { db: Mutex::new(db) };
         store.init_tables()?;
+        tracing::info!(path = %path.display(), "Connection store initialized");
         Ok(store)
     }
 
@@ -39,10 +40,13 @@ impl ConnectionStore {
                 updated_at TEXT NOT NULL
             )"
         )?;
+        tracing::debug!("Connection profiles table initialized");
         Ok(())
     }
 
+    #[tracing::instrument(skip(self, profile), fields(profile_id = %profile.id, profile_name = %profile.name))]
     pub fn save(&self, profile: &ConnectionProfile) -> Result<(), CoreError> {
+        tracing::debug!("Saving connection profile");
         let db = self.db.lock().map_err(|e| CoreError::Storage(e.to_string()))?;
         let ssh_json = profile.ssh_config.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default());
         let ssl_json = profile.ssl_config.as_ref().map(|c| serde_json::to_string(c).unwrap_or_default());
@@ -71,10 +75,13 @@ impl ConnectionStore {
                 Utc::now().to_rfc3339(),
             ],
         )?;
+        tracing::debug!("Connection profile saved");
         Ok(())
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn list(&self) -> Result<Vec<ConnectionProfile>, CoreError> {
+        tracing::debug!("Listing connection profiles");
         let db = self.db.lock().map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut stmt = db.prepare(
             "SELECT id, name, grp, color, host, port, username, password, default_database,
@@ -112,18 +119,24 @@ impl ConnectionStore {
             })
         })?.collect::<Result<Vec<_>, _>>()?;
 
+        tracing::debug!(count = profiles.len(), "Listed connection profiles");
         Ok(profiles)
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn get(&self, id: &str) -> Result<ConnectionProfile, CoreError> {
+        tracing::debug!("Getting connection profile");
         let profiles = self.list()?;
         profiles.into_iter().find(|p| p.id == id)
             .ok_or_else(|| CoreError::NotFound(format!("Connection profile not found: {}", id)))
     }
 
+    #[tracing::instrument(skip(self))]
     pub fn delete(&self, id: &str) -> Result<(), CoreError> {
+        tracing::debug!("Deleting connection profile");
         let db = self.db.lock().map_err(|e| CoreError::Storage(e.to_string()))?;
         db.execute("DELETE FROM connection_profiles WHERE id = ?1", params![id])?;
+        tracing::debug!("Connection profile deleted");
         Ok(())
     }
 }

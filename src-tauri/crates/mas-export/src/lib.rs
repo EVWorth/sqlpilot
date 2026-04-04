@@ -9,6 +9,7 @@ pub enum ExportFormat {
     Markdown,
 }
 
+#[tracing::instrument(skip(result), fields(rows = result.rows.len(), cols = result.columns.len()))]
 pub fn export_csv(result: &QueryResult) -> String {
     let mut out = String::new();
     // Header
@@ -27,9 +28,11 @@ pub fn export_csv(result: &QueryResult) -> String {
         out.push_str(&vals.join(","));
         out.push('\n');
     }
+    tracing::debug!(output_bytes = out.len(), "CSV export complete");
     out
 }
 
+#[tracing::instrument(skip(result), fields(rows = result.rows.len(), cols = result.columns.len()))]
 pub fn export_json(result: &QueryResult) -> String {
     let rows: Vec<serde_json::Value> = result.rows.iter().map(|row| {
         let obj: serde_json::Map<String, serde_json::Value> = result.columns.iter().zip(row.iter()).map(|(col, val)| {
@@ -46,9 +49,12 @@ pub fn export_json(result: &QueryResult) -> String {
         }).collect();
         serde_json::Value::Object(obj)
     }).collect();
-    serde_json::to_string_pretty(&rows).unwrap_or_default()
+    let out = serde_json::to_string_pretty(&rows).unwrap_or_default();
+    tracing::debug!(output_bytes = out.len(), "JSON export complete");
+    out
 }
 
+#[tracing::instrument(skip(result), fields(rows = result.rows.len(), cols = result.columns.len()))]
 pub fn export_sql_insert(result: &QueryResult, table_name: &str) -> String {
     let mut out = String::new();
     let col_names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
@@ -69,9 +75,11 @@ pub fn export_sql_insert(result: &QueryResult, table_name: &str) -> String {
             vals.join(", ")
         ));
     }
+    tracing::debug!(output_bytes = out.len(), "SQL INSERT export complete");
     out
 }
 
+#[tracing::instrument(skip(result), fields(rows = result.rows.len(), cols = result.columns.len()))]
 pub fn export_markdown(result: &QueryResult) -> String {
     let mut out = String::new();
     let headers: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
@@ -87,5 +95,6 @@ pub fn export_markdown(result: &QueryResult) -> String {
         out.push_str(&vals.join(" | "));
         out.push_str(" |\n");
     }
+    tracing::debug!(output_bytes = out.len(), "Markdown export complete");
     out
 }
