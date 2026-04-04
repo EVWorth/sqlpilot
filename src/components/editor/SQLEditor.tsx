@@ -1,6 +1,7 @@
 import { useCallback, useRef } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
+import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -10,11 +11,14 @@ export function SQLEditor() {
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
+  const setEditorInstance = useEditorStore((s) => s.setEditorInstance);
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
   const handleMount: OnMount = useCallback(
     (editor) => {
       editorRef.current = editor;
+      setEditorInstance(editor);
+
       editor.addAction({
         id: "execute-query",
         label: "Execute Query",
@@ -39,8 +43,33 @@ export function SQLEditor() {
           }
         },
       });
+
+      editor.addAction({
+        id: "format-sql",
+        label: "Format SQL",
+        keybindings: [
+          // Monaco.KeyMod.CtrlCmd | Monaco.KeyMod.Shift | Monaco.KeyCode.KeyF
+          2048 | 1024 | 36,
+        ],
+        run: (ed) => {
+          const model = ed.getModel();
+          if (!model) return;
+          const value = model.getValue();
+          if (!value.trim()) return;
+          try {
+            const formatted = format(value, {
+              language: "mysql",
+              keywordCase: "upper",
+              tabWidth: 2,
+            });
+            model.setValue(formatted);
+          } catch {
+            // If formatting fails, leave content unchanged
+          }
+        },
+      });
     },
-    [],
+    [setEditorInstance],
   );
 
   if (!activeTab) {

@@ -1,11 +1,14 @@
 import { create } from "zustand";
+import type { editor } from "monaco-editor";
 import type { EditorTab } from "../types";
 
 interface EditorState {
   tabs: EditorTab[];
   activeTabId: string | null;
+  editorInstance: editor.IStandaloneCodeEditor | null;
 
   addTab: (connectionId?: string, database?: string) => string;
+  addStructureTab: (connectionId: string, database: string, tableName: string) => string;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
@@ -14,13 +17,15 @@ interface EditorState {
     connectionId: string,
     database?: string,
   ) => void;
+  setEditorInstance: (instance: editor.IStandaloneCodeEditor | null) => void;
 }
 
 let tabCounter = 0;
 
-export const useEditorStore = create<EditorState>((set) => ({
+export const useEditorStore = create<EditorState>((set, get) => ({
   tabs: [],
   activeTabId: null,
+  editorInstance: null,
 
   addTab: (connectionId, database) => {
     tabCounter++;
@@ -31,6 +36,38 @@ export const useEditorStore = create<EditorState>((set) => ({
       content: "",
       connectionId,
       database,
+      type: 'query',
+      isDirty: false,
+    };
+    set((state) => ({
+      tabs: [...state.tabs, tab],
+      activeTabId: id,
+    }));
+    return id;
+  },
+
+  addStructureTab: (connectionId, database, tableName) => {
+    const existing = get().tabs.find(
+      (t) =>
+        t.type === 'structure' &&
+        t.connectionId === connectionId &&
+        t.database === database &&
+        t.tableName === tableName,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return existing.id;
+    }
+    tabCounter++;
+    const id = `tab-${tabCounter}`;
+    const tab: EditorTab = {
+      id,
+      title: `⊞ ${tableName}`,
+      content: "",
+      connectionId,
+      database,
+      tableName,
+      type: 'structure',
       isDirty: false,
     };
     set((state) => ({
@@ -70,4 +107,6 @@ export const useEditorStore = create<EditorState>((set) => ({
       ),
     }));
   },
+
+  setEditorInstance: (instance) => set({ editorInstance: instance }),
 }));
