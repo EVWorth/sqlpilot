@@ -1,18 +1,61 @@
-import { useCallback, useRef } from "react";
-import Editor, { type OnMount } from "@monaco-editor/react";
-import type { editor } from "monaco-editor";
+import { useCallback, useEffect, useRef } from "react";
+import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
+import type { editor, IDisposable } from "monaco-editor";
 import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { createCompletionProvider } from "../../lib/schema-completion-provider";
 
 export function SQLEditor() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const providerRef = useRef<IDisposable | null>(null);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
   const setEditorInstance = useEditorStore((s) => s.setEditorInstance);
   const activeTab = tabs.find((t) => t.id === activeTabId);
+
+  const monaco = useMonaco();
+  const selectedConnectionId = useConnectionStore(
+    (s) => s.selectedConnectionId,
+  );
+  const schemaCache = useSchemaCache();
+
+  // Sync schema cache with active connection
+  useEffect(() => {
+    schemaCache.setConnection(selectedConnectionId);
+  }, [selectedConnectionId]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Register/re-register completion provider when connection or schema changes
+  useEffect(() => {
+    if (!monaco) return;
+
+    providerRef.current?.dispose();
+    providerRef.current = monaco.languages.registerCompletionItemProvider(
+      "sql",
+      createCompletionProvider(monaco, {
+        connectionId: schemaCache.connectionId,
+        databases: schemaCache.databases,
+        tables: schemaCache.tables,
+        columns: schemaCache.columns,
+        fetchTables: schemaCache.fetchTables,
+        fetchColumns: schemaCache.fetchColumns,
+      }),
+    );
+
+    return () => {
+      providerRef.current?.dispose();
+      providerRef.current = null;
+    };
+  }, [
+    monaco,
+    schemaCache.connectionId,
+    schemaCache.databases,
+    schemaCache.tables,
+    schemaCache.columns,
+  ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMount: OnMount = useCallback(
     (editor) => {

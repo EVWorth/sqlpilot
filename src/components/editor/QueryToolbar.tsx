@@ -1,8 +1,9 @@
-import { Play, Square, Database, Search, Replace, Wand2 } from "lucide-react";
+import { Play, Square, Database, Search, Replace, Wand2, RefreshCw } from "lucide-react";
 import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useSchemaCache } from "../../hooks/useSchemaCache";
 
 export function QueryToolbar() {
   const activeTabId = useEditorStore((s) => s.activeTabId);
@@ -15,6 +16,8 @@ export function QueryToolbar() {
     (s) => s.selectedConnectionId,
   );
   const activeConnections = useConnectionStore((s) => s.activeConnections);
+  const refreshSchema = useSchemaCache((s) => s.refreshSchema);
+  const schemaLoading = useSchemaCache((s) => s.loading);
 
   const activeConnection = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -128,6 +131,18 @@ export function QueryToolbar() {
       >
         <Wand2 className="h-3 w-3" />
         Format
+      </button>
+
+      <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
+
+      <button
+        onClick={() => refreshSchema()}
+        disabled={!selectedConnectionId || schemaLoading}
+        title="Refresh Schema Cache"
+        className={toolbarBtnClass}
+      >
+        <RefreshCw className={`h-3 w-3 ${schemaLoading ? "animate-spin" : ""}`} />
+        Schema
       </button>
 
       <div className="flex-1" />
