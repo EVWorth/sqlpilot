@@ -1,0 +1,104 @@
+services:
+  mysql-8:
+    image: mysql:8.0
+    container_name: mas-mysql-8
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_password
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+    ports:
+      - "13306:3306"
+    volumes:
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
+      - ./tests/fixtures/sql/seed_large.sql:/docker-entrypoint-initdb.d/02-seed-large.sql
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptest_root_password"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  mysql-5_7:
+    image: mysql:5.7
+    container_name: mas-mysql-57
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_password
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+    ports:
+      - "13307:3306"
+    volumes:
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptest_root_password"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  mariadb-11:
+    image: mariadb:11
+    container_name: mas-mariadb-11
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_password
+      MYSQL_DATABASE: test_db
+      MYSQL_USER: test_user
+      MYSQL_PASSWORD: test_password
+    ports:
+      - "13308:3306"
+    volumes:
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  mysql-ssl:
+    image: mysql:8.0
+    container_name: mas-mysql-ssl
+    environment:
+      MYSQL_ROOT_PASSWORD: test_root_password
+      MYSQL_DATABASE: test_db
+    ports:
+      - "13309:3306"
+    volumes:
+      - ./tests/fixtures/ssl/server-cert.pem:/etc/mysql/ssl/server-cert.pem
+      - ./tests/fixtures/ssl/server-key.pem:/etc/mysql/ssl/server-key.pem
+      - ./tests/fixtures/ssl/ca-cert.pem:/etc/mysql/ssl/ca-cert.pem
+      - ./tests/fixtures/ssl/my.cnf:/etc/mysql/conf.d/ssl.cnf
+    command: >
+      --require-secure-transport=ON
+      --ssl-ca=/etc/mysql/ssl/ca-cert.pem
+      --ssl-cert=/etc/mysql/ssl/server-cert.pem
+      --ssl-key=/etc/mysql/ssl/server-key.pem
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptest_root_password"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 30s
+
+  ssh-server:
+    image: lscr.io/linuxserver/openssh-server:latest
+    container_name: mas-ssh-server
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - PASSWORD_ACCESS=true
+      - USER_PASSWORD=test_ssh_password
+      - USER_NAME=test_ssh_user
+    ports:
+      - "12222:2222"
+    healthcheck:
+      test: ["CMD-SHELL", "ss -tlnp | grep 2222"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
