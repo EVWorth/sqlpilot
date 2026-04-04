@@ -1,0 +1,74 @@
+use mas_core::connection::ConnectionManager;
+use mas_core::error::CoreError;
+use serde::Serialize;
+use sqlx::Row;
+use std::sync::Arc;
+
+pub struct AdminService {
+    connection_manager: Arc<ConnectionManager>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ProcessInfo {
+    pub id: i64,
+    pub user: String,
+    pub host: String,
+    pub db: Option<String>,
+    pub command: String,
+    pub time: i64,
+    pub state: Option<String>,
+    pub info: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct ServerVariable {
+    pub name: String,
+    pub value: String,
+}
+
+impl AdminService {
+    pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
+        Self { connection_manager }
+    }
+
+    pub async fn get_process_list(&self, connection_id: &str) -> Result<Vec<ProcessInfo>, CoreError> {
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query("SHOW FULL PROCESSLIST")
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| CoreError::Query(e.to_string()))?;
+
+        Ok(rows.iter().map(|row| ProcessInfo {
+            id: row.try_get::<i64, _>("Id").unwrap_or_default(),
+            user: row.try_get("User").unwrap_or_default(),
+            host: row.try_get("Host").unwrap_or_default(),
+            db: row.try_get("db").ok(),
+            command: row.try_get("Command").unwrap_or_default(),
+            time: row.try_get::<i64, _>("Time").unwrap_or_default(),
+            state: row.try_get("State").ok(),
+            info: row.try_get("Info").ok(),
+        }).collect())
+    }
+
+    pub async fn get_server_variables(&self, connection_id: &str) -> Result<Vec<ServerVariable>, CoreError> {
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query("SHOW GLOBAL VARIABLES")
+            .fetch_all(&pool)
+            .await
+            .map_err(|e| CoreError::Query(e.to_string()))?;
+
+        Ok(rows.iter().map(|row| ServerVariable {
+            name: row.try_get("Variable_name").unwrap_or_default(),
+            value: row.try_get("Value").unwrap_or_default(),
+        }).collect())
+    }
+
+    pub async fn kill_process(&self, connection_id: &str, process_id: i64) -> Result<(), CoreError> {
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        sqlx::query(&format!("KILL {}", process_id))
+            .execute(&pool)
+            .await
+            .map_err(|e| CoreError::Query(e.to_string()))?;
+        Ok(())
+    }
+}

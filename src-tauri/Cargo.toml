@@ -1,0 +1,46 @@
+[workspace]
+members = [".", "crates/mas-core", "crates/mas-export", "crates/mas-admin"]
+resolver = "2"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio-rustls", "mysql", "chrono", "json", "uuid"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+tauri = { version = "2", features = [] }
+
+[package]
+name = "mysql-ai-studio"
+version = "0.1.0"
+edition = "2021"
+description = "AI-powered MySQL GUI management tool"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { workspace = true }
+tauri-plugin-shell = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+mas-core = { path = "crates/mas-core" }
+mas-export = { path = "crates/mas-export" }
+mas-admin = { path = "crates/mas-admin" }
+dirs = "5"
+
+[lib]
+name = "mysql_ai_studio_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+custom-protocol = ["tauri/custom-protocol"]
