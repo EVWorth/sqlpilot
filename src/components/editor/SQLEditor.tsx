@@ -11,10 +11,6 @@ export function SQLEditor() {
   const tabs = useEditorStore((s) => s.tabs);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const executeQuery = useResultStore((s) => s.executeQuery);
-  const selectedConnectionId = useConnectionStore(
-    (s) => s.selectedConnectionId,
-  );
 
   const handleMount: OnMount = useCallback(
     (editor) => {
@@ -35,13 +31,16 @@ export function SQLEditor() {
           } else {
             sql = model?.getValue() ?? "";
           }
-          if (sql.trim() && selectedConnectionId) {
-            executeQuery(selectedConnectionId, sql);
+          // Read current state directly to avoid stale closure
+          const connectionId =
+            useConnectionStore.getState().selectedConnectionId;
+          if (sql.trim() && connectionId) {
+            useResultStore.getState().executeQuery(connectionId, sql);
           }
         },
       });
     },
-    [executeQuery, selectedConnectionId],
+    [],
   );
 
   if (!activeTab) {

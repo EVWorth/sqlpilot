@@ -1,6 +1,7 @@
 import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 import { SQLEditor } from "../editor/SQLEditor";
 import { EditorTabs } from "../editor/EditorTabs";
+import { QueryToolbar } from "../editor/QueryToolbar";
 import { ResultsGrid } from "../grid/ResultsGrid";
 import { useEditorStore } from "../../stores/editorStore";
 
@@ -29,6 +30,7 @@ export function MainPanel() {
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-primary)]">
       <EditorTabs />
+      <QueryToolbar />
       <PanelGroup direction="vertical" autoSaveId="editor-results">
         <Panel defaultSize={50} minSize={20}>
           <SQLEditor />
