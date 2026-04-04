@@ -2,7 +2,7 @@ use crate::error::CoreError;
 use crate::models::{ConnectionInfo, ConnectionProfile, TestConnectionResult};
 use chrono::Utc;
 use dashmap::DashMap;
-use sqlx::mysql::MySqlPoolOptions;
+use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
 use sqlx::MySqlPool;
 use std::sync::Arc;
 use std::time::Instant;
@@ -26,12 +26,6 @@ impl ConnectionManager {
 
     pub async fn connect(&self, profile: &ConnectionProfile) -> Result<ConnectionInfo, CoreError> {
         let conn_id = uuid::Uuid::new_v4().to_string();
-        let db_part = profile.default_database.as_deref().unwrap_or("");
-
-        let url = format!(
-            "mysql://{}:{}@{}:{}/{}",
-            profile.username, profile.password, profile.host, profile.port, db_part
-        );
 
         info!(
             connection_id = %conn_id,
@@ -40,12 +34,33 @@ impl ConnectionManager {
             "Establishing MySQL connection"
         );
 
+        let mut options = MySqlConnectOptions::new()
+            .host(&profile.host)
+            .port(profile.port)
+            .username(&profile.username)
+            .password(&profile.password)
+            .charset("utf8mb4");
+
+        if let Some(ref db) = profile.default_database {
+            if !db.is_empty() {
+                options = options.database(db);
+            }
+        }
+
         let pool = MySqlPoolOptions::new()
             .min_connections(profile.pool_min)
             .max_connections(profile.pool_max)
             .acquire_timeout(std::time::Duration::from_secs(10))
             .idle_timeout(std::time::Duration::from_secs(300))
-            .connect(&url)
+            .after_connect(|conn, _meta| {
+                Box::pin(async move {
+                    sqlx::query("SET NAMES utf8mb4")
+                        .execute(&mut *conn)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect_with(options)
             .await
             .map_err(|e| CoreError::Connection(format!("Failed to connect: {}", e)))?;
 
@@ -88,16 +103,24 @@ impl ConnectionManager {
 
     pub async fn test_connection(profile: &ConnectionProfile) -> Result<TestConnectionResult, CoreError> {
         let start = Instant::now();
-        let db_part = profile.default_database.as_deref().unwrap_or("");
-        let url = format!(
-            "mysql://{}:{}@{}:{}/{}",
-            profile.username, profile.password, profile.host, profile.port, db_part
-        );
+
+        let mut options = MySqlConnectOptions::new()
+            .host(&profile.host)
+            .port(profile.port)
+            .username(&profile.username)
+            .password(&profile.password)
+            .charset("utf8mb4");
+
+        if let Some(ref db) = profile.default_database {
+            if !db.is_empty() {
+                options = options.database(db);
+            }
+        }
 
         match MySqlPoolOptions::new()
             .max_connections(1)
             .acquire_timeout(std::time::Duration::from_secs(10))
-            .connect(&url)
+            .connect_with(options)
             .await
         {
             Ok(pool) => {

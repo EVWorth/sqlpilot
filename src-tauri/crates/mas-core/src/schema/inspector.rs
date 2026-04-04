@@ -63,7 +63,9 @@ impl SchemaInspector {
     pub async fn get_databases(&self, connection_id: &str) -> Result<Vec<DatabaseInfo>, CoreError> {
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
-            "SELECT SCHEMA_NAME, DEFAULT_CHARACTER_SET_NAME, DEFAULT_COLLATION_NAME
+            "SELECT CAST(SCHEMA_NAME AS CHAR) AS SCHEMA_NAME,
+                    CAST(DEFAULT_CHARACTER_SET_NAME AS CHAR) AS DEFAULT_CHARACTER_SET_NAME,
+                    CAST(DEFAULT_COLLATION_NAME AS CHAR) AS DEFAULT_COLLATION_NAME
              FROM INFORMATION_SCHEMA.SCHEMATA
              WHERE SCHEMA_NAME NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
              ORDER BY SCHEMA_NAME"
@@ -82,7 +84,12 @@ impl SchemaInspector {
     pub async fn get_tables(&self, connection_id: &str, database: &str) -> Result<Vec<TableInfo>, CoreError> {
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
-            "SELECT TABLE_NAME, TABLE_TYPE, ENGINE, TABLE_ROWS, DATA_LENGTH, TABLE_COMMENT
+            "SELECT CAST(TABLE_NAME AS CHAR) AS TABLE_NAME,
+                    CAST(TABLE_TYPE AS CHAR) AS TABLE_TYPE,
+                    CAST(ENGINE AS CHAR) AS ENGINE,
+                    TABLE_ROWS,
+                    DATA_LENGTH,
+                    CAST(TABLE_COMMENT AS CHAR) AS TABLE_COMMENT
              FROM INFORMATION_SCHEMA.TABLES
              WHERE TABLE_SCHEMA = ?
              ORDER BY TABLE_NAME"
@@ -105,8 +112,14 @@ impl SchemaInspector {
     pub async fn get_columns(&self, connection_id: &str, database: &str, table: &str) -> Result<Vec<ColumnInfo>, CoreError> {
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
-            "SELECT COLUMN_NAME, DATA_TYPE, COLUMN_TYPE, IS_NULLABLE, COLUMN_DEFAULT,
-                    COLUMN_KEY, EXTRA, COLUMN_COMMENT
+            "SELECT CAST(COLUMN_NAME AS CHAR) AS COLUMN_NAME,
+                    CAST(DATA_TYPE AS CHAR) AS DATA_TYPE,
+                    CAST(COLUMN_TYPE AS CHAR) AS COLUMN_TYPE,
+                    CAST(IS_NULLABLE AS CHAR) AS IS_NULLABLE,
+                    CAST(COLUMN_DEFAULT AS CHAR) AS COLUMN_DEFAULT,
+                    CAST(COLUMN_KEY AS CHAR) AS COLUMN_KEY,
+                    CAST(EXTRA AS CHAR) AS EXTRA,
+                    CAST(COLUMN_COMMENT AS CHAR) AS COLUMN_COMMENT
              FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
              ORDER BY ORDINAL_POSITION"
@@ -136,7 +149,10 @@ impl SchemaInspector {
     pub async fn get_indexes(&self, connection_id: &str, database: &str, table: &str) -> Result<Vec<IndexInfo>, CoreError> {
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
-            "SELECT INDEX_NAME, COLUMN_NAME, NON_UNIQUE, INDEX_TYPE
+            "SELECT CAST(INDEX_NAME AS CHAR) AS INDEX_NAME,
+                    CAST(COLUMN_NAME AS CHAR) AS COLUMN_NAME,
+                    NON_UNIQUE,
+                    CAST(INDEX_TYPE AS CHAR) AS INDEX_TYPE
              FROM INFORMATION_SCHEMA.STATISTICS
              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
              ORDER BY INDEX_NAME, SEQ_IN_INDEX"

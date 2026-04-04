@@ -1,6 +1,10 @@
 -- MySQL AI Studio Test Seed Data
 -- Covers all MySQL data types, relationships, views, procedures, functions, triggers, events
 
+-- Ensure correct character set for UTF-8 data
+SET NAMES utf8mb4;
+SET CHARACTER SET utf8mb4;
+
 -- ============================================
 -- SCHEMA: test_db (auto-created by Docker)
 -- ============================================

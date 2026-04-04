@@ -146,6 +146,14 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
                 .map(SqlValue::Float)
                 .unwrap_or(SqlValue::Null)
         }
+        "JSON" => {
+            // JSON columns must be decoded as serde_json::Value, then serialized to string
+            row.try_get::<Option<serde_json::Value>, _>(index)
+                .ok()
+                .flatten()
+                .map(|v| SqlValue::String(v.to_string()))
+                .unwrap_or(SqlValue::Null)
+        }
         "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => {
             row.try_get::<Option<Vec<u8>>, _>(index)
                 .ok()
@@ -153,8 +161,16 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
                 .map(SqlValue::Bytes)
                 .unwrap_or(SqlValue::Null)
         }
+        "BIT" => {
+            // BIT columns: try reading as bytes and convert to integer
+            row.try_get::<Option<u64>, _>(index)
+                .ok()
+                .flatten()
+                .map(SqlValue::UInt)
+                .unwrap_or(SqlValue::Null)
+        }
         _ => {
-            // Default: try as string (covers VARCHAR, TEXT, DATE, DATETIME, TIMESTAMP, JSON, ENUM, SET, etc.)
+            // Default: try as string (covers VARCHAR, TEXT, DATE, DATETIME, TIMESTAMP, ENUM, SET, etc.)
             row.try_get::<Option<String>, _>(index)
                 .ok()
                 .flatten()

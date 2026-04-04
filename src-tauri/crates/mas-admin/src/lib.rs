@@ -33,20 +33,30 @@ impl AdminService {
 
     pub async fn get_process_list(&self, connection_id: &str) -> Result<Vec<ProcessInfo>, CoreError> {
         let pool = self.connection_manager.get_pool(connection_id)?;
-        let rows = sqlx::query("SHOW FULL PROCESSLIST")
+        let rows = sqlx::query(
+            "SELECT ID,
+                    CAST(USER AS CHAR) AS USER,
+                    CAST(HOST AS CHAR) AS HOST,
+                    CAST(DB AS CHAR) AS DB,
+                    CAST(COMMAND AS CHAR) AS COMMAND,
+                    TIME,
+                    CAST(STATE AS CHAR) AS STATE,
+                    CAST(INFO AS CHAR) AS INFO
+             FROM INFORMATION_SCHEMA.PROCESSLIST"
+        )
             .fetch_all(&pool)
             .await
             .map_err(|e| CoreError::Query(e.to_string()))?;
 
         Ok(rows.iter().map(|row| ProcessInfo {
-            id: row.try_get::<i64, _>("Id").unwrap_or_default(),
-            user: row.try_get("User").unwrap_or_default(),
-            host: row.try_get("Host").unwrap_or_default(),
-            db: row.try_get("db").ok(),
-            command: row.try_get("Command").unwrap_or_default(),
-            time: row.try_get::<i64, _>("Time").unwrap_or_default(),
-            state: row.try_get("State").ok(),
-            info: row.try_get("Info").ok(),
+            id: row.try_get::<i64, _>("ID").unwrap_or_default(),
+            user: row.try_get("USER").unwrap_or_default(),
+            host: row.try_get("HOST").unwrap_or_default(),
+            db: row.try_get("DB").ok().flatten(),
+            command: row.try_get("COMMAND").unwrap_or_default(),
+            time: row.try_get::<i64, _>("TIME").unwrap_or_default(),
+            state: row.try_get("STATE").ok().flatten(),
+            info: row.try_get("INFO").ok().flatten(),
         }).collect())
     }
 
