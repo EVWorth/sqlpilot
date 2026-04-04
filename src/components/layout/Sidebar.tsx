@@ -9,16 +9,26 @@ import {
   ChevronDown,
   Table2,
   Eye,
+  FileText,
+  RefreshCw,
+  Copy,
+  Search,
+  Columns3,
+  History,
 } from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { useResultStore } from "../../stores/resultStore";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
+import { QueryHistory } from "../history/QueryHistory";
 import { cn } from "../../lib/utils";
 import { api } from "../../lib/tauri-api";
+import { useContextMenu } from "../../hooks/useContextMenu";
 import type { DatabaseInfo, TableInfo } from "../../types";
 
 export function Sidebar() {
   const [showDialog, setShowDialog] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const profiles = useConnectionStore((s) => s.profiles);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const selectedConnectionId = useConnectionStore(
@@ -31,6 +41,8 @@ export function Sidebar() {
   const setSelectedConnection = useConnectionStore(
     (s) => s.setSelectedConnection,
   );
+  const addTab = useEditorStore((s) => s.addTab);
+  const { contextMenu, showContextMenu } = useContextMenu();
 
   useEffect(() => {
     loadProfiles();
@@ -75,6 +87,30 @@ export function Sidebar() {
                   )}
                   onClick={() => {
                     if (conn) setSelectedConnection(conn.id);
+                  }}
+                  onContextMenu={(e) => {
+                    showContextMenu(e, [
+                      {
+                        label: "New Query",
+                        icon: <FileText className="h-3.5 w-3.5" />,
+                        onClick: () => addTab(conn?.id),
+                      },
+                      {
+                        label: "Disconnect",
+                        icon: <Unplug className="h-3.5 w-3.5" />,
+                        onClick: () => {
+                          if (conn) disconnect(conn.id);
+                        },
+                        disabled: !isConnected,
+                      },
+                      { label: "", separator: true, onClick: () => {} },
+                      {
+                        label: "Delete Connection",
+                        icon: <Trash2 className="h-3.5 w-3.5" />,
+                        onClick: () => deleteProfile(profile.id),
+                        danger: true,
+                      },
+                    ]);
                   }}
                 >
                   <Database
@@ -133,10 +169,32 @@ export function Sidebar() {
         )}
       </div>
 
+      {/* History panel */}
+      <div className="border-t border-[var(--color-border)]">
+        <button
+          onClick={() => setShowHistory(!showHistory)}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          <History className="h-3.5 w-3.5" />
+          <span className="flex-1 text-left">History</span>
+          {showHistory ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+        </button>
+        {showHistory && (
+          <div className="h-64 overflow-hidden">
+            <QueryHistory />
+          </div>
+        )}
+      </div>
+
       <ConnectionDialog
         isOpen={showDialog}
         onClose={() => setShowDialog(false)}
       />
+      {contextMenu}
     </div>
   );
 }
@@ -146,7 +204,10 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
   const addTab = useEditorStore((s) => s.addTab);
+  const addStructureTab = useEditorStore((s) => s.addStructureTab);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
+  const executeQuery = useResultStore((s) => s.executeQuery);
+  const { contextMenu, showContextMenu } = useContextMenu();
 
   useEffect(() => {
     api.getDatabases(connectionId).then(setDatabases).catch(console.error);
@@ -173,12 +234,38 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
     );
   };
 
+  const refreshTables = async (dbName: string) => {
+    try {
+      const t = await api.getTables(connectionId, dbName);
+      setTables((prev) => ({ ...prev, [dbName]: t }));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
   return (
     <div className="ml-4 border-l border-[var(--color-border)] pl-1">
       {databases.map((db) => (
         <div key={db.name}>
           <button
             onClick={() => toggleDb(db.name)}
+            onContextMenu={(e) => {
+              showContextMenu(e, [
+                {
+                  label: "New Query",
+                  icon: <FileText className="h-3.5 w-3.5" />,
+                  onClick: () => {
+                    const tabId = addTab(connectionId, db.name);
+                    updateTabContent(tabId, `USE \`${db.name}\`;\n`);
+                  },
+                },
+                {
+                  label: "Refresh",
+                  icon: <RefreshCw className="h-3.5 w-3.5" />,
+                  onClick: () => refreshTables(db.name),
+                },
+              ]);
+            }}
             className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
           >
             {expanded[db.name] ? (
@@ -192,28 +279,89 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
           {expanded[db.name] && tables[db.name] && (
             <div className="ml-3">
               {tables[db.name].map((t) => (
-                <button
+                <div
                   key={t.name}
-                  onClick={() => openTableQuery(db.name, t.name)}
-                  className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
+                  className="group/table flex items-center rounded hover:bg-[var(--color-bg-tertiary)]"
+                >
+                  <button
+                    onClick={() => openTableQuery(db.name, t.name)}
+                    onContextMenu={(e) => {
+                    showContextMenu(e, [
+                      {
+                        label: "Select Top 100 Rows",
+                        icon: <Search className="h-3.5 w-3.5" />,
+                        onClick: () => {
+                          const sql = `SELECT * FROM \`${db.name}\`.\`${t.name}\` LIMIT 100`;
+                          const tabId = addTab(connectionId, db.name);
+                          updateTabContent(tabId, sql);
+                          executeQuery(connectionId, sql);
+                        },
+                      },
+                      {
+                        label: "View Structure",
+                        icon: <Columns3 className="h-3.5 w-3.5" />,
+                        onClick: () => {
+                          addStructureTab(connectionId, db.name, t.name);
+                        },
+                      },
+                      {
+                        label: "Copy Table Name",
+                        icon: <Copy className="h-3.5 w-3.5" />,
+                        onClick: () => {
+                          navigator.clipboard.writeText(t.name);
+                        },
+                      },
+                      { label: "", separator: true, onClick: () => {} },
+                      {
+                        label: "Drop Table",
+                        icon: <Trash2 className="h-3.5 w-3.5" />,
+                        danger: true,
+                        onClick: () => {
+                          if (
+                            window.confirm(
+                              `Are you sure you want to drop table \`${db.name}\`.\`${t.name}\`?`,
+                            )
+                          ) {
+                            executeQuery(
+                              connectionId,
+                              `DROP TABLE \`${db.name}\`.\`${t.name}\``,
+                            ).then(() => refreshTables(db.name));
+                          }
+                        },
+                      },
+                    ]);
+                  }}
+                  className="flex flex-1 items-center gap-1 px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                 >
                   {t.table_type === "VIEW" ? (
-                    <Eye className="h-3 w-3" />
+                    <Eye className="h-3 w-3 shrink-0" />
                   ) : (
-                    <Table2 className="h-3 w-3" />
+                    <Table2 className="h-3 w-3 shrink-0" />
                   )}
-                  <span>{t.name}</span>
+                  <span className="truncate">{t.name}</span>
                   {t.row_count != null && (
                     <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
                       ~{t.row_count.toLocaleString()}
                     </span>
                   )}
                 </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      addStructureTab(connectionId, db.name, t.name);
+                    }}
+                    title="View Structure"
+                    className="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-primary)] hover:text-brand-400 group-hover/table:opacity-100"
+                  >
+                    <Columns3 className="h-3 w-3" />
+                  </button>
+                </div>
               ))}
             </div>
           )}
         </div>
       ))}
+      {contextMenu}
     </div>
   );
 }

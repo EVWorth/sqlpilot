@@ -131,5 +131,7 @@ export interface EditorTab {
   content: string;
   connectionId?: string;
   database?: string;
+  tableName?: string;
+  type?: "query" | "structure";
   isDirty: boolean;
 }
