@@ -22,6 +22,7 @@ import {
   Play,
   HardDriveDownload,
   HardDriveUpload,
+  PenLine,
 } from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -442,6 +443,13 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                             icon: <Columns3 className="h-3.5 w-3.5" />,
                             onClick: () => {
                               addStructureTab(connectionId, db.name, t.name);
+                            },
+                          },
+                          {
+                            label: "Design Table",
+                            icon: <PenLine className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              addDesignerTab(connectionId, db.name, t.name);
                             },
                           },
                           {

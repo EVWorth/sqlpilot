@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { api } from "../../lib/tauri-api";
 import {
-  parseRoutineParameters,
   parseRoutineMetadata,
   type RoutineParameter,
 } from "../../lib/routine-parser";

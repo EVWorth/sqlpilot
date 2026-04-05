@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
@@ -21,6 +21,14 @@ export function AppLayout() {
   const [showImport, setShowImport] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
   const [showRestore, setShowRestore] = useState(false);
+  const [backupPreselect, setBackupPreselect] = useState<{
+    connectionId?: string;
+    database?: string;
+  }>({});
+  const [restorePreselect, setRestorePreselect] = useState<{
+    connectionId?: string;
+    database?: string;
+  }>({});
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
@@ -41,13 +49,45 @@ export function AppLayout() {
   );
   const openShortcuts = useCallback(() => setShowShortcuts(true), []);
   const openImport = useCallback(() => setShowImport(true), []);
-  const openBackup = useCallback(() => setShowBackup(true), []);
-  const openRestore = useCallback(() => setShowRestore(true), []);
+  const openBackup = useCallback(() => {
+    setBackupPreselect({});
+    setShowBackup(true);
+  }, []);
+  const openRestore = useCallback(() => {
+    setRestorePreselect({});
+    setShowRestore(true);
+  }, []);
   const openSaveFavorite = useCallback(() => {
     window.dispatchEvent(new CustomEvent("open-save-favorite"));
   }, []);
 
   useKeyboardShortcuts(toggleSidebar, openShortcuts, openSaveFavorite);
+
+  // Listen for sidebar context menu events
+  useEffect(() => {
+    const handleOpenBackup = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setBackupPreselect({
+        connectionId: detail?.connectionId,
+        database: detail?.database,
+      });
+      setShowBackup(true);
+    };
+    const handleOpenRestore = (e: Event) => {
+      const detail = (e as CustomEvent).detail;
+      setRestorePreselect({
+        connectionId: detail?.connectionId,
+        database: detail?.database,
+      });
+      setShowRestore(true);
+    };
+    window.addEventListener("open-backup", handleOpenBackup);
+    window.addEventListener("open-restore", handleOpenRestore);
+    return () => {
+      window.removeEventListener("open-backup", handleOpenBackup);
+      window.removeEventListener("open-restore", handleOpenRestore);
+    };
+  }, []);
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
@@ -98,10 +138,14 @@ export function AppLayout() {
       <BackupDialog
         isOpen={showBackup}
         onClose={() => setShowBackup(false)}
+        preSelectedConnectionId={backupPreselect.connectionId}
+        preSelectedDatabase={backupPreselect.database}
       />
       <RestoreDialog
         isOpen={showRestore}
         onClose={() => setShowRestore(false)}
+        preSelectedConnectionId={restorePreselect.connectionId}
+        preSelectedDatabase={restorePreselect.database}
       />
       <ConfirmDialog
         isOpen={!!confirmDialog?.isOpen}
