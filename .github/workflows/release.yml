@@ -59,6 +59,7 @@ jobs:
         run: npm ci
 
       - name: Build and publish
+        id: tauri_build
         uses: tauri-apps/tauri-action@1ddc7b49b13c3038297360482fcb3e058764d7c9 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -66,11 +67,10 @@ jobs:
           tagName: ${{ github.ref_name }}
           releaseName: "SQLPilot ${{ github.ref_name }}"
           releaseBody: |
-            See the [full changelog](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.
-
             ## Downloads
             | Platform | File |
             |----------|------|
+            | Windows (portable) | `SQLPilot.exe` |
             | Windows (installer) | `.msi` or `-setup.exe` |
             | macOS (Apple Silicon) | `aarch64.dmg` |
             | macOS (Intel) | `x64.dmg` |
@@ -78,3 +78,14 @@ jobs:
           releaseDraft: true
           prerelease: false
           args: ${{ matrix.args }}
+
+      - name: Upload portable exe (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $exe = "src-tauri/target/release/sqlpilot.exe"
+          $dest = "SQLPilot.exe"
+          Copy-Item $exe $dest
+          gh release upload ${{ github.ref_name }} $dest --clobber
