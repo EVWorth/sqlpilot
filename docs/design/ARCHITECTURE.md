@@ -1,4 +1,4 @@
-# MySQL AI Studio — Software Architecture Document
+# SQLPilot — Software Architecture Document
 
 > **Version:** 1.0.0
 > **Last Updated:** 2025-07-15
@@ -23,7 +23,7 @@
 
 ## 1. Architecture Overview
 
-MySQL AI Studio is a cross-platform desktop application built on a **two-process architecture**: a Rust backend (Tauri 2) handles all database operations, file I/O, and system integration, while a React/TypeScript frontend renders the UI inside a native webview. The two halves communicate exclusively through Tauri's IPC bridge — a strongly-typed, JSON-serialized command/event channel.
+SQLPilot is a cross-platform desktop application built on a **two-process architecture**: a Rust backend (Tauri 2) handles all database operations, file I/O, and system integration, while a React/TypeScript frontend renders the UI inside a native webview. The two halves communicate exclusively through Tauri's IPC bridge — a strongly-typed, JSON-serialized command/event channel.
 
 ### High-Level System Diagram
 
@@ -73,7 +73,7 @@ MySQL AI Studio is a cross-platform desktop application built on a **two-process
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│  OS Process: mysql-ai-studio                                  │
+│  OS Process: sqlpilot                                  │
 │                                                               │
 │  ┌──────────────────────┐    ┌─────────────────────────────┐ │
 │  │   Main Thread (Rust) │    │   Webview Thread (Frontend) │ │
@@ -458,7 +458,7 @@ The AI Service integrates large language model capabilities into the application
 ```rust
 /// System prompt template for NL→SQL generation.
 const NL_TO_SQL_SYSTEM_PROMPT: &str = r#"
-You are a MySQL expert assistant embedded in MySQL AI Studio.
+You are a MySQL expert assistant embedded in SQLPilot.
 Generate valid MySQL queries based on the user's natural language request.
 
 ## Context
@@ -1240,7 +1240,7 @@ async fn table_maintenance(
 │  })                         IPC; immediately consumed   │
 │         │                                               │
 │         ▼                                               │
-│  Rust: keyring::Entry::new("mysql-ai-studio", id)      │
+│  Rust: keyring::Entry::new("sqlpilot", id)      │
 │        .set_password(plaintext)                         │
 │         │                                               │
 │         ▼                                               │
@@ -1254,7 +1254,7 @@ async fn table_maintenance(
 │  └─────────────────────────────────────────────┘       │
 │                                                         │
 │  ConnectionProfile stores only a PasswordRef:           │
-│    { keychain_service: "mysql-ai-studio",               │
+│    { keychain_service: "sqlpilot",               │
 │      keychain_account: "<profile_id>" }                 │
 │                                                         │
 │  Password is retrieved at connect() time and held       │
@@ -1505,9 +1505,9 @@ All application data is stored under the platform-appropriate data directory, ma
 ### Directory Structure
 
 ```
-~/.mysql-ai-studio/                      (Linux: ~/.local/share/mysql-ai-studio/)
-│                                         (macOS: ~/Library/Application Support/mysql-ai-studio/)
-│                                         (Windows: %APPDATA%/mysql-ai-studio/)
+~/.sqlpilot/                      (Linux: ~/.local/share/sqlpilot/)
+│                                         (macOS: ~/Library/Application Support/sqlpilot/)
+│                                         (Windows: %APPDATA%/sqlpilot/)
 │
 ├── config.toml                          — Application settings
 ├── connections.db                       — SQLite: connection profiles (no passwords)
@@ -1642,7 +1642,7 @@ END;
 
 ### 10.1 Overview
 
-MySQL AI Studio will support a plugin system that allows third-party developers to extend both the backend (Rust) and frontend (React) of the application.
+SQLPilot will support a plugin system that allows third-party developers to extend both the backend (Rust) and frontend (React) of the application.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -1675,7 +1675,7 @@ Every plugin is described by a `plugin.toml` manifest:
 
 ```toml
 [plugin]
-id = "mysql-ai-studio-redis-cache"
+id = "sqlpilot-redis-cache"
 name = "Redis Cache Viewer"
 version = "1.0.0"
 description = "View and manage Redis caches alongside MySQL"

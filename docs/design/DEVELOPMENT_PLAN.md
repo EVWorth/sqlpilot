@@ -1,4 +1,4 @@
-# MySQL AI Studio — Development Plan
+# SQLPilot — Development Plan
 
 > A cross-platform MySQL GUI built with **Tauri 2 (Rust)** + **React (TypeScript)**.
 > Each phase builds on the previous one. Milestones are defined by acceptance criteria that must pass before moving forward.
@@ -15,7 +15,7 @@
 |---|-------------|---------|
 | 0.1 | Tauri 2 + React + TypeScript + Vite project | `npm create tauri-app` with React-TS template, Vite 5+ |
 | 0.2 | Tailwind CSS, ESLint, Prettier | Tailwind v3+, ESLint flat config, Prettier integrated with ESLint |
-| 0.3 | Cargo workspace | Root workspace containing `mysql-ai-studio` (Tauri app), `mas-core`, `mas-ai`, `mas-export`, `mas-admin` crates |
+| 0.3 | Cargo workspace | Root workspace containing `sqlpilot` (Tauri app), `mas-core`, `mas-ai`, `mas-export`, `mas-admin` crates |
 | 0.4 | CI/CD | GitHub Actions matrix build/test on `ubuntu-latest`, `windows-latest`, `macos-latest` |
 | 0.5 | Docker Compose for MySQL | `docker-compose.test.yml` with MySQL 8.0, MySQL 5.7, MariaDB 11, SSL-enabled MySQL, SSH tunnel container |
 | 0.6 | Testing frameworks | Vitest (frontend unit), `cargo test` (backend unit), Playwright (E2E) |

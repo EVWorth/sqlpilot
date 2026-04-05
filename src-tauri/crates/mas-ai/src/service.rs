@@ -147,7 +147,7 @@ impl AiService {
 
         // Build system message
         let system_content = {
-            let base = "You are an expert MySQL database assistant integrated into MySQL AI Studio. \
+            let base = "You are an expert MySQL database assistant integrated into SQLPilot. \
                         Help users with queries, schema design, performance tuning, and database management. \
                         Use the available database tools to inspect schema, run queries, and manage the database.";
             match &schema_context {
@@ -203,7 +203,7 @@ impl AiService {
                 }),
                 streaming: true,
                 model: config.model.clone(),
-                client_name: Some("mysql-ai-studio".to_string()),
+                client_name: Some("sqlpilot".to_string()),
                 ..Default::default()
             };
 

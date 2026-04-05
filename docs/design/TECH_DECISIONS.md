@@ -1,4 +1,4 @@
-# MySQL AI Studio — Technology Decisions
+# SQLPilot — Technology Decisions
 
 > Architecture Decision Records (ADRs) for major technology choices.
 > Each decision follows the format: Context → Decision → Rationale → Risks → Mitigations.
@@ -13,7 +13,7 @@
 
 ### Context
 
-MySQL AI Studio needs a cross-platform desktop framework to deliver a native-feeling application on Windows, macOS, and Linux. The primary candidates are:
+SQLPilot needs a cross-platform desktop framework to deliver a native-feeling application on Windows, macOS, and Linux. The primary candidates are:
 
 - **Electron** — mature, proven (VS Code, Slack, Discord), Chromium-based
 - **Tauri 2** — newer, Rust-based, uses the OS native WebView
@@ -412,7 +412,7 @@ Candidates:
 
 ### Context
 
-AI features are a key differentiator for MySQL AI Studio:
+AI features are a key differentiator for SQLPilot:
 
 - Natural language → SQL query generation
 - Query explanation in plain English
@@ -440,7 +440,7 @@ Candidates:
 
 ### Rationale
 
-1. **Target audience alignment** — MySQL AI Studio targets developers who very likely already have a GitHub Copilot subscription. No additional cost or API key management required.
+1. **Target audience alignment** — SQLPilot targets developers who very likely already have a GitHub Copilot subscription. No additional cost or API key management required.
 
 2. **High-quality models** — Copilot uses GPT-4 class models that produce excellent SQL. The quality of NL→SQL generation is critical for the AI features to be useful.
 
@@ -748,7 +748,7 @@ Putting everything in a single crate would create:
 ```
 src-tauri/
 ├── Cargo.toml              # Workspace root
-├── mysql-ai-studio/        # Tauri app crate (binary)
+├── sqlpilot/        # Tauri app crate (binary)
 │   ├── Cargo.toml
 │   └── src/
 │       ├── main.rs          # Tauri entry point
@@ -808,12 +808,12 @@ src-tauri/
 
 4. **Reusability** — `mas-core` could be used by a CLI tool or a separate backend service without pulling in Tauri, AI, or export dependencies.
 
-5. **Encapsulation** — Each crate exposes a public API and keeps implementation details private. The `mysql-ai-studio` app crate depends on all library crates and wires them together via Tauri commands.
+5. **Encapsulation** — Each crate exposes a public API and keeps implementation details private. The `sqlpilot` app crate depends on all library crates and wires them together via Tauri commands.
 
 ### Dependency Graph
 
 ```
-mysql-ai-studio (Tauri app)
+sqlpilot (Tauri app)
 ├── mas-core     (connection, query, schema)
 ├── mas-ai       (AI service)
 │   └── mas-core (schema context for AI prompts)
@@ -840,7 +840,7 @@ mysql-ai-studio (Tauri app)
   ```toml
   [workspace]
   members = [
-      "mysql-ai-studio",
+      "sqlpilot",
       "mas-core",
       "mas-ai",
       "mas-export",

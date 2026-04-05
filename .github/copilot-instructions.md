@@ -1,4 +1,4 @@
-# Copilot Instructions — MySQL AI Studio
+# Copilot Instructions — SQLPilot
 
 ## Build, Test, and Lint
 
@@ -62,7 +62,7 @@ The backend is a Cargo workspace with three library crates and the Tauri app cra
 | `mas-core` | Connection pool management (`ConnectionManager`), query execution (`QueryExecutor`), schema  inspection (`SchemaInspector`), and local SQLite storage for profiles (`ConnectionStore`) |
 | `mas-export` | Stateless export functions: CSV, JSON, SQL INSERT, Markdown |
 | `mas-admin` | Server admin: process list, server variables, kill process |
-| `mysql-ai-studio` (root) | Tauri app shell — registers commands, initializes state, sets up logging |
+| `sqlpilot` (root) | Tauri app shell — registers commands, initializes state, sets up logging |
 
 New Tauri commands must be added to the `invoke_handler` array in `src-tauri/src/lib.rs`.
 

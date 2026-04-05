@@ -1,9 +1,9 @@
-# MySQL AI Studio — Design Requirements Document
+# SQLPilot — Design Requirements Document
 
 **Version:** 1.0  
 **Last Updated:** 2025-01-15  
 **Status:** Draft  
-**Authors:** MySQL AI Studio Core Team
+**Authors:** SQLPilot Core Team
 
 ---
 
@@ -74,7 +74,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ### 2.1 Feature Comparison Matrix
 
-| Feature | MySQL Workbench | DBeaver | SQLyog | TablePlus | DataGrip | **MySQL AI Studio** |
+| Feature | MySQL Workbench | DBeaver | SQLyog | TablePlus | DataGrip | **SQLPilot** |
 |---------|:-:|:-:|:-:|:-:|:-:|:-:|
 | Cross-platform | ✅ | ✅ | ❌ Win only | ✅ | ✅ | ✅ |
 | Open source | ✅ (GPL) | ✅ (Apache) | ❌ | ❌ | ❌ | ✅ (MIT) |

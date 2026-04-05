@@ -18,7 +18,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 tauri = { version = "2", features = [] }
 
 [package]
-name = "mysql-ai-studio"
+name = "sqlpilot"
 version = "0.1.0"
 edition = "2021"
 description = "AI-powered MySQL GUI management tool"
@@ -43,7 +43,7 @@ dirs = "5"
 rfd = "0.15"
 
 [lib]
-name = "mysql_ai_studio_lib"
+name = "sqlpilot_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]

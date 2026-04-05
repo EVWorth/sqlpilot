@@ -1,4 +1,4 @@
-# MySQL AI Studio — Testing Strategy
+# SQLPilot — Testing Strategy
 
 ---
 

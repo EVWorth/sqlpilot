@@ -51,7 +51,7 @@ export function Toolbar({ onShowShortcuts, onShowImport, onShowBackup, onShowRes
       <div className="flex items-center gap-2">
         <Database className="h-5 w-5 text-brand-400" />
         <span className="text-sm font-semibold text-[var(--color-text-primary)]">
-          MySQL AI Studio
+          SQLPilot
         </span>
       </div>
       <div className="flex-1" />

@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="docs/assets/logo.png" alt="MySQL AI Studio" width="120" />
+  <img src="docs/assets/logo.png" alt="SQLPilot" width="120" />
 </p>
 
-<h1 align="center">MySQL AI Studio</h1>
+<h1 align="center">SQLPilot</h1>
 
 <p align="center">
   <strong>A blazing-fast, AI-powered MySQL GUI — built with Rust &amp; React.</strong><br />
@@ -29,7 +29,7 @@
 
 ---
 
-MySQL AI Studio is a modern, open-source, cross-platform MySQL database management tool. It combines a Rust backend (via [Tauri 2](https://v2.tauri.app/)) with a React frontend to deliver native desktop performance in a **~16 MB binary** — no Electron bloat, no JVM overhead. AI features (natural language to SQL, query optimization, error fixing) are powered by GitHub Copilot and local LLMs via Ollama.
+SQLPilot is a modern, open-source, cross-platform MySQL database management tool. It combines a Rust backend (via [Tauri 2](https://v2.tauri.app/)) with a React frontend to deliver native desktop performance in a **~16 MB binary** — no Electron bloat, no JVM overhead. AI features (natural language to SQL, query optimization, error fixing) are powered by GitHub Copilot and local LLMs via Ollama.
 
 **Why this over MySQL Workbench, DBeaver, or SQLyog?**
 
@@ -117,7 +117,7 @@ MySQL AI Studio is a modern, open-source, cross-platform MySQL database manageme
 
 ### Download
 
-Pre-built binaries will be available on the [Releases](https://github.com/worthapenny/mysql-ai-studio/releases) page for:
+Pre-built binaries will be available on the [Releases](https://github.com/worthapenny/sqlpilot/releases) page for:
 
 - **Windows** — `.msi` installer, NSIS setup `.exe`, or portable `.exe`
 - **macOS** — `.dmg` (universal binary: Intel + Apple Silicon)
@@ -126,7 +126,7 @@ Pre-built binaries will be available on the [Releases](https://github.com/wortha
 ### First Launch
 
 1. Download and install for your platform
-2. Open MySQL AI Studio
+2. Open SQLPilot
 3. Click **+ New Connection** and enter your MySQL server details
 4. Configure SSL or SSH tunnel if needed (tabs in the connection dialog)
 5. Click **Test Connection** to verify, then **Save**
@@ -152,8 +152,8 @@ sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libappindicator3-dev librsv
 
 ```bash
 # Clone the repository
-git clone https://github.com/worthapenny/mysql-ai-studio.git
-cd mysql-ai-studio
+git clone https://github.com/worthapenny/sqlpilot.git
+cd sqlpilot
 
 # One-command setup (installs system deps + npm deps + checks Rust)
 make setup
@@ -281,7 +281,7 @@ RUST_LOG=debug
 ## 📁 Project Structure
 
 ```
-mysql-ai-studio/
+sqlpilot/
 ├── src/                           # React frontend
 │   ├── components/                #   36 UI components
 │   │   ├── admin/                 #     AdminPanel, UserManagement, CreateUser, ChangePassword
@@ -378,5 +378,5 @@ This project is licensed under the [MIT License](LICENSE).
 
 <p align="center">
   Made with ❤️ and 🦀<br />
-  <strong>MySQL AI Studio</strong> — because your database tool shouldn't be the slowest thing in your stack.
+  <strong>SQLPilot</strong> — because your database tool shouldn't be the slowest thing in your stack.
 </p>

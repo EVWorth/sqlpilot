@@ -13,7 +13,7 @@ use tracing_subscriber::EnvFilter;
 pub fn run() {
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("mysql-ai-studio");
+        .join("sqlpilot");
     std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
 
     let log_dir = data_dir.join("logs");
@@ -21,14 +21,14 @@ pub fn run() {
 
     // Console layer: colored, human-readable, INFO+ (or overridden by RUST_LOG)
     let console_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,mysql_ai_studio_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug"));
+        .unwrap_or_else(|_| EnvFilter::new("info,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug"));
     let console_layer = tracing_subscriber::fmt::layer()
         .with_filter(console_filter);
 
     // File layer: JSON-structured, rolling daily, DEBUG level
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "mysql-ai-studio.log");
+    let file_appender = tracing_appender::rolling::daily(&log_dir, "sqlpilot.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    let file_filter = EnvFilter::new("debug,mysql_ai_studio_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug");
+    let file_filter = EnvFilter::new("debug,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug");
     let file_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_writer(non_blocking)
@@ -43,7 +43,7 @@ pub fn run() {
         version = env!("CARGO_PKG_VERSION"),
         data_dir = %data_dir.display(),
         log_dir = %log_dir.display(),
-        "Starting MySQL AI Studio"
+        "Starting SQLPilot"
     );
 
     // Keep the non-blocking guard alive for the lifetime of the app

@@ -76,7 +76,7 @@ export async function generateBackup(
   const now = new Date().toISOString();
 
   // Header
-  parts.push("-- MySQL AI Studio Database Backup");
+  parts.push("-- SQLPilot Database Backup");
   parts.push(`-- Generated: ${now}`);
   parts.push(`-- Database: ${database}`);
   parts.push("");

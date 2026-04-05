@@ -1,4 +1,4 @@
--- MySQL AI Studio Test Seed Data
+-- SQLPilot Test Seed Data
 -- Covers all MySQL data types, relationships, views, procedures, functions, triggers, events
 
 -- Ensure correct character set for UTF-8 data

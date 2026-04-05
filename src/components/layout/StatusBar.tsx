@@ -131,7 +131,7 @@ export function StatusBar() {
           </span>
         )}
         <span className="text-[10px] text-[var(--color-text-muted)]">
-          MySQL AI Studio v0.1.0
+          SQLPilot v0.1.0
         </span>
       </div>
     </div>
