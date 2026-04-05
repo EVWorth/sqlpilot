@@ -17,6 +17,7 @@ struct SessionEntry {
     session: Arc<copilot_sdk::Session>,
     connection_id: Option<String>,
     database: Option<String>,
+    mode: AiMode,
 }
 
 pub struct AiService {
@@ -192,9 +193,10 @@ impl AiService {
             let sessions = self.sessions.read().await;
             match sessions.get(conversation_id) {
                 Some(entry) => {
-                    // Create a new session if connection context changed
+                    // Create a new session if connection, database, or mode changed
                     entry.connection_id.as_deref() != connection_id
                         || entry.database.as_deref() != database
+                        || entry.mode != *mode
                 }
                 None => true,
             }
@@ -351,6 +353,7 @@ impl AiService {
                         session: session.clone(),
                         connection_id: connection_id.map(|s| s.to_string()),
                         database: database.map(|s| s.to_string()),
+                        mode: mode.clone(),
                     },
                 );
             }
