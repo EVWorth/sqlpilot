@@ -111,6 +111,30 @@ export function SQLEditor() {
           }
         },
       });
+
+      editor.addAction({
+        id: "explain-query",
+        label: "Explain Query",
+        keybindings: [
+          // Monaco.KeyMod.CtrlCmd | Monaco.KeyMod.Shift | Monaco.KeyCode.KeyE
+          2048 | 1024 | 35,
+        ],
+        run: (ed) => {
+          const model = ed.getModel();
+          const selection = ed.getSelection();
+          let sql = "";
+          if (selection && !selection.isEmpty()) {
+            sql = model?.getValueInRange(selection) ?? "";
+          } else {
+            sql = model?.getValue() ?? "";
+          }
+          const connectionId =
+            useConnectionStore.getState().selectedConnectionId;
+          if (sql.trim() && connectionId) {
+            useResultStore.getState().executeExplain(connectionId, sql);
+          }
+        },
+      });
     },
     [setEditorInstance],
   );

@@ -10,8 +10,15 @@ interface ResultState {
   isExecuting: boolean;
   error: string | null;
 
+  explainResult: QueryResult | null;
+  explainAnalyze: boolean;
+  showExplain: boolean;
+
   executeQuery: (connectionId: string, sql: string) => Promise<void>;
+  executeExplain: (connectionId: string, sql: string) => Promise<void>;
+  executeExplainAnalyze: (connectionId: string, sql: string) => Promise<void>;
   setActiveResult: (index: number) => void;
+  setShowExplain: (show: boolean) => void;
   clearResults: () => void;
   clearError: () => void;
 }
@@ -21,6 +28,10 @@ export const useResultStore = create<ResultState>((set) => ({
   activeResultIndex: 0,
   isExecuting: false,
   error: null,
+
+  explainResult: null,
+  explainAnalyze: false,
+  showExplain: false,
 
   executeQuery: async (connectionId, sql) => {
     const startTime = Date.now();
@@ -65,6 +76,50 @@ export const useResultStore = create<ResultState>((set) => ({
   },
 
   setActiveResult: (index) => set({ activeResultIndex: index }),
-  clearResults: () => set({ results: [], activeResultIndex: 0, error: null }),
+  setShowExplain: (show) => set({ showExplain: show }),
+  clearResults: () =>
+    set({
+      results: [],
+      activeResultIndex: 0,
+      error: null,
+      explainResult: null,
+      showExplain: false,
+    }),
   clearError: () => set({ error: null }),
+
+  executeExplain: async (connectionId, sql) => {
+    try {
+      set({ isExecuting: true, error: null });
+      const results = await api.executeQuery(
+        connectionId,
+        `EXPLAIN ${sql}`,
+      );
+      set({
+        explainResult: results[0] ?? null,
+        explainAnalyze: false,
+        showExplain: true,
+        isExecuting: false,
+      });
+    } catch (e) {
+      set({ error: String(e), isExecuting: false });
+    }
+  },
+
+  executeExplainAnalyze: async (connectionId, sql) => {
+    try {
+      set({ isExecuting: true, error: null });
+      const results = await api.executeQuery(
+        connectionId,
+        `EXPLAIN ANALYZE ${sql}`,
+      );
+      set({
+        explainResult: results[0] ?? null,
+        explainAnalyze: true,
+        showExplain: true,
+        isExecuting: false,
+      });
+    } catch (e) {
+      set({ error: String(e), isExecuting: false });
+    }
+  },
 }));

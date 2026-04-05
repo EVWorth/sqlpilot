@@ -1,4 +1,5 @@
-import { Play, Square, Database, Search, Replace, Wand2, RefreshCw } from "lucide-react";
+import { useState, useRef, useEffect } from "react";
+import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown } from "lucide-react";
 import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
@@ -11,6 +12,8 @@ export function QueryToolbar() {
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const editorInstance = useEditorStore((s) => s.editorInstance);
   const executeQuery = useResultStore((s) => s.executeQuery);
+  const executeExplain = useResultStore((s) => s.executeExplain);
+  const executeExplainAnalyze = useResultStore((s) => s.executeExplainAnalyze);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
@@ -25,23 +28,51 @@ export function QueryToolbar() {
 
   const handleExecute = () => {
     if (!selectedConnectionId || isExecuting) return;
+    const sql = getCurrentSql();
+    if (!sql.trim()) return;
+    executeQuery(selectedConnectionId, sql);
+  };
 
+  const [explainOpen, setExplainOpen] = useState(false);
+  const explainRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (explainRef.current && !explainRef.current.contains(e.target as Node)) {
+        setExplainOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
+
+  const getCurrentSql = (): string => {
     const editorInstance = useEditorStore.getState().editorInstance;
-    let sql = "";
     if (editorInstance) {
       const selection = editorInstance.getSelection();
       const model = editorInstance.getModel();
       if (selection && !selection.isEmpty()) {
-        sql = model?.getValueInRange(selection) ?? "";
-      } else {
-        sql = model?.getValue() ?? "";
+        return model?.getValueInRange(selection) ?? "";
       }
-    } else {
-      sql = activeTab?.content ?? "";
+      return model?.getValue() ?? "";
     }
+    return activeTab?.content ?? "";
+  };
 
+  const handleExplain = () => {
+    if (!selectedConnectionId || isExecuting) return;
+    const sql = getCurrentSql();
     if (!sql.trim()) return;
-    executeQuery(selectedConnectionId, sql);
+    executeExplain(selectedConnectionId, sql);
+    setExplainOpen(false);
+  };
+
+  const handleExplainAnalyze = () => {
+    if (!selectedConnectionId || isExecuting) return;
+    const sql = getCurrentSql();
+    if (!sql.trim()) return;
+    executeExplainAnalyze(selectedConnectionId, sql);
+    setExplainOpen(false);
   };
 
   const handleFind = () => {
@@ -100,6 +131,45 @@ export function QueryToolbar() {
       <span className="text-[10px] text-[var(--color-text-muted)]">
         Ctrl+Enter
       </span>
+
+      <div className="relative" ref={explainRef}>
+        <div className="flex">
+          <button
+            onClick={handleExplain}
+            disabled={!canExecute}
+            title="Explain Query (Ctrl+Shift+E)"
+            className="flex items-center gap-1 rounded-l px-2 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] border border-[var(--color-border)]"
+          >
+            <ListTree className="h-3 w-3" />
+            Explain
+          </button>
+          <button
+            onClick={() => setExplainOpen((v) => !v)}
+            disabled={!canExecute}
+            className="flex items-center rounded-r border border-l-0 border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </div>
+        {explainOpen && (
+          <div className="absolute left-0 top-full z-50 mt-1 min-w-[160px] rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-1 shadow-lg">
+            <button
+              onClick={handleExplain}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]"
+            >
+              <ListTree className="h-3 w-3" />
+              EXPLAIN
+            </button>
+            <button
+              onClick={handleExplainAnalyze}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]"
+            >
+              <ListTree className="h-3 w-3" />
+              EXPLAIN ANALYZE
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 

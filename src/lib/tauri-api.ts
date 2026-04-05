@@ -8,6 +8,9 @@ import type {
   TableInfo,
   ColumnInfo,
   IndexInfo,
+  ViewInfo,
+  RoutineInfo,
+  TriggerInfo,
   ProcessInfo,
   ServerVariable,
 } from "../types";
@@ -77,6 +80,24 @@ export const api = {
 
   getTableDdl: (connectionId: string, database: string, table: string) =>
     tauriInvoke<string>("get_table_ddl", { connectionId, database, table }),
+
+  getViews: (connectionId: string, database: string) =>
+    tauriInvoke<ViewInfo[]>("get_views", { connectionId, database }),
+
+  getRoutines: (connectionId: string, database: string) =>
+    tauriInvoke<RoutineInfo[]>("get_routines", { connectionId, database }),
+
+  getTriggers: (connectionId: string, database: string) =>
+    tauriInvoke<TriggerInfo[]>("get_triggers", { connectionId, database }),
+
+  getViewDdl: (connectionId: string, database: string, viewName: string) =>
+    tauriInvoke<string>("get_view_ddl", { connectionId, database, viewName }),
+
+  getRoutineDdl: (connectionId: string, database: string, routineName: string, routineType: string) =>
+    tauriInvoke<string>("get_routine_ddl", { connectionId, database, routineName, routineType }),
+
+  getTriggerDdl: (connectionId: string, database: string, triggerName: string) =>
+    tauriInvoke<string>("get_trigger_ddl", { connectionId, database, triggerName }),
 
   // Export
   exportResults: (result: QueryResult, format: string, tableName?: string) =>

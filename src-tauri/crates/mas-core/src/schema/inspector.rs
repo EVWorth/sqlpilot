@@ -55,6 +55,27 @@ pub struct ForeignKeyInfo {
     pub on_delete: String,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct ViewInfo {
+    pub name: String,
+    pub is_updatable: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RoutineInfo {
+    pub name: String,
+    pub routine_type: String,
+    pub data_type: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct TriggerInfo {
+    pub name: String,
+    pub event: String,
+    pub table: String,
+    pub timing: String,
+}
+
 impl SchemaInspector {
     pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
         Self { connection_manager }
@@ -213,6 +234,143 @@ impl SchemaInspector {
 
         let ddl: String = row.try_get(1).unwrap_or_default();
         tracing::debug!(ddl_length = ddl.len(), "Retrieved DDL");
+        Ok(ddl)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_views(&self, connection_id: &str, database: &str) -> Result<Vec<ViewInfo>, CoreError> {
+        tracing::debug!(database = %database, "Fetching views");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query(
+            "SELECT CAST(TABLE_NAME AS CHAR) AS TABLE_NAME,
+                    CAST(IS_UPDATABLE AS CHAR) AS IS_UPDATABLE
+             FROM INFORMATION_SCHEMA.VIEWS
+             WHERE TABLE_SCHEMA = ?
+             ORDER BY TABLE_NAME"
+        )
+        .bind(database)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        let views: Vec<ViewInfo> = rows.iter().map(|row| {
+            let updatable: String = row.get("IS_UPDATABLE");
+            ViewInfo {
+                name: row.get("TABLE_NAME"),
+                is_updatable: updatable == "YES",
+            }
+        }).collect();
+        tracing::debug!(count = views.len(), database = %database, "Found views");
+        Ok(views)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_routines(&self, connection_id: &str, database: &str) -> Result<Vec<RoutineInfo>, CoreError> {
+        tracing::debug!(database = %database, "Fetching routines");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query(
+            "SELECT CAST(ROUTINE_NAME AS CHAR) AS ROUTINE_NAME,
+                    CAST(ROUTINE_TYPE AS CHAR) AS ROUTINE_TYPE,
+                    CAST(DATA_TYPE AS CHAR) AS DATA_TYPE
+             FROM INFORMATION_SCHEMA.ROUTINES
+             WHERE ROUTINE_SCHEMA = ?
+             ORDER BY ROUTINE_TYPE, ROUTINE_NAME"
+        )
+        .bind(database)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        let routines: Vec<RoutineInfo> = rows.iter().map(|row| RoutineInfo {
+            name: row.get("ROUTINE_NAME"),
+            routine_type: row.get("ROUTINE_TYPE"),
+            data_type: row.try_get("DATA_TYPE").unwrap_or_default(),
+        }).collect();
+        tracing::debug!(count = routines.len(), database = %database, "Found routines");
+        Ok(routines)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_triggers(&self, connection_id: &str, database: &str) -> Result<Vec<TriggerInfo>, CoreError> {
+        tracing::debug!(database = %database, "Fetching triggers");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query(
+            "SELECT CAST(TRIGGER_NAME AS CHAR) AS TRIGGER_NAME,
+                    CAST(EVENT_MANIPULATION AS CHAR) AS EVENT_MANIPULATION,
+                    CAST(EVENT_OBJECT_TABLE AS CHAR) AS EVENT_OBJECT_TABLE,
+                    CAST(ACTION_TIMING AS CHAR) AS ACTION_TIMING
+             FROM INFORMATION_SCHEMA.TRIGGERS
+             WHERE TRIGGER_SCHEMA = ?
+             ORDER BY TRIGGER_NAME"
+        )
+        .bind(database)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        let triggers: Vec<TriggerInfo> = rows.iter().map(|row| TriggerInfo {
+            name: row.get("TRIGGER_NAME"),
+            event: row.get("EVENT_MANIPULATION"),
+            table: row.get("EVENT_OBJECT_TABLE"),
+            timing: row.get("ACTION_TIMING"),
+        }).collect();
+        tracing::debug!(count = triggers.len(), database = %database, "Found triggers");
+        Ok(triggers)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_view_ddl(&self, connection_id: &str, database: &str, view: &str) -> Result<String, CoreError> {
+        tracing::debug!(database = %database, view = %view, "Fetching view DDL");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let use_db = format!("USE `{}`", database);
+        let _ = sqlx::query(&use_db).execute(&pool).await;
+
+        let row = sqlx::query(&format!("SHOW CREATE VIEW `{}`", view))
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        let ddl: String = row.try_get(1).unwrap_or_default();
+        tracing::debug!(ddl_length = ddl.len(), "Retrieved view DDL");
+        Ok(ddl)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_routine_ddl(&self, connection_id: &str, database: &str, routine: &str, routine_type: &str) -> Result<String, CoreError> {
+        tracing::debug!(database = %database, routine = %routine, routine_type = %routine_type, "Fetching routine DDL");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let use_db = format!("USE `{}`", database);
+        let _ = sqlx::query(&use_db).execute(&pool).await;
+
+        let show_cmd = match routine_type.to_uppercase().as_str() {
+            "FUNCTION" => format!("SHOW CREATE FUNCTION `{}`", routine),
+            _ => format!("SHOW CREATE PROCEDURE `{}`", routine),
+        };
+
+        let row = sqlx::query(&show_cmd)
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        let ddl: String = row.try_get(2).unwrap_or_default();
+        tracing::debug!(ddl_length = ddl.len(), "Retrieved routine DDL");
+        Ok(ddl)
+    }
+
+    #[tracing::instrument(skip(self))]
+    pub async fn get_trigger_ddl(&self, connection_id: &str, database: &str, trigger: &str) -> Result<String, CoreError> {
+        tracing::debug!(database = %database, trigger = %trigger, "Fetching trigger DDL");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let use_db = format!("USE `{}`", database);
+        let _ = sqlx::query(&use_db).execute(&pool).await;
+
+        let row = sqlx::query(&format!("SHOW CREATE TRIGGER `{}`", trigger))
+            .fetch_one(&pool)
+            .await
+            .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        let ddl: String = row.try_get(2).unwrap_or_default();
+        tracing::debug!(ddl_length = ddl.len(), "Retrieved trigger DDL");
         Ok(ddl)
     }
 }

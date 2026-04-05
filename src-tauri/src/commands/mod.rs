@@ -2,7 +2,7 @@ use mas_core::connection::{ConnectionManager, ConnectionStore};
 use mas_core::models::{ConnectionProfile, ConnectionInfo, TestConnectionResult, QueryResult};
 use mas_core::query::QueryExecutor;
 use mas_core::schema::SchemaInspector;
-use mas_core::schema::inspector::{DatabaseInfo, TableInfo, ColumnInfo, IndexInfo};
+use mas_core::schema::inspector::{DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, ViewInfo, RoutineInfo, TriggerInfo};
 use mas_admin::AdminService;
 use std::sync::Arc;
 use tauri::State;
@@ -204,6 +204,100 @@ pub async fn get_table_ddl(
         e.to_string()
     })?;
     tracing::info!(ddl_length = ddl.len(), "Retrieved table DDL");
+    Ok(ddl)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn get_views(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+) -> Result<Vec<ViewInfo>, String> {
+    let views = state.schema_inspector.get_views(&connection_id, &database).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get views");
+        e.to_string()
+    })?;
+    tracing::info!(count = views.len(), "Listed views");
+    Ok(views)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn get_routines(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+) -> Result<Vec<RoutineInfo>, String> {
+    let routines = state.schema_inspector.get_routines(&connection_id, &database).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get routines");
+        e.to_string()
+    })?;
+    tracing::info!(count = routines.len(), "Listed routines");
+    Ok(routines)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn get_triggers(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+) -> Result<Vec<TriggerInfo>, String> {
+    let triggers = state.schema_inspector.get_triggers(&connection_id, &database).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get triggers");
+        e.to_string()
+    })?;
+    tracing::info!(count = triggers.len(), "Listed triggers");
+    Ok(triggers)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn get_view_ddl(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    view_name: String,
+) -> Result<String, String> {
+    let ddl = state.schema_inspector.get_view_ddl(&connection_id, &database, &view_name).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get view DDL");
+        e.to_string()
+    })?;
+    tracing::info!(ddl_length = ddl.len(), "Retrieved view DDL");
+    Ok(ddl)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn get_routine_ddl(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    routine_name: String,
+    routine_type: String,
+) -> Result<String, String> {
+    let ddl = state.schema_inspector.get_routine_ddl(&connection_id, &database, &routine_name, &routine_type).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get routine DDL");
+        e.to_string()
+    })?;
+    tracing::info!(ddl_length = ddl.len(), "Retrieved routine DDL");
+    Ok(ddl)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn get_trigger_ddl(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    trigger_name: String,
+) -> Result<String, String> {
+    let ddl = state.schema_inspector.get_trigger_ddl(&connection_id, &database, &trigger_name).await.map_err(|e| {
+        tracing::error!(error = %e, "Failed to get trigger DDL");
+        e.to_string()
+    })?;
+    tracing::info!(ddl_length = ddl.len(), "Retrieved trigger DDL");
     Ok(ddl)
 }
 

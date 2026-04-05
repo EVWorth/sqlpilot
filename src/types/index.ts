@@ -107,6 +107,24 @@ export interface IndexInfo {
   index_type: string;
 }
 
+export interface ViewInfo {
+  name: string;
+  is_updatable: boolean;
+}
+
+export interface RoutineInfo {
+  name: string;
+  routine_type: string;
+  data_type: string;
+}
+
+export interface TriggerInfo {
+  name: string;
+  event: string;
+  table: string;
+  timing: string;
+}
+
 // Admin types
 export interface ProcessInfo {
   id: number;
@@ -132,6 +150,6 @@ export interface EditorTab {
   connectionId?: string;
   database?: string;
   tableName?: string;
-  type?: "query" | "structure";
+  type?: "query" | "structure" | "admin";
   isDirty: boolean;
 }
