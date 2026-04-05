@@ -1,8 +1,8 @@
 use crate::error::CoreError;
-use crate::models::{ConnectionInfo, ConnectionProfile, TestConnectionResult};
+use crate::models::{ConnectionInfo, ConnectionProfile, SSLMode, TestConnectionResult};
 use chrono::Utc;
 use dashmap::DashMap;
-use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions};
+use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlSslMode};
 use sqlx::MySqlPool;
 use std::sync::Arc;
 use std::time::Instant;
@@ -47,6 +47,8 @@ impl ConnectionManager {
                 options = options.database(db);
             }
         }
+
+        options = apply_ssl_config(options, profile);
 
         tracing::debug!(connection_id = %conn_id, "Connecting to MySQL server");
 
@@ -129,6 +131,8 @@ impl ConnectionManager {
             }
         }
 
+        options = apply_ssl_config(options, profile);
+
         tracing::debug!("Testing connection");
 
         match MySqlPoolOptions::new()
@@ -203,4 +207,34 @@ impl Default for ConnectionManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn apply_ssl_config(mut options: MySqlConnectOptions, profile: &ConnectionProfile) -> MySqlConnectOptions {
+    if let Some(ref ssl) = profile.ssl_config {
+        let mode = match ssl.mode {
+            SSLMode::Disabled => MySqlSslMode::Disabled,
+            SSLMode::Preferred => MySqlSslMode::Preferred,
+            SSLMode::Required => MySqlSslMode::Required,
+            SSLMode::VerifyCA => MySqlSslMode::VerifyCa,
+            SSLMode::VerifyIdentity => MySqlSslMode::VerifyIdentity,
+        };
+        options = options.ssl_mode(mode);
+
+        if let Some(ref ca) = ssl.ca_cert_path {
+            if !ca.is_empty() {
+                options = options.ssl_ca(ca);
+            }
+        }
+        if let Some(ref cert) = ssl.client_cert_path {
+            if !cert.is_empty() {
+                options = options.ssl_client_cert(cert);
+            }
+        }
+        if let Some(ref key) = ssl.client_key_path {
+            if !key.is_empty() {
+                options = options.ssl_client_key(key);
+            }
+        }
+    }
+    options
 }
