@@ -188,7 +188,7 @@ export function createCompletionProvider(
   schemaData: SchemaData,
 ): monacoNs.languages.CompletionItemProvider {
   return {
-    triggerCharacters: ["."],
+    triggerCharacters: [".", " "],
 
     provideCompletionItems: async (model, position) => {
       const word = model.getWordUntilPosition(position);
@@ -326,30 +326,31 @@ export function createCompletionProvider(
         }
       }
 
-      // Keyword suggestions
-      priority = context === "general" ? 1 : 5;
-      for (const kw of MYSQL_KEYWORDS) {
-        suggestions.push({
-          label: kw,
-          kind: monaco.languages.CompletionItemKind.Keyword,
-          insertText: kw,
-          range,
-          sortText: String(priority) + kw,
-        });
-      }
+      // Keyword and function suggestions — only in general/column context
+      if (context === "general" || context === "column") {
+        priority = context === "general" ? 1 : 5;
+        for (const kw of MYSQL_KEYWORDS) {
+          suggestions.push({
+            label: kw,
+            kind: monaco.languages.CompletionItemKind.Keyword,
+            insertText: kw,
+            range,
+            sortText: String(priority) + kw,
+          });
+        }
 
-      // Function suggestions
-      for (const fn of MYSQL_FUNCTIONS) {
-        suggestions.push({
-          label: fn.name,
-          kind: monaco.languages.CompletionItemKind.Function,
-          insertText: fn.name + "(${1})",
-          insertTextRules:
-            monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-          range,
-          detail: fn.detail,
-          sortText: String(priority) + fn.name,
-        });
+        for (const fn of MYSQL_FUNCTIONS) {
+          suggestions.push({
+            label: fn.name,
+            kind: monaco.languages.CompletionItemKind.Function,
+            insertText: fn.name + "(${1})",
+            insertTextRules:
+              monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range,
+            detail: fn.detail,
+            sortText: String(priority) + fn.name,
+          });
+        }
       }
 
       return { suggestions };
