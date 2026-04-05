@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback } from "react";
+import { useMemo, useState, useCallback, useRef } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -20,10 +20,23 @@ import {
   FileText,
   ClipboardList,
   ClipboardCopy,
+  Trash2,
 } from "lucide-react";
 import { api } from "../../lib/tauri-api";
 import type { SqlValue } from "../../types";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { useGridEditing } from "../../hooks/useGridEditing";
+import { EditableCell } from "./EditableCell";
+import { EditToolbar } from "./EditToolbar";
+import {
+  generateUpdate,
+  generateInsert,
+  generateDelete,
+  extractTableName,
+  getWhereColumns,
+} from "../../lib/sql-generator";
+import { useEditorStore } from "../../stores/editorStore";
+import { useConnectionStore } from "../../stores/connectionStore";
 
 function downloadBlob(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -66,9 +79,19 @@ export function ResultsGrid() {
   const error = useResultStore((s) => s.error);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const { contextMenu, showContextMenu } = useContextMenu();
+  const editingCellRef = useRef<{ rowIndex: number; colIndex: number } | null>(
+    null,
+  );
 
+  const editing = useGridEditing();
   const activeResult = results[activeResultIndex];
+
+  const whereInfo = useMemo(() => {
+    if (!activeResult) return { columns: [] as string[], hasPrimaryKey: true };
+    return getWhereColumns(activeResult.columns);
+  }, [activeResult]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -106,7 +129,7 @@ export function ResultsGrid() {
     [activeResult, showToast],
   );
 
-  const formatSqlValue = useCallback((val: SqlValue): string => {
+  const formatSqlVal = useCallback((val: SqlValue): string => {
     if (val === null) return "NULL";
     if (typeof val === "string") return `'${val.replace(/'/g, "''")}'`;
     if (typeof val === "boolean") return val ? "1" : "0";
@@ -121,14 +144,13 @@ export function ResultsGrid() {
       const row = activeResult.rows[rowIdx];
       const colNames = activeResult.columns.map((c) => c.name);
 
-      // Determine which column was clicked
       let cellColIdx = 0;
       if (td) {
         const tr = td.parentElement;
         if (tr) {
           const tds = Array.from(tr.children);
           const tdIdx = tds.indexOf(td);
-          cellColIdx = Math.max(0, tdIdx - 1); // -1 for row number column
+          cellColIdx = Math.max(0, tdIdx - 1);
         }
       }
       const cellValue = row[cellColIdx];
@@ -138,7 +160,7 @@ export function ResultsGrid() {
         .join("\t");
 
       const insertCols = colNames.map((n) => `\`${n}\``).join(", ");
-      const insertVals = row.map((v) => formatSqlValue(v)).join(", ");
+      const insertVals = row.map((v) => formatSqlVal(v)).join(", ");
       const insertStmt = `INSERT INTO your_table (${insertCols}) VALUES (${insertVals});`;
 
       const allRowsTsv = [
@@ -148,7 +170,7 @@ export function ResultsGrid() {
         ),
       ].join("\n");
 
-      showContextMenu(e, [
+      const menuItems = [
         {
           label: "Copy Cell",
           icon: <Copy className="h-3.5 w-3.5" />,
@@ -180,29 +202,159 @@ export function ResultsGrid() {
             navigator.clipboard.writeText(allRowsTsv);
           },
         },
-      ]);
+      ];
+
+      if (editing.editMode) {
+        menuItems.push(
+          { label: "", separator: true, onClick: () => {} },
+          {
+            label: editing.isRowDeleted(rowIdx)
+              ? "Unmark Delete"
+              : "Delete Row",
+            icon: <Trash2 className="h-3.5 w-3.5" />,
+            onClick: () => editing.deleteRow(rowIdx),
+          },
+        );
+      }
+
+      showContextMenu(e, menuItems);
     },
-    [activeResult, showContextMenu, formatSqlValue],
+    [activeResult, showContextMenu, formatSqlVal, editing],
   );
+
+  // Build the original row record for a given row index
+  const getOriginalRow = useCallback(
+    (rowIdx: number): Record<string, unknown> => {
+      if (!activeResult) return {};
+      const row = activeResult.rows[rowIdx];
+      const obj: Record<string, unknown> = {};
+      activeResult.columns.forEach((col, idx) => {
+        obj[col.name] = row[idx];
+      });
+      return obj;
+    },
+    [activeResult],
+  );
+
+  const handleSave = useCallback(async () => {
+    if (!activeResult) return;
+
+    const editorTab = useEditorStore.getState().tabs.find(
+      (t) => t.id === useEditorStore.getState().activeTabId,
+    );
+    const sql = editorTab?.content ?? "";
+    const tableName = extractTableName(sql);
+    if (!tableName) {
+      showToast("Cannot detect table name from query");
+      return;
+    }
+
+    const connId =
+      editorTab?.connectionId ??
+      useConnectionStore.getState().selectedConnectionId;
+    if (!connId) {
+      showToast("No active connection");
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      const statements: string[] = [];
+
+      // Generate UPDATE statements
+      for (const [rowIdx, changes] of editing.updates) {
+        const originalRow = getOriginalRow(rowIdx);
+        statements.push(
+          generateUpdate(
+            tableName,
+            whereInfo.columns,
+            originalRow,
+            changes.map((c) => ({ column: c.column, newValue: c.newValue })),
+          ),
+        );
+      }
+
+      // Generate INSERT statements
+      for (const insertRow of editing.inserts) {
+        const cols = activeResult.columns.map((c) => c.name);
+        statements.push(generateInsert(tableName, cols, insertRow));
+      }
+
+      // Generate DELETE statements
+      for (const rowIdx of editing.deletes) {
+        const originalRow = getOriginalRow(rowIdx);
+        statements.push(
+          generateDelete(tableName, whereInfo.columns, originalRow),
+        );
+      }
+
+      // Execute all statements
+      for (const stmt of statements) {
+        await api.executeQuery(connId, stmt);
+      }
+
+      // Re-run original query to refresh
+      editing.discardAll();
+      await useResultStore.getState().executeQuery(connId, sql);
+      showToast(`Applied ${statements.length} change(s)`);
+    } catch (e) {
+      showToast(`Save failed: ${String(e)}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [activeResult, editing, getOriginalRow, whereInfo, showToast]);
 
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
     if (!activeResult) return [];
-    return activeResult.columns.map((col) => ({
+    return activeResult.columns.map((col, colIdx) => ({
       id: col.name,
       accessorKey: col.name,
       header: col.name,
-      cell: ({ getValue }) => {
-        const val = getValue();
-        if (val === null || val === undefined) {
-          return (
-            <span className="italic text-[var(--color-text-muted)]">NULL</span>
-          );
+      cell: ({ getValue, row }) => {
+        const rowIdx = row.index;
+        const originalValue = getValue();
+
+        if (!editing.editMode) {
+          if (originalValue === null || originalValue === undefined) {
+            return (
+              <span className="italic text-[var(--color-text-muted)]">
+                NULL
+              </span>
+            );
+          }
+          return <span>{String(originalValue)}</span>;
         }
-        return <span>{String(val)}</span>;
+
+        const currentValue = editing.getCellValue(
+          rowIdx,
+          col.name,
+          originalValue,
+        );
+        const isEdited = editing.isCellEdited(rowIdx, col.name);
+
+        return (
+          <EditableCell
+            value={currentValue}
+            dataType={col.data_type}
+            isEdited={isEdited}
+            onCommit={(newValue) => {
+              editing.editCell(rowIdx, col.name, originalValue, newValue);
+            }}
+            onTab={(shiftKey) => {
+              const nextCol = shiftKey ? colIdx - 1 : colIdx + 1;
+              if (nextCol >= 0 && nextCol < activeResult.columns.length) {
+                editingCellRef.current = {
+                  rowIndex: rowIdx,
+                  colIndex: nextCol,
+                };
+              }
+            }}
+          />
+        );
       },
       size: Math.max(100, Math.min(300, col.name.length * 10 + 40)),
     }));
-  }, [activeResult]);
+  }, [activeResult, editing]);
 
   const data = useMemo(() => {
     if (!activeResult) return [];
@@ -267,6 +419,19 @@ export function ResultsGrid() {
 
   return (
     <div className="flex h-full flex-col">
+      {/* Edit toolbar */}
+      <EditToolbar
+        editMode={editing.editMode}
+        onToggleEditMode={editing.toggleEditMode}
+        pendingCount={editing.pendingCount}
+        hasChanges={editing.hasChanges}
+        hasPrimaryKey={whereInfo.hasPrimaryKey}
+        isSaving={isSaving}
+        onAddRow={editing.addRow}
+        onSave={handleSave}
+        onDiscard={editing.discardAll}
+      />
+
       {/* Result set tabs */}
       {results.length > 1 && (
         <div className="flex border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
@@ -316,25 +481,64 @@ export function ResultsGrid() {
             ))}
           </thead>
           <tbody>
-            {table.getRowModel().rows.map((row, rowIdx) => (
-              <tr
-                key={row.id}
-                className="hover:bg-[var(--color-bg-secondary)]"
-                onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
-              >
-                <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
-                  {rowIdx + 1}
-                </td>
-                {row.getVisibleCells().map((cell) => (
-                  <td
-                    key={cell.id}
-                    className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
-                  >
-                    {flexRender(cell.column.columnDef.cell, cell.getContext())}
+            {table.getRowModel().rows.map((row, rowIdx) => {
+              const isDeleted = editing.isRowDeleted(rowIdx);
+              const isEdited = editing.isRowEdited(rowIdx);
+              let rowClass = "hover:bg-[var(--color-bg-secondary)]";
+              if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
+              else if (isEdited) rowClass = "bg-amber-900/10";
+
+              return (
+                <tr
+                  key={row.id}
+                  className={rowClass}
+                  onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
+                >
+                  <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
+                    {rowIdx + 1}
                   </td>
-                ))}
-              </tr>
-            ))}
+                  {row.getVisibleCells().map((cell) => (
+                    <td
+                      key={cell.id}
+                      className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                    >
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
+                    </td>
+                  ))}
+                </tr>
+              );
+            })}
+            {/* Inserted rows */}
+            {editing.editMode &&
+              editing.inserts.map((insertRow, insertIdx) => (
+                <tr key={`insert-${insertIdx}`} className="bg-green-900/15">
+                  <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
+                    +
+                  </td>
+                  {activeResult.columns.map((col) => (
+                    <td
+                      key={col.name}
+                      className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                    >
+                      <EditableCell
+                        value={
+                          insertRow[col.name] === undefined
+                            ? null
+                            : insertRow[col.name]
+                        }
+                        dataType={col.data_type}
+                        isEdited={insertRow[col.name] !== undefined}
+                        onCommit={(newValue) => {
+                          editing.editInsertCell(insertIdx, col.name, newValue);
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
           </tbody>
         </table>
       </div>
@@ -342,7 +546,8 @@ export function ResultsGrid() {
       {/* Footer */}
       <div className="flex items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1">
         <span className="text-[10px] text-[var(--color-text-muted)]">
-          {activeResult.rows.length} row(s) &middot; {activeResult.execution_time_ms}ms
+          {activeResult.rows.length} row(s) &middot;{" "}
+          {activeResult.execution_time_ms}ms
         </span>
         <div className="flex items-center gap-1">
           <button

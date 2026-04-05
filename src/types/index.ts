@@ -153,3 +153,34 @@ export interface EditorTab {
   type?: "query" | "structure" | "admin";
   isDirty: boolean;
 }
+
+// AI types
+export interface AiStatus {
+  provider: string;
+  available: boolean;
+  model?: string;
+}
+
+export interface AiConfig {
+  ollama_url?: string;
+  ollama_model?: string;
+  copilot_token?: string;
+}
+
+export interface AiStreamChunk {
+  conversation_id: string;
+  delta: string;
+  done: boolean;
+}
+
+export interface ChatMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface Conversation {
+  id: string;
+  messages: ChatMessage[];
+  title: string;
+  createdAt: string;
+}
