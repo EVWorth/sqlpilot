@@ -117,7 +117,7 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 
 ### Download
 
-Pre-built binaries will be available on the [Releases](https://github.com/worthapenny/sqlpilot/releases) page for:
+Pre-built binaries will be available on the [Releases](https://github.com/EVWorth/sqlpilot/releases) page for:
 
 - **Windows** — `.msi` installer, NSIS setup `.exe`, or portable `.exe`
 - **macOS** — `.dmg` (universal binary: Intel + Apple Silicon)
@@ -152,7 +152,7 @@ sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libappindicator3-dev librsv
 
 ```bash
 # Clone the repository
-git clone https://github.com/worthapenny/sqlpilot.git
+git clone https://github.com/EVWorth/sqlpilot.git
 cd sqlpilot
 
 # One-command setup (installs system deps + npm deps + checks Rust)
