@@ -80,6 +80,11 @@ export function StatusBar() {
                 <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100" />
               )}
             </button>
+            {envBadge && (
+              <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${envBadge.className}`}>
+                {envBadge.label}
+              </span>
+            )}
             {selectedDatabase && (
               <span className="text-[10px] text-brand-400 font-medium">
                 {selectedDatabase}

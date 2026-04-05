@@ -5,19 +5,31 @@ import { StatusBar } from "./StatusBar";
 import { MainPanel } from "./MainPanel";
 import { Toolbar } from "./Toolbar";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ImportDialog } from "../import/ImportDialog";
+import { BackupDialog } from "../backup/BackupDialog";
+import { RestoreDialog } from "../backup/RestoreDialog";
 import { AIChatPanel } from "../ai/AIChatPanel";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useTheme } from "../../hooks/useTheme";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useResultStore } from "../../stores/resultStore";
 
 export function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [showImport, setShowImport] = useState(false);
+  const [showBackup, setShowBackup] = useState(false);
+  const [showRestore, setShowRestore] = useState(false);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const selectedConnection = activeConnections.find((c) => c.id === selectedConnectionId);
+  const confirmDialog = useResultStore((s) => s.confirmDialog);
+  const confirmExecution = useResultStore((s) => s.confirmExecution);
+  const cancelExecution = useResultStore((s) => s.cancelExecution);
+
+  useTheme();
 
   const toggleSidebar = useCallback(
     () => setSidebarCollapsed((prev) => !prev),
@@ -29,6 +41,8 @@ export function AppLayout() {
   );
   const openShortcuts = useCallback(() => setShowShortcuts(true), []);
   const openImport = useCallback(() => setShowImport(true), []);
+  const openBackup = useCallback(() => setShowBackup(true), []);
+  const openRestore = useCallback(() => setShowRestore(true), []);
   const openSaveFavorite = useCallback(() => {
     window.dispatchEvent(new CustomEvent("open-save-favorite"));
   }, []);
@@ -40,6 +54,8 @@ export function AppLayout() {
       <Toolbar
         onShowShortcuts={openShortcuts}
         onShowImport={openImport}
+        onShowBackup={openBackup}
+        onShowRestore={openRestore}
         onToggleAI={toggleAiPanel}
         aiPanelOpen={aiPanelOpen}
       />
@@ -79,6 +95,24 @@ export function AppLayout() {
           database={selectedConnection.database ?? ""}
         />
       )}
+      <BackupDialog
+        isOpen={showBackup}
+        onClose={() => setShowBackup(false)}
+      />
+      <RestoreDialog
+        isOpen={showRestore}
+        onClose={() => setShowRestore(false)}
+      />
+      <ConfirmDialog
+        isOpen={!!confirmDialog?.isOpen}
+        title="⚠️ Destructive Query on Production"
+        message="You are about to run a destructive query (DROP, DELETE, TRUNCATE, or ALTER) on a PRODUCTION database. Are you sure you want to proceed?"
+        confirmLabel="Execute Anyway"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={confirmExecution}
+        onCancel={cancelExecution}
+      />
     </div>
   );
 }

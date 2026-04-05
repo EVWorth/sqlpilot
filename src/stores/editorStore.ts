@@ -10,7 +10,10 @@ interface EditorState {
   addTab: (connectionId?: string, database?: string) => string;
   addStructureTab: (connectionId: string, database: string, tableName: string) => string;
   addAdminTab: (connectionId: string) => string;
+  addQueryBuilderTab: (connectionId: string, database: string) => string;
+  addRoutineTab: (connectionId: string, database: string, routineName: string, routineType: string) => string;
   addCompareTab: () => string;
+  addDesignerTab: (connectionId: string, database: string, tableName?: string) => string;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
@@ -82,6 +85,40 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return id;
   },
 
+  addRoutineTab: (connectionId, database, routineName, routineType) => {
+    const existing = get().tabs.find(
+      (t) =>
+        t.type === 'routine' &&
+        t.connectionId === connectionId &&
+        t.database === database &&
+        t.routineName === routineName &&
+        t.routineType === routineType,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return existing.id;
+    }
+    tabCounter++;
+    const id = `tab-${tabCounter}`;
+    const icon = routineType === 'PROCEDURE' ? '⚙' : 'ƒ';
+    const tab: EditorTab = {
+      id,
+      title: `${icon} ${routineName}`,
+      content: "",
+      connectionId,
+      database,
+      routineName,
+      routineType,
+      type: 'routine',
+      isDirty: false,
+    };
+    set((state) => ({
+      tabs: [...state.tabs, tab],
+      activeTabId: id,
+    }));
+    return id;
+  },
+
   addAdminTab: (connectionId) => {
     const existing = get().tabs.find(
       (t) => t.type === 'admin' && t.connectionId === connectionId,
@@ -120,6 +157,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       title: "⇄ Compare",
       content: "",
       type: 'compare',
+      isDirty: false,
+    };
+    set((state) => ({
+      tabs: [...state.tabs, tab],
+      activeTabId: id,
+    }));
+    return id;
+  },
+
+  addDesignerTab: (connectionId, database, tableName?) => {
+    const existing = get().tabs.find(
+      (t) =>
+        t.type === 'designer' &&
+        t.connectionId === connectionId &&
+        t.database === database &&
+        t.tableName === (tableName || undefined),
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return existing.id;
+    }
+    tabCounter++;
+    const id = `tab-${tabCounter}`;
+    const title = tableName ? `🔧 ${tableName}` : `🔧 New Table`;
+    const tab: EditorTab = {
+      id,
+      title,
+      content: "",
+      connectionId,
+      database,
+      tableName: tableName || undefined,
+      type: 'designer',
+      isDirty: false,
+    };
+    set((state) => ({
+      tabs: [...state.tabs, tab],
+      activeTabId: id,
+    }));
+    return id;
+  },
+
+  addQueryBuilderTab: (connectionId, database) => {
+    tabCounter++;
+    const id = `tab-${tabCounter}`;
+    const tab: EditorTab = {
+      id,
+      title: "🔧 Query Builder",
+      content: "",
+      connectionId,
+      database,
+      type: "querybuilder",
       isDirty: false,
     };
     set((state) => ({

@@ -19,6 +19,9 @@ import {
   FunctionSquare,
   Zap,
   Star,
+  Play,
+  HardDriveDownload,
+  HardDriveUpload,
 } from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -127,6 +130,12 @@ export function Sidebar() {
                         : "text-[var(--color-text-muted)]",
                     )}
                   />
+                  {profile.color && (
+                    <span
+                      className="h-2 w-2 shrink-0 rounded-full"
+                      style={{ backgroundColor: profile.color }}
+                    />
+                  )}
                   <span className="flex-1 truncate">
                     {profile.name || profile.host}
                   </span>
@@ -236,6 +245,8 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
   const [triggers, setTriggers] = useState<Record<string, TriggerInfo[]>>({});
   const addTab = useEditorStore((s) => s.addTab);
   const addStructureTab = useEditorStore((s) => s.addStructureTab);
+  const addRoutineTab = useEditorStore((s) => s.addRoutineTab);
+  const addDesignerTab = useEditorStore((s) => s.addDesignerTab);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
   const executeQuery = useResultStore((s) => s.executeQuery);
   const { contextMenu, showContextMenu } = useContextMenu();
@@ -352,6 +363,29 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                   label: "Refresh",
                   icon: <RefreshCw className="h-3.5 w-3.5" />,
                   onClick: () => refreshTables(db.name),
+                },
+                { label: "", separator: true, onClick: () => {} },
+                {
+                  label: "Backup Database",
+                  icon: <HardDriveDownload className="h-3.5 w-3.5" />,
+                  onClick: () => {
+                    window.dispatchEvent(
+                      new CustomEvent("open-backup", {
+                        detail: { connectionId, database: db.name },
+                      }),
+                    );
+                  },
+                },
+                {
+                  label: "Restore to Database",
+                  icon: <HardDriveUpload className="h-3.5 w-3.5" />,
+                  onClick: () => {
+                    window.dispatchEvent(
+                      new CustomEvent("open-restore", {
+                        detail: { connectionId, database: db.name },
+                      }),
+                    );
+                  },
                 },
               ]);
             }}
@@ -561,10 +595,17 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                     <button
                       key={r.name}
                       onClick={() =>
-                        openDdlTab(db.name, r.name, `SHOW CREATE PROCEDURE \`${db.name}\`.\`${r.name}\``)
+                        addRoutineTab(connectionId, db.name, r.name, "PROCEDURE")
                       }
                       onContextMenu={(e) => {
                         showContextMenu(e, [
+                          {
+                            label: "Execute",
+                            icon: <Play className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              addRoutineTab(connectionId, db.name, r.name, "PROCEDURE");
+                            },
+                          },
                           {
                             label: "Copy Name",
                             icon: <Copy className="h-3.5 w-3.5" />,
@@ -573,7 +614,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                             },
                           },
                           {
-                            label: "Show DDL",
+                            label: "View DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
                               openDdlTab(db.name, r.name, `SHOW CREATE PROCEDURE \`${db.name}\`.\`${r.name}\``);
@@ -627,10 +668,17 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                     <button
                       key={r.name}
                       onClick={() =>
-                        openDdlTab(db.name, r.name, `SHOW CREATE FUNCTION \`${db.name}\`.\`${r.name}\``)
+                        addRoutineTab(connectionId, db.name, r.name, "FUNCTION")
                       }
                       onContextMenu={(e) => {
                         showContextMenu(e, [
+                          {
+                            label: "Execute",
+                            icon: <Play className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              addRoutineTab(connectionId, db.name, r.name, "FUNCTION");
+                            },
+                          },
                           {
                             label: "Copy Name",
                             icon: <Copy className="h-3.5 w-3.5" />,
@@ -639,7 +687,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                             },
                           },
                           {
-                            label: "Show DDL",
+                            label: "View DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
                               openDdlTab(db.name, r.name, `SHOW CREATE FUNCTION \`${db.name}\`.\`${r.name}\``);

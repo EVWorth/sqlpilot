@@ -154,7 +154,9 @@ export interface EditorTab {
   connectionId?: string;
   database?: string;
   tableName?: string;
-  type?: "query" | "structure" | "admin" | "compare";
+  routineName?: string;
+  routineType?: string;
+  type?: "query" | "structure" | "admin" | "compare" | "designer" | "routine" | "querybuilder";
   isDirty: boolean;
 }
 

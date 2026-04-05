@@ -4,10 +4,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
-  Copy,
-  Check,
   AlertTriangle,
-  CheckCircle2,
   Play,
 } from "lucide-react";
 import { api } from "../../lib/tauri-api";
@@ -34,7 +31,6 @@ export function SchemaCompare() {
   const [comparing, setComparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [comparison, setComparison] = useState<SchemaComparison | null>(null);
-  const [sourceSnapshot, setSourceSnapshot] = useState<SchemaSnapshot | null>(null);
   const [syncStatements, setSyncStatements] = useState<SyncStatement[]>([]);
   const [showSync, setShowSync] = useState(false);
 
@@ -128,7 +124,6 @@ export function SchemaCompare() {
 
       const result = compareSchemas(srcSnapshot, tgtSnapshot);
       setComparison(result);
-      setSourceSnapshot(srcSnapshot);
 
       const stmts = generateSyncSQL(result, srcSnapshot);
       setSyncStatements(stmts);

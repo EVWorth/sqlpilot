@@ -11,7 +11,6 @@ import {
 } from "lucide-react";
 import type {
   ConnectionProfile,
-  ConnectionEnvironment,
   SSLConfig,
   SSHConfig,
   TestConnectionResult,

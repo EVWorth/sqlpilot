@@ -7,6 +7,8 @@ import { ResultsGrid } from "../grid/ResultsGrid";
 import { ExplainPanel } from "../explain/ExplainPanel";
 import { AdminPanel } from "../admin/AdminPanel";
 import { SchemaCompare } from "../compare/SchemaCompare";
+import { RoutineViewer } from "../routine/RoutineViewer";
+import { TableDesigner } from "../designer/TableDesigner";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 
@@ -39,6 +41,8 @@ export function MainPanel() {
 
   const isAdmin = activeTab?.type === "admin";
   const isCompare = activeTab?.type === "compare";
+  const isRoutine = activeTab?.type === "routine";
+  const isDesigner = activeTab?.type === "designer";
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-primary)]">
@@ -47,6 +51,19 @@ export function MainPanel() {
         <AdminPanel connectionId={activeTab.connectionId} />
       ) : isCompare ? (
         <SchemaCompare />
+      ) : isDesigner && activeTab?.connectionId && activeTab?.database ? (
+        <TableDesigner
+          connectionId={activeTab.connectionId}
+          database={activeTab.database}
+          tableName={activeTab.tableName}
+        />
+      ) : isRoutine && activeTab?.connectionId && activeTab?.database && activeTab?.routineName && activeTab?.routineType ? (
+        <RoutineViewer
+          connectionId={activeTab.connectionId}
+          database={activeTab.database}
+          routineName={activeTab.routineName}
+          routineType={activeTab.routineType as "PROCEDURE" | "FUNCTION"}
+        />
       ) : (
         <>
           <QueryToolbar />
