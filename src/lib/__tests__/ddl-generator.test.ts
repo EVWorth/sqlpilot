@@ -4,7 +4,6 @@ import {
   generateAlterTable,
   type TableDesignerConfig,
   type DesignerColumn,
-  type DesignerIndex,
   type DesignerForeignKey,
   type TableOptions,
 } from "../ddl-generator";

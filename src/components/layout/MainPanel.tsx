@@ -9,6 +9,7 @@ import { AdminPanel } from "../admin/AdminPanel";
 import { SchemaCompare } from "../compare/SchemaCompare";
 import { RoutineViewer } from "../routine/RoutineViewer";
 import { TableDesigner } from "../designer/TableDesigner";
+import { QueryBuilder } from "../querybuilder/QueryBuilder";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 
@@ -43,6 +44,7 @@ export function MainPanel() {
   const isCompare = activeTab?.type === "compare";
   const isRoutine = activeTab?.type === "routine";
   const isDesigner = activeTab?.type === "designer";
+  const isQueryBuilder = activeTab?.type === "querybuilder";
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-primary)]">
@@ -56,6 +58,11 @@ export function MainPanel() {
           connectionId={activeTab.connectionId}
           database={activeTab.database}
           tableName={activeTab.tableName}
+        />
+      ) : isQueryBuilder && activeTab?.connectionId && activeTab?.database ? (
+        <QueryBuilder
+          connectionId={activeTab.connectionId}
+          database={activeTab.database}
         />
       ) : isRoutine && activeTab?.connectionId && activeTab?.database && activeTab?.routineName && activeTab?.routineType ? (
         <RoutineViewer

@@ -17,7 +17,6 @@ import {
   generateSQL,
   generateAlias,
   getAllColumnRefs,
-  getColumnRef,
   WHERE_OPERATORS,
   AGGREGATE_FUNCTIONS,
   CARD_WIDTH,
@@ -32,7 +31,7 @@ import {
   type AggregateFunction,
   type QueryBuilderState,
 } from "../../lib/query-builder-engine";
-import type { QueryResult, ColumnInfo } from "../../types";
+import type { QueryResult } from "../../types";
 
 interface QueryBuilderProps {
   connectionId: string;
