@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useRef } from "react";
 import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
-import type { editor, IDisposable } from "monaco-editor";
+import type { editor, IDisposable, languages, CancellationToken } from "monaco-editor";
 import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
+import { api } from "../../lib/tauri-api";
 
 export function SQLEditor() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const providerRef = useRef<IDisposable | null>(null);
+  const inlineProviderRef = useRef<IDisposable | null>(null);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
@@ -58,7 +60,7 @@ export function SQLEditor() {
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMount: OnMount = useCallback(
-    (editor) => {
+    (editor, monacoInstance) => {
       editorRef.current = editor;
       setEditorInstance(editor);
 
@@ -135,9 +137,79 @@ export function SQLEditor() {
           }
         },
       });
+
+      // Register inline completions provider for AI ghost text
+      inlineProviderRef.current?.dispose();
+      inlineProviderRef.current =
+        monacoInstance.languages.registerInlineCompletionsProvider("sql", {
+          provideInlineCompletions: async (
+            model: editor.ITextModel,
+            position: { lineNumber: number; column: number },
+            _context: languages.InlineCompletionContext,
+            token: CancellationToken,
+          ) => {
+            const connectionId =
+              useConnectionStore.getState().selectedConnectionId;
+            if (!connectionId) return { items: [] };
+
+            const textBeforeCursor = model.getValueInRange({
+              startLineNumber: 1,
+              startColumn: 1,
+              endLineNumber: position.lineNumber,
+              endColumn: position.column,
+            });
+
+            if (textBeforeCursor.trim().length < 5) return { items: [] };
+
+            // Debounce: wait before requesting
+            await new Promise((resolve) => setTimeout(resolve, 500));
+            if (token.isCancellationRequested) return { items: [] };
+
+            try {
+              const currentTab = useEditorStore
+                .getState()
+                .tabs.find(
+                  (t) => t.id === useEditorStore.getState().activeTabId,
+                );
+              const completion = await api.aiGenerateSql(
+                textBeforeCursor,
+                connectionId,
+                currentTab?.database,
+              );
+
+              if (token.isCancellationRequested) return { items: [] };
+              if (!completion?.trim()) return { items: [] };
+
+              return {
+                items: [
+                  {
+                    insertText: completion,
+                    range: {
+                      startLineNumber: position.lineNumber,
+                      startColumn: position.column,
+                      endLineNumber: position.lineNumber,
+                      endColumn: position.column,
+                    },
+                  },
+                ],
+              };
+            } catch {
+              return { items: [] };
+            }
+          },
+          freeInlineCompletions() {},
+        });
     },
     [setEditorInstance],
   );
+
+  // Clean up inline provider on unmount
+  useEffect(() => {
+    return () => {
+      inlineProviderRef.current?.dispose();
+      inlineProviderRef.current = null;
+    };
+  }, []);
 
   if (!activeTab) {
     return (
@@ -174,6 +246,7 @@ export function SQLEditor() {
           showKeywords: true,
           showSnippets: true,
         },
+        inlineSuggest: { enabled: true },
         padding: { top: 8, bottom: 8 },
       }}
     />

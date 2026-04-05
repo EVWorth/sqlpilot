@@ -57,6 +57,7 @@ pub fn run() {
     let executor = QueryExecutor::new(manager.clone());
     let inspector = SchemaInspector::new(manager.clone());
     let admin = AdminService::new(manager.clone());
+    let ai = mas_ai::AiService::new(manager.clone());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -66,6 +67,7 @@ pub fn run() {
             query_executor: executor,
             schema_inspector: inspector,
             admin_service: admin,
+            ai_service: ai,
         })
         .invoke_handler(tauri::generate_handler![
             commands::save_connection_profile,
@@ -93,6 +95,13 @@ pub fn run() {
             commands::kill_process,
             commands::read_file_contents,
             commands::pick_file,
+            commands::ai::ai_chat,
+            commands::ai::ai_generate_sql,
+            commands::ai::ai_explain_query,
+            commands::ai::ai_optimize_query,
+            commands::ai::ai_fix_error,
+            commands::ai::ai_get_status,
+            commands::ai::ai_set_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

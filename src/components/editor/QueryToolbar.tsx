@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from "react";
-import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown, Star } from "lucide-react";
+import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown, Star, MessageSquare, Zap } from "lucide-react";
 import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { useAiStore } from "../../stores/aiStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 
 export function QueryToolbar() {
@@ -235,6 +236,50 @@ export function QueryToolbar() {
       >
         <Star className="h-3 w-3" />
         Save
+      </button>
+
+      <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
+
+      <button
+        onClick={async () => {
+          const sql = getCurrentSql();
+          if (!sql.trim()) return;
+          try {
+            const result = await useAiStore.getState().explainQuery(sql);
+            useAiStore.getState().addAssistantMessage(result);
+          } catch {
+            // silently fail if AI unavailable
+          }
+        }}
+        disabled={!activeTab?.content?.trim()}
+        title="Explain Query with AI"
+        className={toolbarBtnClass}
+      >
+        <MessageSquare className="h-3 w-3" />
+        AI Explain
+      </button>
+
+      <button
+        onClick={async () => {
+          const sql = getCurrentSql();
+          if (!sql.trim() || !selectedConnectionId) return;
+          try {
+            const result = await useAiStore.getState().optimizeQuery(
+              sql,
+              selectedConnectionId,
+              activeTab?.database,
+            );
+            useAiStore.getState().addAssistantMessage(result);
+          } catch {
+            // silently fail if AI unavailable
+          }
+        }}
+        disabled={!activeTab?.content?.trim() || !selectedConnectionId}
+        title="Optimize Query with AI"
+        className={toolbarBtnClass}
+      >
+        <Zap className="h-3 w-3" />
+        AI Optimize
       </button>
 
       <div className="flex-1" />

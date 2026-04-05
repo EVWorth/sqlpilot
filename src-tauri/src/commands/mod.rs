@@ -1,3 +1,5 @@
+pub mod ai;
+
 use mas_core::connection::{ConnectionManager, ConnectionStore};
 use mas_core::models::{ConnectionProfile, ConnectionInfo, TestConnectionResult, QueryResult};
 use mas_core::query::QueryExecutor;
@@ -14,6 +16,7 @@ pub struct AppState {
     pub query_executor: QueryExecutor,
     pub schema_inspector: SchemaInspector,
     pub admin_service: AdminService,
+    pub ai_service: mas_ai::AiService,
 }
 
 // Connection commands

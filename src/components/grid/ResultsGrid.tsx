@@ -21,6 +21,7 @@ import {
   ClipboardList,
   ClipboardCopy,
   Trash2,
+  Sparkles,
 } from "lucide-react";
 import { api } from "../../lib/tauri-api";
 import type { SqlValue } from "../../types";
@@ -37,6 +38,7 @@ import {
 } from "../../lib/sql-generator";
 import { useEditorStore } from "../../stores/editorStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useAiStore } from "../../stores/aiStore";
 
 function downloadBlob(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -386,6 +388,23 @@ export function ResultsGrid() {
   }
 
   if (error) {
+    const handleFixWithAI = async () => {
+      const editorTab = useEditorStore.getState().tabs.find(
+        (t) => t.id === useEditorStore.getState().activeTabId,
+      );
+      const sql = editorTab?.content ?? "";
+      if (!sql.trim()) return;
+      try {
+        const fixedSql = await useAiStore.getState().fixError(sql, error);
+        const editorInstance = useEditorStore.getState().editorInstance;
+        if (editorInstance) {
+          editorInstance.getModel()?.setValue(fixedSql);
+        }
+      } catch {
+        // silently fail if AI unavailable
+      }
+    };
+
     return (
       <div className="flex h-full items-center justify-center gap-2 p-4">
         <div className="max-w-lg rounded border border-red-800 bg-red-900/20 p-4">
@@ -396,6 +415,13 @@ export function ResultsGrid() {
           <pre className="mt-2 whitespace-pre-wrap text-xs text-red-300">
             {error}
           </pre>
+          <button
+            onClick={handleFixWithAI}
+            className="mt-3 flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 transition-colors"
+          >
+            <Sparkles className="h-3 w-3" />
+            Fix with AI
+          </button>
         </div>
       </div>
     );

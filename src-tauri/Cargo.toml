@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/mas-core", "crates/mas-export", "crates/mas-admin"]
+members = [".", "crates/mas-core", "crates/mas-export", "crates/mas-admin", "crates/mas-ai"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -16,6 +16,9 @@ uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 tauri = { version = "2", features = [] }
+reqwest = { version = "0.12", features = ["json", "stream"] }
+async-trait = "0.1"
+futures = "0.3"
 
 [package]
 name = "mysql-ai-studio"
@@ -38,6 +41,7 @@ tracing-appender = { workspace = true }
 mas-core = { path = "crates/mas-core" }
 mas-export = { path = "crates/mas-export" }
 mas-admin = { path = "crates/mas-admin" }
+mas-ai = { path = "crates/mas-ai" }
 dirs = "5"
 rfd = "0.15"
 
