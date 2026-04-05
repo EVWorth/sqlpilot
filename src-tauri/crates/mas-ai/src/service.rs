@@ -11,7 +11,7 @@ use crate::prompts;
 use crate::provider::ProviderRouter;
 
 pub struct AiService {
-    provider_router: RwLock<ProviderRouter>,
+    provider_router: Arc<RwLock<ProviderRouter>>,
     conversation_manager: RwLock<ConversationManager>,
     schema_inspector: Arc<SchemaInspector>,
 }
@@ -22,7 +22,7 @@ impl AiService {
     ) -> Self {
         let schema_inspector = Arc::new(SchemaInspector::new(connection_manager));
         Self {
-            provider_router: RwLock::new(ProviderRouter::new()),
+            provider_router: Arc::new(RwLock::new(ProviderRouter::new())),
             conversation_manager: RwLock::new(ConversationManager::new()),
             schema_inspector,
         }
@@ -80,51 +80,39 @@ impl AiService {
         let mut full_response = String::new();
         let (tx, mut rx) = mpsc::channel::<String>(256);
 
-        // Stream in a separate task so we can forward chunks concurrently.
-        // We must not hold the RwLock guard across the spawn boundary, so
-        // we perform the entire stream_chat call inside the spawned future.
-        let provider_router = &self.provider_router;
-        let stream_handle = {
-            let messages_clone = messages.clone();
-            let options_clone = options.clone();
-            // Acquire lock and perform streaming within a single async block
-            // that we drive concurrently with the recv loop below.
-            async move {
-                let router = provider_router.read().await;
-                router.stream_chat(messages_clone, &options_clone, tx).await
-            }
-        };
+        // Clone the Arc so the spawned task is 'static.
+        let router_arc = Arc::clone(&self.provider_router);
+        let messages_clone = messages.clone();
+        let options_clone = options.clone();
 
-        // Drive both: the streaming producer and the chunk consumer
-        let stream_future = tokio::pin!(stream_handle);
-        let mut stream_done = false;
-        let mut stream_error: Option<AiError> = None;
+        let stream_task = tokio::spawn(async move {
+            let router = router_arc.read().await;
+            router
+                .stream_chat(messages_clone, &options_clone, tx)
+                .await
+        });
 
-        loop {
-            tokio::select! {
-                result = &mut stream_future, if !stream_done => {
-                    stream_done = true;
-                    if let Err(e) = result {
-                        stream_error = Some(e);
-                    }
-                }
-                chunk = rx.recv() => {
-                    match chunk {
-                        Some(delta) => {
-                            full_response.push_str(&delta);
-                            let _ = sender.send(delta).await;
-                        }
-                        None => break,
-                    }
-                }
-            }
+        // Receive chunks and forward to the caller's sender
+        while let Some(delta) = rx.recv().await {
+            full_response.push_str(&delta);
+            let _ = sender.send(delta).await;
         }
 
-        if let Some(e) = stream_error {
-            if full_response.is_empty() {
-                return Err(e);
+        // Check for streaming errors
+        match stream_task.await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => {
+                if full_response.is_empty() {
+                    return Err(e);
+                }
+                tracing::warn!(error = %e, "Stream ended with error but partial content received");
             }
-            tracing::warn!(error = %e, "Stream ended with error but partial content received");
+            Err(e) => {
+                return Err(AiError::StreamError(format!(
+                    "Stream task panicked: {}",
+                    e
+                )));
+            }
         }
 
         // Store assistant response
