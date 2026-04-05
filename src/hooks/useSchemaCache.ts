@@ -63,6 +63,12 @@ export const useSchemaCache = create<SchemaCache>((set, get) => ({
       const dbInfos = await api.getDatabases(connectionId);
       const names = dbInfos.map((d) => d.name);
       set({ databases: names, loading: false });
+
+      // Eagerly pre-fetch tables for all databases so autocomplete works immediately
+      for (const db of names) {
+        get().fetchTables(connectionId, db);
+      }
+
       return names;
     } catch {
       set({ loading: false });

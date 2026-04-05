@@ -188,6 +188,12 @@ export function SQLEditor() {
         suggest: {
           showKeywords: true,
           showSnippets: true,
+          showWords: false,
+        },
+        quickSuggestions: {
+          other: true,
+          strings: true,
+          comments: false,
         },
         inlineSuggest: { enabled: true },
         padding: { top: 8, bottom: 8 },
