@@ -241,15 +241,15 @@ export function QueryToolbar() {
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 
       <button
-        onClick={async () => {
+        onClick={() => {
           const sql = getCurrentSql();
           if (!sql.trim()) return;
-          try {
-            const result = await useAiStore.getState().explainQuery(sql);
-            useAiStore.getState().addAssistantMessage(result);
-          } catch {
-            // silently fail if AI unavailable
-          }
+          const store = useAiStore.getState();
+          store.sendMessage(
+            `Explain this SQL query:\n\`\`\`sql\n${sql}\n\`\`\``,
+            selectedConnectionId ?? undefined,
+            activeTab?.database,
+          );
         }}
         disabled={!activeTab?.content?.trim()}
         title="Explain Query with AI"
@@ -260,19 +260,15 @@ export function QueryToolbar() {
       </button>
 
       <button
-        onClick={async () => {
+        onClick={() => {
           const sql = getCurrentSql();
           if (!sql.trim() || !selectedConnectionId) return;
-          try {
-            const result = await useAiStore.getState().optimizeQuery(
-              sql,
-              selectedConnectionId,
-              activeTab?.database,
-            );
-            useAiStore.getState().addAssistantMessage(result);
-          } catch {
-            // silently fail if AI unavailable
-          }
+          const store = useAiStore.getState();
+          store.sendMessage(
+            `Optimize this SQL query for better performance:\n\`\`\`sql\n${sql}\n\`\`\``,
+            selectedConnectionId,
+            activeTab?.database,
+          );
         }}
         disabled={!activeTab?.content?.trim() || !selectedConnectionId}
         title="Optimize Query with AI"

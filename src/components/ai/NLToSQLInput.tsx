@@ -1,15 +1,13 @@
 import { useState, useCallback } from "react";
 import { Sparkles, Loader2 } from "lucide-react";
 import { useAiStore } from "../../stores/aiStore";
-import { useEditorStore } from "../../stores/editorStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 
 export function NLToSQLInput() {
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  const generateSql = useAiStore((s) => s.generateSql);
+  const sendMessage = useAiStore((s) => s.sendMessage);
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
@@ -21,46 +19,17 @@ export function NLToSQLInput() {
   const handleGenerate = useCallback(async () => {
     if (!prompt.trim() || loading) return;
     setLoading(true);
-    setError(null);
     try {
-      const sql = await generateSql(
-        prompt,
+      await sendMessage(
+        `Generate a SQL query: ${prompt}`,
         selectedConnectionId ?? undefined,
         activeConnection?.database ?? undefined,
       );
-      // Insert into editor
-      const editor = useEditorStore.getState().editorInstance;
-      if (editor) {
-        const position = editor.getPosition();
-        if (position) {
-          editor.executeEdits("ai-nl-to-sql", [
-            {
-              range: {
-                startLineNumber: position.lineNumber,
-                startColumn: position.column,
-                endLineNumber: position.lineNumber,
-                endColumn: position.column,
-              },
-              text: sql + "\n",
-            },
-          ]);
-          editor.focus();
-        }
-      } else {
-        // No editor instance — open a new tab with the SQL
-        const tabId = useEditorStore.getState().addTab(
-          selectedConnectionId ?? undefined,
-          activeConnection?.database ?? undefined,
-        );
-        useEditorStore.getState().updateTabContent(tabId, sql);
-      }
       setPrompt("");
-    } catch (e) {
-      setError(String(e));
     } finally {
       setLoading(false);
     }
-  }, [prompt, loading, generateSql, selectedConnectionId, activeConnection]);
+  }, [prompt, loading, sendMessage, selectedConnectionId, activeConnection]);
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -96,9 +65,6 @@ export function NLToSQLInput() {
           )}
         </button>
       </div>
-      {error && (
-        <p className="mt-0.5 text-[9px] text-red-400 truncate">{error}</p>
-      )}
     </div>
   );
 }

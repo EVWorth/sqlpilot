@@ -37,3 +37,4 @@ test-results/
 *.deb
 *.rpm
 src-tauri/gen/
+src-tauri/query-results-*.csv

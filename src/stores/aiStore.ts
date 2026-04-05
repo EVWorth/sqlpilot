@@ -6,22 +6,27 @@ import type {
   Conversation,
   AiStatus,
   AiConfig,
-  AiStreamChunk,
+  AiMode,
+  AiStreamEvent,
+  ToolExecution,
 } from "../types";
 
 interface AiState {
   // Status
   status: AiStatus | null;
   isStreaming: boolean;
+  mode: AiMode;
 
   // Conversations
   conversations: Conversation[];
   activeConversationId: string | null;
   streamingContent: string;
+  activeToolCalls: Map<string, ToolExecution>;
 
   // Actions
   checkStatus: () => Promise<void>;
   setConfig: (config: AiConfig) => Promise<void>;
+  setMode: (mode: AiMode) => void;
 
   // Chat
   sendMessage: (
@@ -29,23 +34,10 @@ interface AiState {
     connectionId?: string,
     database?: string,
   ) => Promise<void>;
+  cancelChat: () => Promise<void>;
   newConversation: () => string;
   setActiveConversation: (id: string | null) => void;
   clearConversation: (id: string) => void;
-
-  // Quick actions (non-chat)
-  generateSql: (
-    prompt: string,
-    connectionId?: string,
-    database?: string,
-  ) => Promise<string>;
-  explainQuery: (sql: string) => Promise<string>;
-  optimizeQuery: (
-    sql: string,
-    connectionId?: string,
-    database?: string,
-  ) => Promise<string>;
-  fixError: (sql: string, errorMessage: string) => Promise<string>;
 
   // Add result to active conversation as an assistant message
   addAssistantMessage: (content: string) => void;
@@ -58,9 +50,11 @@ function generateId(): string {
 export const useAiStore = create<AiState>((set, get) => ({
   status: null,
   isStreaming: false,
+  mode: "ask",
   conversations: [],
   activeConversationId: null,
   streamingContent: "",
+  activeToolCalls: new Map(),
 
   checkStatus: async () => {
     try {
@@ -77,6 +71,8 @@ export const useAiStore = create<AiState>((set, get) => ({
     await api.aiSetConfig(config);
     await get().checkStatus();
   },
+
+  setMode: (mode: AiMode) => set({ mode }),
 
   newConversation: () => {
     const id = generateId();
@@ -112,6 +108,7 @@ export const useAiStore = create<AiState>((set, get) => ({
     }
 
     const userMessage: ChatMessage = { role: "user", content: message };
+    const mode = get().mode;
 
     // Add user message to conversation
     set((state) => ({
@@ -129,55 +126,117 @@ export const useAiStore = create<AiState>((set, get) => ({
       ),
       isStreaming: true,
       streamingContent: "",
+      activeToolCalls: new Map(),
     }));
 
     let unlisten: UnlistenFn | null = null;
 
     try {
-      // Listen for streaming chunks
-      unlisten = await listen<AiStreamChunk>("ai:chunk", (event) => {
-        const chunk = event.payload;
-        if (chunk.conversation_id !== conversationId) return;
+      // Listen for structured AI events
+      unlisten = await listen<AiStreamEvent>("ai:event", (event) => {
+        const ev = event.payload;
+        if (ev.conversation_id !== conversationId) return;
 
-        if (chunk.done) {
-          // Finalize: add accumulated content as assistant message
-          const finalContent = get().streamingContent + chunk.delta;
-          set((state) => ({
-            conversations: state.conversations.map((c) =>
-              c.id === conversationId
-                ? {
-                    ...c,
-                    messages: [
-                      ...c.messages,
-                      { role: "assistant" as const, content: finalContent },
-                    ],
-                  }
-                : c,
-            ),
-            isStreaming: false,
-            streamingContent: "",
-          }));
-        } else {
-          set((state) => ({
-            streamingContent: state.streamingContent + chunk.delta,
-          }));
+        switch (ev.type) {
+          case "text_delta":
+            set((state) => ({
+              streamingContent: state.streamingContent + ev.content,
+            }));
+            break;
+
+          case "tool_start": {
+            set((state) => {
+              const newCalls = new Map(state.activeToolCalls);
+              newCalls.set(ev.tool_call_id, {
+                id: ev.tool_call_id,
+                name: ev.tool_name,
+                status: "running",
+              });
+              return { activeToolCalls: newCalls };
+            });
+            break;
+          }
+
+          case "tool_complete": {
+            set((state) => {
+              const newCalls = new Map(state.activeToolCalls);
+              newCalls.set(ev.tool_call_id, {
+                id: ev.tool_call_id,
+                name: ev.tool_name || newCalls.get(ev.tool_call_id)?.name || "unknown",
+                status: ev.success ? "done" : "error",
+                result: ev.result,
+              });
+              return { activeToolCalls: newCalls };
+            });
+            break;
+          }
+
+          case "idle": {
+            // Finalize: add accumulated content as assistant message with tool calls
+            const finalContent = get().streamingContent;
+            const toolCalls = Array.from(get().activeToolCalls.values());
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c.id === conversationId
+                  ? {
+                      ...c,
+                      messages: [
+                        ...c.messages,
+                        {
+                          role: "assistant" as const,
+                          content: finalContent,
+                          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                        },
+                      ],
+                    }
+                  : c,
+              ),
+              isStreaming: false,
+              streamingContent: "",
+              activeToolCalls: new Map(),
+            }));
+            break;
+          }
+
+          case "error": {
+            set((state) => ({
+              conversations: state.conversations.map((c) =>
+                c.id === conversationId
+                  ? {
+                      ...c,
+                      messages: [
+                        ...c.messages,
+                        {
+                          role: "assistant" as const,
+                          content: `Error: ${ev.message}`,
+                        },
+                      ],
+                    }
+                  : c,
+              ),
+              isStreaming: false,
+              streamingContent: "",
+              activeToolCalls: new Map(),
+            }));
+            break;
+          }
         }
       });
 
-      // Call the backend - it returns the full response when streaming is done
+      // Call the backend - it returns the full response when done
       const fullResponse = await api.aiChat(
         message,
         conversationId,
+        mode,
         connectionId,
         database,
       );
 
-      // If streaming events didn't fire (backend returned directly without events),
-      // add the response as an assistant message
+      // If streaming events didn't fire (or idle didn't fire), finalize
       const state = get();
-      const conv = state.conversations.find((c) => c.id === conversationId);
-      const lastMsg = conv?.messages[conv.messages.length - 1];
-      if (lastMsg?.role !== "assistant" || state.isStreaming) {
+      if (state.isStreaming) {
+        const content = state.streamingContent || fullResponse;
+        const toolCalls = Array.from(state.activeToolCalls.values());
         set((s) => ({
           conversations: s.conversations.map((c) =>
             c.id === conversationId
@@ -185,17 +244,21 @@ export const useAiStore = create<AiState>((set, get) => ({
                   ...c,
                   messages: [
                     ...c.messages,
-                    { role: "assistant" as const, content: fullResponse },
+                    {
+                      role: "assistant" as const,
+                      content,
+                      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                    },
                   ],
                 }
               : c,
           ),
           isStreaming: false,
           streamingContent: "",
+          activeToolCalls: new Map(),
         }));
       }
     } catch (e) {
-      // Add error as assistant message
       set((state) => ({
         conversations: state.conversations.map((c) =>
           c.id === conversationId
@@ -213,10 +276,22 @@ export const useAiStore = create<AiState>((set, get) => ({
         ),
         isStreaming: false,
         streamingContent: "",
+        activeToolCalls: new Map(),
       }));
     } finally {
       unlisten?.();
     }
+  },
+
+  cancelChat: async () => {
+    const conversationId = get().activeConversationId;
+    if (!conversationId) return;
+    try {
+      await api.aiCancel(conversationId);
+    } catch {
+      // ignore cancel errors
+    }
+    set({ isStreaming: false, streamingContent: "", activeToolCalls: new Map() });
   },
 
   addAssistantMessage: (content: string) => {
@@ -237,37 +312,5 @@ export const useAiStore = create<AiState>((set, get) => ({
           : c,
       ),
     }));
-  },
-
-  generateSql: async (prompt, connectionId, database) => {
-    try {
-      return await api.aiGenerateSql(prompt, connectionId, database);
-    } catch (e) {
-      throw new Error(`Failed to generate SQL: ${String(e)}`);
-    }
-  },
-
-  explainQuery: async (sql) => {
-    try {
-      return await api.aiExplainQuery(sql);
-    } catch (e) {
-      throw new Error(`Failed to explain query: ${String(e)}`);
-    }
-  },
-
-  optimizeQuery: async (sql, connectionId, database) => {
-    try {
-      return await api.aiOptimizeQuery(sql, connectionId, database);
-    } catch (e) {
-      throw new Error(`Failed to optimize query: ${String(e)}`);
-    }
-  },
-
-  fixError: async (sql, errorMessage) => {
-    try {
-      return await api.aiFixError(sql, errorMessage);
-    } catch (e) {
-      throw new Error(`Failed to fix error: ${String(e)}`);
-    }
   },
 }));

@@ -161,6 +161,8 @@ export interface EditorTab {
 }
 
 // AI types
+export type AiMode = "ask" | "agent" | "plan";
+
 export interface AiStatus {
   provider: string;
   available: boolean;
@@ -168,20 +170,28 @@ export interface AiStatus {
 }
 
 export interface AiConfig {
-  ollama_url?: string;
-  ollama_model?: string;
-  copilot_token?: string;
+  model?: string;
 }
 
-export interface AiStreamChunk {
-  conversation_id: string;
-  delta: string;
-  done: boolean;
+export type AiStreamEvent =
+  | { type: "text_delta"; conversation_id: string; content: string }
+  | { type: "tool_start"; conversation_id: string; tool_name: string; tool_call_id: string }
+  | { type: "tool_complete"; conversation_id: string; tool_name: string; tool_call_id: string; result: string; success: boolean }
+  | { type: "permission_request"; conversation_id: string; tool_name: string; description: string }
+  | { type: "idle"; conversation_id: string }
+  | { type: "error"; conversation_id: string; message: string };
+
+export interface ToolExecution {
+  id: string;
+  name: string;
+  status: "running" | "done" | "error";
+  result?: string;
 }
 
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
+  toolCalls?: ToolExecution[];
 }
 
 export interface Conversation {

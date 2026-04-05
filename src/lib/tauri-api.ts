@@ -15,6 +15,7 @@ import type {
   ServerVariable,
   AiStatus,
   AiConfig,
+  AiMode,
 } from "../types";
 
 // In dev mode without Tauri, provide mock fallbacks
@@ -129,24 +130,15 @@ export const api = {
     tauriInvoke<string | null>("pick_save_file", { title, defaultName, filters }),
 
   // AI
-  aiChat: (message: string, conversationId: string, connectionId?: string, database?: string) =>
-    tauriInvoke<string>("ai_chat", { message, conversationId, connectionId, database }),
-
-  aiGenerateSql: (prompt: string, connectionId?: string, database?: string) =>
-    tauriInvoke<string>("ai_generate_sql", { prompt, connectionId, database }),
-
-  aiExplainQuery: (sql: string) =>
-    tauriInvoke<string>("ai_explain_query", { sql }),
-
-  aiOptimizeQuery: (sql: string, connectionId?: string, database?: string) =>
-    tauriInvoke<string>("ai_optimize_query", { sql, connectionId, database }),
-
-  aiFixError: (sql: string, errorMessage: string) =>
-    tauriInvoke<string>("ai_fix_error", { sql, errorMessage }),
+  aiChat: (message: string, conversationId: string, mode: AiMode, connectionId?: string, database?: string) =>
+    tauriInvoke<string>("ai_chat", { message, conversationId, mode, connectionId, database }),
 
   aiGetStatus: () =>
     tauriInvoke<AiStatus>("ai_get_status"),
 
   aiSetConfig: (config: AiConfig) =>
     tauriInvoke<void>("ai_set_config", { config }),
+
+  aiCancel: (conversationId: string) =>
+    tauriInvoke<void>("ai_cancel", { conversationId }),
 };

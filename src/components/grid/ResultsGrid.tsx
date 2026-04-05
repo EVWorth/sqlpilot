@@ -388,21 +388,15 @@ export function ResultsGrid() {
   }
 
   if (error) {
-    const handleFixWithAI = async () => {
+    const handleFixWithAI = () => {
       const editorTab = useEditorStore.getState().tabs.find(
         (t) => t.id === useEditorStore.getState().activeTabId,
       );
       const sql = editorTab?.content ?? "";
       if (!sql.trim()) return;
-      try {
-        const fixedSql = await useAiStore.getState().fixError(sql, error);
-        const editorInstance = useEditorStore.getState().editorInstance;
-        if (editorInstance) {
-          editorInstance.getModel()?.setValue(fixedSql);
-        }
-      } catch {
-        // silently fail if AI unavailable
-      }
+      useAiStore.getState().sendMessage(
+        `Fix this SQL query that produced an error:\n\nQuery:\n\`\`\`sql\n${sql}\n\`\`\`\n\nError:\n${error}`,
+      );
     };
 
     return (

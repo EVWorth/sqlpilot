@@ -3,10 +3,13 @@ import { Copy, Check, Play, FileInput } from "lucide-react";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { ToolCallBlock } from "./ToolCallBlock";
+import type { ToolExecution } from "../../types";
 
 interface ChatMessageProps {
   role: "system" | "user" | "assistant";
   content: string;
+  toolCalls?: ToolExecution[];
 }
 
 interface CodeBlock {
@@ -138,7 +141,7 @@ function SqlCodeBlock({ code }: { code: string }) {
   );
 }
 
-export function ChatMessageComponent({ role, content }: ChatMessageProps) {
+export function ChatMessageComponent({ role, content, toolCalls }: ChatMessageProps) {
   if (role === "user") {
     return (
       <div className="flex justify-end">
@@ -155,6 +158,14 @@ export function ChatMessageComponent({ role, content }: ChatMessageProps) {
   return (
     <div className="flex justify-start">
       <div className="max-w-[95%] rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-primary)]">
+        {/* Tool calls rendered before text */}
+        {toolCalls && toolCalls.length > 0 && (
+          <div className="mb-2">
+            {toolCalls.map((tool) => (
+              <ToolCallBlock key={tool.id} tool={tool} />
+            ))}
+          </div>
+        )}
         {blocks.map((block, i) => {
           if (block.type === "sql") {
             return <SqlCodeBlock key={i} code={block.content} />;

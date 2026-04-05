@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
-import type { editor, IDisposable, languages, CancellationToken } from "monaco-editor";
+import type { editor, IDisposable } from "monaco-editor";
 import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
@@ -8,7 +8,6 @@ import { useConnectionStore } from "../../stores/connectionStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
-import { api } from "../../lib/tauri-api";
 
 export function SQLEditor() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -62,7 +61,7 @@ export function SQLEditor() {
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleMount: OnMount = useCallback(
-    (editor, monacoInstance) => {
+    (editor, _monacoInstance) => {
       editorRef.current = editor;
       setEditorInstance(editor);
 
@@ -140,67 +139,9 @@ export function SQLEditor() {
         },
       });
 
-      // Register inline completions provider for AI ghost text
+      // AI inline completions - disabled pending Copilot SDK streaming completion support
       inlineProviderRef.current?.dispose();
-      inlineProviderRef.current =
-        monacoInstance.languages.registerInlineCompletionsProvider("sql", {
-          provideInlineCompletions: async (
-            model: editor.ITextModel,
-            position: { lineNumber: number; column: number },
-            _context: languages.InlineCompletionContext,
-            token: CancellationToken,
-          ) => {
-            const connectionId =
-              useConnectionStore.getState().selectedConnectionId;
-            if (!connectionId) return { items: [] };
-
-            const textBeforeCursor = model.getValueInRange({
-              startLineNumber: 1,
-              startColumn: 1,
-              endLineNumber: position.lineNumber,
-              endColumn: position.column,
-            });
-
-            if (textBeforeCursor.trim().length < 5) return { items: [] };
-
-            // Debounce: wait before requesting
-            await new Promise((resolve) => setTimeout(resolve, 500));
-            if (token.isCancellationRequested) return { items: [] };
-
-            try {
-              const currentTab = useEditorStore
-                .getState()
-                .tabs.find(
-                  (t) => t.id === useEditorStore.getState().activeTabId,
-                );
-              const completion = await api.aiGenerateSql(
-                textBeforeCursor,
-                connectionId,
-                currentTab?.database,
-              );
-
-              if (token.isCancellationRequested) return { items: [] };
-              if (!completion?.trim()) return { items: [] };
-
-              return {
-                items: [
-                  {
-                    insertText: completion,
-                    range: {
-                      startLineNumber: position.lineNumber,
-                      startColumn: position.column,
-                      endLineNumber: position.lineNumber,
-                      endColumn: position.column,
-                    },
-                  },
-                ],
-              };
-            } catch {
-              return { items: [] };
-            }
-          },
-          freeInlineCompletions() {},
-        });
+      inlineProviderRef.current = null;
     },
     [setEditorInstance],
   );
