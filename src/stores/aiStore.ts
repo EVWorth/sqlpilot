@@ -8,9 +8,12 @@ import type {
   AiConfig,
   AiMode,
   AiStreamEvent,
-  ToolExecution,
+  MessageSegment,
   PendingPermission,
 } from "../types";
+
+// Internal SDK tools that should not appear in the UI
+const HIDDEN_TOOLS = new Set(["report_intent"]);
 
 interface AiState {
   // Status
@@ -21,8 +24,7 @@ interface AiState {
   // Conversations
   conversations: Conversation[];
   activeConversationId: string | null;
-  streamingContent: string;
-  activeToolCalls: Map<string, ToolExecution>;
+  streamSegments: MessageSegment[];
   currentIntent: string | null;
   pendingPermission: PendingPermission | null;
 
@@ -57,8 +59,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   mode: "ask",
   conversations: [],
   activeConversationId: null,
-  streamingContent: "",
-  activeToolCalls: new Map(),
+  streamSegments: [],
   currentIntent: null,
   pendingPermission: null,
 
@@ -131,8 +132,7 @@ export const useAiStore = create<AiState>((set, get) => ({
           : c,
       ),
       isStreaming: true,
-      streamingContent: "",
-      activeToolCalls: new Map(),
+      streamSegments: [],
       currentIntent: null,
       pendingPermission: null,
     }));
@@ -140,47 +140,70 @@ export const useAiStore = create<AiState>((set, get) => ({
     let unlisten: UnlistenFn | null = null;
 
     try {
-      // Listen for structured AI events
+      // Listen for structured AI events — build an ordered timeline
       unlisten = await listen<AiStreamEvent>("ai:event", (event) => {
         const ev = event.payload;
         if (ev.conversation_id !== conversationId) return;
 
         switch (ev.type) {
-          case "text_delta":
-            set((state) => ({
-              streamingContent: state.streamingContent + ev.content,
-            }));
+          case "text_delta": {
+            // Append to last text segment, or create a new one
+            set((state) => {
+              const segs = [...state.streamSegments];
+              const last = segs[segs.length - 1];
+              if (last?.type === "text") {
+                segs[segs.length - 1] = { type: "text", content: last.content + ev.content };
+              } else {
+                segs.push({ type: "text", content: ev.content });
+              }
+              return { streamSegments: segs };
+            });
             break;
+          }
 
-          case "intent":
-            set({ currentIntent: ev.intent });
+          case "intent": {
+            set((state) => {
+              const segs = [...state.streamSegments];
+              segs.push({ type: "intent", intent: ev.intent });
+              return { streamSegments: segs, currentIntent: ev.intent };
+            });
             break;
+          }
 
           case "tool_start": {
+            if (HIDDEN_TOOLS.has(ev.tool_name)) break;
             set((state) => {
-              const newCalls = new Map(state.activeToolCalls);
-              newCalls.set(ev.tool_call_id, {
-                id: ev.tool_call_id,
-                name: ev.tool_name,
-                arguments: ev.arguments,
-                status: "running",
+              const segs = [...state.streamSegments];
+              segs.push({
+                type: "tool",
+                tool: {
+                  id: ev.tool_call_id,
+                  name: ev.tool_name,
+                  arguments: ev.arguments,
+                  status: "running",
+                },
               });
-              return { activeToolCalls: newCalls };
+              return { streamSegments: segs };
             });
             break;
           }
 
           case "tool_complete": {
             set((state) => {
-              const newCalls = new Map(state.activeToolCalls);
-              newCalls.set(ev.tool_call_id, {
-                id: ev.tool_call_id,
-                name: ev.tool_name || newCalls.get(ev.tool_call_id)?.name || "unknown",
-                arguments: newCalls.get(ev.tool_call_id)?.arguments,
-                status: ev.success ? "done" : "error",
-                result: ev.result,
+              const segs = state.streamSegments.map((seg) => {
+                if (seg.type === "tool" && seg.tool.id === ev.tool_call_id) {
+                  return {
+                    ...seg,
+                    tool: {
+                      ...seg.tool,
+                      status: (ev.success ? "done" : "error") as "done" | "error",
+                      result: ev.result,
+                    },
+                  };
+                }
+                return seg;
               });
-              return { activeToolCalls: newCalls };
+              return { streamSegments: segs };
             });
             break;
           }
@@ -197,9 +220,13 @@ export const useAiStore = create<AiState>((set, get) => ({
           }
 
           case "idle": {
-            // Finalize: add accumulated content as assistant message with tool calls
-            const finalContent = get().streamingContent;
-            const toolCalls = Array.from(get().activeToolCalls.values());
+            // Finalize: save ordered segments into the message
+            const segments = get().streamSegments;
+            const fullContent = segments
+              .filter((s): s is { type: "text"; content: string } => s.type === "text")
+              .map((s) => s.content)
+              .join("");
+
             set((state) => ({
               conversations: state.conversations.map((c) =>
                 c.id === conversationId
@@ -209,16 +236,15 @@ export const useAiStore = create<AiState>((set, get) => ({
                         ...c.messages,
                         {
                           role: "assistant" as const,
-                          content: finalContent,
-                          toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                          content: fullContent,
+                          segments: segments.length > 0 ? segments : undefined,
                         },
                       ],
                     }
                   : c,
               ),
               isStreaming: false,
-              streamingContent: "",
-              activeToolCalls: new Map(),
+              streamSegments: [],
               currentIntent: null,
               pendingPermission: null,
             }));
@@ -242,8 +268,7 @@ export const useAiStore = create<AiState>((set, get) => ({
                   : c,
               ),
               isStreaming: false,
-              streamingContent: "",
-              activeToolCalls: new Map(),
+              streamSegments: [],
               currentIntent: null,
               pendingPermission: null,
             }));
@@ -252,7 +277,7 @@ export const useAiStore = create<AiState>((set, get) => ({
         }
       });
 
-      // Call the backend - it returns the full response when done
+      // Call the backend — returns the full response when done
       const fullResponse = await api.aiChat(
         message,
         conversationId,
@@ -264,8 +289,13 @@ export const useAiStore = create<AiState>((set, get) => ({
       // If streaming events didn't fire (or idle didn't fire), finalize
       const state = get();
       if (state.isStreaming) {
-        const content = state.streamingContent || fullResponse;
-        const toolCalls = Array.from(state.activeToolCalls.values());
+        const segments = state.streamSegments;
+        const textContent = segments
+          .filter((s): s is { type: "text"; content: string } => s.type === "text")
+          .map((s) => s.content)
+          .join("");
+        const content = textContent || fullResponse;
+
         set((s) => ({
           conversations: s.conversations.map((c) =>
             c.id === conversationId
@@ -276,15 +306,14 @@ export const useAiStore = create<AiState>((set, get) => ({
                     {
                       role: "assistant" as const,
                       content,
-                      toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
+                      segments: segments.length > 0 ? segments : undefined,
                     },
                   ],
                 }
               : c,
           ),
           isStreaming: false,
-          streamingContent: "",
-          activeToolCalls: new Map(),
+          streamSegments: [],
           currentIntent: null,
           pendingPermission: null,
         }));
@@ -306,8 +335,7 @@ export const useAiStore = create<AiState>((set, get) => ({
             : c,
         ),
         isStreaming: false,
-        streamingContent: "",
-        activeToolCalls: new Map(),
+        streamSegments: [],
         currentIntent: null,
         pendingPermission: null,
       }));
@@ -336,7 +364,7 @@ export const useAiStore = create<AiState>((set, get) => ({
     } catch {
       // ignore cancel errors
     }
-    set({ isStreaming: false, streamingContent: "", activeToolCalls: new Map(), currentIntent: null, pendingPermission: null });
+    set({ isStreaming: false, streamSegments: [], currentIntent: null, pendingPermission: null });
   },
 
   addAssistantMessage: (content: string) => {

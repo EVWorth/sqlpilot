@@ -190,6 +190,11 @@ export interface ToolExecution {
   result?: string;
 }
 
+export type MessageSegment =
+  | { type: "text"; content: string }
+  | { type: "tool"; tool: ToolExecution }
+  | { type: "intent"; intent: string };
+
 export interface PendingPermission {
   requestId: string;
   toolName: string;
@@ -199,6 +204,7 @@ export interface PendingPermission {
 export interface ChatMessage {
   role: "system" | "user" | "assistant";
   content: string;
+  segments?: MessageSegment[];
   toolCalls?: ToolExecution[];
 }
 

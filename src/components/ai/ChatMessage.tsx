@@ -1,15 +1,16 @@
 import { useState, useCallback } from "react";
-import { Copy, Check, Play, FileInput } from "lucide-react";
+import { Copy, Check, Play, FileInput, Sparkles } from "lucide-react";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { ToolCallBlock } from "./ToolCallBlock";
-import type { ToolExecution } from "../../types";
+import type { ToolExecution, MessageSegment } from "../../types";
 
 interface ChatMessageProps {
   role: "system" | "user" | "assistant";
   content: string;
   toolCalls?: ToolExecution[];
+  segments?: MessageSegment[];
 }
 
 interface CodeBlock {
@@ -141,7 +142,7 @@ function SqlCodeBlock({ code }: { code: string }) {
   );
 }
 
-export function ChatMessageComponent({ role, content, toolCalls }: ChatMessageProps) {
+export function ChatMessageComponent({ role, content, toolCalls, segments }: ChatMessageProps) {
   if (role === "user") {
     return (
       <div className="flex justify-end">
@@ -152,7 +153,50 @@ export function ChatMessageComponent({ role, content, toolCalls }: ChatMessagePr
     );
   }
 
-  // Assistant message
+  // If we have ordered segments, render them inline
+  if (segments && segments.length > 0) {
+    return (
+      <div className="flex justify-start">
+        <div className="max-w-[95%] rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-primary)]">
+          {segments.map((seg, i) => {
+            switch (seg.type) {
+              case "intent":
+                return (
+                  <div key={`intent-${i}`} className="flex items-center gap-1.5 text-[10px] text-brand-400 italic my-1">
+                    <Sparkles className="h-3 w-3 shrink-0" />
+                    {seg.intent}
+                  </div>
+                );
+              case "tool":
+                return <ToolCallBlock key={seg.tool.id} tool={seg.tool} />;
+              case "text": {
+                const blocks = parseContent(seg.content);
+                return (
+                  <div key={`text-${i}`}>
+                    {blocks.map((block, j) => {
+                      if (block.type === "sql") {
+                        return <SqlCodeBlock key={j} code={block.content} />;
+                      }
+                      if (block.type === "code") {
+                        return (
+                          <pre key={j} className="my-1 overflow-x-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2 text-xs">
+                            <code>{block.content}</code>
+                          </pre>
+                        );
+                      }
+                      return <p key={j} className="whitespace-pre-wrap">{block.content}</p>;
+                    })}
+                  </div>
+                );
+              }
+            }
+          })}
+        </div>
+      </div>
+    );
+  }
+
+  // Legacy fallback: content + toolCalls
   const blocks = parseContent(content);
 
   return (

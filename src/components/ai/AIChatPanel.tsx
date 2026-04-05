@@ -28,10 +28,8 @@ export function AIChatPanel({ onClose }: AIChatPanelProps) {
   const isStreaming = useAiStore((s) => s.isStreaming);
   const conversations = useAiStore((s) => s.conversations);
   const activeConversationId = useAiStore((s) => s.activeConversationId);
-  const streamingContent = useAiStore((s) => s.streamingContent);
-  const activeToolCalls = useAiStore((s) => s.activeToolCalls);
+  const streamSegments = useAiStore((s) => s.streamSegments);
   const mode = useAiStore((s) => s.mode);
-  const currentIntent = useAiStore((s) => s.currentIntent);
   const pendingPermission = useAiStore((s) => s.pendingPermission);
   const sendMessage = useAiStore((s) => s.sendMessage);
   const cancelChat = useAiStore((s) => s.cancelChat);
@@ -60,7 +58,7 @@ export function AIChatPanel({ onClose }: AIChatPanelProps) {
   // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [activeConversation?.messages, streamingContent, activeToolCalls]);
+  }, [activeConversation?.messages, streamSegments, pendingPermission]);
 
   const handleSend = useCallback(async () => {
     const msg = input.trim();
@@ -84,8 +82,6 @@ export function AIChatPanel({ onClose }: AIChatPanelProps) {
     setInput("");
     inputRef.current?.focus();
   }, [newConversation]);
-
-  const liveToolCalls = Array.from(activeToolCalls.values());
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-primary)]">
@@ -160,26 +156,46 @@ export function AIChatPanel({ onClose }: AIChatPanelProps) {
                 role={msg.role}
                 content={msg.content}
                 toolCalls={msg.toolCalls}
+                segments={msg.segments}
               />
             ))}
-            {/* Live streaming: intent, tool calls + text */}
+            {/* Live streaming: ordered timeline of segments */}
             {isStreaming && (
               <>
-                {currentIntent && (
-                  <div className="flex items-center gap-1.5 text-[10px] text-brand-400 italic px-1">
-                    <Sparkles className="h-3 w-3 shrink-0" />
-                    {currentIntent}
-                  </div>
-                )}
-                {liveToolCalls.length > 0 && (
+                {streamSegments.length > 0 ? (
                   <div className="flex justify-start">
-                    <div className="max-w-[95%] rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-2">
-                      {liveToolCalls.map((tool) => (
-                        <ToolCallBlock key={tool.id} tool={tool} />
-                      ))}
+                    <div className="max-w-[95%] rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-2 text-xs leading-relaxed text-[var(--color-text-primary)]">
+                      {streamSegments.map((seg, i) => {
+                        switch (seg.type) {
+                          case "intent":
+                            return (
+                              <div key={`intent-${i}`} className="flex items-center gap-1.5 text-[10px] text-brand-400 italic my-1">
+                                <Sparkles className="h-3 w-3 shrink-0" />
+                                {seg.intent}
+                              </div>
+                            );
+                          case "tool":
+                            return <ToolCallBlock key={seg.tool.id} tool={seg.tool} />;
+                          case "text":
+                            return (
+                              <p key={`text-${i}`} className="whitespace-pre-wrap">
+                                {seg.content}
+                              </p>
+                            );
+                        }
+                      })}
+                      {/* Typing indicator */}
+                      <div className="flex items-center gap-1 mt-1">
+                        <Loader2 className="h-2.5 w-2.5 animate-spin text-[var(--color-text-muted)]" />
+                      </div>
                     </div>
                   </div>
-                )}
+                ) : !pendingPermission ? (
+                  <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Thinking...
+                  </div>
+                ) : null}
                 {pendingPermission && (
                   <div className="mx-1 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
                     <div className="flex items-center gap-2 mb-1.5">
@@ -210,17 +226,6 @@ export function AIChatPanel({ onClose }: AIChatPanelProps) {
                     </div>
                   </div>
                 )}
-                {streamingContent ? (
-                  <ChatMessageComponent
-                    role="assistant"
-                    content={streamingContent}
-                  />
-                ) : liveToolCalls.length === 0 && !pendingPermission ? (
-                  <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Thinking...
-                  </div>
-                ) : null}
               </>
             )}
           </div>
