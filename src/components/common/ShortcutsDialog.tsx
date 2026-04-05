@@ -19,6 +19,7 @@ const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
       { keys: "Ctrl+F", description: "Find in editor" },
       { keys: "Ctrl+H", description: "Find & Replace" },
       { keys: "Ctrl+Shift+F", description: "Format SQL" },
+      { keys: "Ctrl+S", description: "Save as favorite" },
     ],
   },
   {
@@ -27,6 +28,8 @@ const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
       { keys: "Ctrl+N", description: "New query tab" },
       { keys: "Ctrl+T", description: "New query tab" },
       { keys: "Ctrl+W", description: "Close active tab" },
+      { keys: "Ctrl+Tab", description: "Next tab" },
+      { keys: "Ctrl+Shift+Tab", description: "Previous tab" },
       { keys: "Ctrl+Shift+C", description: "Toggle sidebar" },
     ],
   },

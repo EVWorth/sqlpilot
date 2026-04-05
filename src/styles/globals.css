@@ -62,4 +62,11 @@
   .animate-fade-out {
     animation: fade-out 2.5s ease-out forwards;
   }
+  .scrollbar-none {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
 }

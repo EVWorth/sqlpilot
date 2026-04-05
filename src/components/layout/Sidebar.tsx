@@ -18,14 +18,14 @@ import {
   Cog,
   FunctionSquare,
   Zap,
-  FolderClosed,
-  FolderOpen,
+  Star,
 } from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
 import { QueryHistory } from "../history/QueryHistory";
+import { QueryFavorites } from "../favorites/QueryFavorites";
 import { cn } from "../../lib/utils";
 import { api } from "../../lib/tauri-api";
 import { useContextMenu } from "../../hooks/useContextMenu";
@@ -34,6 +34,7 @@ import type { DatabaseInfo, TableInfo, ViewInfo, RoutineInfo, TriggerInfo } from
 export function Sidebar() {
   const [showDialog, setShowDialog] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showFavorites, setShowFavorites] = useState(false);
   const profiles = useConnectionStore((s) => s.profiles);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const selectedConnectionId = useConnectionStore(
@@ -174,6 +175,27 @@ export function Sidebar() {
         )}
       </div>
 
+      {/* Favorites panel */}
+      <div className="border-t border-[var(--color-border)]">
+        <button
+          onClick={() => setShowFavorites(!showFavorites)}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wider text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          <Star className="h-3.5 w-3.5" />
+          <span className="flex-1 text-left">Favorites</span>
+          {showFavorites ? (
+            <ChevronDown className="h-3 w-3" />
+          ) : (
+            <ChevronRight className="h-3 w-3" />
+          )}
+        </button>
+        {showFavorites && (
+          <div className="h-64 overflow-hidden">
+            <QueryFavorites />
+          </div>
+        )}
+      </div>
+
       {/* History panel */}
       <div className="border-t border-[var(--color-border)]">
         <button
@@ -275,7 +297,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
     );
   };
 
-  const openDdlTab = (dbName: string, objectName: string, ddlQuery: string) => {
+  const openDdlTab = (dbName: string, _objectName: string, ddlQuery: string) => {
     const tabId = addTab(connectionId, dbName);
     updateTabContent(tabId, ddlQuery);
     executeQuery(connectionId, ddlQuery);
@@ -521,7 +543,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                 label="Procedures"
                 icon={<Cog className="h-3 w-3" />}
                 isExpanded={isFolderExpanded(db.name, "procedures")}
-                onToggle={() => toggleFolder(db.name, "routines")}
+                onToggle={() => toggleFolder(db.name, "procedures")}
                 onContextMenu={(e) => {
                   showContextMenu(e, [
                     {
@@ -587,7 +609,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                 label="Functions"
                 icon={<FunctionSquare className="h-3 w-3" />}
                 isExpanded={isFolderExpanded(db.name, "functions")}
-                onToggle={() => toggleFolder(db.name, "routines")}
+                onToggle={() => toggleFolder(db.name, "functions")}
                 onContextMenu={(e) => {
                   showContextMenu(e, [
                     {
@@ -750,11 +772,7 @@ function FolderNode({
         ) : (
           <ChevronRight className="h-3 w-3 shrink-0" />
         )}
-        {isExpanded ? (
-          <FolderOpen className="h-3 w-3 shrink-0" />
-        ) : (
-          <FolderClosed className="h-3 w-3 shrink-0" />
-        )}
+        {icon}
         <span>{label}</span>
         {count != null && (
           <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">

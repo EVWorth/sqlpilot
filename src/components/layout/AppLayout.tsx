@@ -16,8 +16,11 @@ export function AppLayout() {
     [],
   );
   const openShortcuts = useCallback(() => setShowShortcuts(true), []);
+  const openSaveFavorite = useCallback(() => {
+    window.dispatchEvent(new CustomEvent("open-save-favorite"));
+  }, []);
 
-  useKeyboardShortcuts(toggleSidebar, openShortcuts);
+  useKeyboardShortcuts(toggleSidebar, openShortcuts, openSaveFavorite);
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">

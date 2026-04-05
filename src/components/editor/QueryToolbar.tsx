@@ -1,12 +1,22 @@
 import { useState, useRef, useEffect } from "react";
-import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown } from "lucide-react";
+import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown, Star } from "lucide-react";
 import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 
 export function QueryToolbar() {
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+
+  // Listen for Ctrl+S event from keyboard shortcuts
+  useEffect(() => {
+    const handler = () => setShowSaveDialog(true);
+    window.addEventListener("open-save-favorite", handler);
+    return () => window.removeEventListener("open-save-favorite", handler);
+  }, []);
+
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -215,6 +225,18 @@ export function QueryToolbar() {
         Schema
       </button>
 
+      <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
+
+      <button
+        onClick={() => setShowSaveDialog(true)}
+        disabled={!activeTab?.content?.trim()}
+        title="Save as Favorite (Ctrl+S)"
+        className={toolbarBtnClass}
+      >
+        <Star className="h-3 w-3" />
+        Save
+      </button>
+
       <div className="flex-1" />
 
       {activeConnection && (
@@ -226,6 +248,14 @@ export function QueryToolbar() {
           </span>
         </div>
       )}
+
+      <SaveFavoriteDialog
+        isOpen={showSaveDialog}
+        onClose={() => setShowSaveDialog(false)}
+        sql={activeTab?.content ?? ""}
+        connectionName={activeConnection?.name}
+        database={activeTab?.database}
+      />
     </div>
   );
 }

@@ -6,6 +6,7 @@ import { useConnectionStore } from "../stores/connectionStore";
 export function useKeyboardShortcuts(
   onToggleSidebar?: () => void,
   onShowShortcuts?: () => void,
+  onSaveFavorite?: () => void,
 ) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -38,6 +39,27 @@ export function useKeyboardShortcuts(
 
       if (!ctrl) return;
 
+      // Ctrl+S — save favorite
+      if (!shift && e.key === "s") {
+        e.preventDefault();
+        onSaveFavorite?.();
+        return;
+      }
+
+      // Ctrl+Tab / Ctrl+Shift+Tab — cycle tabs
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const { tabs, activeTabId } = useEditorStore.getState();
+        if (tabs.length <= 1) return;
+        const currentIndex = tabs.findIndex((t) => t.id === activeTabId);
+        if (currentIndex === -1) return;
+        const nextIndex = shift
+          ? (currentIndex - 1 + tabs.length) % tabs.length
+          : (currentIndex + 1) % tabs.length;
+        useEditorStore.getState().setActiveTab(tabs[nextIndex].id);
+        return;
+      }
+
       // Ctrl+N or Ctrl+T — new tab
       if (!shift && (e.key === "n" || e.key === "t")) {
         e.preventDefault();
@@ -65,5 +87,5 @@ export function useKeyboardShortcuts(
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onToggleSidebar, onShowShortcuts]);
+  }, [onToggleSidebar, onShowShortcuts, onSaveFavorite]);
 }
