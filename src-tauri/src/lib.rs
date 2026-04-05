@@ -95,6 +95,8 @@ pub fn run() {
             commands::kill_process,
             commands::read_file_contents,
             commands::pick_file,
+            commands::write_file_contents,
+            commands::pick_save_file,
             commands::ai::ai_chat,
             commands::ai::ai_generate_sql,
             commands::ai::ai_explain_query,

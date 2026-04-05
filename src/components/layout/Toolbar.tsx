@@ -1,6 +1,7 @@
-import { Database, Keyboard, Activity, Upload, Sparkles } from "lucide-react";
+import { Database, Keyboard, Activity, Upload, Sparkles, Sun, Moon, Monitor } from "lucide-react";
 import { useEditorStore } from "../../stores/editorStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useThemeStore, type ThemeMode } from "../../stores/themeStore";
 
 interface ToolbarProps {
   onShowShortcuts?: () => void;
@@ -9,13 +10,30 @@ interface ToolbarProps {
   aiPanelOpen?: boolean;
 }
 
+const themeOrder: ThemeMode[] = ["dark", "light", "system"];
+const themeIcons: Record<ThemeMode, typeof Sun> = { dark: Moon, light: Sun, system: Monitor };
+const themeLabels: Record<ThemeMode, string> = { dark: "Dark", light: "Light", system: "System" };
+
 export function Toolbar({ onShowShortcuts, onShowImport, onToggleAI, aiPanelOpen }: ToolbarProps) {
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
+  const theme = useThemeStore((s) => s.theme);
+  const setTheme = useThemeStore((s) => s.setTheme);
 
   const handleOpenAdmin = () => {
     if (!selectedConnectionId) return;
     useEditorStore.getState().addAdminTab(selectedConnectionId);
   };
+
+  const handleOpenCompare = () => {
+    useEditorStore.getState().addCompareTab();
+  };
+
+  const cycleTheme = () => {
+    const idx = themeOrder.indexOf(theme);
+    setTheme(themeOrder[(idx + 1) % themeOrder.length]);
+  };
+
+  const ThemeIcon = themeIcons[theme];
 
   return (
     <div className="flex h-10 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3">
@@ -26,6 +44,14 @@ export function Toolbar({ onShowShortcuts, onShowImport, onToggleAI, aiPanelOpen
         </span>
       </div>
       <div className="flex-1" />
+      <button
+        onClick={handleOpenCompare}
+        title="Compare Schemas"
+        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors mr-1"
+      >
+        <ArrowLeftRight className="h-3.5 w-3.5" />
+        <span>Compare</span>
+      </button>
       <button
         onClick={handleOpenAdmin}
         disabled={!selectedConnectionId}
@@ -55,6 +81,13 @@ export function Toolbar({ onShowShortcuts, onShowImport, onToggleAI, aiPanelOpen
       >
         <Sparkles className="h-3.5 w-3.5" />
         <span>AI</span>
+      </button>
+      <button
+        onClick={cycleTheme}
+        title={`Theme: ${themeLabels[theme]} (click to cycle)`}
+        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors mr-1"
+      >
+        <ThemeIcon className="h-3.5 w-3.5" />
       </button>
       <button
         onClick={onShowShortcuts}

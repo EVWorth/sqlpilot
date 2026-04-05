@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Plus, X, ChevronLeft, ChevronRight } from "lucide-react";
 import { useEditorStore } from "../../stores/editorStore";
+import { useConnectionStore } from "../../stores/connectionStore";
 import { cn } from "../../lib/utils";
 
 export function EditorTabs() {
@@ -11,6 +12,8 @@ export function EditorTabs() {
   const addTab = useEditorStore((s) => s.addTab);
   const renameTab = useEditorStore((s) => s.renameTab);
   const reorderTabs = useEditorStore((s) => s.reorderTabs);
+  const activeConnections = useConnectionStore((s) => s.activeConnections);
+  const profiles = useConnectionStore((s) => s.profiles);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollLeft, setShowScrollLeft] = useState(false);
@@ -108,7 +111,15 @@ export function EditorTabs() {
         ref={scrollRef}
         className="flex flex-1 items-center overflow-x-auto scrollbar-none"
       >
-        {tabs.map((tab, index) => (
+        {tabs.map((tab, index) => {
+          const conn = activeConnections.find((c) => c.id === tab.connectionId);
+          const profile = conn
+            ? profiles.find((p) => p.id === conn.profile_id)
+            : undefined;
+          const tabColor = profile?.color;
+          const isProduction = profile?.environment === "production";
+
+          return (
           <button
             key={tab.id}
             data-tab-id={tab.id}
@@ -133,9 +144,19 @@ export function EditorTabs() {
               dragIndex === index && "opacity-50",
             )}
           >
+            {/* Color indicator border */}
+            {tabColor && (
+              <span
+                className="absolute bottom-0 left-0 right-0 h-[3px] rounded-t"
+                style={{ backgroundColor: tabColor }}
+              />
+            )}
             {/* Drop indicator line */}
             {dropIndex === index && dragIndex !== null && dragIndex !== index && (
               <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-brand-500" />
+            )}
+            {isProduction && (
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" title="Production" />
             )}
             {tab.isDirty && (
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" />
@@ -170,7 +191,8 @@ export function EditorTabs() {
               <X className="h-3 w-3" />
             </span>
           </button>
-        ))}
+          );
+        })}
       </div>
       {showScrollRight && (
         <button

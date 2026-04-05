@@ -11,12 +11,24 @@ import {
 } from "lucide-react";
 import type {
   ConnectionProfile,
+  ConnectionEnvironment,
   SSLConfig,
   SSHConfig,
   TestConnectionResult,
 } from "../../types";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
+
+const PRESET_COLORS = [
+  "#3B82F6",
+  "#10B981",
+  "#F59E0B",
+  "#EF4444",
+  "#8B5CF6",
+  "#EC4899",
+  "#06B6D4",
+  "#F97316",
+];
 
 interface Props {
   isOpen: boolean;
@@ -82,7 +94,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
 
   const handleChange = (
     field: keyof ConnectionProfile,
-    value: string | number | boolean,
+    value: string | number | boolean | undefined,
   ) => {
     setForm((prev) => ({ ...prev, [field]: value }));
     setTestResult(null);
@@ -246,6 +258,58 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                 onChange={(v) => handleChange("default_database", v)}
                 placeholder="(optional)"
               />
+              {/* Color picker */}
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Color
+                </label>
+                <div className="flex items-center gap-1.5">
+                  {PRESET_COLORS.map((c) => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => handleChange("color", c)}
+                      className={`h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 ${
+                        form.color === c
+                          ? "border-[var(--color-text-primary)] scale-110"
+                          : "border-transparent"
+                      }`}
+                      style={{ backgroundColor: c }}
+                      title={c}
+                    />
+                  ))}
+                  {form.color && (
+                    <button
+                      type="button"
+                      onClick={() => handleChange("color", "")}
+                      className="ml-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+              </div>
+              {/* Environment */}
+              <div>
+                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Environment
+                </label>
+                <select
+                  value={form.environment ?? ""}
+                  onChange={(e) =>
+                    handleChange(
+                      "environment",
+                      e.target.value || undefined,
+                    )
+                  }
+                  className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-brand-500"
+                >
+                  <option value="">None</option>
+                  <option value="development">Development</option>
+                  <option value="staging">Staging</option>
+                  <option value="production">Production</option>
+                </select>
+              </div>
             </div>
           )}
 

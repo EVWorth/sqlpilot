@@ -4,6 +4,15 @@ import { api } from "../lib/tauri-api";
 import { useHistoryStore } from "./historyStore";
 import { useConnectionStore } from "./connectionStore";
 
+const DESTRUCTIVE_PATTERN =
+  /\b(DROP|DELETE|TRUNCATE|ALTER)\b/i;
+
+interface ConfirmDialogState {
+  isOpen: boolean;
+  connectionId: string;
+  sql: string;
+}
+
 interface ResultState {
   results: QueryResult[];
   activeResultIndex: number;
@@ -14,6 +23,8 @@ interface ResultState {
   explainAnalyze: boolean;
   showExplain: boolean;
 
+  confirmDialog: ConfirmDialogState | null;
+
   executeQuery: (connectionId: string, sql: string) => Promise<void>;
   executeExplain: (connectionId: string, sql: string) => Promise<void>;
   executeExplainAnalyze: (connectionId: string, sql: string) => Promise<void>;
@@ -21,9 +32,19 @@ interface ResultState {
   setShowExplain: (show: boolean) => void;
   clearResults: () => void;
   clearError: () => void;
+  confirmExecution: () => void;
+  cancelExecution: () => void;
 }
 
-export const useResultStore = create<ResultState>((set) => ({
+function isProductionConnection(connectionId: string): boolean {
+  const state = useConnectionStore.getState();
+  const conn = state.activeConnections.find((c) => c.id === connectionId);
+  if (!conn) return false;
+  const profile = state.profiles.find((p) => p.id === conn.profile_id);
+  return profile?.environment === "production";
+}
+
+export const useResultStore = create<ResultState>((set, get) => ({
   results: [],
   activeResultIndex: 0,
   isExecuting: false,
@@ -33,46 +54,26 @@ export const useResultStore = create<ResultState>((set) => ({
   explainAnalyze: false,
   showExplain: false,
 
+  confirmDialog: null,
+
   executeQuery: async (connectionId, sql) => {
-    const startTime = Date.now();
-    const connState = useConnectionStore.getState();
-    const conn = connState.activeConnections.find(
-      (c) => c.id === connectionId,
-    );
-    const connectionName = conn?.name ?? "Unknown";
-    const database = conn?.database;
-
-    try {
-      set({ isExecuting: true, error: null });
-      const results = await api.executeQuery(connectionId, sql);
-      set({ results, activeResultIndex: 0, isExecuting: false });
-
-      const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);
-      useHistoryStore.getState().addEntry({
-        id: crypto.randomUUID(),
-        sql,
-        connectionName,
-        database,
-        executedAt: new Date().toISOString(),
-        executionTimeMs: Date.now() - startTime,
-        rowCount: totalRows,
-        status: "success",
-      });
-    } catch (e) {
-      set({ error: String(e), isExecuting: false, results: [] });
-
-      useHistoryStore.getState().addEntry({
-        id: crypto.randomUUID(),
-        sql,
-        connectionName,
-        database,
-        executedAt: new Date().toISOString(),
-        executionTimeMs: Date.now() - startTime,
-        rowCount: 0,
-        status: "error",
-        error: String(e),
-      });
+    // Production safety check
+    if (isProductionConnection(connectionId) && DESTRUCTIVE_PATTERN.test(sql)) {
+      set({ confirmDialog: { isOpen: true, connectionId, sql } });
+      return;
     }
+    await doExecuteQuery(connectionId, sql, set);
+  },
+
+  confirmExecution: async () => {
+    const dialog = get().confirmDialog;
+    if (!dialog) return;
+    set({ confirmDialog: null });
+    await doExecuteQuery(dialog.connectionId, dialog.sql, set);
+  },
+
+  cancelExecution: () => {
+    set({ confirmDialog: null });
   },
 
   setActiveResult: (index) => set({ activeResultIndex: index }),
@@ -123,3 +124,49 @@ export const useResultStore = create<ResultState>((set) => ({
     }
   },
 }));
+
+async function doExecuteQuery(
+  connectionId: string,
+  sql: string,
+  set: (partial: Partial<ResultState>) => void,
+) {
+  const startTime = Date.now();
+  const connState = useConnectionStore.getState();
+  const conn = connState.activeConnections.find(
+    (c) => c.id === connectionId,
+  );
+  const connectionName = conn?.name ?? "Unknown";
+  const database = conn?.database;
+
+  try {
+    set({ isExecuting: true, error: null });
+    const results = await api.executeQuery(connectionId, sql);
+    set({ results, activeResultIndex: 0, isExecuting: false });
+
+    const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);
+    useHistoryStore.getState().addEntry({
+      id: crypto.randomUUID(),
+      sql,
+      connectionName,
+      database,
+      executedAt: new Date().toISOString(),
+      executionTimeMs: Date.now() - startTime,
+      rowCount: totalRows,
+      status: "success",
+    });
+  } catch (e) {
+    set({ error: String(e), isExecuting: false, results: [] });
+
+    useHistoryStore.getState().addEntry({
+      id: crypto.randomUUID(),
+      sql,
+      connectionName,
+      database,
+      executedAt: new Date().toISOString(),
+      executionTimeMs: Date.now() - startTime,
+      rowCount: 0,
+      status: "error",
+      error: String(e),
+    });
+  }
+}

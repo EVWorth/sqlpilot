@@ -10,6 +10,7 @@ interface EditorState {
   addTab: (connectionId?: string, database?: string) => string;
   addStructureTab: (connectionId: string, database: string, tableName: string) => string;
   addAdminTab: (connectionId: string) => string;
+  addCompareTab: () => string;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
@@ -97,6 +98,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       content: "",
       connectionId,
       type: 'admin',
+      isDirty: false,
+    };
+    set((state) => ({
+      tabs: [...state.tabs, tab],
+      activeTabId: id,
+    }));
+    return id;
+  },
+
+  addCompareTab: () => {
+    const existing = get().tabs.find((t) => t.type === 'compare');
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return existing.id;
+    }
+    tabCounter++;
+    const id = `tab-${tabCounter}`;
+    const tab: EditorTab = {
+      id,
+      title: "⇄ Compare",
+      content: "",
+      type: 'compare',
       isDirty: false,
     };
     set((state) => ({

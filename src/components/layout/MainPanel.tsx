@@ -6,6 +6,7 @@ import { QueryToolbar } from "../editor/QueryToolbar";
 import { ResultsGrid } from "../grid/ResultsGrid";
 import { ExplainPanel } from "../explain/ExplainPanel";
 import { AdminPanel } from "../admin/AdminPanel";
+import { SchemaCompare } from "../compare/SchemaCompare";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 
@@ -37,12 +38,15 @@ export function MainPanel() {
   }
 
   const isAdmin = activeTab?.type === "admin";
+  const isCompare = activeTab?.type === "compare";
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-primary)]">
       <EditorTabs />
       {isAdmin && activeTab?.connectionId ? (
         <AdminPanel connectionId={activeTab.connectionId} />
+      ) : isCompare ? (
+        <SchemaCompare />
       ) : (
         <>
           <QueryToolbar />

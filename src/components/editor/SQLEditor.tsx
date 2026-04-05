@@ -5,6 +5,7 @@ import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useThemeStore } from "../../stores/themeStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { api } from "../../lib/tauri-api";
@@ -18,6 +19,7 @@ export function SQLEditor() {
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
   const setEditorInstance = useEditorStore((s) => s.setEditorInstance);
   const activeTab = tabs.find((t) => t.id === activeTabId);
+  const effectiveTheme = useThemeStore((s) => s.effectiveTheme);
 
   const monaco = useMonaco();
   const selectedConnectionId = useConnectionStore(
@@ -223,7 +225,7 @@ export function SQLEditor() {
     <Editor
       height="100%"
       language="sql"
-      theme="vs-dark"
+      theme={effectiveTheme === "dark" ? "vs-dark" : "vs"}
       value={activeTab.content}
       onChange={(value) => {
         if (activeTab) {

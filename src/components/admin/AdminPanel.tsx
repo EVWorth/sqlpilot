@@ -12,12 +12,14 @@ import {
   List,
   Loader2,
   Check,
+  Users,
 } from "lucide-react";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import type { ProcessInfo, ServerVariable } from "../../types";
+import { UserManagement } from "./UserManagement";
 
-type AdminSubTab = "processes" | "variables" | "status";
+type AdminSubTab = "processes" | "variables" | "status" | "users";
 
 interface AdminPanelProps {
   connectionId: string;
@@ -30,6 +32,7 @@ export function AdminPanel({ connectionId }: AdminPanelProps) {
     { key: "processes", label: "Process List", icon: List },
     { key: "variables", label: "Server Variables", icon: Server },
     { key: "status", label: "Server Status", icon: Activity },
+    { key: "users", label: "Users", icon: Users },
   ];
 
   return (
@@ -55,6 +58,7 @@ export function AdminPanel({ connectionId }: AdminPanelProps) {
         {activeSubTab === "processes" && <ProcessListTab connectionId={connectionId} />}
         {activeSubTab === "variables" && <ServerVariablesTab connectionId={connectionId} />}
         {activeSubTab === "status" && <ServerStatusTab connectionId={connectionId} />}
+        {activeSubTab === "users" && <UserManagement connectionId={connectionId} />}
       </div>
     </div>
   );

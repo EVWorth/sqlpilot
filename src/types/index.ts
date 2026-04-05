@@ -1,9 +1,12 @@
 // Connection types
+export type ConnectionEnvironment = "development" | "staging" | "production";
+
 export interface ConnectionProfile {
   id: string;
   name: string;
   group?: string;
   color?: string;
+  environment?: ConnectionEnvironment;
   host: string;
   port: number;
   username: string;
@@ -44,6 +47,7 @@ export interface ConnectionInfo {
   server_version: string;
   connected_at: string;
   color?: string;
+  environment?: ConnectionEnvironment;
 }
 
 export interface TestConnectionResult {
@@ -150,7 +154,7 @@ export interface EditorTab {
   connectionId?: string;
   database?: string;
   tableName?: string;
-  type?: "query" | "structure" | "admin";
+  type?: "query" | "structure" | "admin" | "compare";
   isDirty: boolean;
 }
 

@@ -3,6 +3,13 @@ import { useConnectionStore } from "../../stores/connectionStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { Loader2, AlertCircle, AlertTriangle, Copy, Check } from "lucide-react";
+import type { ConnectionEnvironment } from "../../types";
+
+const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
+  production: { label: "PROD", className: "bg-red-500/20 text-red-400" },
+  staging: { label: "STG", className: "bg-yellow-500/20 text-yellow-400" },
+  development: { label: "DEV", className: "bg-green-500/20 text-green-400" },
+};
 
 function formatTime(ms: number): string {
   if (ms < 1) return "<1ms";
@@ -32,6 +39,13 @@ export function StatusBar() {
   const activeConn = activeConnections.find(
     (c) => c.id === selectedConnectionId,
   );
+  const profiles = useConnectionStore((s) => s.profiles);
+  const activeProfile = activeConn
+    ? profiles.find((p) => p.id === activeConn.profile_id)
+    : undefined;
+  const envBadge = activeProfile?.environment
+    ? ENV_BADGES[activeProfile.environment]
+    : undefined;
   const activeResult = results[activeResultIndex];
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const selectedDatabase = activeTab?.database ?? activeConn?.database;

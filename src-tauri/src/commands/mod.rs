@@ -408,3 +408,39 @@ pub async fn pick_file(title: String, filters: Vec<(String, Vec<String>)>) -> Re
         }
     }
 }
+
+#[tauri::command]
+#[tracing::instrument(skip(contents), fields(path = %path, content_len = contents.len()))]
+pub async fn write_file_contents(path: String, contents: String) -> Result<(), String> {
+    let path_buf = PathBuf::from(&path);
+    tokio::fs::write(&path_buf, &contents).await.map_err(|e| {
+        tracing::error!(error = %e, path = %path, "Failed to write file");
+        format!("Failed to write file: {}", e)
+    })?;
+    tracing::info!(path = %path, bytes = contents.len(), "File written successfully");
+    Ok(())
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub async fn pick_save_file(title: String, default_name: String, filters: Vec<(String, Vec<String>)>) -> Result<Option<String>, String> {
+    let mut dialog = rfd::AsyncFileDialog::new()
+        .set_title(&title)
+        .set_file_name(&default_name);
+    for (name, extensions) in &filters {
+        let ext_refs: Vec<&str> = extensions.iter().map(|s| s.as_str()).collect();
+        dialog = dialog.add_filter(name, &ext_refs);
+    }
+    let result = dialog.save_file().await;
+    match result {
+        Some(handle) => {
+            let path = handle.path().to_string_lossy().to_string();
+            tracing::info!(path = %path, "Save file path picked");
+            Ok(Some(path))
+        }
+        None => {
+            tracing::info!("Save file pick cancelled");
+            Ok(None)
+        }
+    }
+}

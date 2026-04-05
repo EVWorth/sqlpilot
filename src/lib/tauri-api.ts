@@ -122,6 +122,12 @@ export const api = {
   pickFile: (title: string, filters: [string, string[]][]) =>
     tauriInvoke<string | null>("pick_file", { title, filters }),
 
+  writeFileContents: (path: string, contents: string) =>
+    tauriInvoke<void>("write_file_contents", { path, contents }),
+
+  pickSaveFile: (title: string, defaultName: string, filters: [string, string[]][]) =>
+    tauriInvoke<string | null>("pick_save_file", { title, defaultName, filters }),
+
   // AI
   aiChat: (message: string, conversationId: string, connectionId?: string, database?: string) =>
     tauriInvoke<string>("ai_chat", { message, conversationId, connectionId, database }),
