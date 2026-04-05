@@ -1,12 +1,13 @@
 use copilot_sdk::{
-    Client, PermissionRequestResult, SessionConfig, SessionEventData, SessionMode,
-    SystemMessageConfig, SystemMessageMode,
+    Client, PermissionRequest, PermissionRequestResult, SessionConfig, SessionEventData,
+    SessionMode, SystemMessageConfig, SystemMessageMode,
 };
 use mas_core::connection::ConnectionManager;
 use mas_core::schema::SchemaInspector;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::{mpsc, RwLock};
+use std::time::Duration;
+use tokio::sync::{mpsc, oneshot, RwLock};
 
 use crate::error::AiError;
 use crate::models::{AiConfig, AiMode, AiStatus, AiStreamEvent};
@@ -23,6 +24,7 @@ pub struct AiService {
     connection_manager: Arc<ConnectionManager>,
     sessions: Arc<RwLock<HashMap<String, SessionEntry>>>,
     config: Arc<RwLock<AiConfig>>,
+    pending_approvals: Arc<RwLock<HashMap<String, oneshot::Sender<bool>>>>,
 }
 
 impl AiService {
@@ -32,6 +34,7 @@ impl AiService {
             connection_manager,
             sessions: Arc::new(RwLock::new(HashMap::new())),
             config: Arc::new(RwLock::new(AiConfig { model: None })),
+            pending_approvals: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -219,10 +222,89 @@ impl AiService {
                     .await;
             }
 
-            // Auto-approve all tool permissions (our tools are safe)
-            session
-                .register_permission_handler(|_req| PermissionRequestResult::approved())
-                .await;
+            // Register permission handler based on mode
+            if *mode == AiMode::Ask {
+                session
+                    .register_permission_handler(|_req| PermissionRequestResult::approved())
+                    .await;
+            } else {
+                let approvals = self.pending_approvals.clone();
+                let tx_for_handler = event_sender.clone();
+                let conv_id_for_handler = conversation_id.to_string();
+
+                session
+                    .register_permission_handler(move |req: &PermissionRequest| {
+                        let tool_name = req
+                            .extension_data
+                            .get("toolName")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("unknown");
+
+                        // Read-only tools auto-approve
+                        const READ_TOOLS: &[&str] = &[
+                            "list_databases",
+                            "list_tables",
+                            "describe_table",
+                            "get_table_ddl",
+                            "run_select_query",
+                            "explain_query",
+                            "list_routines",
+                            "show_process_list",
+                        ];
+                        if READ_TOOLS.contains(&tool_name) {
+                            return PermissionRequestResult::approved();
+                        }
+
+                        // For write tools, send to frontend and wait for response
+                        let approvals = approvals.clone();
+                        let tx = tx_for_handler.clone();
+                        let conv_id = conv_id_for_handler.clone();
+                        let tool = tool_name.to_string();
+
+                        let approved = tokio::task::block_in_place(|| {
+                            tokio::runtime::Handle::current().block_on(async {
+                                let (response_tx, response_rx) = oneshot::channel::<bool>();
+                                let request_id = uuid::Uuid::new_v4().to_string();
+
+                                approvals
+                                    .write()
+                                    .await
+                                    .insert(request_id.clone(), response_tx);
+
+                                let _ = tx
+                                    .send(AiStreamEvent::PermissionRequest {
+                                        conversation_id: conv_id,
+                                        tool_name: tool.clone(),
+                                        description: format!("Execute: {}", tool),
+                                        request_id: request_id.clone(),
+                                    })
+                                    .await;
+
+                                // Wait up to 5 minutes for user response
+                                match tokio::time::timeout(
+                                    Duration::from_secs(300),
+                                    response_rx,
+                                )
+                                .await
+                                {
+                                    Ok(Ok(val)) => val,
+                                    _ => {
+                                        // Timeout or channel error — clean up and deny
+                                        approvals.write().await.remove(&request_id);
+                                        false
+                                    }
+                                }
+                            })
+                        });
+
+                        if approved {
+                            PermissionRequestResult::approved()
+                        } else {
+                            PermissionRequestResult::denied()
+                        }
+                    })
+                    .await;
+            }
 
             // Set mode
             if sdk_mode != SessionMode::Interactive {
@@ -295,6 +377,15 @@ impl AiService {
                                     conversation_id: event_conv_id.clone(),
                                     tool_name: data.tool_name.clone(),
                                     tool_call_id: data.tool_call_id.clone(),
+                                    arguments: data.arguments.clone(),
+                                })
+                                .await;
+                        }
+                        SessionEventData::AssistantIntent(data) => {
+                            let _ = event_sender
+                                .send(AiStreamEvent::Intent {
+                                    conversation_id: event_conv_id.clone(),
+                                    intent: data.intent.clone(),
                                 })
                                 .await;
                         }
@@ -396,6 +487,24 @@ impl AiService {
         let mut current = self.config.write().await;
         *current = config;
         Ok(())
+    }
+
+    pub async fn resolve_permission(
+        &self,
+        _conversation_id: &str,
+        request_id: &str,
+        approved: bool,
+    ) -> Result<(), AiError> {
+        let mut approvals = self.pending_approvals.write().await;
+        if let Some(tx) = approvals.remove(request_id) {
+            let _ = tx.send(approved);
+            Ok(())
+        } else {
+            Err(AiError::SessionNotFound(format!(
+                "No pending approval: {}",
+                request_id
+            )))
+        }
     }
 
     pub async fn cancel(&self, conversation_id: &str) -> Result<(), AiError> {

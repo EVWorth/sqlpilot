@@ -28,10 +28,15 @@ pub enum AiStreamEvent {
         conversation_id: String,
         content: String,
     },
+    Intent {
+        conversation_id: String,
+        intent: String,
+    },
     ToolStart {
         conversation_id: String,
         tool_name: String,
         tool_call_id: String,
+        arguments: Option<serde_json::Value>,
     },
     ToolComplete {
         conversation_id: String,
@@ -44,6 +49,7 @@ pub enum AiStreamEvent {
         conversation_id: String,
         tool_name: String,
         description: String,
+        request_id: String,
     },
     Idle {
         conversation_id: String,

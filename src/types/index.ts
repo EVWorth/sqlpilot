@@ -175,9 +175,10 @@ export interface AiConfig {
 
 export type AiStreamEvent =
   | { type: "text_delta"; conversation_id: string; content: string }
-  | { type: "tool_start"; conversation_id: string; tool_name: string; tool_call_id: string }
+  | { type: "intent"; conversation_id: string; intent: string }
+  | { type: "tool_start"; conversation_id: string; tool_name: string; tool_call_id: string; arguments?: Record<string, unknown> }
   | { type: "tool_complete"; conversation_id: string; tool_name: string; tool_call_id: string; result: string; success: boolean }
-  | { type: "permission_request"; conversation_id: string; tool_name: string; description: string }
+  | { type: "permission_request"; conversation_id: string; tool_name: string; description: string; request_id: string }
   | { type: "idle"; conversation_id: string }
   | { type: "error"; conversation_id: string; message: string };
 
@@ -185,7 +186,14 @@ export interface ToolExecution {
   id: string;
   name: string;
   status: "running" | "done" | "error";
+  arguments?: Record<string, unknown>;
   result?: string;
+}
+
+export interface PendingPermission {
+  requestId: string;
+  toolName: string;
+  description: string;
 }
 
 export interface ChatMessage {

@@ -141,4 +141,7 @@ export const api = {
 
   aiCancel: (conversationId: string) =>
     tauriInvoke<void>("ai_cancel", { conversationId }),
+
+  aiApprovePermission: (conversationId: string, requestId: string, approved: boolean) =>
+    tauriInvoke<void>("ai_approve_permission", { conversationId, requestId, approved }),
 };

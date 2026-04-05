@@ -7,6 +7,7 @@ import {
   Circle,
   Sparkles,
   StopCircle,
+  ShieldAlert,
 } from "lucide-react";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -30,8 +31,11 @@ export function AIChatPanel({ onClose }: AIChatPanelProps) {
   const streamingContent = useAiStore((s) => s.streamingContent);
   const activeToolCalls = useAiStore((s) => s.activeToolCalls);
   const mode = useAiStore((s) => s.mode);
+  const currentIntent = useAiStore((s) => s.currentIntent);
+  const pendingPermission = useAiStore((s) => s.pendingPermission);
   const sendMessage = useAiStore((s) => s.sendMessage);
   const cancelChat = useAiStore((s) => s.cancelChat);
+  const approvePermission = useAiStore((s) => s.approvePermission);
   const newConversation = useAiStore((s) => s.newConversation);
   const setMode = useAiStore((s) => s.setMode);
   const checkStatus = useAiStore((s) => s.checkStatus);
@@ -158,9 +162,15 @@ export function AIChatPanel({ onClose }: AIChatPanelProps) {
                 toolCalls={msg.toolCalls}
               />
             ))}
-            {/* Live streaming: tool calls + text */}
+            {/* Live streaming: intent, tool calls + text */}
             {isStreaming && (
               <>
+                {currentIntent && (
+                  <div className="flex items-center gap-1.5 text-[10px] text-brand-400 italic px-1">
+                    <Sparkles className="h-3 w-3 shrink-0" />
+                    {currentIntent}
+                  </div>
+                )}
                 {liveToolCalls.length > 0 && (
                   <div className="flex justify-start">
                     <div className="max-w-[95%] rounded-lg bg-[var(--color-bg-tertiary)] px-3 py-2">
@@ -170,12 +180,42 @@ export function AIChatPanel({ onClose }: AIChatPanelProps) {
                     </div>
                   </div>
                 )}
+                {pendingPermission && (
+                  <div className="mx-1 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-3 py-2">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <ShieldAlert className="h-4 w-4 text-yellow-400 shrink-0" />
+                      <span className="text-xs font-semibold text-yellow-300">
+                        Permission Required
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[var(--color-text-secondary)] mb-2">
+                      {pendingPermission.description}
+                    </p>
+                    <p className="text-[10px] text-[var(--color-text-muted)] mb-2">
+                      Tool: <code className="bg-[var(--color-bg-primary)] px-1 rounded">{pendingPermission.toolName}</code>
+                    </p>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => approvePermission(true)}
+                        className="rounded bg-green-600 px-3 py-1 text-[10px] font-medium text-white hover:bg-green-500 transition-colors"
+                      >
+                        Allow
+                      </button>
+                      <button
+                        onClick={() => approvePermission(false)}
+                        className="rounded bg-red-600/80 px-3 py-1 text-[10px] font-medium text-white hover:bg-red-500 transition-colors"
+                      >
+                        Deny
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {streamingContent ? (
                   <ChatMessageComponent
                     role="assistant"
                     content={streamingContent}
                   />
-                ) : liveToolCalls.length === 0 ? (
+                ) : liveToolCalls.length === 0 && !pendingPermission ? (
                   <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
                     <Loader2 className="h-3 w-3 animate-spin" />
                     Thinking...

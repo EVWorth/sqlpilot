@@ -96,3 +96,28 @@ pub async fn ai_cancel(
     tracing::info!(conversation_id = %conversation_id, "AI chat cancelled");
     Ok(())
 }
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+pub async fn ai_approve_permission(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String> {
+    state
+        .ai_service
+        .resolve_permission(&conversation_id, &request_id, approved)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "AI permission approval failed");
+            e.to_string()
+        })?;
+    tracing::info!(
+        conversation_id = %conversation_id,
+        request_id = %request_id,
+        approved = approved,
+        "AI permission resolved"
+    );
+    Ok(())
+}

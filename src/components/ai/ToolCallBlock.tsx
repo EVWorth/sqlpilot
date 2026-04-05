@@ -14,6 +14,16 @@ const TOOL_LABELS: Record<string, string> = {
   run_query: "Executing query",
 };
 
+function formatArgs(args?: Record<string, unknown>): string | null {
+  if (!args || Object.keys(args).length === 0) return null;
+  // Show SQL if present, otherwise show key=value pairs
+  if (args.sql && typeof args.sql === "string") return args.sql;
+  if (args.query && typeof args.query === "string") return args.query;
+  return Object.entries(args)
+    .map(([k, v]) => `${k}: ${typeof v === "string" ? v : JSON.stringify(v)}`)
+    .join(", ");
+}
+
 interface ToolCallBlockProps {
   tool: ToolExecution;
 }
@@ -21,11 +31,13 @@ interface ToolCallBlockProps {
 export function ToolCallBlock({ tool }: ToolCallBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const label = TOOL_LABELS[tool.name] || tool.name;
+  const argsSummary = formatArgs(tool.arguments);
+  const hasDetails = !!(tool.result || argsSummary);
 
   return (
     <div className="my-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] text-[10px]">
       <button
-        onClick={() => setExpanded(!expanded)}
+        onClick={() => hasDetails && setExpanded(!expanded)}
         className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-[var(--color-bg-tertiary)] transition-colors"
       >
         {tool.status === "running" ? (
@@ -37,8 +49,13 @@ export function ToolCallBlock({ tool }: ToolCallBlockProps) {
         )}
         <span className="flex-1 font-medium text-[var(--color-text-secondary)]">
           {label}
+          {argsSummary && (
+            <span className="ml-1 font-normal text-[var(--color-text-muted)] truncate">
+              — {argsSummary.length > 60 ? argsSummary.slice(0, 60) + "…" : argsSummary}
+            </span>
+          )}
         </span>
-        {tool.result && (
+        {hasDetails && (
           expanded ? (
             <ChevronDown className="h-3 w-3 text-[var(--color-text-muted)] shrink-0" />
           ) : (
@@ -46,11 +63,24 @@ export function ToolCallBlock({ tool }: ToolCallBlockProps) {
           )
         )}
       </button>
-      {expanded && tool.result && (
-        <div className="border-t border-[var(--color-border)] px-2 py-1.5">
-          <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-[var(--color-text-muted)]">
-            {tool.result}
-          </pre>
+      {expanded && hasDetails && (
+        <div className="border-t border-[var(--color-border)] px-2 py-1.5 space-y-1">
+          {argsSummary && (
+            <div>
+              <span className="text-[9px] font-semibold uppercase text-[var(--color-text-muted)]">Args</span>
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap text-[var(--color-text-muted)]">
+                {argsSummary}
+              </pre>
+            </div>
+          )}
+          {tool.result && (
+            <div>
+              <span className="text-[9px] font-semibold uppercase text-[var(--color-text-muted)]">Result</span>
+              <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-[var(--color-text-muted)]">
+                {tool.result}
+              </pre>
+            </div>
+          )}
         </div>
       )}
     </div>

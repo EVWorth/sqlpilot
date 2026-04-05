@@ -9,6 +9,7 @@ import type {
   AiMode,
   AiStreamEvent,
   ToolExecution,
+  PendingPermission,
 } from "../types";
 
 interface AiState {
@@ -22,6 +23,8 @@ interface AiState {
   activeConversationId: string | null;
   streamingContent: string;
   activeToolCalls: Map<string, ToolExecution>;
+  currentIntent: string | null;
+  pendingPermission: PendingPermission | null;
 
   // Actions
   checkStatus: () => Promise<void>;
@@ -35,6 +38,7 @@ interface AiState {
     database?: string,
   ) => Promise<void>;
   cancelChat: () => Promise<void>;
+  approvePermission: (approved: boolean) => Promise<void>;
   newConversation: () => string;
   setActiveConversation: (id: string | null) => void;
   clearConversation: (id: string) => void;
@@ -55,6 +59,8 @@ export const useAiStore = create<AiState>((set, get) => ({
   activeConversationId: null,
   streamingContent: "",
   activeToolCalls: new Map(),
+  currentIntent: null,
+  pendingPermission: null,
 
   checkStatus: async () => {
     try {
@@ -127,6 +133,8 @@ export const useAiStore = create<AiState>((set, get) => ({
       isStreaming: true,
       streamingContent: "",
       activeToolCalls: new Map(),
+      currentIntent: null,
+      pendingPermission: null,
     }));
 
     let unlisten: UnlistenFn | null = null;
@@ -144,12 +152,17 @@ export const useAiStore = create<AiState>((set, get) => ({
             }));
             break;
 
+          case "intent":
+            set({ currentIntent: ev.intent });
+            break;
+
           case "tool_start": {
             set((state) => {
               const newCalls = new Map(state.activeToolCalls);
               newCalls.set(ev.tool_call_id, {
                 id: ev.tool_call_id,
                 name: ev.tool_name,
+                arguments: ev.arguments,
                 status: "running",
               });
               return { activeToolCalls: newCalls };
@@ -163,10 +176,22 @@ export const useAiStore = create<AiState>((set, get) => ({
               newCalls.set(ev.tool_call_id, {
                 id: ev.tool_call_id,
                 name: ev.tool_name || newCalls.get(ev.tool_call_id)?.name || "unknown",
+                arguments: newCalls.get(ev.tool_call_id)?.arguments,
                 status: ev.success ? "done" : "error",
                 result: ev.result,
               });
               return { activeToolCalls: newCalls };
+            });
+            break;
+          }
+
+          case "permission_request": {
+            set({
+              pendingPermission: {
+                requestId: ev.request_id,
+                toolName: ev.tool_name,
+                description: ev.description,
+              },
             });
             break;
           }
@@ -194,6 +219,8 @@ export const useAiStore = create<AiState>((set, get) => ({
               isStreaming: false,
               streamingContent: "",
               activeToolCalls: new Map(),
+              currentIntent: null,
+              pendingPermission: null,
             }));
             break;
           }
@@ -217,6 +244,8 @@ export const useAiStore = create<AiState>((set, get) => ({
               isStreaming: false,
               streamingContent: "",
               activeToolCalls: new Map(),
+              currentIntent: null,
+              pendingPermission: null,
             }));
             break;
           }
@@ -256,6 +285,8 @@ export const useAiStore = create<AiState>((set, get) => ({
           isStreaming: false,
           streamingContent: "",
           activeToolCalls: new Map(),
+          currentIntent: null,
+          pendingPermission: null,
         }));
       }
     } catch (e) {
@@ -277,10 +308,24 @@ export const useAiStore = create<AiState>((set, get) => ({
         isStreaming: false,
         streamingContent: "",
         activeToolCalls: new Map(),
+        currentIntent: null,
+        pendingPermission: null,
       }));
     } finally {
       unlisten?.();
     }
+  },
+
+  approvePermission: async (approved: boolean) => {
+    const conversationId = get().activeConversationId;
+    const permission = get().pendingPermission;
+    if (!conversationId || !permission) return;
+    try {
+      await api.aiApprovePermission(conversationId, permission.requestId, approved);
+    } catch {
+      // ignore approval errors
+    }
+    set({ pendingPermission: null });
   },
 
   cancelChat: async () => {
@@ -291,7 +336,7 @@ export const useAiStore = create<AiState>((set, get) => ({
     } catch {
       // ignore cancel errors
     }
-    set({ isStreaming: false, streamingContent: "", activeToolCalls: new Map() });
+    set({ isStreaming: false, streamingContent: "", activeToolCalls: new Map(), currentIntent: null, pendingPermission: null });
   },
 
   addAssistantMessage: (content: string) => {
