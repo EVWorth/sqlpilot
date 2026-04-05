@@ -98,12 +98,9 @@ pub fn run() {
             commands::write_file_contents,
             commands::pick_save_file,
             commands::ai::ai_chat,
-            commands::ai::ai_generate_sql,
-            commands::ai::ai_explain_query,
-            commands::ai::ai_optimize_query,
-            commands::ai::ai_fix_error,
             commands::ai::ai_get_status,
             commands::ai::ai_set_config,
+            commands::ai::ai_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

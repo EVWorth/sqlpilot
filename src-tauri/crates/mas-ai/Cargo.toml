@@ -6,10 +6,10 @@ edition = "2021"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
-thiserror = { workspace = true }
+thiserror = "2"
 tokio = { workspace = true }
 tracing = { workspace = true }
-reqwest = { workspace = true }
-async-trait = { workspace = true }
-futures = { workspace = true }
+copilot-sdk = { git = "https://github.com/copilot-community-sdk/copilot-sdk-rust.git" }
 mas-core = { path = "../mas-core" }
+mas-admin = { path = "../mas-admin" }
+uuid = { workspace = true }
