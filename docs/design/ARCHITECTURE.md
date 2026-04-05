@@ -413,7 +413,7 @@ The frontend's `schemaStore` listens for these events and surgically updates the
 
 ### 3.4 AI Service (Rust)
 
-The AI Service integrates large language model capabilities into the application, with GitHub Copilot as the primary provider and local LLM support as a fallback.
+The AI Service integrates large language model capabilities into the application, with GitHub Copilot as the AI provider.
 
 #### Architecture
 
@@ -425,7 +425,6 @@ The AI Service integrates large language model capabilities into the application
 │  │PromptBuilder │    │     Provider Abstraction     │ │
 │  │              │    │                             │ │
 │  │ • Schema     │    │ ┌─────────┐  ┌───────────┐ │ │
-│  │   injection  │───►│ │Copilot  │  │  Ollama   │ │ │
 │  │ • History    │    │ │  SDK    │  │  (local)  │ │ │
 │  │ • System     │    │ └─────────┘  └───────────┘ │ │
 │  │   prompt     │    │                             │ │
@@ -483,8 +482,6 @@ Generate valid MySQL queries based on the user's natural language request.
 1. Try GitHub Copilot SDK (primary)
    ├── Success → return result
    └── Failure (auth error, rate limit, network) →
-2. Try Ollama local model (if configured)
-   ├── Success → return result with "local model" indicator
    └── Failure (not configured, model not loaded) →
 3. Return AIUnavailable error → frontend shows graceful fallback UI
 ```
@@ -1567,9 +1564,9 @@ csv_quote = "\""
 include_headers = true
 
 [ai]
-provider = "copilot"                     # "copilot" | "ollama" | "none"
-ollama_url = "http://localhost:11434"
-ollama_model = "codellama"
+provider = "copilot"                     # "copilot" | "none"
+
+
 max_context_tokens = 4096
 ```
 
@@ -1707,7 +1704,6 @@ context_menus = [
 |---|---|---|
 | **New IPC Commands** | Tauri plugin system; register new `#[tauri::command]` functions | A PostgreSQL plugin adding `pg_execute_query` |
 | **Custom Export Formats** | Implement `DataExporter` trait; register via plugin init | Parquet, Avro, or Protocol Buffers exporter |
-| **AI Providers** | Implement `AIProvider` trait; register as alternative to Copilot/Ollama | Anthropic Claude, Google Gemini, local GGUF models |
 | **Sidebar Panels** | React component registered in the component registry | Redis viewer, MongoDB browser, query planner visualizer |
 | **Result View Tabs** | React component rendered as an alternative result view | Geo-map view for spatial data, chart auto-generator |
 | **Context Menu Items** | Menu item definitions in manifest; handler in plugin code | "Generate migration" on right-click table |

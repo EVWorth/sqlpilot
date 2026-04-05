@@ -509,7 +509,6 @@ The `test_db_large` database is populated by a separate setup script (`tests/fix
 | `test_explain_query` | Complex JOIN → readable explanation text | Unit (mocked AI) |
 | `test_optimize_query_suggestion` | Query without index → suggests `CREATE INDEX` | Unit (mocked AI) |
 | `test_schema_context_building` | Schema with 10 tables → correctly serialized prompt context under token limit | Unit |
-| `test_ai_fallback_when_unavailable` | Copilot SDK fails → Ollama fallback attempted | Unit (mocked) |
 | `test_rate_limiting` | 100 rapid requests → rate limiter queues/rejects appropriately | Unit |
 
 ---

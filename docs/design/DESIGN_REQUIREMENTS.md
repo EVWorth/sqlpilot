@@ -90,7 +90,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 | Dark mode | ❌ | ✅ | ❌ | ✅ | ✅ | ✅ |
 | Custom themes | ❌ | ⚠️ | ❌ | ❌ | ✅ | ✅ |
 | Plugin/extension API | ❌ | ✅ | ❌ | ❌ | ✅ | ✅ |
-| Local LLM support | ❌ | ❌ | ❌ | ❌ | ❌ | ✅ |
+
 | Native performance | ⚠️ | ❌ | ✅ | ✅ | ❌ | ✅ |
 
 ### 2.2 MySQL Workbench — Detailed Analysis
@@ -178,7 +178,6 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 **What We Can Beat Them On:**
 - Open source with no per-seat licensing
 - AI-native features (neither has deep AI integration in the free tier)
-- Local LLM support for air-gapped / privacy-conscious environments
 - Community-driven development and extensibility
 - Full-featured ERD without enterprise paywalls
 - Transparent development process
@@ -406,7 +405,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 ### FR-6: AI Features (Copilot Integration)
 
 **Priority:** P0 — Critical  
-**Description:** AI-powered features using GitHub Copilot SDK and local LLMs (Ollama) to assist with SQL development, optimization, and documentation.
+**Description:** AI-powered features using GitHub Copilot to assist with SQL development, optimization, and documentation.
 
 #### FR-6.1: Natural Language to SQL
 
@@ -441,15 +440,12 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 | FR-6.4.1 | Chat interface | Dedicated sidebar panel for conversational AI interaction; markdown rendering for responses; code blocks with copy/insert buttons |
 | FR-6.4.2 | Context awareness | Chat has access to: current schema, active query, recent query history, selected result data; user can explicitly include/exclude context |
 | FR-6.4.3 | Conversation history | Chat history persisted per session; searchable; can reference previous conversations |
-| FR-6.4.4 | Provider selection | Toggle between GitHub Copilot (cloud) and Ollama (local); indicator showing which provider is active |
 
 #### FR-6.5: AI Configuration
 
 | ID | Requirement | Acceptance Criteria |
 |----|-------------|-------------------|
 | FR-6.5.1 | GitHub Copilot setup | Token-based authentication; status indicator; graceful fallback when unavailable |
-| FR-6.5.2 | Ollama setup | Configurable endpoint URL (default: localhost:11434); model selection from available models; automatic detection of running Ollama instance |
-| FR-6.5.3 | Privacy controls | Option to disable all AI features; option to restrict schema sharing (send structure only, no data); local-only mode using Ollama exclusively |
 
 ---
 

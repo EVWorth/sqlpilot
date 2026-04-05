@@ -29,7 +29,7 @@
 
 ---
 
-SQLPilot is a modern, open-source, cross-platform MySQL database management tool. It combines a Rust backend (via [Tauri 2](https://v2.tauri.app/)) with a React frontend to deliver native desktop performance in a **~16 MB binary** — no Electron bloat, no JVM overhead. AI features (natural language to SQL, query optimization, error fixing) are powered by GitHub Copilot and local LLMs via Ollama.
+SQLPilot is a modern, open-source, cross-platform MySQL database management tool. It combines a Rust backend (via [Tauri 2](https://v2.tauri.app/)) with a React frontend to deliver native desktop performance in a **~16 MB binary** — no Electron bloat, no JVM overhead. AI features (natural language to SQL, query optimization, error fixing) are powered by GitHub Copilot.
 
 **Why this over MySQL Workbench, DBeaver, or SQLyog?**
 
@@ -100,7 +100,7 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 - **Query explanation** — ask the AI to explain complex queries
 - **Query optimization** — get AI suggestions for improving performance
 - **Error fixing** — paste an error, get a fix
-- **Providers** — GitHub Copilot (cloud) or Ollama (local/private)
+- **Providers** — GitHub Copilot
 
 ### Query Management
 - **Query history** — every execution recorded with timestamp, duration, row count, status; searchable and click-to-reload
@@ -227,9 +227,6 @@ npx tauri build
 ### Environment Variables
 
 ```bash
-# Optional: Ollama endpoint for local AI features
-MYSQL_AI_STUDIO_OLLAMA_URL=http://localhost:11434
-
 # Optional: Override log level (default: info for console, debug for file)
 RUST_LOG=debug
 ```
@@ -267,8 +264,7 @@ RUST_LOG=debug
 
 | Technology | Purpose |
 |------------|---------|
-| [Ollama](https://ollama.ai/) | Local LLM support (Llama, Mistral, CodeLlama, etc.) |
-| GitHub Copilot | Cloud AI features |
+| [GitHub Copilot](https://github.com/features/copilot) | AI-powered features (NL-to-SQL, optimization, explanation, error fixing) |
 
 ### Testing
 
@@ -315,7 +311,7 @@ sqlpilot/
 │   │   │   └── tests/             #     32 integration tests against Docker MySQL 8
 │   │   ├── mas-export/            #   CSV, JSON, SQL, Markdown exporters
 │   │   ├── mas-admin/             #   Process list, server variables, kill process
-│   │   └── mas-ai/               #   AI service, Ollama/Copilot providers, conversation manager
+│   │   └── mas-ai/               #   AI service, Copilot provider, conversation manager
 │   ├── Cargo.toml                 #   Workspace with shared dependencies
 │   └── tauri.conf.json            #   Tauri app configuration
 ├── tests/fixtures/sql/            # Test seed data (tables, views, procedures, triggers)

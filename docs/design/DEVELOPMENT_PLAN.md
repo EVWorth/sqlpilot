@@ -229,7 +229,6 @@
 | # | Deliverable | Details |
 |---|-------------|---------|
 | 4.1 | GitHub Copilot SDK integration | Authenticate via GitHub token, send prompts, receive completions |
-| 4.2 | Ollama fallback | Local LLM support via Ollama HTTP API; configurable model name |
 | 4.3 | Schema context builder | Serialize relevant schema (tables, columns, types, FKs) into compact prompt context |
 | 4.4 | Prompt templates | Separate templates for: NL→SQL, explain, optimize, document, fix error |
 | 4.5 | Response streaming | Stream AI response tokens via Tauri events for live rendering |
@@ -258,7 +257,6 @@
 - [ ] "Explain" on a complex JOIN query produces a human-readable explanation.
 - [ ] "Optimize" on a query missing an index suggests adding one.
 - [ ] AI responses stream token-by-token in the chat panel.
-- [ ] When Copilot SDK is unavailable, Ollama fallback activates automatically (if configured).
 - [ ] When no AI provider is available, AI features are disabled with a clear message.
 - [ ] Rate limit errors are handled gracefully with retry-after indication.
 
@@ -266,7 +264,6 @@
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Copilot SDK availability / terms of service | High | Ollama fallback, graceful degradation, clear licensing docs |
 | AI generates incorrect SQL | High | Always show generated SQL for user review before execution; never auto-execute |
 | Schema context exceeds token limit | Medium | Intelligent schema pruning: only send tables referenced in conversation |
 | AI latency impacts UX | Medium | Streaming responses, loading indicators, ability to cancel |

@@ -431,12 +431,11 @@ Candidates:
 
 - **GitHub Copilot SDK** — official SDK, GPT-4 class models, GitHub ecosystem
 - **OpenAI API** — direct API access, requires API key and billing
-- **Ollama** — local LLM inference, free, offline
 - **Anthropic Claude API** — high-quality, requires API key
 
 ### Decision
 
-**Use GitHub Copilot SDK as the primary AI provider, with Ollama as a fallback.**
+**Use GitHub Copilot SDK as the AI provider.**
 
 ### Rationale
 
@@ -446,12 +445,10 @@ Candidates:
 
 3. **Official SDK** — The Copilot SDK handles authentication (GitHub token), rate limiting, and streaming. Less custom code than using raw OpenAI API.
 
-4. **Ollama fallback** — For users without Copilot, Ollama provides local LLM inference:
    - Free and offline
    - Models like CodeLlama and SQLCoder are decent at SQL generation
    - No data leaves the user's machine (privacy-sensitive environments)
 
-5. **Graceful degradation** — If neither Copilot nor Ollama is available, AI features are simply disabled. The app remains fully functional as a traditional database GUI.
 
 ### Architecture
 
@@ -464,7 +461,6 @@ Candidates:
 │  │   SDK    │    │ Router   │    │ Engine│  │
 │  └──────────┘    └──────────┘    └───────┘  │
 │  ┌──────────┐         │                     │
-│  │  Ollama  │─────────┘                     │
 │  │   HTTP   │                               │
 │  └──────────┘                               │
 └─────────────────────────────────────────────┘
@@ -472,7 +468,6 @@ Candidates:
 
 The Provider Router selects the best available provider:
 1. If Copilot SDK is authenticated → use Copilot
-2. If Ollama is running locally → use Ollama
 3. Otherwise → disable AI features
 
 ### Risks
@@ -487,7 +482,6 @@ The Provider Router selects the best available provider:
 
 ### Mitigations
 
-- **Subscription:** Ollama provides a free, offline alternative. We clearly document the AI provider options during setup.
 - **Incorrect SQL:** Generated SQL is NEVER auto-executed. It's always inserted into the editor for user review. Dangerous statements (DROP, DELETE without WHERE) get a warning banner.
 - **Terms of service:** Review Copilot SDK terms before release. Ensure our usage (IDE-like SQL assistance) aligns with intended use cases. Consult legal if ambiguous.
 - **Token limits:** Intelligent schema pruning: only include tables and columns relevant to the conversation. For large schemas (200+ tables), use embedding-based relevance scoring to select the most pertinent tables.
@@ -772,7 +766,6 @@ src-tauri/
 │   └── src/
 │       ├── lib.rs
 │       ├── copilot.rs       # GitHub Copilot SDK integration
-│       ├── ollama.rs        # Ollama local LLM integration
 │       ├── prompts/         # Prompt templates
 │       └── router.rs        # Provider selection logic
 ├── mas-export/             # Import/export crate
