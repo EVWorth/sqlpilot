@@ -12,8 +12,25 @@ import type {
   PendingPermission,
 } from "../types";
 
-// Internal SDK tools that should not appear in the UI
-const HIDDEN_TOOLS = new Set(["report_intent"]);
+// Internal SDK tools and built-in agent tools that should not appear in the UI
+const HIDDEN_TOOLS = new Set([
+  "report_intent",
+  "bash",
+  "stop_bash",
+  "read_bash",
+  "write_bash",
+  "list_bash",
+  "glob",
+  "grep",
+  "view",
+  "edit",
+  "create",
+  "web_search",
+  "web_fetch",
+  "ask_user",
+  "task_complete",
+  "fetch_copilot_cli_documentation",
+]);
 
 interface AiState {
   // Status

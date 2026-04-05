@@ -148,11 +148,32 @@ impl AiService {
             _ => None,
         };
 
-        // Build system message
+        // Build system message based on mode
         let system_content = {
-            let base = "You are an expert MySQL database assistant integrated into SQLPilot. \
-                        Help users with queries, schema design, performance tuning, and database management. \
-                        Use the available database tools to inspect schema, run queries, and manage the database.";
+            let base = match mode {
+                AiMode::Ask => {
+                    "You are an expert MySQL database assistant integrated into SQLPilot. \
+                     You are in READ-ONLY mode. Help users understand their database by inspecting schema, \
+                     running SELECT queries, and explaining query plans. \
+                     You may ONLY use the database tools provided to you — no shell commands, no file operations. \
+                     Do NOT attempt to modify data or schema. If the user asks for modifications, \
+                     provide the SQL they would need but explain they should switch to Agent mode to execute it."
+                }
+                AiMode::Agent => {
+                    "You are an expert MySQL database assistant integrated into SQLPilot. \
+                     You are in AGENT mode with full database access. \
+                     Help users with queries, schema design, performance tuning, and database management. \
+                     Use the available database tools to inspect schema, run queries, and make changes. \
+                     You may ONLY use the database tools provided — no shell commands, no file operations."
+                }
+                AiMode::Plan => {
+                    "You are an expert MySQL database assistant integrated into SQLPilot. \
+                     You are in PLAN mode. Before executing any changes, create a detailed plan \
+                     and explain each step. Use the available database tools to inspect the current state, \
+                     then propose changes. Write operations will require user approval. \
+                     You may ONLY use the database tools provided — no shell commands, no file operations."
+                }
+            };
             match &schema_context {
                 Some(ctx) => format!("{}\n\nCurrent database schema:\n{}", base, ctx),
                 None => base.to_string(),
@@ -197,9 +218,17 @@ impl AiService {
             let tool_defs: Vec<copilot_sdk::Tool> =
                 tool_pairs.iter().map(|(t, _)| t.clone()).collect();
 
+            // For Ask mode, restrict to ONLY our registered tools (blocks built-in bash, etc.)
+            let available_tools = if *mode == AiMode::Ask {
+                Some(tool_defs.iter().map(|t| t.name.clone()).collect::<Vec<_>>())
+            } else {
+                None
+            };
+
             let config = self.config.read().await;
             let session_config = SessionConfig {
                 tools: tool_defs,
+                available_tools,
                 system_message: Some(SystemMessageConfig {
                     mode: Some(SystemMessageMode::Replace),
                     content: Some(system_content),
