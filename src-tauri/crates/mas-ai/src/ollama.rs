@@ -169,11 +169,11 @@ impl AiProvider for OllamaProvider {
                 match serde_json::from_str::<OllamaChatResponse>(&line) {
                     Ok(resp) => {
                         if let Some(msg) = resp.message {
-                            if !msg.content.is_empty() {
-                                if sender.send(msg.content).await.is_err() {
-                                    tracing::debug!("Stream receiver dropped");
-                                    return Ok(());
-                                }
+                            if !msg.content.is_empty()
+                                && sender.send(msg.content).await.is_err()
+                            {
+                                tracing::debug!("Stream receiver dropped");
+                                return Ok(());
                             }
                         }
                     }

@@ -9,6 +9,7 @@ use crate::provider::AiProvider;
 // This is a placeholder provider that returns unavailable.
 
 pub struct CopilotProvider {
+    #[allow(dead_code)]
     token: Option<String>,
 }
 
@@ -47,7 +48,7 @@ impl AiProvider for CopilotProvider {
 
     fn is_available(&self) -> bool {
         // TODO: Validate token and check Copilot API availability
-        self.token.is_some() && false
+        false
     }
 
     fn model_name(&self) -> Option<String> {

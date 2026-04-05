@@ -244,10 +244,12 @@ fn split_statements(sql: &str) -> Vec<String> {
 
         if in_string {
             current.push(c);
-            if c == '\\' && next.is_some() {
-                current.push(next.unwrap());
-                i += 2;
-                continue;
+            if c == '\\' {
+                if let Some(next_ch) = next {
+                    current.push(next_ch);
+                    i += 2;
+                    continue;
+                }
             }
             if c == string_char {
                 in_string = false;
