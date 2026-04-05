@@ -6,6 +6,7 @@ use mas_core::schema::inspector::{DatabaseInfo, TableInfo, ColumnInfo, IndexInfo
 use mas_admin::AdminService;
 use std::sync::Arc;
 use tauri::State;
+use std::path::PathBuf;
 
 pub struct AppState {
     pub connection_manager: Arc<ConnectionManager>,
@@ -365,4 +366,42 @@ pub async fn kill_process(
     })?;
     tracing::info!("Process killed");
     Ok(())
+}
+
+// File import commands
+#[tauri::command]
+#[tracing::instrument]
+pub async fn read_file_contents(path: String) -> Result<String, String> {
+    let path_buf = PathBuf::from(&path);
+    if !path_buf.exists() {
+        return Err(format!("File not found: {}", path));
+    }
+    let contents = tokio::fs::read_to_string(&path_buf).await.map_err(|e| {
+        tracing::error!(error = %e, path = %path, "Failed to read file");
+        format!("Failed to read file: {}", e)
+    })?;
+    tracing::info!(path = %path, bytes = contents.len(), "File read successfully");
+    Ok(contents)
+}
+
+#[tauri::command]
+#[tracing::instrument]
+pub async fn pick_file(title: String, filters: Vec<(String, Vec<String>)>) -> Result<Option<String>, String> {
+    let mut dialog = rfd::AsyncFileDialog::new().set_title(&title);
+    for (name, extensions) in &filters {
+        let ext_refs: Vec<&str> = extensions.iter().map(|s| s.as_str()).collect();
+        dialog = dialog.add_filter(name, &ext_refs);
+    }
+    let result = dialog.pick_file().await;
+    match result {
+        Some(handle) => {
+            let path = handle.path().to_string_lossy().to_string();
+            tracing::info!(path = %path, "File picked");
+            Ok(Some(path))
+        }
+        None => {
+            tracing::info!("File pick cancelled");
+            Ok(None)
+        }
+    }
 }

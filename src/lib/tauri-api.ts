@@ -13,6 +13,8 @@ import type {
   TriggerInfo,
   ProcessInfo,
   ServerVariable,
+  AiStatus,
+  AiConfig,
 } from "../types";
 
 // In dev mode without Tauri, provide mock fallbacks
@@ -112,4 +114,33 @@ export const api = {
 
   killProcess: (connectionId: string, processId: number) =>
     tauriInvoke<void>("kill_process", { connectionId, processId }),
+
+  // File import
+  readFileContents: (path: string) =>
+    tauriInvoke<string>("read_file_contents", { path }),
+
+  pickFile: (title: string, filters: [string, string[]][]) =>
+    tauriInvoke<string | null>("pick_file", { title, filters }),
+
+  // AI
+  aiChat: (message: string, conversationId: string, connectionId?: string, database?: string) =>
+    tauriInvoke<string>("ai_chat", { message, conversationId, connectionId, database }),
+
+  aiGenerateSql: (prompt: string, connectionId?: string, database?: string) =>
+    tauriInvoke<string>("ai_generate_sql", { prompt, connectionId, database }),
+
+  aiExplainQuery: (sql: string) =>
+    tauriInvoke<string>("ai_explain_query", { sql }),
+
+  aiOptimizeQuery: (sql: string, connectionId?: string, database?: string) =>
+    tauriInvoke<string>("ai_optimize_query", { sql, connectionId, database }),
+
+  aiFixError: (sql: string, errorMessage: string) =>
+    tauriInvoke<string>("ai_fix_error", { sql, errorMessage }),
+
+  aiGetStatus: () =>
+    tauriInvoke<AiStatus>("ai_get_status"),
+
+  aiSetConfig: (config: AiConfig) =>
+    tauriInvoke<void>("ai_set_config", { config }),
 };

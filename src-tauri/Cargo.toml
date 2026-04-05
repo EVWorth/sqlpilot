@@ -39,6 +39,7 @@ mas-core = { path = "crates/mas-core" }
 mas-export = { path = "crates/mas-export" }
 mas-admin = { path = "crates/mas-admin" }
 dirs = "5"
+rfd = "0.15"
 
 [lib]
 name = "mysql_ai_studio_lib"

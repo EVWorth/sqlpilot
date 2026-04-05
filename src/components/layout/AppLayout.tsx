@@ -5,17 +5,24 @@ import { StatusBar } from "./StatusBar";
 import { MainPanel } from "./MainPanel";
 import { Toolbar } from "./Toolbar";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
+import { ImportDialog } from "../import/ImportDialog";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useConnectionStore } from "../../stores/connectionStore";
 
 export function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
+  const activeConnections = useConnectionStore((s) => s.activeConnections);
+  const selectedConnection = activeConnections.find((c) => c.id === selectedConnectionId);
 
   const toggleSidebar = useCallback(
     () => setSidebarCollapsed((prev) => !prev),
     [],
   );
   const openShortcuts = useCallback(() => setShowShortcuts(true), []);
+  const openImport = useCallback(() => setShowImport(true), []);
   const openSaveFavorite = useCallback(() => {
     window.dispatchEvent(new CustomEvent("open-save-favorite"));
   }, []);
@@ -24,7 +31,7 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
-      <Toolbar onShowShortcuts={openShortcuts} />
+      <Toolbar onShowShortcuts={openShortcuts} onShowImport={openImport} />
       <div className="flex-1 overflow-hidden">
         <PanelGroup direction="horizontal" autoSaveId="main-layout">
           {!sidebarCollapsed && (
@@ -45,6 +52,14 @@ export function AppLayout() {
         isOpen={showShortcuts}
         onClose={() => setShowShortcuts(false)}
       />
+      {selectedConnectionId && selectedConnection && (
+        <ImportDialog
+          isOpen={showImport}
+          onClose={() => setShowImport(false)}
+          connectionId={selectedConnectionId}
+          database={selectedConnection.database ?? ""}
+        />
+      )}
     </div>
   );
 }

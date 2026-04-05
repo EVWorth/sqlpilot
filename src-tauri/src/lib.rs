@@ -91,6 +91,8 @@ pub fn run() {
             commands::get_process_list,
             commands::get_server_variables,
             commands::kill_process,
+            commands::read_file_contents,
+            commands::pick_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
