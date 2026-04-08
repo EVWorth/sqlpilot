@@ -9,8 +9,46 @@ use std::sync::Arc;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
+/// On macOS GUI apps, the PATH is restricted to /usr/bin:/bin:/usr/sbin:/sbin.
+/// Augment it with directories where tools like the Copilot CLI are commonly installed.
+#[cfg(target_os = "macos")]
+#[allow(deprecated)]
+fn augment_macos_path() {
+    use std::env;
+
+    let mut extra_paths: Vec<std::path::PathBuf> = vec![
+        "/opt/homebrew/bin".into(),  // Homebrew (Apple Silicon)
+        "/opt/homebrew/sbin".into(),
+        "/usr/local/bin".into(),  // Homebrew (Intel) / npm global default
+        "/usr/local/sbin".into(),
+        "/opt/local/bin".into(), // MacPorts
+    ];
+
+    if let Ok(home) = env::var("HOME") {
+        extra_paths.push(format!("{home}/.npm-global/bin").into());
+        extra_paths.push(format!("{home}/.volta/bin").into());
+    }
+
+    let current_path = env::var("PATH").unwrap_or_default();
+    let existing: Vec<&str> = current_path.split(':').collect();
+
+    let mut new_paths: Vec<String> = extra_paths
+        .iter()
+        .filter(|p| p.exists() && !existing.contains(&p.to_str().unwrap_or("")))
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect();
+
+    if !new_paths.is_empty() {
+        new_paths.extend(existing.iter().map(|s| s.to_string()));
+        env::set_var("PATH", new_paths.join(":"));
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(target_os = "macos")]
+    augment_macos_path();
+
     let data_dir = dirs::data_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("sqlpilot");
@@ -45,6 +83,9 @@ pub fn run() {
         log_dir = %log_dir.display(),
         "Starting SQLPilot"
     );
+
+    #[cfg(target_os = "macos")]
+    tracing::debug!(path = %std::env::var("PATH").unwrap_or_default(), "PATH after macOS augmentation");
 
     // Keep the non-blocking guard alive for the lifetime of the app
     // by leaking it (it flushes on drop, but we need it alive until exit)

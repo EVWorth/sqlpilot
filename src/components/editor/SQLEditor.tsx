@@ -42,8 +42,10 @@ export function SQLEditor() {
         connectionId: schemaCache.connectionId,
         databases: schemaCache.databases,
         tables: schemaCache.tables,
+        views: schemaCache.views,
         columns: schemaCache.columns,
         fetchTables: schemaCache.fetchTables,
+        fetchViews: schemaCache.fetchViews,
         fetchColumns: schemaCache.fetchColumns,
       }),
     );
@@ -57,6 +59,7 @@ export function SQLEditor() {
     schemaCache.connectionId,
     schemaCache.databases,
     schemaCache.tables,
+    schemaCache.views,
     schemaCache.columns,
   ]); // eslint-disable-line react-hooks/exhaustive-deps
 

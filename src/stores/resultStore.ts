@@ -11,6 +11,7 @@ interface ConfirmDialogState {
   isOpen: boolean;
   connectionId: string;
   sql: string;
+  database?: string;
 }
 
 interface ResultState {
@@ -25,9 +26,9 @@ interface ResultState {
 
   confirmDialog: ConfirmDialogState | null;
 
-  executeQuery: (connectionId: string, sql: string) => Promise<void>;
-  executeExplain: (connectionId: string, sql: string) => Promise<void>;
-  executeExplainAnalyze: (connectionId: string, sql: string) => Promise<void>;
+  executeQuery: (connectionId: string, sql: string, database?: string) => Promise<void>;
+  executeExplain: (connectionId: string, sql: string, database?: string) => Promise<void>;
+  executeExplainAnalyze: (connectionId: string, sql: string, database?: string) => Promise<void>;
   setActiveResult: (index: number) => void;
   setShowExplain: (show: boolean) => void;
   clearResults: () => void;
@@ -56,20 +57,20 @@ export const useResultStore = create<ResultState>((set, get) => ({
 
   confirmDialog: null,
 
-  executeQuery: async (connectionId, sql) => {
+  executeQuery: async (connectionId, sql, database) => {
     // Production safety check
     if (isProductionConnection(connectionId) && DESTRUCTIVE_PATTERN.test(sql)) {
-      set({ confirmDialog: { isOpen: true, connectionId, sql } });
+      set({ confirmDialog: { isOpen: true, connectionId, sql, database } });
       return;
     }
-    await doExecuteQuery(connectionId, sql, set);
+    await doExecuteQuery(connectionId, sql, set, database);
   },
 
   confirmExecution: async () => {
     const dialog = get().confirmDialog;
     if (!dialog) return;
     set({ confirmDialog: null });
-    await doExecuteQuery(dialog.connectionId, dialog.sql, set);
+    await doExecuteQuery(dialog.connectionId, dialog.sql, set, dialog.database);
   },
 
   cancelExecution: () => {
@@ -88,12 +89,13 @@ export const useResultStore = create<ResultState>((set, get) => ({
     }),
   clearError: () => set({ error: null }),
 
-  executeExplain: async (connectionId, sql) => {
+  executeExplain: async (connectionId, sql, database) => {
     try {
       set({ isExecuting: true, error: null });
       const results = await api.executeQuery(
         connectionId,
         `EXPLAIN ${sql}`,
+        database,
       );
       set({
         explainResult: results[0] ?? null,
@@ -106,13 +108,14 @@ export const useResultStore = create<ResultState>((set, get) => ({
     }
   },
 
-  executeExplainAnalyze: async (connectionId, sql) => {
+  executeExplainAnalyze: async (connectionId, sql, database) => {
     try {
       set({ isExecuting: true, error: null });
-      const results = await api.executeQuery(
-        connectionId,
-        `EXPLAIN ANALYZE ${sql}`,
-      );
+      const connState = useConnectionStore.getState();
+      const conn = connState.activeConnections.find((c) => c.id === connectionId);
+      const isMariaDB = conn?.server_version?.toLowerCase().includes("mariadb") ?? false;
+      const explainSql = isMariaDB ? `ANALYZE ${sql}` : `EXPLAIN ANALYZE ${sql}`;
+      const results = await api.executeQuery(connectionId, explainSql, database);
       set({
         explainResult: results[0] ?? null,
         explainAnalyze: true,
@@ -129,6 +132,7 @@ async function doExecuteQuery(
   connectionId: string,
   sql: string,
   set: (partial: Partial<ResultState>) => void,
+  database?: string,
 ) {
   const startTime = Date.now();
   const connState = useConnectionStore.getState();
@@ -136,11 +140,12 @@ async function doExecuteQuery(
     (c) => c.id === connectionId,
   );
   const connectionName = conn?.name ?? "Unknown";
-  const database = conn?.database;
+  // Explicit database selection takes precedence over the connection's default
+  const effectiveDatabase = database ?? conn?.database;
 
   try {
     set({ isExecuting: true, error: null });
-    const results = await api.executeQuery(connectionId, sql);
+    const results = await api.executeQuery(connectionId, sql, effectiveDatabase);
     set({ results, activeResultIndex: 0, isExecuting: false });
 
     const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);
@@ -148,7 +153,7 @@ async function doExecuteQuery(
       id: crypto.randomUUID(),
       sql,
       connectionName,
-      database,
+      database: effectiveDatabase,
       executedAt: new Date().toISOString(),
       executionTimeMs: Date.now() - startTime,
       rowCount: totalRows,
@@ -161,7 +166,7 @@ async function doExecuteQuery(
       id: crypto.randomUUID(),
       sql,
       connectionName,
-      database,
+      database: effectiveDatabase,
       executedAt: new Date().toISOString(),
       executionTimeMs: Date.now() - startTime,
       rowCount: 0,

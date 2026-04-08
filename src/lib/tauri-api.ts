@@ -57,8 +57,8 @@ export const api = {
     tauriInvoke<ConnectionInfo[]>("list_connections"),
 
   // Queries
-  executeQuery: (connectionId: string, sql: string) =>
-    tauriInvoke<QueryResult[]>("execute_query", { connectionId, sql }),
+  executeQuery: (connectionId: string, sql: string, database?: string) =>
+    tauriInvoke<QueryResult[]>("execute_query", { connectionId, sql, database }),
 
   // Schema
   getDatabases: (connectionId: string) =>

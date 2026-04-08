@@ -2,9 +2,9 @@ import { useState, useRef, useEffect } from "react";
 import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown, Star, MessageSquare, Zap } from "lucide-react";
 import { format } from "sql-formatter";
 import { useEditorStore } from "../../stores/editorStore";
-import { useResultStore } from "../../stores/resultStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { useQueryExecution } from "../../hooks/useQueryExecution";
 import { useAiStore } from "../../stores/aiStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 
@@ -18,14 +18,10 @@ export function QueryToolbar() {
     return () => window.removeEventListener("open-save-favorite", handler);
   }, []);
 
+  const editorInstance = useEditorStore((s) => s.editorInstance);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const editorInstance = useEditorStore((s) => s.editorInstance);
-  const executeQuery = useResultStore((s) => s.executeQuery);
-  const executeExplain = useResultStore((s) => s.executeExplain);
-  const executeExplainAnalyze = useResultStore((s) => s.executeExplainAnalyze);
-  const isExecuting = useResultStore((s) => s.isExecuting);
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
@@ -33,15 +29,23 @@ export function QueryToolbar() {
   const refreshSchema = useSchemaCache((s) => s.refreshSchema);
   const schemaLoading = useSchemaCache((s) => s.loading);
 
+  const {
+    executeQuery,
+    executeExplain,
+    executeExplainAnalyze,
+    canExecute: hookCanExecute,
+    isExecuting,
+  } = useQueryExecution();
+
   const activeConnection = activeConnections.find(
     (c) => c.id === selectedConnectionId,
   );
 
   const handleExecute = () => {
-    if (!selectedConnectionId || isExecuting) return;
+    if (!hookCanExecute) return;
     const sql = getCurrentSql();
     if (!sql.trim()) return;
-    executeQuery(selectedConnectionId, sql);
+    executeQuery(sql);
   };
 
   const [explainOpen, setExplainOpen] = useState(false);
@@ -71,18 +75,18 @@ export function QueryToolbar() {
   };
 
   const handleExplain = () => {
-    if (!selectedConnectionId || isExecuting) return;
+    if (!hookCanExecute) return;
     const sql = getCurrentSql();
     if (!sql.trim()) return;
-    executeExplain(selectedConnectionId, sql);
+    executeExplain(sql);
     setExplainOpen(false);
   };
 
   const handleExplainAnalyze = () => {
-    if (!selectedConnectionId || isExecuting) return;
+    if (!hookCanExecute) return;
     const sql = getCurrentSql();
     if (!sql.trim()) return;
-    executeExplainAnalyze(selectedConnectionId, sql);
+    executeExplainAnalyze(sql);
     setExplainOpen(false);
   };
 
@@ -113,7 +117,7 @@ export function QueryToolbar() {
   };
 
   const canExecute =
-    !!activeTab?.content?.trim() && !!selectedConnectionId && !isExecuting;
+    !!activeTab?.content?.trim() && hookCanExecute;
 
   const toolbarBtnClass =
     "flex items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
