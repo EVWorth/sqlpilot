@@ -41,7 +41,7 @@ export function QueryToolbar() {
     if (!selectedConnectionId || isExecuting) return;
     const sql = getCurrentSql();
     if (!sql.trim()) return;
-    executeQuery(selectedConnectionId, sql);
+    executeQuery(selectedConnectionId, sql, activeTab?.database);
   };
 
   const [explainOpen, setExplainOpen] = useState(false);

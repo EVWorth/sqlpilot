@@ -11,6 +11,7 @@ interface ConfirmDialogState {
   isOpen: boolean;
   connectionId: string;
   sql: string;
+  database?: string;
 }
 
 interface ResultState {
@@ -25,7 +26,7 @@ interface ResultState {
 
   confirmDialog: ConfirmDialogState | null;
 
-  executeQuery: (connectionId: string, sql: string) => Promise<void>;
+  executeQuery: (connectionId: string, sql: string, database?: string) => Promise<void>;
   executeExplain: (connectionId: string, sql: string) => Promise<void>;
   executeExplainAnalyze: (connectionId: string, sql: string) => Promise<void>;
   setActiveResult: (index: number) => void;
@@ -56,20 +57,20 @@ export const useResultStore = create<ResultState>((set, get) => ({
 
   confirmDialog: null,
 
-  executeQuery: async (connectionId, sql) => {
+  executeQuery: async (connectionId, sql, database) => {
     // Production safety check
     if (isProductionConnection(connectionId) && DESTRUCTIVE_PATTERN.test(sql)) {
-      set({ confirmDialog: { isOpen: true, connectionId, sql } });
+      set({ confirmDialog: { isOpen: true, connectionId, sql, database } });
       return;
     }
-    await doExecuteQuery(connectionId, sql, set);
+    await doExecuteQuery(connectionId, sql, set, database);
   },
 
   confirmExecution: async () => {
     const dialog = get().confirmDialog;
     if (!dialog) return;
     set({ confirmDialog: null });
-    await doExecuteQuery(dialog.connectionId, dialog.sql, set);
+    await doExecuteQuery(dialog.connectionId, dialog.sql, set, dialog.database);
   },
 
   cancelExecution: () => {
@@ -129,6 +130,7 @@ async function doExecuteQuery(
   connectionId: string,
   sql: string,
   set: (partial: Partial<ResultState>) => void,
+  database?: string,
 ) {
   const startTime = Date.now();
   const connState = useConnectionStore.getState();
@@ -136,11 +138,16 @@ async function doExecuteQuery(
     (c) => c.id === connectionId,
   );
   const connectionName = conn?.name ?? "Unknown";
-  const database = conn?.database;
+  const effectiveDatabase = database ?? conn?.database;
+  const effectiveSql = effectiveDatabase
+    ? `USE \`${effectiveDatabase}\`;\n${sql}`
+    : sql;
 
   try {
     set({ isExecuting: true, error: null });
-    const results = await api.executeQuery(connectionId, sql);
+    const allResults = await api.executeQuery(connectionId, effectiveSql);
+    // Drop the result from the USE statement (first result if we prepended one)
+    const results = effectiveDatabase ? allResults.slice(1) : allResults;
     set({ results, activeResultIndex: 0, isExecuting: false });
 
     const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);
@@ -148,7 +155,7 @@ async function doExecuteQuery(
       id: crypto.randomUUID(),
       sql,
       connectionName,
-      database,
+      database: effectiveDatabase,
       executedAt: new Date().toISOString(),
       executionTimeMs: Date.now() - startTime,
       rowCount: totalRows,
@@ -161,7 +168,7 @@ async function doExecuteQuery(
       id: crypto.randomUUID(),
       sql,
       connectionName,
-      database,
+      database: effectiveDatabase,
       executedAt: new Date().toISOString(),
       executionTimeMs: Date.now() - startTime,
       rowCount: 0,
