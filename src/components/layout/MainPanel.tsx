@@ -1,4 +1,4 @@
-import { useState, useRef } from "react";
+import { useState, useEffect } from "react";
 import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
 import { SQLEditor } from "../editor/SQLEditor";
 import { EditorTabs } from "../editor/EditorTabs";
@@ -102,18 +102,14 @@ function ResultsPanel({
   explainResult: unknown;
   setShowExplain: (v: boolean) => void;
 }) {
-  const [activeTab, setActiveTab] = useState<"results" | "explain">(
-    showExplain && explainResult ? "explain" : "results",
-  );
+  const [activeTab, setActiveTab] = useState<"results" | "explain">("results");
 
-  // Switch to explain tab when new explain result arrives
-  const prevExplainRef = useRef(explainResult);
-  if (explainResult && explainResult !== prevExplainRef.current) {
-    prevExplainRef.current = explainResult;
-    if (activeTab !== "explain") {
+  // Auto-switch to explain tab whenever a new explain result arrives
+  useEffect(() => {
+    if (explainResult) {
       setActiveTab("explain");
     }
-  }
+  }, [explainResult]);
 
   const hasExplain = showExplain && !!explainResult;
 

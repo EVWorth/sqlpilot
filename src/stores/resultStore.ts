@@ -27,8 +27,8 @@ interface ResultState {
   confirmDialog: ConfirmDialogState | null;
 
   executeQuery: (connectionId: string, sql: string, database?: string) => Promise<void>;
-  executeExplain: (connectionId: string, sql: string) => Promise<void>;
-  executeExplainAnalyze: (connectionId: string, sql: string) => Promise<void>;
+  executeExplain: (connectionId: string, sql: string, database?: string) => Promise<void>;
+  executeExplainAnalyze: (connectionId: string, sql: string, database?: string) => Promise<void>;
   setActiveResult: (index: number) => void;
   setShowExplain: (show: boolean) => void;
   clearResults: () => void;
@@ -89,12 +89,13 @@ export const useResultStore = create<ResultState>((set, get) => ({
     }),
   clearError: () => set({ error: null }),
 
-  executeExplain: async (connectionId, sql) => {
+  executeExplain: async (connectionId, sql, database) => {
     try {
       set({ isExecuting: true, error: null });
       const results = await api.executeQuery(
         connectionId,
         `EXPLAIN ${sql}`,
+        database,
       );
       set({
         explainResult: results[0] ?? null,
@@ -107,12 +108,13 @@ export const useResultStore = create<ResultState>((set, get) => ({
     }
   },
 
-  executeExplainAnalyze: async (connectionId, sql) => {
+  executeExplainAnalyze: async (connectionId, sql, database) => {
     try {
       set({ isExecuting: true, error: null });
       const results = await api.executeQuery(
         connectionId,
         `EXPLAIN ANALYZE ${sql}`,
+        database,
       );
       set({
         explainResult: results[0] ?? null,

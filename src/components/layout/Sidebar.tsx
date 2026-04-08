@@ -370,14 +370,14 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
   const handleTableClick = (dbName: string, tableName: string) =>
     makeClickHandler(
       `${dbName}.${tableName}`,
-      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${tableName}\` LIMIT 100`),
+      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${tableName}\` LIMIT 100`, dbName),
       () => insertNameAtCursor(tableName),
     );
 
   const handleViewClick = (dbName: string, viewName: string) =>
     makeClickHandler(
       `${dbName}.${viewName}`,
-      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${viewName}\` LIMIT 100`),
+      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${viewName}\` LIMIT 100`, dbName),
       () => insertNameAtCursor(viewName),
     );
 
@@ -590,7 +590,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Select Top 100 Rows",
                             icon: <Search className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              executeQuery(connectionId, `SELECT * FROM \`${db.name}\`.\`${t.name}\` LIMIT 100`);
+                              executeQuery(connectionId, `SELECT * FROM \`${db.name}\`.\`${t.name}\` LIMIT 100`, db.name);
                             },
                           },
                           {
@@ -694,7 +694,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                           label: "Select Top 100 Rows",
                           icon: <Search className="h-3.5 w-3.5" />,
                           onClick: () => {
-                            executeQuery(connectionId, `SELECT * FROM \`${db.name}\`.\`${v.name}\` LIMIT 100`);
+                            executeQuery(connectionId, `SELECT * FROM \`${db.name}\`.\`${v.name}\` LIMIT 100`, db.name);
                           },
                         },
                         {

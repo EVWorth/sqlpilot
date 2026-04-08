@@ -74,7 +74,7 @@ export function QueryToolbar() {
     if (!selectedConnectionId || isExecuting) return;
     const sql = getCurrentSql();
     if (!sql.trim()) return;
-    executeExplain(selectedConnectionId, sql);
+    executeExplain(selectedConnectionId, sql, activeTab?.database);
     setExplainOpen(false);
   };
 
@@ -82,7 +82,7 @@ export function QueryToolbar() {
     if (!selectedConnectionId || isExecuting) return;
     const sql = getCurrentSql();
     if (!sql.trim()) return;
-    executeExplainAnalyze(selectedConnectionId, sql);
+    executeExplainAnalyze(selectedConnectionId, sql, activeTab?.database);
     setExplainOpen(false);
   };
 
