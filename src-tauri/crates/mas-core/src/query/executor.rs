@@ -1,7 +1,7 @@
 use crate::connection::ConnectionManager;
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue};
-use sqlx::{Column, Row, TypeInfo};
+use sqlx::{Acquire, Column, Row, TypeInfo};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -19,12 +19,25 @@ impl QueryExecutor {
         &self,
         connection_id: &str,
         sql: &str,
+        database: Option<&str>,
     ) -> Result<Vec<QueryResult>, CoreError> {
         let pool = self.connection_manager.get_pool(connection_id)?;
         let statements = split_statements(sql);
 
         tracing::Span::current().record("statement_count", statements.len());
         tracing::trace!(sql = %sql, "Full SQL input");
+
+        // Acquire a dedicated connection so USE + query share the same session
+        let mut conn = pool.acquire().await.map_err(|e| CoreError::Query(e.to_string()))?;
+
+        if let Some(db) = database {
+            let use_sql = format!("USE `{}`", db);
+            tracing::debug!(database = %db, "Switching database context");
+            sqlx::query(&use_sql)
+                .execute(conn.as_mut())
+                .await
+                .map_err(|e| CoreError::Query(e.to_string()))?;
+        }
 
         let mut results = Vec::new();
 
@@ -48,7 +61,7 @@ impl QueryExecutor {
 
             if is_select {
                 let rows = sqlx::query(trimmed)
-                    .fetch_all(&pool)
+                    .fetch_all(conn.as_mut())
                     .await
                     .map_err(|e| CoreError::Query(e.to_string()))?;
 
@@ -102,7 +115,7 @@ impl QueryExecutor {
                 });
             } else {
                 let result = sqlx::query(trimmed)
-                    .execute(&pool)
+                    .execute(conn.as_mut())
                     .await
                     .map_err(|e| CoreError::Query(e.to_string()))?;
 

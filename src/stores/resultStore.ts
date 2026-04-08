@@ -138,16 +138,12 @@ async function doExecuteQuery(
     (c) => c.id === connectionId,
   );
   const connectionName = conn?.name ?? "Unknown";
+  // Explicit database selection takes precedence over the connection's default
   const effectiveDatabase = database ?? conn?.database;
-  const effectiveSql = effectiveDatabase
-    ? `USE \`${effectiveDatabase}\`;\n${sql}`
-    : sql;
 
   try {
     set({ isExecuting: true, error: null });
-    const allResults = await api.executeQuery(connectionId, effectiveSql);
-    // Drop the result from the USE statement (first result if we prepended one)
-    const results = effectiveDatabase ? allResults.slice(1) : allResults;
+    const results = await api.executeQuery(connectionId, sql, effectiveDatabase);
     set({ results, activeResultIndex: 0, isExecuting: false });
 
     const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);
