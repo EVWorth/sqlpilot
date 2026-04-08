@@ -111,11 +111,11 @@ export const useResultStore = create<ResultState>((set, get) => ({
   executeExplainAnalyze: async (connectionId, sql, database) => {
     try {
       set({ isExecuting: true, error: null });
-      const results = await api.executeQuery(
-        connectionId,
-        `EXPLAIN ANALYZE ${sql}`,
-        database,
-      );
+      const connState = useConnectionStore.getState();
+      const conn = connState.activeConnections.find((c) => c.id === connectionId);
+      const isMariaDB = conn?.server_version?.toLowerCase().includes("mariadb") ?? false;
+      const explainSql = isMariaDB ? `ANALYZE ${sql}` : `EXPLAIN ANALYZE ${sql}`;
+      const results = await api.executeQuery(connectionId, explainSql, database);
       set({
         explainResult: results[0] ?? null,
         explainAnalyze: true,

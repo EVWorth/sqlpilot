@@ -103,6 +103,7 @@ function ResultsPanel({
   setShowExplain: (v: boolean) => void;
 }) {
   const [activeTab, setActiveTab] = useState<"results" | "explain">("results");
+  const results = useResultStore((s) => s.results);
 
   // Auto-switch to explain tab whenever a new explain result arrives
   useEffect(() => {
@@ -110,6 +111,13 @@ function ResultsPanel({
       setActiveTab("explain");
     }
   }, [explainResult]);
+
+  // Switch back to results tab when a new query result arrives
+  useEffect(() => {
+    if (results.length > 0) {
+      setActiveTab("results");
+    }
+  }, [results]);
 
   const hasExplain = showExplain && !!explainResult;
 

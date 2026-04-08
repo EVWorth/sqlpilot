@@ -5,8 +5,10 @@ export interface SchemaData {
   connectionId: string | null;
   databases: string[];
   tables: Map<string, string[]>;
+  views: Map<string, string[]>;
   columns: Map<string, ColumnInfo[]>;
   fetchTables: (connId: string, db: string) => Promise<string[]>;
+  fetchViews: (connId: string, db: string) => Promise<string[]>;
   fetchColumns: (
     connId: string,
     db: string,
@@ -165,11 +167,29 @@ const COLUMN_CONTEXTS =
 const DATABASE_CONTEXTS = /\b(?:USE|DATABASE)\s+$/i;
 
 function detectContext(textBeforeCursor: string): Context {
-  const trimmed = textBeforeCursor.trimEnd();
-  if (DATABASE_CONTEXTS.test(trimmed)) return "database";
-  if (TABLE_CONTEXTS.test(trimmed)) return "table";
-  if (COLUMN_CONTEXTS.test(trimmed)) return "column";
+  // Do NOT trim — the regexes rely on trailing whitespace to confirm the
+  // keyword is complete and the user is starting a new token.
+  if (DATABASE_CONTEXTS.test(textBeforeCursor)) return "database";
+  if (TABLE_CONTEXTS.test(textBeforeCursor)) return "table";
+  if (COLUMN_CONTEXTS.test(textBeforeCursor)) return "column";
   return "general";
+}
+
+/** Extract table names referenced after FROM / JOIN in a SQL snippet. */
+function parseFromTables(sql: string): string[] {
+  const found: string[] = [];
+  // Match FROM/JOIN followed by an optional db. prefix then the table name.
+  // Handles back-tick quoting and aliases.
+  const re =
+    /\b(?:FROM|JOIN)\s+(?:`?\w+`?\.)?`?(\w+)`?(?:\s+(?:AS\s+)?`?\w+`?)?/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(sql)) !== null) {
+    const name = m[1];
+    if (!MYSQL_KEYWORDS.includes(name.toUpperCase())) {
+      found.push(name);
+    }
+  }
+  return [...new Set(found)];
 }
 
 function findDotPrefix(
@@ -285,12 +305,41 @@ export function createCompletionProvider(
         }
       }
 
-      // Table suggestions
+      // Table/view suggestions — only for table context (after FROM/JOIN/etc.)
+      if (connectionId && context === "table") {
+        for (const [db, dbTables] of tables.entries()) {
+          for (const t of dbTables) {
+            suggestions.push({
+              label: t,
+              kind: monaco.languages.CompletionItemKind.Class,
+              insertText: t,
+              range,
+              sortText: "0" + t,
+              detail: `Table (${db})`,
+            });
+          }
+        }
+        for (const [db, dbViews] of schemaData.views.entries()) {
+          for (const v of dbViews) {
+            suggestions.push({
+              label: v,
+              kind: monaco.languages.CompletionItemKind.Interface,
+              insertText: v,
+              range,
+              sortText: "0" + v,
+              detail: `View (${db})`,
+            });
+          }
+        }
+        return { suggestions };
+      }
+
+      // Table suggestions for general/column contexts (lower priority)
       if (
         connectionId &&
-        (context === "table" || context === "column" || context === "general")
+        (context === "column" || context === "general")
       ) {
-        const tablePriority = context === "table" ? "0" : "2";
+        const tablePriority = context === "general" ? "2" : "3";
         for (const [db, dbTables] of tables.entries()) {
           for (const t of dbTables) {
             suggestions.push({
@@ -305,23 +354,54 @@ export function createCompletionProvider(
         }
       }
 
-      // Column suggestions
-      if (
-        connectionId &&
-        (context === "column" || context === "general")
-      ) {
+      // Column suggestions — prefer columns from tables referenced in the FROM clause
+      if (connectionId && (context === "column" || context === "general")) {
         const colPriority = context === "column" ? "0" : "4";
-        for (const [key, cols] of columns.entries()) {
-          for (const col of cols) {
-            suggestions.push({
-              label: col.name,
-              kind: monaco.languages.CompletionItemKind.Field,
-              insertText: col.name,
-              range,
-              detail: `${col.column_type} (${key})`,
-              documentation: buildColumnDoc(col),
-              sortText: colPriority + col.name,
-            });
+        const fullSql = model.getValue();
+        const fromTables = parseFromTables(fullSql);
+
+        if (fromTables.length > 0) {
+          // Fetch and suggest only columns for tables present in the FROM clause
+          for (const tableName of fromTables) {
+            for (const [db, dbTables] of tables.entries()) {
+              const match = dbTables.find(
+                (t) => t.toLowerCase() === tableName.toLowerCase(),
+              );
+              if (match) {
+                const key = `${db}.${match}`;
+                const cachedCols = columns.get(key);
+                const cols = cachedCols
+                  ? cachedCols
+                  : await schemaData.fetchColumns(connectionId, db, match);
+                for (const col of cols) {
+                  suggestions.push({
+                    label: col.name,
+                    kind: monaco.languages.CompletionItemKind.Field,
+                    insertText: col.name,
+                    range,
+                    detail: `${col.column_type} (${key})`,
+                    documentation: buildColumnDoc(col),
+                    sortText: colPriority + col.name,
+                  });
+                }
+                break; // found db for this table
+              }
+            }
+          }
+        } else {
+          // Fall back to all cached columns when no FROM tables are identifiable
+          for (const [key, cols] of columns.entries()) {
+            for (const col of cols) {
+              suggestions.push({
+                label: col.name,
+                kind: monaco.languages.CompletionItemKind.Field,
+                insertText: col.name,
+                range,
+                detail: `${col.column_type} (${key})`,
+                documentation: buildColumnDoc(col),
+                sortText: colPriority + col.name,
+              });
+            }
           }
         }
       }
@@ -368,5 +448,5 @@ function buildColumnDoc(col: ColumnInfo): string {
   return parts.join(" | ");
 }
 
-export { MYSQL_KEYWORDS, MYSQL_FUNCTIONS, detectContext, findDotPrefix };
+export { MYSQL_KEYWORDS, MYSQL_FUNCTIONS, detectContext, findDotPrefix, parseFromTables };
 export type { Context };
