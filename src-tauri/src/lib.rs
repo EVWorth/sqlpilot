@@ -1,4 +1,5 @@
 mod commands;
+mod menu;
 
 use commands::AppState;
 use mas_core::connection::{ConnectionManager, ConnectionStore};
@@ -6,6 +7,9 @@ use mas_core::query::QueryExecutor;
 use mas_core::schema::SchemaInspector;
 use mas_admin::AdminService;
 use std::sync::Arc;
+use tauri::Manager;
+#[cfg(target_os = "macos")]
+use tauri::Emitter;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
@@ -102,6 +106,27 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                let menu = menu::build_menu(&app.handle())?;
+                app.set_menu(menu)?;
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                app.remove_menu()?;
+                if let Some(window) = app.get_webview_window("main") {
+                    window.set_decorations(false)?;
+                }
+            }
+            Ok(())
+        })
+        .on_menu_event(|app, event| {
+            #[cfg(target_os = "macos")]
+            app.emit("menu-action", event.id().0.as_str()).ok();
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app, event);
+        })
         .manage(AppState {
             connection_manager: manager,
             connection_store: store,

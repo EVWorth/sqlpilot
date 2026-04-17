@@ -4,6 +4,8 @@ import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { MainPanel } from "./MainPanel";
 import { Toolbar } from "./Toolbar";
+import { TitleBar } from "./TitleBar";
+import { ConnectionTabs } from "./ConnectionTabs";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ImportDialog } from "../import/ImportDialog";
@@ -14,10 +16,17 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useTheme } from "../../hooks/useTheme";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useEditorStore } from "../../stores/editorStore";
+import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+
+const isMac = navigator.platform.toLowerCase().includes("mac");
 
 export function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [helpTab, setHelpTab] = useState<"shortcuts" | "about">("shortcuts");
   const [showImport, setShowImport] = useState(false);
   const [showBackup, setShowBackup] = useState(false);
   const [showRestore, setShowRestore] = useState(false);
@@ -47,7 +56,7 @@ export function AppLayout() {
     () => setAiPanelOpen((prev) => !prev),
     [],
   );
-  const openShortcuts = useCallback(() => setShowShortcuts(true), []);
+  const openShortcuts = useCallback(() => { setHelpTab("shortcuts"); setShowShortcuts(true); }, []);
   const openImport = useCallback(() => setShowImport(true), []);
   const openBackup = useCallback(() => {
     setBackupPreselect({});
@@ -62,6 +71,108 @@ export function AppLayout() {
   }, []);
 
   useKeyboardShortcuts(toggleSidebar, openShortcuts, openSaveFavorite);
+
+  // Handle menu actions from both native OS menu (macOS via Tauri event) and
+  // inline custom menu (Windows/Linux via DOM CustomEvent)
+  useEffect(() => {
+    const handleAction = (action: string) => {
+      const { selectedConnectionId, activeConnections, disconnect } = useConnectionStore.getState();
+      const { addTab, addAdminTab, addCompareTab, addQueryBuilderTab, editorInstance } = useEditorStore.getState();
+      const selectedConn = activeConnections.find((c) => c.id === selectedConnectionId);
+
+      switch (action) {
+        case "new-query":
+          addTab(selectedConnectionId ?? undefined);
+          break;
+        case "import":
+          if (selectedConnectionId) setShowImport(true);
+          break;
+        case "backup":
+          setBackupPreselect({});
+          setShowBackup(true);
+          break;
+        case "restore":
+          setRestorePreselect({});
+          setShowRestore(true);
+          break;
+        case "undo":
+          editorInstance?.trigger("menu", "undo", null);
+          break;
+        case "redo":
+          editorInstance?.trigger("menu", "redo", null);
+          break;
+        case "cut":
+          document.execCommand("cut");
+          break;
+        case "copy":
+          document.execCommand("copy");
+          break;
+        case "paste":
+          document.execCommand("paste");
+          break;
+        case "select-all":
+          editorInstance
+            ? editorInstance.trigger("menu", "editor.action.selectAll", null)
+            : document.execCommand("selectAll");
+          break;
+        case "find":
+          editorInstance?.getAction("actions.find")?.run();
+          break;
+        case "find-replace":
+          editorInstance?.getAction("editor.action.startFindReplaceAction")?.run();
+          break;
+        case "new-connection":
+          window.dispatchEvent(new CustomEvent("open-new-connection"));
+          break;
+        case "disconnect":
+          if (selectedConnectionId) disconnect(selectedConnectionId);
+          break;
+        case "refresh-schema":
+          useSchemaCache.getState().refreshSchema();
+          break;
+        case "query-builder":
+          if (selectedConnectionId && selectedConn?.database) {
+            addQueryBuilderTab(selectedConnectionId, selectedConn.database);
+          }
+          break;
+        case "compare-schemas":
+          addCompareTab();
+          break;
+        case "admin-tools":
+          if (selectedConnectionId) addAdminTab(selectedConnectionId);
+          break;
+        case "format-sql":
+          editorInstance?.getAction("format-sql")?.run();
+          break;
+        case "ai-assistant":
+          setAiPanelOpen((prev) => !prev);
+          break;
+        case "keyboard-shortcuts":
+          setHelpTab("shortcuts");
+          setShowShortcuts(true);
+          break;
+        case "about":
+          setHelpTab("about");
+          setShowShortcuts(true);
+          break;
+        case "quit":
+          getCurrentWindow().close();
+          break;
+      }
+    };
+
+    // DOM event — inline MenuBar (Windows/Linux)
+    const domHandler = (e: Event) => handleAction((e as CustomEvent<string>).detail);
+    window.addEventListener("menu-action", domHandler);
+
+    // Tauri event — native OS menu (macOS)
+    const tauriUnlisten = listen<string>("menu-action", (event) => handleAction(event.payload));
+
+    return () => {
+      window.removeEventListener("menu-action", domHandler);
+      tauriUnlisten.then((fn) => fn());
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for sidebar context menu events
   useEffect(() => {
@@ -91,14 +202,25 @@ export function AppLayout() {
 
   return (
     <div className="flex h-screen w-screen flex-col overflow-hidden">
-      <Toolbar
-        onShowShortcuts={openShortcuts}
-        onShowImport={openImport}
-        onShowBackup={openBackup}
-        onShowRestore={openRestore}
-        onToggleAI={toggleAiPanel}
-        aiPanelOpen={aiPanelOpen}
-      />
+      {!isMac && (
+        <TitleBar
+          onShowImport={openImport}
+          onShowBackup={openBackup}
+          onShowRestore={openRestore}
+          onToggleAI={toggleAiPanel}
+          aiPanelOpen={aiPanelOpen}
+        />
+      )}
+      {isMac && (
+        <Toolbar
+          onShowImport={openImport}
+          onShowBackup={openBackup}
+          onShowRestore={openRestore}
+          onToggleAI={toggleAiPanel}
+          aiPanelOpen={aiPanelOpen}
+        />
+      )}
+      <ConnectionTabs />
       <div className="flex-1 overflow-hidden">
         <PanelGroup direction="horizontal" autoSaveId="main-layout">
           {!sidebarCollapsed && (
@@ -126,6 +248,7 @@ export function AppLayout() {
       <ShortcutsDialog
         isOpen={showShortcuts}
         onClose={() => setShowShortcuts(false)}
+        initialTab={helpTab}
       />
       {selectedConnectionId && selectedConnection && (
         <ImportDialog

@@ -72,6 +72,21 @@ impl ConnectionManager {
                 CoreError::Connection(format!("Failed to connect: {}", e))
             })?;
 
+        // If no default database was specified, auto-select the first user database
+        let effective_database: Option<String> = if profile.default_database.as_deref().map(|s| s.is_empty()).unwrap_or(true) {
+            let system_dbs = ["information_schema", "performance_schema", "mysql", "sys"];
+            let db_rows: Vec<(String,)> = sqlx::query_as("SHOW DATABASES")
+                .fetch_all(&pool)
+                .await
+                .unwrap_or_default();
+            db_rows
+                .into_iter()
+                .map(|(name,)| name)
+                .find(|name| !system_dbs.contains(&name.to_lowercase().as_str()))
+        } else {
+            profile.default_database.clone()
+        };
+
         // Get server version
         let version: (String,) = sqlx::query_as("SELECT VERSION()")
             .fetch_one(&pool)
@@ -87,7 +102,7 @@ impl ConnectionManager {
             name: profile.name.clone(),
             host: profile.host.clone(),
             port: profile.port,
-            database: profile.default_database.clone(),
+            database: effective_database,
             server_version: version.0,
             connected_at: Utc::now(),
             color: profile.color.clone(),

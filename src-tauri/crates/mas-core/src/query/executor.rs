@@ -1,7 +1,7 @@
 use crate::connection::ConnectionManager;
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue};
-use sqlx::{Acquire, Column, Row, TypeInfo};
+use sqlx::{Column, Row, TypeInfo};
 use std::sync::Arc;
 use std::time::Instant;
 
