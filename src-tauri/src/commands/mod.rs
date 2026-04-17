@@ -1,14 +1,16 @@
 pub mod ai;
 
-use mas_core::connection::{ConnectionManager, ConnectionStore};
-use mas_core::models::{ConnectionProfile, ConnectionInfo, TestConnectionResult, QueryResult};
-use mas_core::query::QueryExecutor;
-use mas_core::schema::SchemaInspector;
-use mas_core::schema::inspector::{DatabaseInfo, TableInfo, ColumnInfo, IndexInfo, ViewInfo, RoutineInfo, TriggerInfo};
 use mas_admin::AdminService;
+use mas_core::connection::{ConnectionManager, ConnectionStore};
+use mas_core::models::{ConnectionInfo, ConnectionProfile, QueryResult, TestConnectionResult};
+use mas_core::query::QueryExecutor;
+use mas_core::schema::inspector::{
+    ColumnInfo, DatabaseInfo, IndexInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo,
+};
+use mas_core::schema::SchemaInspector;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
-use std::path::PathBuf;
 
 pub struct AppState {
     pub connection_manager: Arc<ConnectionManager>,
@@ -63,14 +65,18 @@ pub async fn delete_connection_profile(
 
 #[tauri::command]
 #[tracing::instrument(skip(profile), fields(profile_name = %profile.name, host = %profile.host, port = %profile.port))]
-pub async fn test_connection(
-    profile: ConnectionProfile,
-) -> Result<TestConnectionResult, String> {
-    let result = ConnectionManager::test_connection(&profile).await.map_err(|e| {
-        tracing::error!(error = %e, "Test connection failed");
-        e.to_string()
-    })?;
-    tracing::info!(success = result.success, latency_ms = result.latency_ms, "Test connection completed");
+pub async fn test_connection(profile: ConnectionProfile) -> Result<TestConnectionResult, String> {
+    let result = ConnectionManager::test_connection(&profile)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Test connection failed");
+            e.to_string()
+        })?;
+    tracing::info!(
+        success = result.success,
+        latency_ms = result.latency_ms,
+        "Test connection completed"
+    );
     Ok(result)
 }
 
@@ -84,33 +90,36 @@ pub async fn connect(
         tracing::error!(error = %e, "Failed to get profile for connect");
         e.to_string()
     })?;
-    let info = state.connection_manager.connect(&profile).await.map_err(|e| {
-        tracing::error!(error = %e, "Connect failed");
-        e.to_string()
-    })?;
+    let info = state
+        .connection_manager
+        .connect(&profile)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Connect failed");
+            e.to_string()
+        })?;
     tracing::info!(connection_id = %info.id, server_version = %info.server_version, "Connected");
     Ok(info)
 }
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
-pub async fn disconnect(
-    state: State<'_, AppState>,
-    connection_id: String,
-) -> Result<(), String> {
-    state.connection_manager.disconnect(&connection_id).await.map_err(|e| {
-        tracing::error!(error = %e, "Disconnect failed");
-        e.to_string()
-    })?;
+pub async fn disconnect(state: State<'_, AppState>, connection_id: String) -> Result<(), String> {
+    state
+        .connection_manager
+        .disconnect(&connection_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Disconnect failed");
+            e.to_string()
+        })?;
     tracing::info!("Disconnected");
     Ok(())
 }
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
-pub async fn list_connections(
-    state: State<'_, AppState>,
-) -> Result<Vec<ConnectionInfo>, String> {
+pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<ConnectionInfo>, String> {
     let connections = state.connection_manager.list_connections();
     tracing::info!(count = connections.len(), "Listed connections");
     Ok(connections)
@@ -125,12 +134,20 @@ pub async fn execute_query(
     sql: String,
     database: Option<String>,
 ) -> Result<Vec<QueryResult>, String> {
-    let results = state.query_executor.execute(&connection_id, &sql, database.as_deref()).await.map_err(|e| {
-        tracing::error!(error = %e, "Query execution failed");
-        e.to_string()
-    })?;
+    let results = state
+        .query_executor
+        .execute(&connection_id, &sql, database.as_deref())
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Query execution failed");
+            e.to_string()
+        })?;
     let total_rows: u64 = results.iter().map(|r| r.rows_affected).sum();
-    tracing::info!(statement_count = results.len(), total_rows = total_rows, "Query executed");
+    tracing::info!(
+        statement_count = results.len(),
+        total_rows = total_rows,
+        "Query executed"
+    );
     Ok(results)
 }
 
@@ -141,10 +158,14 @@ pub async fn get_databases(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<DatabaseInfo>, String> {
-    let dbs = state.schema_inspector.get_databases(&connection_id).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get databases");
-        e.to_string()
-    })?;
+    let dbs = state
+        .schema_inspector
+        .get_databases(&connection_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get databases");
+            e.to_string()
+        })?;
     tracing::info!(count = dbs.len(), "Listed databases");
     Ok(dbs)
 }
@@ -156,10 +177,14 @@ pub async fn get_tables(
     connection_id: String,
     database: String,
 ) -> Result<Vec<TableInfo>, String> {
-    let tables = state.schema_inspector.get_tables(&connection_id, &database).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get tables");
-        e.to_string()
-    })?;
+    let tables = state
+        .schema_inspector
+        .get_tables(&connection_id, &database)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get tables");
+            e.to_string()
+        })?;
     tracing::info!(count = tables.len(), "Listed tables");
     Ok(tables)
 }
@@ -172,10 +197,14 @@ pub async fn get_columns(
     database: String,
     table: String,
 ) -> Result<Vec<ColumnInfo>, String> {
-    let columns = state.schema_inspector.get_columns(&connection_id, &database, &table).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get columns");
-        e.to_string()
-    })?;
+    let columns = state
+        .schema_inspector
+        .get_columns(&connection_id, &database, &table)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get columns");
+            e.to_string()
+        })?;
     tracing::info!(count = columns.len(), "Listed columns");
     Ok(columns)
 }
@@ -188,10 +217,14 @@ pub async fn get_indexes(
     database: String,
     table: String,
 ) -> Result<Vec<IndexInfo>, String> {
-    let indexes = state.schema_inspector.get_indexes(&connection_id, &database, &table).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get indexes");
-        e.to_string()
-    })?;
+    let indexes = state
+        .schema_inspector
+        .get_indexes(&connection_id, &database, &table)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get indexes");
+            e.to_string()
+        })?;
     tracing::info!(count = indexes.len(), "Listed indexes");
     Ok(indexes)
 }
@@ -204,10 +237,14 @@ pub async fn get_table_ddl(
     database: String,
     table: String,
 ) -> Result<String, String> {
-    let ddl = state.schema_inspector.get_table_ddl(&connection_id, &database, &table).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get table DDL");
-        e.to_string()
-    })?;
+    let ddl = state
+        .schema_inspector
+        .get_table_ddl(&connection_id, &database, &table)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get table DDL");
+            e.to_string()
+        })?;
     tracing::info!(ddl_length = ddl.len(), "Retrieved table DDL");
     Ok(ddl)
 }
@@ -219,10 +256,14 @@ pub async fn get_views(
     connection_id: String,
     database: String,
 ) -> Result<Vec<ViewInfo>, String> {
-    let views = state.schema_inspector.get_views(&connection_id, &database).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get views");
-        e.to_string()
-    })?;
+    let views = state
+        .schema_inspector
+        .get_views(&connection_id, &database)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get views");
+            e.to_string()
+        })?;
     tracing::info!(count = views.len(), "Listed views");
     Ok(views)
 }
@@ -234,10 +275,14 @@ pub async fn get_routines(
     connection_id: String,
     database: String,
 ) -> Result<Vec<RoutineInfo>, String> {
-    let routines = state.schema_inspector.get_routines(&connection_id, &database).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get routines");
-        e.to_string()
-    })?;
+    let routines = state
+        .schema_inspector
+        .get_routines(&connection_id, &database)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get routines");
+            e.to_string()
+        })?;
     tracing::info!(count = routines.len(), "Listed routines");
     Ok(routines)
 }
@@ -249,10 +294,14 @@ pub async fn get_triggers(
     connection_id: String,
     database: String,
 ) -> Result<Vec<TriggerInfo>, String> {
-    let triggers = state.schema_inspector.get_triggers(&connection_id, &database).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get triggers");
-        e.to_string()
-    })?;
+    let triggers = state
+        .schema_inspector
+        .get_triggers(&connection_id, &database)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get triggers");
+            e.to_string()
+        })?;
     tracing::info!(count = triggers.len(), "Listed triggers");
     Ok(triggers)
 }
@@ -265,10 +314,14 @@ pub async fn get_view_ddl(
     database: String,
     view_name: String,
 ) -> Result<String, String> {
-    let ddl = state.schema_inspector.get_view_ddl(&connection_id, &database, &view_name).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get view DDL");
-        e.to_string()
-    })?;
+    let ddl = state
+        .schema_inspector
+        .get_view_ddl(&connection_id, &database, &view_name)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get view DDL");
+            e.to_string()
+        })?;
     tracing::info!(ddl_length = ddl.len(), "Retrieved view DDL");
     Ok(ddl)
 }
@@ -282,10 +335,14 @@ pub async fn get_routine_ddl(
     routine_name: String,
     routine_type: String,
 ) -> Result<String, String> {
-    let ddl = state.schema_inspector.get_routine_ddl(&connection_id, &database, &routine_name, &routine_type).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get routine DDL");
-        e.to_string()
-    })?;
+    let ddl = state
+        .schema_inspector
+        .get_routine_ddl(&connection_id, &database, &routine_name, &routine_type)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get routine DDL");
+            e.to_string()
+        })?;
     tracing::info!(ddl_length = ddl.len(), "Retrieved routine DDL");
     Ok(ddl)
 }
@@ -298,10 +355,14 @@ pub async fn get_trigger_ddl(
     database: String,
     trigger_name: String,
 ) -> Result<String, String> {
-    let ddl = state.schema_inspector.get_trigger_ddl(&connection_id, &database, &trigger_name).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get trigger DDL");
-        e.to_string()
-    })?;
+    let ddl = state
+        .schema_inspector
+        .get_trigger_ddl(&connection_id, &database, &trigger_name)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get trigger DDL");
+            e.to_string()
+        })?;
     tracing::info!(ddl_length = ddl.len(), "Retrieved trigger DDL");
     Ok(ddl)
 }
@@ -317,7 +378,10 @@ pub async fn export_results(
     let output = match format.as_str() {
         "csv" => Ok(mas_export::export_csv(&result)),
         "json" => Ok(mas_export::export_json(&result)),
-        "sql" => Ok(mas_export::export_sql_insert(&result, &table_name.unwrap_or("table".to_string()))),
+        "sql" => Ok(mas_export::export_sql_insert(
+            &result,
+            &table_name.unwrap_or("table".to_string()),
+        )),
         "markdown" => Ok(mas_export::export_markdown(&result)),
         _ => {
             tracing::error!(format = %format, "Unknown export format");
@@ -335,10 +399,14 @@ pub async fn get_process_list(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<mas_admin::ProcessInfo>, String> {
-    let processes = state.admin_service.get_process_list(&connection_id).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get process list");
-        e.to_string()
-    })?;
+    let processes = state
+        .admin_service
+        .get_process_list(&connection_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get process list");
+            e.to_string()
+        })?;
     tracing::info!(count = processes.len(), "Listed processes");
     Ok(processes)
 }
@@ -349,10 +417,14 @@ pub async fn get_server_variables(
     state: State<'_, AppState>,
     connection_id: String,
 ) -> Result<Vec<mas_admin::ServerVariable>, String> {
-    let vars = state.admin_service.get_server_variables(&connection_id).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to get server variables");
-        e.to_string()
-    })?;
+    let vars = state
+        .admin_service
+        .get_server_variables(&connection_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get server variables");
+            e.to_string()
+        })?;
     tracing::info!(count = vars.len(), "Listed server variables");
     Ok(vars)
 }
@@ -364,10 +436,14 @@ pub async fn kill_process(
     connection_id: String,
     process_id: i64,
 ) -> Result<(), String> {
-    state.admin_service.kill_process(&connection_id, process_id).await.map_err(|e| {
-        tracing::error!(error = %e, "Failed to kill process");
-        e.to_string()
-    })?;
+    state
+        .admin_service
+        .kill_process(&connection_id, process_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to kill process");
+            e.to_string()
+        })?;
     tracing::info!("Process killed");
     Ok(())
 }
@@ -390,7 +466,10 @@ pub async fn read_file_contents(path: String) -> Result<String, String> {
 
 #[tauri::command]
 #[tracing::instrument]
-pub async fn pick_file(title: String, filters: Vec<(String, Vec<String>)>) -> Result<Option<String>, String> {
+pub async fn pick_file(
+    title: String,
+    filters: Vec<(String, Vec<String>)>,
+) -> Result<Option<String>, String> {
     let mut dialog = rfd::AsyncFileDialog::new().set_title(&title);
     for (name, extensions) in &filters {
         let ext_refs: Vec<&str> = extensions.iter().map(|s| s.as_str()).collect();
@@ -424,7 +503,11 @@ pub async fn write_file_contents(path: String, contents: String) -> Result<(), S
 
 #[tauri::command]
 #[tracing::instrument]
-pub async fn pick_save_file(title: String, default_name: String, filters: Vec<(String, Vec<String>)>) -> Result<Option<String>, String> {
+pub async fn pick_save_file(
+    title: String,
+    default_name: String,
+    filters: Vec<(String, Vec<String>)>,
+) -> Result<Option<String>, String> {
     let mut dialog = rfd::AsyncFileDialog::new()
         .set_title(&title)
         .set_file_name(&default_name);

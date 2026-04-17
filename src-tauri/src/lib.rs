@@ -2,14 +2,14 @@ mod commands;
 mod menu;
 
 use commands::AppState;
+use mas_admin::AdminService;
 use mas_core::connection::{ConnectionManager, ConnectionStore};
 use mas_core::query::QueryExecutor;
 use mas_core::schema::SchemaInspector;
-use mas_admin::AdminService;
 use std::sync::Arc;
-use tauri::Manager;
 #[cfg(target_os = "macos")]
 use tauri::Emitter;
+use tauri::Manager;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
@@ -21,9 +21,9 @@ fn augment_macos_path() {
     use std::env;
 
     let mut extra_paths: Vec<std::path::PathBuf> = vec![
-        "/opt/homebrew/bin".into(),  // Homebrew (Apple Silicon)
+        "/opt/homebrew/bin".into(), // Homebrew (Apple Silicon)
         "/opt/homebrew/sbin".into(),
-        "/usr/local/bin".into(),  // Homebrew (Intel) / npm global default
+        "/usr/local/bin".into(), // Homebrew (Intel) / npm global default
         "/usr/local/sbin".into(),
         "/opt/local/bin".into(), // MacPorts
     ];
@@ -62,15 +62,16 @@ pub fn run() {
     std::fs::create_dir_all(&log_dir).expect("Failed to create log directory");
 
     // Console layer: colored, human-readable, INFO+ (or overridden by RUST_LOG)
-    let console_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug"));
-    let console_layer = tracing_subscriber::fmt::layer()
-        .with_filter(console_filter);
+    let console_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+        EnvFilter::new("info,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug")
+    });
+    let console_layer = tracing_subscriber::fmt::layer().with_filter(console_filter);
 
     // File layer: JSON-structured, rolling daily, DEBUG level
     let file_appender = tracing_appender::rolling::daily(&log_dir, "sqlpilot.log");
     let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    let file_filter = EnvFilter::new("debug,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug");
+    let file_filter =
+        EnvFilter::new("debug,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug");
     let file_layer = tracing_subscriber::fmt::layer()
         .json()
         .with_writer(non_blocking)
