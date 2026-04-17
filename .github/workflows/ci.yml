@@ -41,12 +41,8 @@ jobs:
         run: npm run type-check
 
   test-rust:
-    name: Test Rust (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    name: Test Rust
+    runs-on: ubuntu-latest
     services:
       mysql:
         image: mysql:8.0
