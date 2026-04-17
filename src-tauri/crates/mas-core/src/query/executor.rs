@@ -19,7 +19,7 @@ impl QueryExecutor {
         &self,
         connection_id: &str,
         sql: &str,
-        database: Option<&str>,
+        database: Option<String>,
     ) -> Result<Vec<QueryResult>, CoreError> {
         let pool = self.connection_manager.get_pool(connection_id)?;
         let statements = split_statements(sql);
