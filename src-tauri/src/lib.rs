@@ -1,4 +1,5 @@
 mod commands;
+#[cfg(target_os = "macos")]
 mod menu;
 
 use commands::AppState;
