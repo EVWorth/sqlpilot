@@ -294,11 +294,17 @@ async fn test_execute_show_commands() {
     let executor = QueryExecutor::new(manager.clone());
     let info = manager.connect(&test_profile()).await.unwrap();
 
-    let results = executor.execute(&info.id, "SHOW DATABASES", None).await.unwrap();
+    let results = executor
+        .execute(&info.id, "SHOW DATABASES", None)
+        .await
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert!(!results[0].rows.is_empty());
 
-    let results = executor.execute(&info.id, "SHOW TABLES", None).await.unwrap();
+    let results = executor
+        .execute(&info.id, "SHOW TABLES", None)
+        .await
+        .unwrap();
     assert_eq!(results.len(), 1);
     assert!(!results[0].rows.is_empty());
 
@@ -366,7 +372,11 @@ async fn test_null_handling() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT NULL AS null_val, 'not null' AS str_val", None)
+        .execute(
+            &info.id,
+            "SELECT NULL AS null_val, 'not null' AS str_val",
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(results[0].rows.len(), 1);
@@ -644,7 +654,11 @@ async fn test_export_csv() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT id, username, email FROM users LIMIT 3", None)
+        .execute(
+            &info.id,
+            "SELECT id, username, email FROM users LIMIT 3",
+            None,
+        )
         .await
         .unwrap();
     let csv = mas_export::export_csv(&results[0]);
