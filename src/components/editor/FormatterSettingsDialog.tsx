@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Settings2 } from "lucide-react";
 import { useSettingsStore, type FormatterSettings } from "../../stores/settingsStore";
 
@@ -28,6 +28,11 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
   const { formatterSettings, setFormatterSettings } = useSettingsStore();
   // Always merge with defaults so new fields are never undefined
   const [local, setLocal] = useState<FormatterSettings>({ ...DEFAULTS, ...formatterSettings });
+
+  // Reset local state each time the dialog opens so stale edits never appear
+  useEffect(() => {
+    if (isOpen) setLocal({ ...DEFAULTS, ...formatterSettings });
+  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!isOpen) return null;
 

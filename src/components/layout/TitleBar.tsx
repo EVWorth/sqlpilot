@@ -110,8 +110,8 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
 
   const sysMenuItems = [
     { id: "restore",  label: "Restore",  disabled: !isMaximized, action: () => appWindow.unmaximize() },
-    { id: "move",     label: "Move",     disabled: isMaximized,  action: null },
-    { id: "size",     label: "Size",     disabled: isMaximized,  action: null },
+    { id: "move",     label: "Move",     disabled: true,        action: null },
+    { id: "size",     label: "Size",     disabled: true,        action: null },
     { id: "minimize", label: "Minimize", disabled: false,        action: () => appWindow.minimize() },
     { id: "maximize", label: "Maximize", disabled: isMaximized,  action: () => appWindow.maximize() },
     null,

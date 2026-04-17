@@ -332,15 +332,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }),
 }));
 
-// Auto-save tabs and activeTabId to localStorage on every change.
-// editorInstance is intentionally excluded — it's a runtime-only object.
+// Auto-save tabs and activeTabId to localStorage on change, debounced to avoid
+// writing on every keystroke. editorInstance is intentionally excluded.
 let _savedTabs: EditorTab[] = useEditorStore.getState().tabs;
 let _savedActiveTabId: string | null = useEditorStore.getState().activeTabId;
+let _saveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 useEditorStore.subscribe((state) => {
   if (state.tabs !== _savedTabs || state.activeTabId !== _savedActiveTabId) {
     _savedTabs = state.tabs;
     _savedActiveTabId = state.activeTabId;
-    saveSession(state.tabs, state.activeTabId);
+    if (_saveTimeout) clearTimeout(_saveTimeout);
+    _saveTimeout = setTimeout(() => {
+      const { tabs, activeTabId } = useEditorStore.getState();
+      saveSession(tabs, activeTabId);
+    }, 500);
   }
 });

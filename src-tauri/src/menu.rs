@@ -17,13 +17,6 @@ pub fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             true,
             None::<&str>,
         )?)
-        .item(&MenuItem::with_id(
-            app,
-            "export",
-            "Export Results…",
-            true,
-            None::<&str>,
-        )?)
         .separator()
         .item(&PredefinedMenuItem::quit(app, None)?)
         .build()?;
