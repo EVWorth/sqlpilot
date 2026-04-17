@@ -388,17 +388,20 @@ impl AiService {
                                 })
                                 .await;
                         }
-                        SessionEventData::AssistantMessage(data) => {
-                            // Final complete message — if we didn't get deltas, use this
-                            if full_response.is_empty() {
-                                full_response = data.content.clone();
-                                let _ = event_sender
-                                    .send(AiStreamEvent::TextDelta {
-                                        conversation_id: event_conv_id.clone(),
-                                        content: data.content.clone(),
-                                    })
-                                    .await;
-                            }
+                        SessionEventData::AssistantMessage(data)
+                            if full_response.is_empty() =>
+                        {
+                            // Final complete message — only used when no deltas were received
+                            full_response = data.content.clone();
+                            let _ = event_sender
+                                .send(AiStreamEvent::TextDelta {
+                                    conversation_id: event_conv_id.clone(),
+                                    content: data.content.clone(),
+                                })
+                                .await;
+                        }
+                        SessionEventData::AssistantMessage(_) => {
+                            // Already accumulated deltas — nothing to do
                         }
                         SessionEventData::ToolExecutionStart(data) => {
                             let _ = event_sender
