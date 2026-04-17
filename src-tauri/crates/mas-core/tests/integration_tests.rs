@@ -188,7 +188,7 @@ async fn test_execute_select() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT 1 AS num, 'hello' AS greeting")
+        .execute(&info.id, "SELECT 1 AS num, 'hello' AS greeting", None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
@@ -210,6 +210,7 @@ async fn test_execute_select_from_table() {
         .execute(
             &info.id,
             "SELECT id, username, email FROM users ORDER BY id",
+            None,
         )
         .await
         .unwrap();
@@ -235,6 +236,7 @@ async fn test_execute_insert_update_delete() {
         .execute(
             &info.id,
             "INSERT INTO categories (name, description) VALUES ('Test Category', 'For testing')",
+            None,
         )
         .await
         .unwrap();
@@ -246,6 +248,7 @@ async fn test_execute_insert_update_delete() {
         .execute(
             &info.id,
             "UPDATE categories SET description = 'Updated' WHERE name = 'Test Category'",
+            None,
         )
         .await
         .unwrap();
@@ -256,6 +259,7 @@ async fn test_execute_insert_update_delete() {
         .execute(
             &info.id,
             "DELETE FROM categories WHERE name = 'Test Category'",
+            None,
         )
         .await
         .unwrap();
@@ -271,7 +275,7 @@ async fn test_execute_multi_statement() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT 1; SELECT 2; SELECT 3")
+        .execute(&info.id, "SELECT 1; SELECT 2; SELECT 3", None)
         .await
         .unwrap();
     assert_eq!(
@@ -290,11 +294,11 @@ async fn test_execute_show_commands() {
     let executor = QueryExecutor::new(manager.clone());
     let info = manager.connect(&test_profile()).await.unwrap();
 
-    let results = executor.execute(&info.id, "SHOW DATABASES").await.unwrap();
+    let results = executor.execute(&info.id, "SHOW DATABASES", None).await.unwrap();
     assert_eq!(results.len(), 1);
     assert!(!results[0].rows.is_empty());
 
-    let results = executor.execute(&info.id, "SHOW TABLES").await.unwrap();
+    let results = executor.execute(&info.id, "SHOW TABLES", None).await.unwrap();
     assert_eq!(results.len(), 1);
     assert!(!results[0].rows.is_empty());
 
@@ -308,7 +312,7 @@ async fn test_execute_with_error() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let result = executor
-        .execute(&info.id, "SELECT * FROM nonexistent_table")
+        .execute(&info.id, "SELECT * FROM nonexistent_table", None)
         .await;
     assert!(result.is_err());
 
@@ -323,12 +327,13 @@ async fn test_execute_ddl() {
 
     // Create table
     let _ = executor
-        .execute(&info.id, "DROP TABLE IF EXISTS test_temp")
+        .execute(&info.id, "DROP TABLE IF EXISTS test_temp", None)
         .await;
     let results = executor
         .execute(
             &info.id,
             "CREATE TABLE test_temp (id INT PRIMARY KEY, name VARCHAR(50))",
+            None,
         )
         .await
         .unwrap();
@@ -336,18 +341,18 @@ async fn test_execute_ddl() {
 
     // Insert and select
     executor
-        .execute(&info.id, "INSERT INTO test_temp VALUES (1, 'test')")
+        .execute(&info.id, "INSERT INTO test_temp VALUES (1, 'test')", None)
         .await
         .unwrap();
     let results = executor
-        .execute(&info.id, "SELECT * FROM test_temp")
+        .execute(&info.id, "SELECT * FROM test_temp", None)
         .await
         .unwrap();
     assert_eq!(results[0].rows.len(), 1);
 
     // Clean up
     executor
-        .execute(&info.id, "DROP TABLE test_temp")
+        .execute(&info.id, "DROP TABLE test_temp", None)
         .await
         .unwrap();
 
@@ -361,7 +366,7 @@ async fn test_null_handling() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT NULL AS null_val, 'not null' AS str_val")
+        .execute(&info.id, "SELECT NULL AS null_val, 'not null' AS str_val", None)
         .await
         .unwrap();
     assert_eq!(results[0].rows.len(), 1);
@@ -382,7 +387,7 @@ async fn test_data_types() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT * FROM data_types_test WHERE id = 1")
+        .execute(&info.id, "SELECT * FROM data_types_test WHERE id = 1", None)
         .await
         .unwrap();
     assert_eq!(results[0].rows.len(), 1);
@@ -405,6 +410,7 @@ async fn test_unicode_data() {
         .execute(
             &info.id,
             "SELECT id, content_utf8, content_emoji FROM unicode_test",
+            None,
         )
         .await
         .unwrap();
@@ -437,6 +443,7 @@ async fn test_json_data() {
         .execute(
             &info.id,
             "SELECT metadata FROM products WHERE metadata IS NOT NULL LIMIT 1",
+            None,
         )
         .await
         .unwrap();
@@ -637,7 +644,7 @@ async fn test_export_csv() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT id, username, email FROM users LIMIT 3")
+        .execute(&info.id, "SELECT id, username, email FROM users LIMIT 3", None)
         .await
         .unwrap();
     let csv = mas_export::export_csv(&results[0]);
@@ -665,7 +672,7 @@ async fn test_export_json() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT id, username FROM users LIMIT 2")
+        .execute(&info.id, "SELECT id, username FROM users LIMIT 2", None)
         .await
         .unwrap();
     let json = mas_export::export_json(&results[0]);
@@ -684,7 +691,7 @@ async fn test_export_sql_insert() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT id, username FROM users LIMIT 1")
+        .execute(&info.id, "SELECT id, username FROM users LIMIT 1", None)
         .await
         .unwrap();
     let sql = mas_export::export_sql_insert(&results[0], "users");
@@ -710,7 +717,7 @@ async fn test_export_markdown() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT id, username FROM users LIMIT 2")
+        .execute(&info.id, "SELECT id, username FROM users LIMIT 2", None)
         .await
         .unwrap();
     let md = mas_export::export_markdown(&results[0]);
