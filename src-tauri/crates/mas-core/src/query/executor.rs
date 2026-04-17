@@ -21,8 +21,19 @@ impl QueryExecutor {
         sql: &str,
         database: Option<String>,
     ) -> Result<Vec<QueryResult>, CoreError> {
-        let pool = self.connection_manager.get_pool(connection_id)?;
-        let statements = split_statements(sql);
+        self.execute_owned(connection_id.to_string(), sql.to_string(), database)
+            .await
+    }
+
+    #[tracing::instrument(skip(self), fields(connection_id = %connection_id, statement_count))]
+    pub async fn execute_owned(
+        &self,
+        connection_id: String,
+        sql: String,
+        database: Option<String>,
+    ) -> Result<Vec<QueryResult>, CoreError> {
+        let pool = self.connection_manager.get_pool(&connection_id)?;
+        let statements = split_statements(&sql);
 
         tracing::Span::current().record("statement_count", statements.len());
         tracing::trace!(sql = %sql, "Full SQL input");
@@ -38,7 +49,7 @@ impl QueryExecutor {
             let use_sql = format!("USE `{}`", escaped_db);
             tracing::debug!(database = %db, "Switching database context");
             sqlx::raw_sql(&use_sql)
-                .execute(conn.as_mut())
+                .execute(&mut *conn)
                 .await
                 .map_err(|e| CoreError::Query(e.to_string()))?;
         }
@@ -62,10 +73,11 @@ impl QueryExecutor {
                 || trimmed.to_uppercase().starts_with("SHOW")
                 || trimmed.to_uppercase().starts_with("DESCRIBE")
                 || trimmed.to_uppercase().starts_with("EXPLAIN");
+            let statement_sql = trimmed.to_string();
 
             if is_select {
-                let rows = sqlx::query(trimmed)
-                    .fetch_all(conn.as_mut())
+                let rows = sqlx::query(&statement_sql)
+                    .fetch_all(&mut *conn)
                     .await
                     .map_err(|e| CoreError::Query(e.to_string()))?;
 
@@ -125,8 +137,8 @@ impl QueryExecutor {
                     warnings: vec![],
                 });
             } else {
-                let result = sqlx::query(trimmed)
-                    .execute(conn.as_mut())
+                let result = sqlx::query(&statement_sql)
+                    .execute(&mut *conn)
                     .await
                     .map_err(|e| CoreError::Query(e.to_string()))?;
 

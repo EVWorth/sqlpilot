@@ -128,20 +128,21 @@ pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<Connecti
 // Query commands
 #[tauri::command]
 #[tracing::instrument(skip(state), fields(connection_id = %connection_id, sql_preview = %sql.chars().take(100).collect::<String>()))]
-pub async fn execute_query(
+pub fn execute_query(
     state: State<'_, AppState>,
     connection_id: String,
     sql: String,
     database: Option<String>,
 ) -> Result<Vec<QueryResult>, String> {
-    let results = state
-        .query_executor
-        .execute(&connection_id, &sql, database)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Query execution failed");
-            e.to_string()
-        })?;
+    let results = tauri::async_runtime::block_on(state.query_executor.execute_owned(
+        connection_id,
+        sql,
+        database,
+    ))
+    .map_err(|e| {
+        tracing::error!(error = %e, "Query execution failed");
+        e.to_string()
+    })?;
     let total_rows: u64 = results.iter().map(|r| r.rows_affected).sum();
     tracing::info!(
         statement_count = results.len(),
