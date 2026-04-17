@@ -1,15 +1,20 @@
 import { useState, useRef, useEffect } from "react";
-import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown, Star, MessageSquare, Zap } from "lucide-react";
+import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown, Star, MessageSquare, Zap, Settings2 } from "lucide-react";
 import { format } from "sql-formatter";
+import { postProcessSQL } from "../../lib/sql-post-process";
 import { useEditorStore } from "../../stores/editorStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
 import { useAiStore } from "../../stores/aiStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
+import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
 
 export function QueryToolbar() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [showFormatterSettings, setShowFormatterSettings] = useState(false);
+  const formatterSettings = useSettingsStore((s) => s.formatterSettings);
 
   // Listen for Ctrl+S event from keyboard shortcuts
   useEffect(() => {
@@ -107,10 +112,20 @@ export function QueryToolbar() {
     try {
       const formatted = format(value, {
         language: "mysql",
-        keywordCase: "upper",
-        tabWidth: 2,
+        keywordCase: formatterSettings.keywordCase,
+        identifierCase: formatterSettings.identifierCase,
+        dataTypeCase: formatterSettings.dataTypeCase,
+        functionCase: formatterSettings.functionCase,
+        indentStyle: formatterSettings.indentStyle,
+        tabWidth: formatterSettings.tabWidth,
+        useTabs: formatterSettings.useTabs,
+        logicalOperatorNewline: formatterSettings.logicalOperatorNewline,
+        newlineBeforeSemicolon: formatterSettings.newlineBeforeSemicolon,
+        expressionWidth: formatterSettings.expressionWidth,
+        linesBetweenQueries: formatterSettings.linesBetweenQueries,
+        denseOperators: formatterSettings.denseOperators,
       });
-      model.setValue(formatted);
+      model.setValue(postProcessSQL(formatted));
     } catch {
       // If formatting fails, leave content unchanged
     }
@@ -218,6 +233,15 @@ export function QueryToolbar() {
         Format
       </button>
 
+      <button
+        onClick={() => setShowFormatterSettings(true)}
+        disabled={!editorInstance}
+        title="Formatter Settings"
+        className={toolbarBtnClass}
+      >
+        <Settings2 className="h-3 w-3" />
+      </button>
+
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 
       <button
@@ -300,6 +324,11 @@ export function QueryToolbar() {
         sql={activeTab?.content ?? ""}
         connectionName={activeConnection?.name}
         database={activeTab?.database}
+      />
+
+      <FormatterSettingsDialog
+        isOpen={showFormatterSettings}
+        onClose={() => setShowFormatterSettings(false)}
       />
     </div>
   );

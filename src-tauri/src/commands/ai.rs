@@ -1,4 +1,4 @@
-use mas_ai::{AiMode, AiStatus, AiStreamEvent, AiConfig};
+use mas_ai::{AiConfig, AiMode, AiStatus, AiStreamEvent};
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::mpsc;
 
@@ -53,9 +53,7 @@ pub async fn ai_chat(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
-pub async fn ai_get_status(
-    state: State<'_, AppState>,
-) -> Result<AiStatus, String> {
+pub async fn ai_get_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
     let status = state.ai_service.get_status().await;
     tracing::info!(provider = %status.provider, available = status.available, "AI status retrieved");
     Ok(status)
@@ -63,28 +61,18 @@ pub async fn ai_get_status(
 
 #[tauri::command]
 #[tracing::instrument(skip(state, config))]
-pub async fn ai_set_config(
-    state: State<'_, AppState>,
-    config: AiConfig,
-) -> Result<(), String> {
-    state
-        .ai_service
-        .set_config(config)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "AI config update failed");
-            e.to_string()
-        })?;
+pub async fn ai_set_config(state: State<'_, AppState>, config: AiConfig) -> Result<(), String> {
+    state.ai_service.set_config(config).await.map_err(|e| {
+        tracing::error!(error = %e, "AI config update failed");
+        e.to_string()
+    })?;
     tracing::info!("AI configuration updated");
     Ok(())
 }
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
-pub async fn ai_cancel(
-    state: State<'_, AppState>,
-    conversation_id: String,
-) -> Result<(), String> {
+pub async fn ai_cancel(state: State<'_, AppState>, conversation_id: String) -> Result<(), String> {
     state
         .ai_service
         .cancel(&conversation_id)

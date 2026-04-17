@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import type {
   ConnectionProfile,
   ConnectionInfo,
@@ -144,4 +145,10 @@ export const api = {
 
   aiApprovePermission: (conversationId: string, requestId: string, approved: boolean) =>
     tauriInvoke<void>("ai_approve_permission", { conversationId, requestId, approved }),
+
+  // App metadata
+  getAppVersion: (): Promise<string> =>
+    isTauri
+      ? getVersion()
+      : Promise.resolve(import.meta.env.VITE_APP_VERSION ?? ""),
 };

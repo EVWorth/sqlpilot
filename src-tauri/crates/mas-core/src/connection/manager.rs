@@ -59,9 +59,7 @@ impl ConnectionManager {
             .idle_timeout(std::time::Duration::from_secs(300))
             .after_connect(|conn, _meta| {
                 Box::pin(async move {
-                    sqlx::query("SET NAMES utf8mb4")
-                        .execute(&mut *conn)
-                        .await?;
+                    sqlx::query("SET NAMES utf8mb4").execute(&mut *conn).await?;
                     Ok(())
                 })
             })
@@ -71,6 +69,26 @@ impl ConnectionManager {
                 tracing::warn!(connection_id = %conn_id, error = %e, "Connection failed");
                 CoreError::Connection(format!("Failed to connect: {}", e))
             })?;
+
+        // If no default database was specified, auto-select the first user database
+        let effective_database: Option<String> = if profile
+            .default_database
+            .as_deref()
+            .map(|s| s.is_empty())
+            .unwrap_or(true)
+        {
+            let system_dbs = ["information_schema", "performance_schema", "mysql", "sys"];
+            let db_rows: Vec<(String,)> = sqlx::query_as("SHOW DATABASES")
+                .fetch_all(&pool)
+                .await
+                .unwrap_or_default();
+            db_rows
+                .into_iter()
+                .map(|(name,)| name)
+                .find(|name| !system_dbs.contains(&name.to_lowercase().as_str()))
+        } else {
+            profile.default_database.clone()
+        };
 
         // Get server version
         let version: (String,) = sqlx::query_as("SELECT VERSION()")
@@ -87,16 +105,19 @@ impl ConnectionManager {
             name: profile.name.clone(),
             host: profile.host.clone(),
             port: profile.port,
-            database: profile.default_database.clone(),
+            database: effective_database,
             server_version: version.0,
             connected_at: Utc::now(),
             color: profile.color.clone(),
         };
 
-        self.connections.insert(conn_id, ActiveConnection {
-            info: info.clone(),
-            pool,
-        });
+        self.connections.insert(
+            conn_id,
+            ActiveConnection {
+                info: info.clone(),
+                pool,
+            },
+        );
 
         tracing::info!(connection_id = %info.id, version = %info.server_version, "Connected successfully");
         Ok(info)
@@ -110,12 +131,17 @@ impl ConnectionManager {
             Ok(())
         } else {
             tracing::warn!(connection_id = %connection_id, "Connection not found for disconnect");
-            Err(CoreError::NotFound(format!("Connection not found: {}", connection_id)))
+            Err(CoreError::NotFound(format!(
+                "Connection not found: {}",
+                connection_id
+            )))
         }
     }
 
     #[tracing::instrument(skip(profile), fields(host = %profile.host, port = %profile.port))]
-    pub async fn test_connection(profile: &ConnectionProfile) -> Result<TestConnectionResult, CoreError> {
+    pub async fn test_connection(
+        profile: &ConnectionProfile,
+    ) -> Result<TestConnectionResult, CoreError> {
         let start = Instant::now();
 
         let mut options = MySqlConnectOptions::new()
@@ -142,9 +168,8 @@ impl ConnectionManager {
             .await
         {
             Ok(pool) => {
-                let version: Result<(String,), _> = sqlx::query_as("SELECT VERSION()")
-                    .fetch_one(&pool)
-                    .await;
+                let version: Result<(String,), _> =
+                    sqlx::query_as("SELECT VERSION()").fetch_one(&pool).await;
                 pool.close().await;
                 let latency = start.elapsed().as_millis() as u64;
                 match version {
@@ -194,7 +219,8 @@ impl ConnectionManager {
 
     #[tracing::instrument(skip(self))]
     pub fn list_connections(&self) -> Vec<ConnectionInfo> {
-        let connections: Vec<ConnectionInfo> = self.connections
+        let connections: Vec<ConnectionInfo> = self
+            .connections
             .iter()
             .map(|entry| entry.value().info.clone())
             .collect();
@@ -209,7 +235,10 @@ impl Default for ConnectionManager {
     }
 }
 
-fn apply_ssl_config(mut options: MySqlConnectOptions, profile: &ConnectionProfile) -> MySqlConnectOptions {
+fn apply_ssl_config(
+    mut options: MySqlConnectOptions,
+    profile: &ConnectionProfile,
+) -> MySqlConnectOptions {
     if let Some(ref ssl) = profile.ssl_config {
         let mode = match ssl.mode {
             SSLMode::Disabled => MySqlSslMode::Disabled,

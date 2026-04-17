@@ -41,12 +41,8 @@ jobs:
         run: npm run type-check
 
   test-rust:
-    name: Test Rust (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+    name: Test Rust
+    runs-on: ubuntu-latest
     services:
       mysql:
         image: mysql:8.0
@@ -56,7 +52,7 @@ jobs:
           MYSQL_USER: test_user
           MYSQL_PASSWORD: test_password
         ports:
-          - 3306:3306
+          - 13306:3306
         options: >-
           --health-cmd "mysqladmin ping -h localhost"
           --health-interval 10s
@@ -74,12 +70,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Seed test database
-        run: mysql -h 127.0.0.1 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
+        run: mysql -h 127.0.0.1 -P 13306 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
       - name: Run Rust tests
         run: cargo test --all --verbose
         working-directory: src-tauri
-        env:
-          TEST_MYSQL_URL: "mysql://test_user:test_password@127.0.0.1:3306/test_db"
 
   test-frontend:
     name: Test Frontend

@@ -1,7 +1,7 @@
 use crate::connection::ConnectionManager;
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue};
-use sqlx::{Acquire, Column, Row, TypeInfo};
+use sqlx::{Column, Row, TypeInfo};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -28,7 +28,10 @@ impl QueryExecutor {
         tracing::trace!(sql = %sql, "Full SQL input");
 
         // Acquire a dedicated connection so USE + query share the same session
-        let mut conn = pool.acquire().await.map_err(|e| CoreError::Query(e.to_string()))?;
+        let mut conn = pool
+            .acquire()
+            .await
+            .map_err(|e| CoreError::Query(e.to_string()))?;
 
         if let Some(db) = database {
             let use_sql = format!("USE `{}`", db);
@@ -68,23 +71,30 @@ impl QueryExecutor {
                 let execution_time = start.elapsed().as_millis() as u64;
 
                 let columns: Vec<ColumnMeta> = if let Some(first_row) = rows.first() {
-                    first_row.columns().iter().map(|col| {
-                        ColumnMeta {
+                    first_row
+                        .columns()
+                        .iter()
+                        .map(|col| ColumnMeta {
                             name: col.name().to_string(),
                             data_type: col.type_info().name().to_string(),
                             nullable: true,
                             is_primary_key: false,
-                        }
-                    }).collect()
+                        })
+                        .collect()
                 } else {
                     Vec::new()
                 };
 
-                let result_rows: Vec<Vec<SqlValue>> = rows.iter().map(|row| {
-                    row.columns().iter().enumerate().map(|(i, col)| {
-                        extract_value(row, i, col.type_info().name())
-                    }).collect()
-                }).collect();
+                let result_rows: Vec<Vec<SqlValue>> = rows
+                    .iter()
+                    .map(|row| {
+                        row.columns()
+                            .iter()
+                            .enumerate()
+                            .map(|(i, col)| extract_value(row, i, col.type_info().name()))
+                            .collect()
+                    })
+                    .collect();
 
                 let row_count = result_rows.len() as u64;
 
@@ -156,35 +166,31 @@ impl QueryExecutor {
 fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> SqlValue {
     // Try to get value, return Null if column is null
     match type_name {
-        "BOOLEAN" | "TINYINT(1)" | "BOOL" => {
-            row.try_get::<Option<bool>, _>(index)
-                .ok()
-                .flatten()
-                .map(SqlValue::Bool)
-                .unwrap_or(SqlValue::Null)
-        }
-        "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => {
-            row.try_get::<Option<i64>, _>(index)
-                .ok()
-                .flatten()
-                .map(SqlValue::Int)
-                .unwrap_or(SqlValue::Null)
-        }
-        "TINYINT UNSIGNED" | "SMALLINT UNSIGNED" | "MEDIUMINT UNSIGNED"
-        | "INT UNSIGNED" | "BIGINT UNSIGNED" => {
-            row.try_get::<Option<u64>, _>(index)
-                .ok()
-                .flatten()
-                .map(SqlValue::UInt)
-                .unwrap_or(SqlValue::Null)
-        }
-        "FLOAT" | "DOUBLE" | "DECIMAL" => {
-            row.try_get::<Option<f64>, _>(index)
-                .ok()
-                .flatten()
-                .map(SqlValue::Float)
-                .unwrap_or(SqlValue::Null)
-        }
+        "BOOLEAN" | "TINYINT(1)" | "BOOL" => row
+            .try_get::<Option<bool>, _>(index)
+            .ok()
+            .flatten()
+            .map(SqlValue::Bool)
+            .unwrap_or(SqlValue::Null),
+        "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => row
+            .try_get::<Option<i64>, _>(index)
+            .ok()
+            .flatten()
+            .map(SqlValue::Int)
+            .unwrap_or(SqlValue::Null),
+        "TINYINT UNSIGNED" | "SMALLINT UNSIGNED" | "MEDIUMINT UNSIGNED" | "INT UNSIGNED"
+        | "BIGINT UNSIGNED" => row
+            .try_get::<Option<u64>, _>(index)
+            .ok()
+            .flatten()
+            .map(SqlValue::UInt)
+            .unwrap_or(SqlValue::Null),
+        "FLOAT" | "DOUBLE" | "DECIMAL" => row
+            .try_get::<Option<f64>, _>(index)
+            .ok()
+            .flatten()
+            .map(SqlValue::Float)
+            .unwrap_or(SqlValue::Null),
         "JSON" => {
             // JSON columns must be decoded as serde_json::Value, then serialized to string
             row.try_get::<Option<serde_json::Value>, _>(index)
@@ -193,13 +199,12 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
                 .map(|v| SqlValue::String(v.to_string()))
                 .unwrap_or(SqlValue::Null)
         }
-        "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => {
-            row.try_get::<Option<Vec<u8>>, _>(index)
-                .ok()
-                .flatten()
-                .map(SqlValue::Bytes)
-                .unwrap_or(SqlValue::Null)
-        }
+        "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => row
+            .try_get::<Option<Vec<u8>>, _>(index)
+            .ok()
+            .flatten()
+            .map(SqlValue::Bytes)
+            .unwrap_or(SqlValue::Null),
         "BIT" => {
             // BIT columns: try reading as bytes and convert to integer
             row.try_get::<Option<u64>, _>(index)
@@ -232,7 +237,11 @@ fn split_statements(sql: &str) -> Vec<String> {
 
     while i < len {
         let c = chars[i];
-        let next = if i + 1 < len { Some(chars[i + 1]) } else { None };
+        let next = if i + 1 < len {
+            Some(chars[i + 1])
+        } else {
+            None
+        };
 
         if in_line_comment {
             if c == '\n' {

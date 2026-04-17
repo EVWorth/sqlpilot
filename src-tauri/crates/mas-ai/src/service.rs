@@ -137,15 +137,13 @@ impl AiService {
 
         // Build schema context if we have a database connection
         let schema_context = match (connection_id, database) {
-            (Some(conn_id), Some(db)) => {
-                match self.build_schema_context(conn_id, db).await {
-                    Ok(ctx) => Some(ctx),
-                    Err(e) => {
-                        tracing::warn!(error = %e, "Failed to build schema context, proceeding without it");
-                        None
-                    }
+            (Some(conn_id), Some(db)) => match self.build_schema_context(conn_id, db).await {
+                Ok(ctx) => Some(ctx),
+                Err(e) => {
+                    tracing::warn!(error = %e, "Failed to build schema context, proceeding without it");
+                    None
                 }
-            }
+            },
             _ => None,
         };
 
@@ -206,12 +204,14 @@ impl AiService {
             // Build tools based on mode and connection availability
             let tool_pairs = if let Some(conn_id) = connection_id {
                 match mode {
-                    AiMode::Ask => {
-                        tools::build_read_tool_handlers(self.connection_manager.clone(), conn_id.to_string())
-                    }
-                    AiMode::Agent | AiMode::Plan => {
-                        tools::build_tool_handlers(self.connection_manager.clone(), conn_id.to_string())
-                    }
+                    AiMode::Ask => tools::build_read_tool_handlers(
+                        self.connection_manager.clone(),
+                        conn_id.to_string(),
+                    ),
+                    AiMode::Agent | AiMode::Plan => tools::build_tool_handlers(
+                        self.connection_manager.clone(),
+                        conn_id.to_string(),
+                    ),
                 }
             } else {
                 Vec::new()
@@ -312,11 +312,8 @@ impl AiService {
                                     .await;
 
                                 // Wait up to 5 minutes for user response
-                                match tokio::time::timeout(
-                                    Duration::from_secs(300),
-                                    response_rx,
-                                )
-                                .await
+                                match tokio::time::timeout(Duration::from_secs(300), response_rx)
+                                    .await
                                 {
                                     Ok(Ok(val)) => val,
                                     _ => {
@@ -391,17 +388,20 @@ impl AiService {
                                 })
                                 .await;
                         }
-                        SessionEventData::AssistantMessage(data) => {
-                            // Final complete message — if we didn't get deltas, use this
-                            if full_response.is_empty() {
-                                full_response = data.content.clone();
-                                let _ = event_sender
-                                    .send(AiStreamEvent::TextDelta {
-                                        conversation_id: event_conv_id.clone(),
-                                        content: data.content.clone(),
-                                    })
-                                    .await;
-                            }
+                        SessionEventData::AssistantMessage(data)
+                            if full_response.is_empty() =>
+                        {
+                            // Final complete message — only used when no deltas were received
+                            full_response = data.content.clone();
+                            let _ = event_sender
+                                .send(AiStreamEvent::TextDelta {
+                                    conversation_id: event_conv_id.clone(),
+                                    content: data.content.clone(),
+                                })
+                                .await;
+                        }
+                        SessionEventData::AssistantMessage(_) => {
+                            // Already accumulated deltas — nothing to do
                         }
                         SessionEventData::ToolExecutionStart(data) => {
                             let _ = event_sender
@@ -426,9 +426,7 @@ impl AiService {
                                 .result
                                 .as_ref()
                                 .map(|r| r.content.clone())
-                                .or_else(|| {
-                                    data.error.as_ref().map(|e| e.message.clone())
-                                })
+                                .or_else(|| data.error.as_ref().map(|e| e.message.clone()))
                                 .unwrap_or_default();
                             let _ = event_sender
                                 .send(AiStreamEvent::ToolComplete {

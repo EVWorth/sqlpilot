@@ -12,11 +12,19 @@ describe("editorStore", () => {
     expect(useEditorStore.getState().activeTabId).toBe(id);
   });
 
-  it("should close a tab", () => {
+  it("should close a tab when multiple tabs exist", () => {
+    const id1 = useEditorStore.getState().addTab();
+    useEditorStore.getState().addTab();
+    useEditorStore.getState().closeTab(id1);
+    expect(useEditorStore.getState().tabs).toHaveLength(1);
+  });
+
+  it("should not close the last query tab", () => {
     const id = useEditorStore.getState().addTab();
     useEditorStore.getState().closeTab(id);
-    expect(useEditorStore.getState().tabs).toHaveLength(0);
-    expect(useEditorStore.getState().activeTabId).toBeNull();
+    // Last query tab is protected — still 1 tab
+    expect(useEditorStore.getState().tabs).toHaveLength(1);
+    expect(useEditorStore.getState().activeTabId).toBe(id);
   });
 
   it("should switch active tab on close", () => {

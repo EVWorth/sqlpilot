@@ -91,23 +91,30 @@ impl SchemaInspector {
                     CAST(DEFAULT_COLLATION_NAME AS CHAR) AS DEFAULT_COLLATION_NAME
              FROM INFORMATION_SCHEMA.SCHEMATA
              WHERE SCHEMA_NAME NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
-             ORDER BY SCHEMA_NAME"
+             ORDER BY SCHEMA_NAME",
         )
         .fetch_all(&pool)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
-        let databases: Vec<DatabaseInfo> = rows.iter().map(|row| DatabaseInfo {
-            name: row.get("SCHEMA_NAME"),
-            default_charset: row.get("DEFAULT_CHARACTER_SET_NAME"),
-            default_collation: row.get("DEFAULT_COLLATION_NAME"),
-        }).collect();
+        let databases: Vec<DatabaseInfo> = rows
+            .iter()
+            .map(|row| DatabaseInfo {
+                name: row.get("SCHEMA_NAME"),
+                default_charset: row.get("DEFAULT_CHARACTER_SET_NAME"),
+                default_collation: row.get("DEFAULT_COLLATION_NAME"),
+            })
+            .collect();
         tracing::debug!(count = databases.len(), "Found databases");
         Ok(databases)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_tables(&self, connection_id: &str, database: &str) -> Result<Vec<TableInfo>, CoreError> {
+    pub async fn get_tables(
+        &self,
+        connection_id: &str,
+        database: &str,
+    ) -> Result<Vec<TableInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching tables");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
@@ -119,27 +126,35 @@ impl SchemaInspector {
                     CAST(TABLE_COMMENT AS CHAR) AS TABLE_COMMENT
              FROM INFORMATION_SCHEMA.TABLES
              WHERE TABLE_SCHEMA = ?
-             ORDER BY TABLE_NAME"
+             ORDER BY TABLE_NAME",
         )
         .bind(database)
         .fetch_all(&pool)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
-        let tables: Vec<TableInfo> = rows.iter().map(|row| TableInfo {
-            name: row.get("TABLE_NAME"),
-            table_type: row.get("TABLE_TYPE"),
-            engine: row.try_get("ENGINE").ok(),
-            row_count: row.try_get("TABLE_ROWS").ok(),
-            data_size: row.try_get("DATA_LENGTH").ok(),
-            comment: row.try_get("TABLE_COMMENT").unwrap_or_default(),
-        }).collect();
+        let tables: Vec<TableInfo> = rows
+            .iter()
+            .map(|row| TableInfo {
+                name: row.get("TABLE_NAME"),
+                table_type: row.get("TABLE_TYPE"),
+                engine: row.try_get("ENGINE").ok(),
+                row_count: row.try_get("TABLE_ROWS").ok(),
+                data_size: row.try_get("DATA_LENGTH").ok(),
+                comment: row.try_get("TABLE_COMMENT").unwrap_or_default(),
+            })
+            .collect();
         tracing::debug!(count = tables.len(), database = %database, "Found tables");
         Ok(tables)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_columns(&self, connection_id: &str, database: &str, table: &str) -> Result<Vec<ColumnInfo>, CoreError> {
+    pub async fn get_columns(
+        &self,
+        connection_id: &str,
+        database: &str,
+        table: &str,
+    ) -> Result<Vec<ColumnInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching columns");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
@@ -153,7 +168,7 @@ impl SchemaInspector {
                     CAST(COLUMN_COMMENT AS CHAR) AS COLUMN_COMMENT
              FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-             ORDER BY ORDINAL_POSITION"
+             ORDER BY ORDINAL_POSITION",
         )
         .bind(database)
         .bind(table)
@@ -161,26 +176,34 @@ impl SchemaInspector {
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
-        let columns: Vec<ColumnInfo> = rows.iter().map(|row| {
-            let nullable_str: String = row.get("IS_NULLABLE");
-            let key: String = row.get("COLUMN_KEY");
-            ColumnInfo {
-                name: row.get("COLUMN_NAME"),
-                data_type: row.get("DATA_TYPE"),
-                column_type: row.get("COLUMN_TYPE"),
-                nullable: nullable_str == "YES",
-                default_value: row.try_get("COLUMN_DEFAULT").ok(),
-                is_primary_key: key == "PRI",
-                extra: row.get("EXTRA"),
-                comment: row.try_get("COLUMN_COMMENT").unwrap_or_default(),
-            }
-        }).collect();
+        let columns: Vec<ColumnInfo> = rows
+            .iter()
+            .map(|row| {
+                let nullable_str: String = row.get("IS_NULLABLE");
+                let key: String = row.get("COLUMN_KEY");
+                ColumnInfo {
+                    name: row.get("COLUMN_NAME"),
+                    data_type: row.get("DATA_TYPE"),
+                    column_type: row.get("COLUMN_TYPE"),
+                    nullable: nullable_str == "YES",
+                    default_value: row.try_get("COLUMN_DEFAULT").ok(),
+                    is_primary_key: key == "PRI",
+                    extra: row.get("EXTRA"),
+                    comment: row.try_get("COLUMN_COMMENT").unwrap_or_default(),
+                }
+            })
+            .collect();
         tracing::debug!(count = columns.len(), database = %database, table = %table, "Found columns");
         Ok(columns)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_indexes(&self, connection_id: &str, database: &str, table: &str) -> Result<Vec<IndexInfo>, CoreError> {
+    pub async fn get_indexes(
+        &self,
+        connection_id: &str,
+        database: &str,
+        table: &str,
+    ) -> Result<Vec<IndexInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching indexes");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
@@ -190,7 +213,7 @@ impl SchemaInspector {
                     CAST(INDEX_TYPE AS CHAR) AS INDEX_TYPE
              FROM INFORMATION_SCHEMA.STATISTICS
              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
-             ORDER BY INDEX_NAME, SEQ_IN_INDEX"
+             ORDER BY INDEX_NAME, SEQ_IN_INDEX",
         )
         .bind(database)
         .bind(table)
@@ -198,14 +221,16 @@ impl SchemaInspector {
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
-        let mut index_map: std::collections::BTreeMap<String, IndexInfo> = std::collections::BTreeMap::new();
+        let mut index_map: std::collections::BTreeMap<String, IndexInfo> =
+            std::collections::BTreeMap::new();
         for row in &rows {
             let name: String = row.get("INDEX_NAME");
             let col: String = row.get("COLUMN_NAME");
             let non_unique: i32 = row.get("NON_UNIQUE");
             let idx_type: String = row.get("INDEX_TYPE");
 
-            index_map.entry(name.clone())
+            index_map
+                .entry(name.clone())
                 .and_modify(|idx| idx.columns.push(col.clone()))
                 .or_insert_with(|| IndexInfo {
                     name,
@@ -221,7 +246,12 @@ impl SchemaInspector {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_table_ddl(&self, connection_id: &str, database: &str, table: &str) -> Result<String, CoreError> {
+    pub async fn get_table_ddl(
+        &self,
+        connection_id: &str,
+        database: &str,
+        table: &str,
+    ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching table DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let use_db = format!("USE `{}`", database);
@@ -238,7 +268,11 @@ impl SchemaInspector {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_views(&self, connection_id: &str, database: &str) -> Result<Vec<ViewInfo>, CoreError> {
+    pub async fn get_views(
+        &self,
+        connection_id: &str,
+        database: &str,
+    ) -> Result<Vec<ViewInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching views");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
@@ -246,26 +280,33 @@ impl SchemaInspector {
                     CAST(IS_UPDATABLE AS CHAR) AS IS_UPDATABLE
              FROM INFORMATION_SCHEMA.VIEWS
              WHERE TABLE_SCHEMA = ?
-             ORDER BY TABLE_NAME"
+             ORDER BY TABLE_NAME",
         )
         .bind(database)
         .fetch_all(&pool)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
-        let views: Vec<ViewInfo> = rows.iter().map(|row| {
-            let updatable: String = row.get("IS_UPDATABLE");
-            ViewInfo {
-                name: row.get("TABLE_NAME"),
-                is_updatable: updatable == "YES",
-            }
-        }).collect();
+        let views: Vec<ViewInfo> = rows
+            .iter()
+            .map(|row| {
+                let updatable: String = row.get("IS_UPDATABLE");
+                ViewInfo {
+                    name: row.get("TABLE_NAME"),
+                    is_updatable: updatable == "YES",
+                }
+            })
+            .collect();
         tracing::debug!(count = views.len(), database = %database, "Found views");
         Ok(views)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_routines(&self, connection_id: &str, database: &str) -> Result<Vec<RoutineInfo>, CoreError> {
+    pub async fn get_routines(
+        &self,
+        connection_id: &str,
+        database: &str,
+    ) -> Result<Vec<RoutineInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching routines");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
@@ -274,24 +315,31 @@ impl SchemaInspector {
                     CAST(DATA_TYPE AS CHAR) AS DATA_TYPE
              FROM INFORMATION_SCHEMA.ROUTINES
              WHERE ROUTINE_SCHEMA = ?
-             ORDER BY ROUTINE_TYPE, ROUTINE_NAME"
+             ORDER BY ROUTINE_TYPE, ROUTINE_NAME",
         )
         .bind(database)
         .fetch_all(&pool)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
-        let routines: Vec<RoutineInfo> = rows.iter().map(|row| RoutineInfo {
-            name: row.get("ROUTINE_NAME"),
-            routine_type: row.get("ROUTINE_TYPE"),
-            data_type: row.try_get("DATA_TYPE").unwrap_or_default(),
-        }).collect();
+        let routines: Vec<RoutineInfo> = rows
+            .iter()
+            .map(|row| RoutineInfo {
+                name: row.get("ROUTINE_NAME"),
+                routine_type: row.get("ROUTINE_TYPE"),
+                data_type: row.try_get("DATA_TYPE").unwrap_or_default(),
+            })
+            .collect();
         tracing::debug!(count = routines.len(), database = %database, "Found routines");
         Ok(routines)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_triggers(&self, connection_id: &str, database: &str) -> Result<Vec<TriggerInfo>, CoreError> {
+    pub async fn get_triggers(
+        &self,
+        connection_id: &str,
+        database: &str,
+    ) -> Result<Vec<TriggerInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching triggers");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
@@ -301,25 +349,33 @@ impl SchemaInspector {
                     CAST(ACTION_TIMING AS CHAR) AS ACTION_TIMING
              FROM INFORMATION_SCHEMA.TRIGGERS
              WHERE TRIGGER_SCHEMA = ?
-             ORDER BY TRIGGER_NAME"
+             ORDER BY TRIGGER_NAME",
         )
         .bind(database)
         .fetch_all(&pool)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
-        let triggers: Vec<TriggerInfo> = rows.iter().map(|row| TriggerInfo {
-            name: row.get("TRIGGER_NAME"),
-            event: row.get("EVENT_MANIPULATION"),
-            table: row.get("EVENT_OBJECT_TABLE"),
-            timing: row.get("ACTION_TIMING"),
-        }).collect();
+        let triggers: Vec<TriggerInfo> = rows
+            .iter()
+            .map(|row| TriggerInfo {
+                name: row.get("TRIGGER_NAME"),
+                event: row.get("EVENT_MANIPULATION"),
+                table: row.get("EVENT_OBJECT_TABLE"),
+                timing: row.get("ACTION_TIMING"),
+            })
+            .collect();
         tracing::debug!(count = triggers.len(), database = %database, "Found triggers");
         Ok(triggers)
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_view_ddl(&self, connection_id: &str, database: &str, view: &str) -> Result<String, CoreError> {
+    pub async fn get_view_ddl(
+        &self,
+        connection_id: &str,
+        database: &str,
+        view: &str,
+    ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, view = %view, "Fetching view DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let use_db = format!("USE `{}`", database);
@@ -336,7 +392,13 @@ impl SchemaInspector {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_routine_ddl(&self, connection_id: &str, database: &str, routine: &str, routine_type: &str) -> Result<String, CoreError> {
+    pub async fn get_routine_ddl(
+        &self,
+        connection_id: &str,
+        database: &str,
+        routine: &str,
+        routine_type: &str,
+    ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, routine = %routine, routine_type = %routine_type, "Fetching routine DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let use_db = format!("USE `{}`", database);
@@ -358,7 +420,12 @@ impl SchemaInspector {
     }
 
     #[tracing::instrument(skip(self))]
-    pub async fn get_trigger_ddl(&self, connection_id: &str, database: &str, trigger: &str) -> Result<String, CoreError> {
+    pub async fn get_trigger_ddl(
+        &self,
+        connection_id: &str,
+        database: &str,
+        trigger: &str,
+    ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, trigger = %trigger, "Fetching trigger DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let use_db = format!("USE `{}`", database);

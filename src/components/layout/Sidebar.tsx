@@ -1,9 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import {
-  Plus,
   Database,
-  Plug,
-  Unplug,
   Trash2,
   ChevronRight,
   ChevronDown,
@@ -28,7 +25,6 @@ import {
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
-import { ConnectionDialog } from "../connection/ConnectionDialog";
 import { QueryHistory } from "../history/QueryHistory";
 import { QueryFavorites } from "../favorites/QueryFavorites";
 import { cn } from "../../lib/utils";
@@ -38,7 +34,6 @@ import { useClickHandler } from "../../hooks/useClickHandler";
 import type { DatabaseInfo, TableInfo, ViewInfo, RoutineInfo, TriggerInfo } from "../../types";
 
 export function Sidebar() {
-  const [showDialog, setShowDialog] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
   const [showFavorites, setShowFavorites] = useState(false);
   const profiles = useConnectionStore((s) => s.profiles);
@@ -46,144 +41,43 @@ export function Sidebar() {
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
-  const connect = useConnectionStore((s) => s.connect);
-  const disconnect = useConnectionStore((s) => s.disconnect);
-  const deleteProfile = useConnectionStore((s) => s.deleteProfile);
-  const loadProfiles = useConnectionStore((s) => s.loadProfiles);
-  const setSelectedConnection = useConnectionStore(
-    (s) => s.setSelectedConnection,
+
+  const selectedConnection = activeConnections.find(
+    (c) => c.id === selectedConnectionId,
   );
-  const addTab = useEditorStore((s) => s.addTab);
-  const { contextMenu, showContextMenu } = useContextMenu();
-
-  useEffect(() => {
-    loadProfiles();
-  }, [loadProfiles]);
-
-  const getActiveConnection = (profileId: string) =>
-    activeConnections.find((c) => c.profile_id === profileId);
+  const selectedProfile = selectedConnection
+    ? profiles.find((p) => p.id === selectedConnection.profile_id)
+    : undefined;
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-secondary)]">
-      <div className="flex h-9 items-center justify-between border-b border-[var(--color-border)] px-3">
-        <span className="text-xs font-medium uppercase tracking-wider text-[var(--color-text-secondary)]">
-          Connections
-        </span>
-        <button
-          onClick={() => setShowDialog(true)}
-          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      <div className="flex-1 overflow-y-auto p-1">
-        {profiles.length === 0 ? (
-          <p className="p-3 text-xs text-[var(--color-text-muted)]">
-            No connections yet.
-          </p>
+      {selectedConnection && (
+        <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] px-3 py-1.5 shrink-0">
+          <Database className="h-3 w-3 shrink-0 text-green-400" />
+          {selectedProfile?.color && (
+            <span
+              className="h-1.5 w-1.5 shrink-0 rounded-full"
+              style={{ backgroundColor: selectedProfile.color }}
+            />
+          )}
+          <span className="truncate text-[11px] font-medium text-[var(--color-text-secondary)]">
+            {selectedProfile?.username
+              ? `${selectedProfile.username}@${selectedConnection.host}`
+              : selectedConnection.host}
+            {selectedConnection.port !== 3306 ? `:${selectedConnection.port}` : ""}
+          </span>
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto">
+        {selectedConnection ? (
+          <SchemaTree connectionId={selectedConnection.id} />
         ) : (
-          profiles.map((profile) => {
-            const conn = getActiveConnection(profile.id);
-            const isConnected = !!conn;
-            const isSelected = conn && conn.id === selectedConnectionId;
-
-            return (
-              <div key={profile.id} className="mb-0.5">
-                <div
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-xs",
-                    isSelected
-                      ? "bg-brand-600/20 text-brand-300"
-                      : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
-                  )}
-                  onClick={() => {
-                    if (conn) setSelectedConnection(conn.id);
-                  }}
-                  onContextMenu={(e) => {
-                    showContextMenu(e, [
-                      {
-                        label: "New Query",
-                        icon: <FileText className="h-3.5 w-3.5" />,
-                        onClick: () => addTab(conn?.id),
-                      },
-                      {
-                        label: "Disconnect",
-                        icon: <Unplug className="h-3.5 w-3.5" />,
-                        onClick: () => {
-                          if (conn) disconnect(conn.id);
-                        },
-                        disabled: !isConnected,
-                      },
-                      { label: "", separator: true, onClick: () => {} },
-                      {
-                        label: "Delete Connection",
-                        icon: <Trash2 className="h-3.5 w-3.5" />,
-                        onClick: () => deleteProfile(profile.id),
-                        danger: true,
-                      },
-                    ]);
-                  }}
-                >
-                  <Database
-                    className={cn(
-                      "h-3.5 w-3.5",
-                      isConnected
-                        ? "text-green-400"
-                        : "text-[var(--color-text-muted)]",
-                    )}
-                  />
-                  {profile.color && (
-                    <span
-                      className="h-2 w-2 shrink-0 rounded-full"
-                      style={{ backgroundColor: profile.color }}
-                    />
-                  )}
-                  <span className="flex-1 truncate">
-                    {profile.name || profile.host}
-                  </span>
-                  <div className="flex items-center gap-0.5">
-                    {!isConnected ? (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          connect(profile.id);
-                        }}
-                        className="rounded p-0.5 hover:bg-[var(--color-bg-primary)]"
-                        title="Connect"
-                      >
-                        <Plug className="h-3 w-3" />
-                      </button>
-                    ) : (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          disconnect(conn!.id);
-                        }}
-                        className="rounded p-0.5 hover:bg-[var(--color-bg-primary)]"
-                        title="Disconnect"
-                      >
-                        <Unplug className="h-3 w-3" />
-                      </button>
-                    )}
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        deleteProfile(profile.id);
-                      }}
-                      className="rounded p-0.5 text-red-400 opacity-0 hover:bg-[var(--color-bg-primary)] group-hover:opacity-100"
-                      title="Delete"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
-                {isConnected && conn && (
-                  <SchemaTree connectionId={conn.id} />
-                )}
-              </div>
-            );
-          })
+          <div className="flex flex-col items-center justify-center h-full gap-2 p-4 text-center">
+            <Database className="h-8 w-8 text-[var(--color-text-muted)] opacity-40" />
+            <p className="text-xs text-[var(--color-text-muted)]">
+              No connection selected
+            </p>
+          </div>
         )}
       </div>
 
@@ -228,12 +122,6 @@ export function Sidebar() {
           </div>
         )}
       </div>
-
-      <ConnectionDialog
-        isOpen={showDialog}
-        onClose={() => setShowDialog(false)}
-      />
-      {contextMenu}
     </div>
   );
 }
@@ -258,6 +146,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
   const tabs = useEditorStore((s) => s.tabs);
   const executeQuery = useResultStore((s) => s.executeQuery);
   const { contextMenu, showContextMenu } = useContextMenu();
+  const activeConnections = useConnectionStore((s) => s.activeConnections);
 
   // Derive the selected database from the active tab
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -266,7 +155,8 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
   // Set the active tab's database context to the given DB
   const selectDatabase = (dbName: string) => {
     if (!activeTabId) return;
-    setTabConnection(activeTabId, connectionId, dbName);
+    const conn = activeConnections.find((c) => c.id === connectionId);
+    setTabConnection(activeTabId, connectionId, dbName, conn?.profile_id);
   };
 
   // Tracks pending single-click timers keyed by "db.name"

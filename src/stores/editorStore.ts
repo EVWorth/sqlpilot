@@ -21,6 +21,7 @@ interface EditorState {
     id: string,
     connectionId: string,
     database?: string,
+    profileId?: string,
   ) => void;
   setEditorInstance: (instance: editor.IStandaloneCodeEditor | null) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
@@ -28,11 +29,61 @@ interface EditorState {
   reorderTabs: (fromIndex: number, toIndex: number) => void;
 }
 
-let tabCounter = 0;
+const SESSION_STORAGE_KEY = "sqlpilot-editor-session";
+
+interface PersistedSession {
+  tabs: EditorTab[];
+  activeTabId: string | null;
+}
+
+function loadSession(): PersistedSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as PersistedSession;
+    if (!Array.isArray(parsed.tabs) || parsed.tabs.length === 0) return null;
+    // Clear isDirty — the persisted content is now the baseline
+    return {
+      tabs: parsed.tabs.map((t) => ({ ...t, isDirty: false })),
+      activeTabId: parsed.activeTabId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(tabs: EditorTab[], activeTabId: string | null) {
+  try {
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ tabs, activeTabId }));
+  } catch {
+    // localStorage unavailable
+  }
+}
+
+function maxTabCounter(tabs: EditorTab[]): number {
+  return tabs.reduce((max, t) => {
+    const m = t.id.match(/^tab-(\d+)$/);
+    return m ? Math.max(max, parseInt(m[1], 10)) : max;
+  }, 0);
+}
+
+const restoredSession = loadSession();
+
+let tabCounter = restoredSession ? maxTabCounter(restoredSession.tabs) : 0;
+
+const initialTab: EditorTab = {
+  id: "tab-0",
+  title: "Untitled Query",
+  content: "",
+  connectionId: undefined,
+  database: undefined,
+  type: "query",
+  isDirty: false,
+};
 
 export const useEditorStore = create<EditorState>((set, get) => ({
-  tabs: [],
-  activeTabId: null,
+  tabs: restoredSession?.tabs ?? [initialTab],
+  activeTabId: restoredSession?.activeTabId ?? "tab-0",
   editorInstance: null,
 
   addTab: (connectionId, database) => {
@@ -40,7 +91,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const id = `tab-${tabCounter}`;
     const tab: EditorTab = {
       id,
-      title: `Query ${tabCounter}`,
+      title: "Untitled Query",
       content: "",
       connectionId,
       database,
@@ -219,6 +270,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   closeTab: (id) => {
     set((state) => {
+      const tabToClose = state.tabs.find((t) => t.id === id);
+      // Don't close the last query tab
+      if (tabToClose?.type === 'query') {
+        const queryTabs = state.tabs.filter((t) => t.type === 'query');
+        if (queryTabs.length <= 1) return state;
+      }
       const newTabs = state.tabs.filter((t) => t.id !== id);
       const newActiveId =
         state.activeTabId === id
@@ -240,10 +297,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }));
   },
 
-  setTabConnection: (id, connectionId, database) => {
+  setTabConnection: (id, connectionId, database, profileId) => {
     set((state) => ({
       tabs: state.tabs.map((t) =>
-        t.id === id ? { ...t, connectionId, database } : t,
+        t.id === id
+          ? { ...t, connectionId, database, ...(profileId !== undefined ? { profileId } : {}) }
+          : t,
       ),
     }));
   },
@@ -272,3 +331,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { tabs: newTabs };
     }),
 }));
+
+// Auto-save tabs and activeTabId to localStorage on change, debounced to avoid
+// writing on every keystroke. editorInstance is intentionally excluded.
+let _savedTabs: EditorTab[] = useEditorStore.getState().tabs;
+let _savedActiveTabId: string | null = useEditorStore.getState().activeTabId;
+let _saveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+useEditorStore.subscribe((state) => {
+  if (state.tabs !== _savedTabs || state.activeTabId !== _savedActiveTabId) {
+    _savedTabs = state.tabs;
+    _savedActiveTabId = state.activeTabId;
+    if (_saveTimeout) clearTimeout(_saveTimeout);
+    _saveTimeout = setTimeout(() => {
+      const { tabs, activeTabId } = useEditorStore.getState();
+      saveSession(tabs, activeTabId);
+    }, 500);
+  }
+});

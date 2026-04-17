@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import { Plus, X, ChevronLeft, ChevronRight } from "lucide-react";
+import { Plus, X, ChevronLeft } from "lucide-react";
 import { useEditorStore } from "../../stores/editorStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { cn } from "../../lib/utils";
@@ -17,7 +17,6 @@ export function EditorTabs() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollLeft, setShowScrollLeft] = useState(false);
-  const [showScrollRight, setShowScrollRight] = useState(false);
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
   const [dragIndex, setDragIndex] = useState<number | null>(null);
@@ -27,7 +26,6 @@ export function EditorTabs() {
     const el = scrollRef.current;
     if (!el) return;
     setShowScrollLeft(el.scrollLeft > 0);
-    setShowScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
   }, []);
 
   useEffect(() => {
@@ -96,6 +94,8 @@ export function EditorTabs() {
     setDragIndex(null);
     setDropIndex(null);
   };
+
+  const queryTabCount = tabs.filter((t) => t.type === "query").length;
 
   return (
     <div className="flex h-9 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
@@ -181,6 +181,7 @@ export function EditorTabs() {
             ) : (
               <span className="max-w-[120px] truncate">{tab.title}</span>
             )}
+            {!(tab.type === "query" && queryTabCount <= 1) && (
             <span
               onClick={(e) => {
                 e.stopPropagation();
@@ -190,24 +191,17 @@ export function EditorTabs() {
             >
               <X className="h-3 w-3" />
             </span>
+            )}
           </button>
           );
         })}
-      </div>
-      {showScrollRight && (
         <button
-          onClick={() => scrollBy(120)}
-          className="flex h-9 w-6 shrink-0 items-center justify-center text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+          onClick={() => addTab()}
+          className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
         >
-          <ChevronRight className="h-3.5 w-3.5" />
+          <Plus className="h-4 w-4" />
         </button>
-      )}
-      <button
-        onClick={() => addTab()}
-        className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-      >
-        <Plus className="h-4 w-4" />
-      </button>
+      </div>
     </div>
   );
 }

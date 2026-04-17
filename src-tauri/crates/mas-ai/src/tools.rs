@@ -121,11 +121,7 @@ pub fn build_tool_handlers(
 
     // Write tools
     for tool in build_write_tools() {
-        let handler = make_write_handler(
-            &tool.name,
-            executor.clone(),
-            connection_id.clone(),
-        );
+        let handler = make_write_handler(&tool.name, executor.clone(), connection_id.clone());
         pairs.push((tool, handler));
     }
 
@@ -168,43 +164,45 @@ fn make_read_handler(
     connection_id: String,
 ) -> ToolHandler {
     let name = tool_name.to_string();
-    Arc::new(move |_tool_name: &str, args: &serde_json::Value| -> ToolResultObject {
-        let result = match name.as_str() {
-            "list_databases" => handle_list_databases(&inspector, &connection_id),
-            "list_tables" => {
-                let db = arg_str(args, "database");
-                handle_list_tables(&inspector, &connection_id, &db)
+    Arc::new(
+        move |_tool_name: &str, args: &serde_json::Value| -> ToolResultObject {
+            let result = match name.as_str() {
+                "list_databases" => handle_list_databases(&inspector, &connection_id),
+                "list_tables" => {
+                    let db = arg_str(args, "database");
+                    handle_list_tables(&inspector, &connection_id, &db)
+                }
+                "describe_table" => {
+                    let db = arg_str(args, "database");
+                    let table = arg_str(args, "table");
+                    handle_describe_table(&inspector, &connection_id, &db, &table)
+                }
+                "get_table_ddl" => {
+                    let db = arg_str(args, "database");
+                    let table = arg_str(args, "table");
+                    handle_get_table_ddl(&inspector, &connection_id, &db, &table)
+                }
+                "run_select_query" => {
+                    let sql = arg_str(args, "sql");
+                    handle_run_select_query(&executor, &connection_id, &sql)
+                }
+                "explain_query" => {
+                    let sql = arg_str(args, "sql");
+                    handle_explain_query(&executor, &connection_id, &sql)
+                }
+                "list_routines" => {
+                    let db = arg_str(args, "database");
+                    handle_list_routines(&inspector, &connection_id, &db)
+                }
+                "show_process_list" => handle_show_process_list(&admin, &connection_id),
+                _ => Err(format!("Unknown tool: {}", name)),
+            };
+            match result {
+                Ok(text) => ToolResultObject::text(text),
+                Err(e) => ToolResultObject::error(e),
             }
-            "describe_table" => {
-                let db = arg_str(args, "database");
-                let table = arg_str(args, "table");
-                handle_describe_table(&inspector, &connection_id, &db, &table)
-            }
-            "get_table_ddl" => {
-                let db = arg_str(args, "database");
-                let table = arg_str(args, "table");
-                handle_get_table_ddl(&inspector, &connection_id, &db, &table)
-            }
-            "run_select_query" => {
-                let sql = arg_str(args, "sql");
-                handle_run_select_query(&executor, &connection_id, &sql)
-            }
-            "explain_query" => {
-                let sql = arg_str(args, "sql");
-                handle_explain_query(&executor, &connection_id, &sql)
-            }
-            "list_routines" => {
-                let db = arg_str(args, "database");
-                handle_list_routines(&inspector, &connection_id, &db)
-            }
-            "show_process_list" => handle_show_process_list(&admin, &connection_id),
-            _ => Err(format!("Unknown tool: {}", name)),
-        };
-        match result {
-            Ok(text) => ToolResultObject::text(text),
-            Err(e) => ToolResultObject::error(e),
-        }
-    })
+        },
+    )
 }
 
 fn make_write_handler(
@@ -213,19 +211,21 @@ fn make_write_handler(
     connection_id: String,
 ) -> ToolHandler {
     let name = tool_name.to_string();
-    Arc::new(move |_tool_name: &str, args: &serde_json::Value| -> ToolResultObject {
-        let result = match name.as_str() {
-            "run_query" => {
-                let sql = arg_str(args, "sql");
-                handle_run_query(&executor, &connection_id, &sql)
+    Arc::new(
+        move |_tool_name: &str, args: &serde_json::Value| -> ToolResultObject {
+            let result = match name.as_str() {
+                "run_query" => {
+                    let sql = arg_str(args, "sql");
+                    handle_run_query(&executor, &connection_id, &sql)
+                }
+                _ => Err(format!("Unknown tool: {}", name)),
+            };
+            match result {
+                Ok(text) => ToolResultObject::text(text),
+                Err(e) => ToolResultObject::error(e),
             }
-            _ => Err(format!("Unknown tool: {}", name)),
-        };
-        match result {
-            Ok(text) => ToolResultObject::text(text),
-            Err(e) => ToolResultObject::error(e),
-        }
-    })
+        },
+    )
 }
 
 fn arg_str(args: &serde_json::Value, key: &str) -> String {
@@ -241,8 +241,7 @@ fn handle_list_databases(
     inspector: &SchemaInspector,
     connection_id: &str,
 ) -> Result<String, String> {
-    let dbs = block_on_async(inspector.get_databases(connection_id))
-        .map_err(|e| e.to_string())?;
+    let dbs = block_on_async(inspector.get_databases(connection_id)).map_err(|e| e.to_string())?;
     let names: Vec<&str> = dbs.iter().map(|d| d.name.as_str()).collect();
     serde_json::to_string_pretty(&names).map_err(|e| e.to_string())
 }
@@ -252,8 +251,8 @@ fn handle_list_tables(
     connection_id: &str,
     database: &str,
 ) -> Result<String, String> {
-    let tables = block_on_async(inspector.get_tables(connection_id, database))
-        .map_err(|e| e.to_string())?;
+    let tables =
+        block_on_async(inspector.get_tables(connection_id, database)).map_err(|e| e.to_string())?;
     let rows: Vec<serde_json::Value> = tables
         .iter()
         .map(|t| {
@@ -377,12 +376,9 @@ fn handle_list_routines(
     serde_json::to_string_pretty(&rows).map_err(|e| e.to_string())
 }
 
-fn handle_show_process_list(
-    admin: &AdminService,
-    connection_id: &str,
-) -> Result<String, String> {
-    let processes = block_on_async(admin.get_process_list(connection_id))
-        .map_err(|e| e.to_string())?;
+fn handle_show_process_list(admin: &AdminService, connection_id: &str) -> Result<String, String> {
+    let processes =
+        block_on_async(admin.get_process_list(connection_id)).map_err(|e| e.to_string())?;
     let rows: Vec<serde_json::Value> = processes
         .iter()
         .map(|p| {

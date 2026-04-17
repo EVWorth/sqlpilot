@@ -152,6 +152,7 @@ export interface EditorTab {
   title: string;
   content: string;
   connectionId?: string;
+  profileId?: string;
   database?: string;
   tableName?: string;
   routineName?: string;

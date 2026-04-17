@@ -1,0 +1,28 @@
+<svg width="256" height="256" viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dark background fills full canvas -->
+  <rect width="32" height="32" rx="6" fill="#0D1B2E"/>
+
+  <!-- Cylinder body -->
+  <rect x="4" y="17" width="24" height="10" fill="#1C3A6E"/>
+
+  <!-- Bottom ellipse -->
+  <ellipse cx="16" cy="27" rx="12" ry="4.5" fill="#1C3A6E"/>
+
+  <!-- Top ellipse -->
+  <ellipse cx="16" cy="17" rx="12" ry="4.5" fill="#2A549E"/>
+
+  <!-- SQL/query bar highlight -->
+  <rect x="5" y="7" width="22" height="7" rx="3.5" fill="#56CCF2"/>
+
+  <!-- Cursor arrow in bar -->
+  <path d="M9 10.5 L13 10.5"
+        stroke="#0D1B2E"
+        stroke-width="1.8"
+        stroke-linecap="round"/>
+  <path d="M15 8.5 L19.5 10.5 L15 12.5"
+        fill="none"
+        stroke="#0D1B2E"
+        stroke-width="1.6"
+        stroke-linecap="round"
+        stroke-linejoin="round"/>
+</svg>

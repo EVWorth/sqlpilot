@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { api } from "../../lib/tauri-api";
 import { Loader2, AlertCircle, AlertTriangle, Copy, Check } from "lucide-react";
 import type { ConnectionEnvironment } from "../../types";
 
@@ -35,6 +36,11 @@ export function StatusBar() {
 
   const [showFullError, setShowFullError] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [appVersion, setAppVersion] = useState("");
+
+  useEffect(() => {
+    api.getAppVersion().then(setAppVersion).catch(() => {});
+  }, []);
 
   const activeConn = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -131,7 +137,7 @@ export function StatusBar() {
           </span>
         )}
         <span className="text-[10px] text-[var(--color-text-muted)]">
-          SQLPilot v0.1.0
+          {appVersion && `SQLPilot v${appVersion}`}
         </span>
       </div>
     </div>

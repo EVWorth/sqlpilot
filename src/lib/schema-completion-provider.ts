@@ -234,7 +234,7 @@ export function createCompletionProvider(
           for (const t of dbTables) {
             suggestions.push({
               label: t,
-              kind: monaco.languages.CompletionItemKind.Class,
+              kind: monaco.languages.CompletionItemKind.Enum,
               insertText: t,
               range,
               sortText: "0" + t,
@@ -296,7 +296,7 @@ export function createCompletionProvider(
         for (const db of databases) {
           suggestions.push({
             label: db,
-            kind: monaco.languages.CompletionItemKind.Module,
+            kind: monaco.languages.CompletionItemKind.Folder,
             insertText: db,
             range,
             sortText: dbPriority + db,
@@ -307,11 +307,22 @@ export function createCompletionProvider(
 
       // Table/view suggestions — only for table context (after FROM/JOIN/etc.)
       if (connectionId && context === "table") {
+        // Also suggest database names so users can type schema-qualified references (e.g. FROM db.table)
+        for (const db of databases) {
+          suggestions.push({
+            label: db,
+            kind: monaco.languages.CompletionItemKind.Folder,
+            insertText: db,
+            range,
+            sortText: "1" + db,
+            detail: "Database",
+          });
+        }
         for (const [db, dbTables] of tables.entries()) {
           for (const t of dbTables) {
             suggestions.push({
               label: t,
-              kind: monaco.languages.CompletionItemKind.Class,
+              kind: monaco.languages.CompletionItemKind.Enum,
               insertText: t,
               range,
               sortText: "0" + t,
@@ -344,7 +355,7 @@ export function createCompletionProvider(
           for (const t of dbTables) {
             suggestions.push({
               label: t,
-              kind: monaco.languages.CompletionItemKind.Class,
+              kind: monaco.languages.CompletionItemKind.Enum,
               insertText: t,
               range,
               sortText: tablePriority + t,

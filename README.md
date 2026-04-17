@@ -20,6 +20,10 @@
 </p>
 
 <p align="center">
+  <a href="https://www.buymeacoffee.com/evworth"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=evworth&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&background_colour=ffffff" alt="Buy Me A Coffee" /></a>
+</p>
+
+<p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust" />
