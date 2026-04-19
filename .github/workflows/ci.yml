@@ -76,9 +76,17 @@ jobs:
           workspaces: src-tauri
       - name: Seed test database
         run: mysql -h 127.0.0.1 -P 13306 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
-      - name: Run Rust tests
-        run: cargo test -p mas-core -p mas-export -p mas-admin
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - name: Run Rust tests with coverage
+        run: cargo tarpaulin -p mas-core -p mas-export -p mas-admin --out Lcov --output-dir coverage/
         working-directory: src-tauri
+      - name: Upload Rust coverage to Codecov
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5.5.4
+        with:
+          flags: rust
+          files: src-tauri/coverage/lcov.info
+          fail_ci_if_error: false
 
   test-frontend:
     name: Test Frontend
@@ -93,7 +101,13 @@ jobs:
         run: npm ci
       - name: Run unit tests
         run: npm run test:unit -- --coverage
-      - name: Upload coverage
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@75cd11691c0faa626561e295848008c8a7dddffe # v5.5.4
+        with:
+          flags: frontend
+          files: coverage/lcov.info
+          fail_ci_if_error: false
+      - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: frontend-coverage

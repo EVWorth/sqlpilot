@@ -29,6 +29,9 @@
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/node-20%2B-brightgreen" alt="Node.js" />
   <img src="https://img.shields.io/badge/tests-191%20passing-brightgreen" alt="Tests" />
+  <a href="https://codecov.io/gh/EVWorth/sqlpilot"><img src="https://codecov.io/gh/EVWorth/sqlpilot/graph/badge.svg" alt="Coverage" /></a>
+  <a href="https://codecov.io/gh/EVWorth/sqlpilot"><img src="https://codecov.io/gh/EVWorth/sqlpilot/graph/badge.svg?flag=frontend" alt="Frontend Coverage" /></a>
+  <a href="https://codecov.io/gh/EVWorth/sqlpilot"><img src="https://codecov.io/gh/EVWorth/sqlpilot/graph/badge.svg?flag=rust" alt="Rust Coverage" /></a>
 </p>
 
 ---
