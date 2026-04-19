@@ -48,7 +48,7 @@ impl QueryExecutor {
             let escaped_db = db.replace('`', "``");
             let use_sql = format!("USE `{}`", escaped_db);
             tracing::debug!(database = %db, "Switching database context");
-            sqlx::query(&use_sql)
+            sqlx::raw_sql(&use_sql)
                 .execute(conn.as_mut())
                 .await
                 .map_err(|e| CoreError::Query(e.to_string()))?;
