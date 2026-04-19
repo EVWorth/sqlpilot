@@ -4,22 +4,13 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    labels:
-      - "dependencies"
-      - "github-actions"
 
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
     schedule:
       interval: "weekly"
-    labels:
-      - "dependencies"
-      - "rust"
 
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
-    labels:
-      - "dependencies"
-      - "javascript"
