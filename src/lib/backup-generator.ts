@@ -55,6 +55,7 @@ function escapeValue(val: SqlValue): string {
       .replace(/\n/g, "\\n")
       .replace(/\r/g, "\\r")
       .replace(/\0/g, "\\0")
+      // eslint-disable-next-line no-control-regex
       .replace(/\x1a/g, "\\Z") +
     "'"
   );

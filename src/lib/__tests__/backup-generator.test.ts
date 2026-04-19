@@ -22,7 +22,8 @@ describe("backup-generator value escaping", () => {
         .replace(/\n/g, "\\n")
         .replace(/\r/g, "\\r")
         .replace(/\0/g, "\\0")
-        .replace(/\x1a/g, "\\Z") +
+        // eslint-disable-next-line no-control-regex
+      .replace(/\x1a/g, "\\Z") +
       "'"
     );
   }

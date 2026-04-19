@@ -11,7 +11,7 @@
 export function postProcessSQL(sql: string): string {
   // Split on single-quoted string literals so we don't mutate string values.
   // Tokens alternate: [non-string, string, non-string, string, ...]
-  const tokens = sql.split(/(\'(?:[^\'\\]|\\[\s\S])*\')/);
+  const tokens = sql.split(/('(?:[^'\\]|\\[\s\S])*')/);
 
   return tokens
     .map((token, i) => {
