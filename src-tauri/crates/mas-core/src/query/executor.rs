@@ -48,8 +48,8 @@ impl QueryExecutor {
             let escaped_db = db.replace('`', "``");
             let use_sql = format!("USE `{}`", escaped_db);
             tracing::debug!(database = %db, "Switching database context");
-            sqlx::raw_sql(&use_sql)
-                .execute(&mut *conn)
+            sqlx::query(&use_sql)
+                .execute(conn.as_mut())
                 .await
                 .map_err(|e| CoreError::Query(e.to_string()))?;
         }
@@ -77,7 +77,7 @@ impl QueryExecutor {
 
             if is_select {
                 let rows = sqlx::query(&statement_sql)
-                    .fetch_all(&mut *conn)
+                    .fetch_all(conn.as_mut())
                     .await
                     .map_err(|e| CoreError::Query(e.to_string()))?;
 
@@ -138,7 +138,7 @@ impl QueryExecutor {
                 });
             } else {
                 let result = sqlx::query(&statement_sql)
-                    .execute(&mut *conn)
+                    .execute(conn.as_mut())
                     .await
                     .map_err(|e| CoreError::Query(e.to_string()))?;
 
