@@ -76,7 +76,7 @@ impl QueryExecutor {
             let statement_sql = trimmed.to_string();
 
             if is_select {
-                let rows = sqlx::query(&statement_sql)
+                let rows = sqlx::raw_sql(&statement_sql)
                     .fetch_all(conn.as_mut())
                     .await
                     .map_err(|e| CoreError::Query(e.to_string()))?;
@@ -137,7 +137,7 @@ impl QueryExecutor {
                     warnings: vec![],
                 });
             } else {
-                let result = sqlx::query(&statement_sql)
+                let result = sqlx::raw_sql(&statement_sql)
                     .execute(conn.as_mut())
                     .await
                     .map_err(|e| CoreError::Query(e.to_string()))?;
