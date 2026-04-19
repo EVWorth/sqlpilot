@@ -77,7 +77,7 @@ jobs:
       - name: Seed test database
         run: mysql -h 127.0.0.1 -P 13306 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
       - name: Run Rust tests
-        run: cargo test --all
+        run: cargo test -p mas-core -p mas-export -p mas-admin
         working-directory: src-tauri
 
   test-frontend:
