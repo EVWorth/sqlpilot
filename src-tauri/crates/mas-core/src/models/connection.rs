@@ -10,7 +10,7 @@ pub struct ConnectionProfile {
     pub host: String,
     pub port: u16,
     pub username: String,
-    #[serde(skip_serializing)]
+    #[serde(skip_serializing, default)]
     pub password: String,
     pub default_database: Option<String>,
     pub ssh_config: Option<SSHConfig>,

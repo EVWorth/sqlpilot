@@ -266,9 +266,10 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                 />
                 <Field
                   label="Password"
-                  value={form.password}
+                  value={form.password ?? ""}
                   onChange={(v) => handleChange("password", v)}
                   type="password"
+                  placeholder={editProfile && !form.password ? "Saved (leave blank to keep)" : undefined}
                 />
               </div>
               <Field

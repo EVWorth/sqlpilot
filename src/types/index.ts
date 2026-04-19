@@ -10,7 +10,7 @@ export interface ConnectionProfile {
   host: string;
   port: number;
   username: string;
-  password: string;
+  password?: string;
   default_database?: string;
   ssh_config?: SSHConfig;
   ssl_config?: SSLConfig;

@@ -26,8 +26,14 @@ pub struct AppState {
 #[tracing::instrument(skip(state, profile), fields(profile_name = %profile.name))]
 pub async fn save_connection_profile(
     state: State<'_, AppState>,
-    profile: ConnectionProfile,
+    mut profile: ConnectionProfile,
 ) -> Result<String, String> {
+    // If the frontend omitted the password (edit mode), preserve the stored one
+    if profile.password.is_empty() {
+        if let Ok(stored) = state.connection_store.get(&profile.id) {
+            profile.password = stored.password;
+        }
+    }
     state.connection_store.save(&profile).map_err(|e| {
         tracing::error!(error = %e, "Failed to save connection profile");
         e.to_string()
@@ -64,8 +70,17 @@ pub async fn delete_connection_profile(
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(profile), fields(profile_name = %profile.name, host = %profile.host, port = %profile.port))]
-pub async fn test_connection(profile: ConnectionProfile) -> Result<TestConnectionResult, String> {
+#[tracing::instrument(skip(state, profile), fields(profile_name = %profile.name, host = %profile.host, port = %profile.port))]
+pub async fn test_connection(
+    state: State<'_, AppState>,
+    mut profile: ConnectionProfile,
+) -> Result<TestConnectionResult, String> {
+    // If the frontend omitted the password (edit mode), look it up from the store
+    if profile.password.is_empty() {
+        if let Ok(stored) = state.connection_store.get(&profile.id) {
+            profile.password = stored.password;
+        }
+    }
     let result = ConnectionManager::test_connection(&profile)
         .await
         .map_err(|e| {
