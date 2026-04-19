@@ -105,12 +105,16 @@ export function ConnectionTabs() {
 
   const handleConnectProfile = async (profileId: string) => {
     setPopoverOpen(false);
-    const conn = await connect(profileId);
-    setSelectedConnection(conn.id);
-    // Propagate the connection's auto-selected database to the active editor tab
-    const { activeTabId, setTabConnection } = useEditorStore.getState();
-    if (activeTabId) {
-      setTabConnection(activeTabId, conn.id, conn.database, conn.profile_id);
+    try {
+      const conn = await connect(profileId);
+      setSelectedConnection(conn.id);
+      // Propagate the connection's auto-selected database to the active editor tab
+      const { activeTabId, setTabConnection } = useEditorStore.getState();
+      if (activeTabId) {
+        setTabConnection(activeTabId, conn.id, conn.database, conn.profile_id);
+      }
+    } catch {
+      // Error is captured in connectionStore.error and shown in StatusBar
     }
   };
 
