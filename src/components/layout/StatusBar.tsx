@@ -27,6 +27,8 @@ export function StatusBar() {
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
+  const connectionError = useConnectionStore((s) => s.error);
+  const clearConnectionError = useConnectionStore((s) => s.clearError);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const results = useResultStore((s) => s.results);
   const activeResultIndex = useResultStore((s) => s.activeResultIndex);
@@ -107,6 +109,16 @@ export function StatusBar() {
         )}
       </div>
       <div className="flex items-center gap-3">
+        {connectionError && (
+          <button
+            onClick={clearConnectionError}
+            className="flex items-center gap-1 text-[10px] text-red-400 max-w-[300px] hover:text-red-300 transition-colors"
+            title="Connection error — click to dismiss"
+          >
+            <AlertCircle className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{connectionError}</span>
+          </button>
+        )}
         {error && !isExecuting && (
           <button
             onClick={() => setShowFullError(!showFullError)}
