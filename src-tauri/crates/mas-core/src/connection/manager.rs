@@ -55,7 +55,7 @@ impl ConnectionManager {
         let pool = MySqlPoolOptions::new()
             .min_connections(profile.pool_min)
             .max_connections(profile.pool_max)
-            .acquire_timeout(std::time::Duration::from_secs(10))
+            .acquire_timeout(std::time::Duration::from_secs(5))
             .idle_timeout(std::time::Duration::from_secs(300))
             .after_connect(|conn, _meta| {
                 Box::pin(async move {
@@ -163,7 +163,7 @@ impl ConnectionManager {
 
         match MySqlPoolOptions::new()
             .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(10))
+            .acquire_timeout(std::time::Duration::from_secs(5))
             .connect_with(options)
             .await
         {
