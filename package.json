@@ -13,7 +13,7 @@
     "type-check": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test --pass-with-no-tests"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",

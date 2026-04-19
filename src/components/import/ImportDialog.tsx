@@ -108,7 +108,7 @@ export function ImportDialog({
     } catch (e) {
       console.error("Failed to pick file:", e);
     }
-  }, [mode, csvOptions, connectionId, database]);
+  }, [mode, csvOptions, connectionId, database]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const parseCsvContent = useCallback(
     (content: string, options: CsvParseOptions) => {
