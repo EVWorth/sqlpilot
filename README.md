@@ -20,7 +20,7 @@
 </p>
 
 <p align="center">
-  <a href="https://www.buymeacoffee.com/evworth"><img src="https://img.buymeacoffee.com/button-api/?text=Buy me a coffee&emoji=☕&slug=evworth&button_colour=FFDD00&font_colour=000000&font_family=Cookie&outline_colour=000000&background_colour=ffffff" alt="Buy Me A Coffee" /></a>
+  <a href="https://www.buymeacoffee.com/evworth"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="40" /></a>
 </p>
 
 <p align="center">
