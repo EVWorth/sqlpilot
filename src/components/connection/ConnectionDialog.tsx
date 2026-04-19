@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   X,
   Loader2,
@@ -88,6 +88,26 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const saveProfile = useConnectionStore((s) => s.saveProfile);
+
+  useEffect(() => {
+    if (isOpen) {
+      setActiveTab("general");
+      setForm(
+        editProfile ??
+          ({
+            ...defaultProfile,
+            id: crypto.randomUUID(),
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          } as ConnectionProfile),
+      );
+      setSshEnabled(!!editProfile?.ssh_config);
+      setSshAuthMethod(
+        editProfile?.ssh_config?.private_key_path ? "key" : "password",
+      );
+      setTestResult(null);
+    }
+  }, [isOpen, editProfile]);
 
   if (!isOpen) return null;
 
