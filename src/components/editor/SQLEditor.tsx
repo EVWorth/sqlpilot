@@ -63,7 +63,10 @@ export function SQLEditor() {
     schemaCache.tables,
     schemaCache.views,
     schemaCache.columns,
-  ]); // eslint-disable-line react-hooks/exhaustive-deps
+    schemaCache.fetchTables,
+    schemaCache.fetchViews,
+    schemaCache.fetchColumns,
+  ]);
 
   const handleMount: OnMount = useCallback(
     (editor, _monacoInstance) => {

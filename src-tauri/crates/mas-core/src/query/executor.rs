@@ -1,7 +1,8 @@
 use crate::connection::ConnectionManager;
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue};
-use sqlx::{Column, Row, TypeInfo};
+use futures::StreamExt;
+use sqlx::{Column, Either, Row, TypeInfo};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -19,144 +20,176 @@ impl QueryExecutor {
         &self,
         connection_id: &str,
         sql: &str,
-        database: Option<&str>,
+        database: Option<String>,
     ) -> Result<Vec<QueryResult>, CoreError> {
-        let pool = self.connection_manager.get_pool(connection_id)?;
-        let statements = split_statements(sql);
+        self.execute_owned(connection_id.to_string(), sql.to_string(), database)
+            .await
+    }
+
+    #[tracing::instrument(skip(self), fields(connection_id = %connection_id, statement_count))]
+    pub async fn execute_owned(
+        &self,
+        connection_id: String,
+        sql: String,
+        database: Option<String>,
+    ) -> Result<Vec<QueryResult>, CoreError> {
+        let pool = self.connection_manager.get_pool(&connection_id)?;
+        let statements = split_statements(&sql);
 
         tracing::Span::current().record("statement_count", statements.len());
         tracing::trace!(sql = %sql, "Full SQL input");
 
-        // Acquire a dedicated connection so USE + query share the same session
-        let mut conn = pool
-            .acquire()
-            .await
-            .map_err(|e| CoreError::Query(e.to_string()))?;
-
-        if let Some(db) = database {
-            let escaped_db = db.replace('`', "``");
-            let use_sql = format!("USE `{}`", escaped_db);
-            tracing::debug!(database = %db, "Switching database context");
-            sqlx::raw_sql(&use_sql)
-                .execute(conn.as_mut())
-                .await
-                .map_err(|e| CoreError::Query(e.to_string()))?;
+        if statements.is_empty() {
+            return Ok(vec![]);
         }
 
+        // Combine all statements into one raw_sql call with &pool.
+        //
+        // Using &pool (not conn.as_mut()) avoids the HRTB lifetime error that
+        // Tauri's `respond_async_serialized` imposes. The pool internally acquires
+        // ONE connection for the entire multi-statement execution, so USE db
+        // session state is preserved for subsequent statements.
+        //
+        // raw_sql uses the text protocol (COM_QUERY) which supports USE, SHOW CREATE,
+        // CALL, etc. — commands that MySQL rejects over the prepared-statement protocol.
+        let combined_sql = if let Some(db) = &database {
+            let escaped_db = db.replace('`', "``");
+            tracing::debug!(database = %db, "Switching database context");
+            format!("USE `{}`;\n{}", escaped_db, sql)
+        } else {
+            sql
+        };
+
+        // If USE db was prepended, skip its result (the first Either::Left).
+        let mut stmt_idx: isize = if database.is_some() { -1 } else { 0 };
+
+        let mut stream = sqlx::raw_sql(&combined_sql).fetch_many(&pool);
         let mut results = Vec::new();
+        let mut current_rows: Vec<sqlx::mysql::MySqlRow> = Vec::new();
+        let mut start = Instant::now();
 
-        for (idx, stmt) in statements.iter().enumerate() {
-            let trimmed = stmt.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-
-            let query_id = uuid::Uuid::new_v4().to_string();
-            let preview: String = trimmed.chars().take(200).collect();
-            tracing::debug!(query_id = %query_id, statement_index = idx, sql_preview = %preview, "Executing statement");
-            tracing::trace!(query_id = %query_id, sql = %trimmed, "Full statement SQL");
-
-            let start = Instant::now();
-
-            let is_select = trimmed.to_uppercase().starts_with("SELECT")
-                || trimmed.to_uppercase().starts_with("SHOW")
-                || trimmed.to_uppercase().starts_with("DESCRIBE")
-                || trimmed.to_uppercase().starts_with("EXPLAIN");
-
-            if is_select {
-                let rows = sqlx::query(trimmed)
-                    .fetch_all(conn.as_mut())
-                    .await
-                    .map_err(|e| CoreError::Query(e.to_string()))?;
-
-                let execution_time = start.elapsed().as_millis() as u64;
-
-                let columns: Vec<ColumnMeta> = if let Some(first_row) = rows.first() {
-                    first_row
-                        .columns()
-                        .iter()
-                        .map(|col| ColumnMeta {
-                            name: col.name().to_string(),
-                            data_type: col.type_info().name().to_string(),
-                            nullable: true,
-                            is_primary_key: false,
-                        })
-                        .collect()
-                } else {
-                    Vec::new()
-                };
-
-                let result_rows: Vec<Vec<SqlValue>> = rows
-                    .iter()
-                    .map(|row| {
-                        row.columns()
-                            .iter()
-                            .enumerate()
-                            .map(|(i, col)| extract_value(row, i, col.type_info().name()))
-                            .collect()
-                    })
-                    .collect();
-
-                let row_count = result_rows.len() as u64;
-
-                if execution_time > 1000 {
-                    tracing::warn!(
-                        query_id = %query_id,
-                        rows = row_count,
-                        time_ms = execution_time,
-                        "Slow query detected"
-                    );
+        while let Some(item) = stream.next().await {
+            let item = item.map_err(|e| CoreError::Query(e.to_string()))?;
+            match item {
+                Either::Right(row) => {
+                    // SELECT/SHOW/DESCRIBE/EXPLAIN row — accumulate until trailing Left.
+                    if stmt_idx >= 0 {
+                        current_rows.push(row);
+                    }
                 }
+                Either::Left(qr) => {
+                    // Statement complete. For SELECT this arrives after all rows;
+                    // for DML/DDL it is the only item for that statement.
+                    if stmt_idx >= 0 {
+                        let idx = stmt_idx as usize;
+                        let stmt = &statements[idx];
+                        let query_id = uuid::Uuid::new_v4().to_string();
+                        let execution_time = start.elapsed().as_millis() as u64;
+                        let preview: String = stmt.chars().take(200).collect();
+                        tracing::debug!(
+                            query_id = %query_id,
+                            statement_index = idx,
+                            sql_preview = %preview,
+                            "Executing statement"
+                        );
+                        tracing::trace!(query_id = %query_id, sql = %stmt, "Full statement SQL");
 
-                tracing::info!(
-                    query_id = %query_id,
-                    rows = row_count,
-                    time_ms = execution_time,
-                    "Query executed"
-                );
+                        let upper = stmt.to_uppercase();
+                        let is_select = upper.starts_with("SELECT")
+                            || upper.starts_with("SHOW")
+                            || upper.starts_with("DESCRIBE")
+                            || upper.starts_with("EXPLAIN");
 
-                results.push(QueryResult {
-                    query_id,
-                    statement_index: idx,
-                    columns,
-                    rows: result_rows,
-                    rows_affected: row_count,
-                    execution_time_ms: execution_time,
-                    warnings: vec![],
-                });
-            } else {
-                let result = sqlx::query(trimmed)
-                    .execute(conn.as_mut())
-                    .await
-                    .map_err(|e| CoreError::Query(e.to_string()))?;
+                        if is_select {
+                            let columns: Vec<ColumnMeta> =
+                                if let Some(first_row) = current_rows.first() {
+                                    first_row
+                                        .columns()
+                                        .iter()
+                                        .map(|col| ColumnMeta {
+                                            name: col.name().to_string(),
+                                            data_type: col.type_info().name().to_string(),
+                                            nullable: true,
+                                            is_primary_key: false,
+                                        })
+                                        .collect()
+                                } else {
+                                    Vec::new()
+                                };
 
-                let execution_time = start.elapsed().as_millis() as u64;
+                            let result_rows: Vec<Vec<SqlValue>> = current_rows
+                                .iter()
+                                .map(|row| {
+                                    row.columns()
+                                        .iter()
+                                        .enumerate()
+                                        .map(|(i, col)| {
+                                            extract_value(row, i, col.type_info().name())
+                                        })
+                                        .collect()
+                                })
+                                .collect();
 
-                if execution_time > 1000 {
-                    tracing::warn!(
-                        query_id = %query_id,
-                        rows_affected = result.rows_affected(),
-                        time_ms = execution_time,
-                        "Slow statement detected"
-                    );
+                            let row_count = result_rows.len() as u64;
+
+                            if execution_time > 1000 {
+                                tracing::warn!(
+                                    query_id = %query_id,
+                                    rows = row_count,
+                                    time_ms = execution_time,
+                                    "Slow query detected"
+                                );
+                            }
+                            tracing::info!(
+                                query_id = %query_id,
+                                rows = row_count,
+                                time_ms = execution_time,
+                                "Query executed"
+                            );
+
+                            results.push(QueryResult {
+                                query_id,
+                                statement_index: idx,
+                                columns,
+                                rows: result_rows,
+                                rows_affected: row_count,
+                                execution_time_ms: execution_time,
+                                warnings: vec![],
+                            });
+                        } else {
+                            let rows_affected = qr.rows_affected();
+
+                            if execution_time > 1000 {
+                                tracing::warn!(
+                                    query_id = %query_id,
+                                    rows_affected,
+                                    time_ms = execution_time,
+                                    "Slow statement detected"
+                                );
+                            }
+                            tracing::info!(
+                                query_id = %query_id,
+                                rows_affected,
+                                time_ms = execution_time,
+                                "Statement executed"
+                            );
+
+                            results.push(QueryResult {
+                                query_id,
+                                statement_index: idx,
+                                columns: vec![],
+                                rows: vec![],
+                                rows_affected,
+                                execution_time_ms: execution_time,
+                                warnings: vec![],
+                            });
+                        }
+
+                        current_rows.clear();
+                        start = Instant::now();
+                    }
+                    stmt_idx += 1;
                 }
-
-                tracing::info!(
-                    query_id = %query_id,
-                    rows_affected = result.rows_affected(),
-                    time_ms = execution_time,
-                    "Statement executed"
-                );
-
-                results.push(QueryResult {
-                    query_id,
-                    statement_index: idx,
-                    columns: vec![],
-                    rows: vec![],
-                    rows_affected: result.rows_affected(),
-                    execution_time_ms: execution_time,
-                    warnings: vec![],
-                });
             }
         }
 

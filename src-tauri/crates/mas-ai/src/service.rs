@@ -388,9 +388,7 @@ impl AiService {
                                 })
                                 .await;
                         }
-                        SessionEventData::AssistantMessage(data)
-                            if full_response.is_empty() =>
-                        {
+                        SessionEventData::AssistantMessage(data) if full_response.is_empty() => {
                             // Final complete message — only used when no deltas were received
                             full_response = data.content.clone();
                             let _ = event_sender

@@ -255,9 +255,9 @@ impl SchemaInspector {
         tracing::debug!(database = %database, table = %table, "Fetching table DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let use_db = format!("USE `{}`", database);
-        let _ = sqlx::query(&use_db).execute(&pool).await;
+        let _ = sqlx::raw_sql(&use_db).execute(&pool).await;
 
-        let row = sqlx::query(&format!("SHOW CREATE TABLE `{}`", table))
+        let row = sqlx::raw_sql(&format!("SHOW CREATE TABLE `{}`", table))
             .fetch_one(&pool)
             .await
             .map_err(|e| CoreError::Schema(e.to_string()))?;
@@ -379,9 +379,9 @@ impl SchemaInspector {
         tracing::debug!(database = %database, view = %view, "Fetching view DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let use_db = format!("USE `{}`", database);
-        let _ = sqlx::query(&use_db).execute(&pool).await;
+        let _ = sqlx::raw_sql(&use_db).execute(&pool).await;
 
-        let row = sqlx::query(&format!("SHOW CREATE VIEW `{}`", view))
+        let row = sqlx::raw_sql(&format!("SHOW CREATE VIEW `{}`", view))
             .fetch_one(&pool)
             .await
             .map_err(|e| CoreError::Schema(e.to_string()))?;
@@ -402,14 +402,14 @@ impl SchemaInspector {
         tracing::debug!(database = %database, routine = %routine, routine_type = %routine_type, "Fetching routine DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let use_db = format!("USE `{}`", database);
-        let _ = sqlx::query(&use_db).execute(&pool).await;
+        let _ = sqlx::raw_sql(&use_db).execute(&pool).await;
 
         let show_cmd = match routine_type.to_uppercase().as_str() {
             "FUNCTION" => format!("SHOW CREATE FUNCTION `{}`", routine),
             _ => format!("SHOW CREATE PROCEDURE `{}`", routine),
         };
 
-        let row = sqlx::query(&show_cmd)
+        let row = sqlx::raw_sql(&show_cmd)
             .fetch_one(&pool)
             .await
             .map_err(|e| CoreError::Schema(e.to_string()))?;
@@ -429,9 +429,9 @@ impl SchemaInspector {
         tracing::debug!(database = %database, trigger = %trigger, "Fetching trigger DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let use_db = format!("USE `{}`", database);
-        let _ = sqlx::query(&use_db).execute(&pool).await;
+        let _ = sqlx::raw_sql(&use_db).execute(&pool).await;
 
-        let row = sqlx::query(&format!("SHOW CREATE TRIGGER `{}`", trigger))
+        let row = sqlx::raw_sql(&format!("SHOW CREATE TRIGGER `{}`", trigger))
             .fetch_one(&pool)
             .await
             .map_err(|e| CoreError::Schema(e.to_string()))?;

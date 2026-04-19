@@ -136,7 +136,7 @@ pub async fn execute_query(
 ) -> Result<Vec<QueryResult>, String> {
     let results = state
         .query_executor
-        .execute(&connection_id, &sql, database.as_deref())
+        .execute_owned(connection_id, sql, database)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Query execution failed");
