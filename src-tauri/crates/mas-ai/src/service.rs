@@ -374,7 +374,7 @@ impl AiService {
         // Process events until idle/error
         let mut full_response = String::new();
         let event_conv_id = conv_id.clone();
-        let mut tool_calls: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut tool_calls: HashMap<String, String> = HashMap::new();
 
         loop {
             match events.recv().await {
