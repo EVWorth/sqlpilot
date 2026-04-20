@@ -374,6 +374,7 @@ impl AiService {
         // Process events until idle/error
         let mut full_response = String::new();
         let event_conv_id = conv_id.clone();
+        let mut tool_calls: HashMap<String, String> = HashMap::new();
 
         loop {
             match events.recv().await {
@@ -402,6 +403,8 @@ impl AiService {
                             // Already accumulated deltas — nothing to do
                         }
                         SessionEventData::ToolExecutionStart(data) => {
+                            // Track tool name for the corresponding completion event
+                            tool_calls.insert(data.tool_call_id.clone(), data.tool_name.clone());
                             let _ = event_sender
                                 .send(AiStreamEvent::ToolStart {
                                     conversation_id: event_conv_id.clone(),
@@ -426,10 +429,20 @@ impl AiService {
                                 .map(|r| r.content.clone())
                                 .or_else(|| data.error.as_ref().map(|e| e.message.clone()))
                                 .unwrap_or_default();
+                            let tool_name = match tool_calls.remove(&data.tool_call_id) {
+                                Some(tool_name) => tool_name,
+                                None => {
+                                    tracing::warn!(
+                                        tool_call_id = %data.tool_call_id,
+                                        "ToolExecutionComplete received without a matching ToolExecutionStart"
+                                    );
+                                    "unknown".to_string()
+                                }
+                            };
                             let _ = event_sender
                                 .send(AiStreamEvent::ToolComplete {
                                     conversation_id: event_conv_id.clone(),
-                                    tool_name: String::new(), // not in complete data directly
+                                    tool_name,
                                     tool_call_id: data.tool_call_id.clone(),
                                     result: result_text,
                                     success: data.success,
