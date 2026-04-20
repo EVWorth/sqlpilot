@@ -429,12 +429,16 @@ impl AiService {
                                 .map(|r| r.content.clone())
                                 .or_else(|| data.error.as_ref().map(|e| e.message.clone()))
                                 .unwrap_or_default();
-                            let tool_name = tool_calls
-                                .get(&data.tool_call_id)
-                                .cloned()
-                                .unwrap_or_default();
-                            // Remove from tracking after using
-                            tool_calls.remove(&data.tool_call_id);
+                            let tool_name = match tool_calls.remove(&data.tool_call_id) {
+                                Some(tool_name) => tool_name,
+                                None => {
+                                    tracing::warn!(
+                                        tool_call_id = %data.tool_call_id,
+                                        "ToolExecutionComplete received without a matching ToolExecutionStart"
+                                    );
+                                    "unknown".to_string()
+                                }
+                            };
                             let _ = event_sender
                                 .send(AiStreamEvent::ToolComplete {
                                     conversation_id: event_conv_id.clone(),
