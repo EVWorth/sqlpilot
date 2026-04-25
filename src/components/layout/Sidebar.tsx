@@ -25,6 +25,7 @@ import {
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { QueryHistory } from "../history/QueryHistory";
 import { QueryFavorites } from "../favorites/QueryFavorites";
 import { cn } from "../../lib/utils";
@@ -257,17 +258,18 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
 
   // Single click: run SELECT inline without touching the editor tab
   // Double click (within 250ms): insert table name at cursor instead
+  const { maxResultRows } = useSettingsStore.getState().querySettings;
   const handleTableClick = (dbName: string, tableName: string) =>
     makeClickHandler(
       `${dbName}.${tableName}`,
-      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${tableName}\` LIMIT 100`, dbName),
+      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${tableName}\` LIMIT ${maxResultRows}`, dbName),
       () => insertNameAtCursor(tableName),
     );
 
   const handleViewClick = (dbName: string, viewName: string) =>
     makeClickHandler(
       `${dbName}.${viewName}`,
-      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${viewName}\` LIMIT 100`, dbName),
+      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${viewName}\` LIMIT ${maxResultRows}`, dbName),
       () => insertNameAtCursor(viewName),
     );
 
@@ -480,7 +482,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Select Top 100 Rows",
                             icon: <Search className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              executeQuery(connectionId, `SELECT * FROM \`${db.name}\`.\`${t.name}\` LIMIT 100`, db.name);
+                              executeQuery(connectionId, `SELECT * FROM \`${db.name}\`.\`${t.name}\` LIMIT ${maxResultRows}`, db.name);
                             },
                           },
                           {
@@ -584,7 +586,7 @@ function SchemaTree({ connectionId }: { connectionId: string }) {
                           label: "Select Top 100 Rows",
                           icon: <Search className="h-3.5 w-3.5" />,
                           onClick: () => {
-                            executeQuery(connectionId, `SELECT * FROM \`${db.name}\`.\`${v.name}\` LIMIT 100`, db.name);
+                            executeQuery(connectionId, `SELECT * FROM \`${db.name}\`.\`${v.name}\` LIMIT ${maxResultRows}`, db.name);
                           },
                         },
                         {

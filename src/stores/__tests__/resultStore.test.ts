@@ -22,6 +22,8 @@ describe("resultStore", () => {
           rows_affected: 0,
           execution_time_ms: 10,
           warnings: [],
+          rows_truncated: false,
+          total_rows_available: 0,
         },
       ],
     });

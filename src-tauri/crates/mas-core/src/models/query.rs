@@ -9,6 +9,9 @@ pub struct QueryResult {
     pub rows_affected: u64,
     pub execution_time_ms: u64,
     pub warnings: Vec<String>,
+    pub rows_truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_rows_available: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -3,6 +3,7 @@ import type { QueryResult } from "../types";
 import { api } from "../lib/tauri-api";
 import { useHistoryStore } from "./historyStore";
 import { useConnectionStore } from "./connectionStore";
+import { useSettingsStore } from "./settingsStore";
 
 const DESTRUCTIVE_PATTERN =
   /\b(DROP|DELETE|TRUNCATE|ALTER)\b/i;
@@ -143,9 +144,13 @@ async function doExecuteQuery(
   // Explicit database selection takes precedence over the connection's default
   const effectiveDatabase = database ?? conn?.database;
 
+  // Compute row limit from settings
+  const { limitEnabled, maxResultRows } = useSettingsStore.getState().querySettings;
+  const rowLimit = limitEnabled ? maxResultRows : undefined;
+
   try {
     set({ isExecuting: true, error: null });
-    const results = await api.executeQuery(connectionId, sql, effectiveDatabase);
+    const results = await api.executeQuery(connectionId, sql, effectiveDatabase, rowLimit);
     set({ results, activeResultIndex: 0, isExecuting: false });
 
     const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);
