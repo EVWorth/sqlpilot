@@ -338,7 +338,7 @@ fn handle_run_select_query(
         trimmed.to_string()
     };
 
-    let results = block_on_async(executor.execute(connection_id, &limited_sql, None))
+    let results = block_on_async(executor.execute(connection_id, &limited_sql, None, None))
         .map_err(|e| e.to_string())?;
 
     format_query_results(&results)
@@ -350,7 +350,7 @@ fn handle_explain_query(
     sql: &str,
 ) -> Result<String, String> {
     let explain_sql = format!("EXPLAIN {}", sql.trim().trim_end_matches(';'));
-    let results = block_on_async(executor.execute(connection_id, &explain_sql, None))
+    let results = block_on_async(executor.execute(connection_id, &explain_sql, None, None))
         .map_err(|e| e.to_string())?;
 
     format_query_results(&results)
@@ -402,7 +402,7 @@ fn handle_run_query(
     connection_id: &str,
     sql: &str,
 ) -> Result<String, String> {
-    let results = block_on_async(executor.execute(connection_id, sql.trim(), None))
+    let results = block_on_async(executor.execute(connection_id, sql.trim(), None, None))
         .map_err(|e| e.to_string())?;
     format_query_results(&results)
 }

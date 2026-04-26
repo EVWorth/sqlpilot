@@ -174,7 +174,7 @@ impl QueryExecutor {
 
                             // Detect if rows may be truncated by our injected LIMIT
                             let rows_truncated =
-                                limit.is_some() && is_select && row_count as u64 >= limit.unwrap();
+                                limit.is_some() && is_select && row_count >= limit.unwrap();
 
                             results.push(QueryResult {
                                 query_id,
@@ -432,7 +432,7 @@ fn find_limit_keyword(upper: &str) -> Option<usize> {
     let mut end = end;
     if upper[..end].ends_with("OFFSET") {
         // Find "OFFSET" keyword
-        if let Some(pos) = find_keyword_offset(&upper, "OFFSET") {
+        if let Some(pos) = find_keyword_offset(upper, "OFFSET") {
             end = pos;
         }
     }
