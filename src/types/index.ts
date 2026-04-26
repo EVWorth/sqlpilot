@@ -66,6 +66,8 @@ export interface QueryResult {
   rows_affected: number;
   execution_time_ms: number;
   warnings: string[];
+  rows_truncated: boolean;
+  total_rows_available?: number;
 }
 
 export interface ColumnMeta {

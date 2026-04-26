@@ -21,8 +21,9 @@ impl QueryExecutor {
         connection_id: &str,
         sql: &str,
         database: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
-        self.execute_owned(connection_id.to_string(), sql.to_string(), database)
+        self.execute_owned(connection_id.to_string(), sql.to_string(), database, limit)
             .await
     }
 
@@ -32,9 +33,33 @@ impl QueryExecutor {
         connection_id: String,
         sql: String,
         database: Option<String>,
+        limit: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
         let pool = self.connection_manager.get_pool(&connection_id)?;
         let statements = split_statements(&sql);
+
+        // Apply global row limit to SELECT/SHOW/DESCRIBE statements
+        let statements: Vec<String> = if let Some(max_rows) = limit {
+            statements
+                .into_iter()
+                .map(|stmt| {
+                    let upper = stmt.trim().to_uppercase();
+                    if upper.starts_with("SELECT")
+                        || upper.starts_with("SHOW")
+                        || upper.starts_with("DESCRIBE")
+                        || upper.starts_with("EXPLAIN")
+                    {
+                        // Remove any existing LIMIT/OFFSET at the end before injecting our own
+                        let cleaned = strip_limit(&stmt);
+                        format!("{} LIMIT {}", cleaned, max_rows)
+                    } else {
+                        stmt
+                    }
+                })
+                .collect()
+        } else {
+            statements
+        };
 
         tracing::Span::current().record("statement_count", statements.len());
         tracing::trace!(sql = %sql, "Full SQL input");
@@ -55,9 +80,9 @@ impl QueryExecutor {
         let combined_sql = if let Some(db) = &database {
             let escaped_db = db.replace('`', "``");
             tracing::debug!(database = %db, "Switching database context");
-            format!("USE `{}`;\n{}", escaped_db, sql)
+            format!("USE `{}`;\n{}", escaped_db, statements.join("; "))
         } else {
-            sql
+            statements.join("; ")
         };
 
         // If USE db was prepended, skip its result (the first Either::Left).
@@ -147,6 +172,10 @@ impl QueryExecutor {
                                 "Query executed"
                             );
 
+                            // Detect if rows may be truncated by our injected LIMIT
+                            let rows_truncated =
+                                limit.is_some() && is_select && row_count >= limit.unwrap();
+
                             results.push(QueryResult {
                                 query_id,
                                 statement_index: idx,
@@ -155,6 +184,12 @@ impl QueryExecutor {
                                 rows_affected: row_count,
                                 execution_time_ms: execution_time,
                                 warnings: vec![],
+                                rows_truncated,
+                                total_rows_available: if rows_truncated {
+                                    Some(row_count)
+                                } else {
+                                    None
+                                },
                             });
                         } else {
                             let rows_affected = qr.rows_affected();
@@ -182,6 +217,8 @@ impl QueryExecutor {
                                 rows_affected,
                                 execution_time_ms: execution_time,
                                 warnings: vec![],
+                                rows_truncated: false,
+                                total_rows_available: None,
                             });
                         }
 
@@ -357,6 +394,81 @@ fn split_statements(sql: &str) -> Vec<String> {
     }
 
     statements
+}
+
+/// Strip trailing LIMIT/OFFSET from a SQL statement so we can inject our own global limit.
+/// Handles common patterns: LIMIT N, LIMIT M,N, LIMIT N OFFSET M
+fn strip_limit(stmt: &str) -> String {
+    let trimmed = stmt.trim();
+    let upper = trimmed.to_uppercase();
+
+    // Work backwards to find LIMIT keyword
+    // First check if statement ends with LIMIT pattern
+    if let Some(pos) = find_limit_keyword(&upper) {
+        let before_limit = trimmed[..pos].trim_end();
+        return before_limit.to_string();
+    }
+
+    trimmed.to_string()
+}
+
+/// Find the position of the LIMIT keyword at the end of a statement (case-insensitive).
+/// Returns None if no trailing LIMIT/OFFSET found.
+fn find_limit_keyword(upper: &str) -> Option<usize> {
+    let chars: Vec<char> = upper.chars().collect();
+    let len = chars.len();
+
+    // Skip trailing whitespace
+    let end = len
+        - chars[len - 1..]
+            .iter()
+            .take_while(|&&c| c.is_whitespace())
+            .count();
+    if end == 0 {
+        return None;
+    }
+
+    // Skip trailing OFFSET clause: ... OFFSET <number>
+    let mut end = end;
+    if upper[..end].ends_with("OFFSET") {
+        // Find "OFFSET" keyword
+        if let Some(pos) = find_keyword_offset(upper, "OFFSET") {
+            end = pos;
+        }
+    }
+
+    // Now look for LIMIT keyword
+    find_keyword_offset(&upper[..end], "LIMIT")
+}
+
+/// Find position where a keyword starts at the end of the string (with number after it)
+fn find_keyword_offset(s: &str, keyword: &str) -> Option<usize> {
+    let upper = s.to_uppercase();
+    // Search for "LIMIT" followed by a digit, anywhere in the string
+    // We want the last occurrence that's followed by digits (not part of another word)
+    let mut last_pos = None;
+    let bytes = upper.as_bytes();
+    let keyword_bytes = keyword.as_bytes();
+
+    for i in 0..=bytes.len().saturating_sub(keyword_bytes.len()) {
+        if &bytes[i..i + keyword_bytes.len()] == keyword_bytes {
+            // Check it's not part of a larger word
+            let before_ok = i == 0 || bytes[i - 1] == b' ' || bytes[i - 1] == b'\t';
+            let after_pos = i + keyword_bytes.len();
+            let after_ok =
+                after_pos < bytes.len() && (bytes[after_pos] == b' ' || bytes[after_pos] == b'\t');
+
+            if before_ok && after_ok {
+                // Check there's a digit following
+                let rest = &upper[after_pos..].trim_start();
+                if rest.starts_with(|c: char| c.is_ascii_digit()) {
+                    last_pos = Some(i);
+                }
+            }
+        }
+    }
+
+    last_pos
 }
 
 #[cfg(test)]

@@ -36,6 +36,7 @@ async fn test_execute_select_with_explicit_database_context() {
             &info.id,
             "SELECT id, username FROM users ORDER BY id LIMIT 1",
             Some("test_db".to_string()),
+            None,
         )
         .await
         .unwrap();
