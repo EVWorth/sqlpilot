@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { SQLEditor } from "../editor/SQLEditor";
 import { EditorTabs } from "../editor/EditorTabs";
 import { QueryToolbar } from "../editor/QueryToolbar";
@@ -55,19 +55,19 @@ export function MainPanel() {
       ) : (
         <>
           <QueryToolbar />
-          <PanelGroup direction="vertical" autoSaveId="editor-results">
-            <Panel defaultSize={50} minSize={20}>
+          <Group orientation="vertical">
+            <Panel defaultSize="50%" minSize="20%">
               <SQLEditor />
             </Panel>
-            <PanelResizeHandle className="h-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500" />
-            <Panel defaultSize={50} minSize={20}>
+            <Separator className="h-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500" />
+            <Panel defaultSize="50%" minSize="20%">
               <ResultsPanel
                 showExplain={showExplain}
                 explainResult={explainResult}
                 setShowExplain={setShowExplain}
               />
             </Panel>
-          </PanelGroup>
+          </Group>
         </>
       )}
     </div>
