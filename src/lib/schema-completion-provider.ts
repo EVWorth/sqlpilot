@@ -288,7 +288,7 @@ export function createCompletionProvider(
       });
 
       const context = detectContext(textBeforeCursor);
-      let priority = 0;
+      let priority;
 
       // Database suggestions
       if (context === "database" || context === "general") {

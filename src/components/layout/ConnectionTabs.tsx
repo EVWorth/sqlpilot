@@ -73,7 +73,7 @@ export function ConnectionTabs() {
     const handler = () => openNew();
     window.addEventListener("open-new-connection", handler);
     return () => window.removeEventListener("open-new-connection", handler);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Close popover on outside click
   useEffect(() => {

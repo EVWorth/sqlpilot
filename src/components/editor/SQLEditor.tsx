@@ -83,7 +83,7 @@ export function SQLEditor() {
         run: () => {
           const model = editor.getModel();
           const selection = editor.getSelection();
-          let sql = "";
+          let sql;
           if (selection && !selection.isEmpty()) {
             sql = model?.getValueInRange(selection) ?? "";
           } else {
@@ -144,7 +144,7 @@ export function SQLEditor() {
         run: (ed) => {
           const model = ed.getModel();
           const selection = ed.getSelection();
-          let sql = "";
+          let sql;
           if (selection && !selection.isEmpty()) {
             sql = model?.getValueInRange(selection) ?? "";
           } else {
