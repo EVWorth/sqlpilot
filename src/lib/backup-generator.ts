@@ -38,7 +38,7 @@ export const defaultBackupOptions: BackupOptions = {
   insertBatchSize: 100,
 };
 
-function escapeValue(val: SqlValue): string {
+export function escapeValue(val: SqlValue): string {
   if (val === null) return "NULL";
   if (typeof val === "number") return String(val);
   if (typeof val === "boolean") return val ? "1" : "0";
@@ -61,7 +61,7 @@ function escapeValue(val: SqlValue): string {
   );
 }
 
-function escapeIdentifier(name: string): string {
+export function escapeIdentifier(name: string): string {
   return "`" + name.replace(/`/g, "``") + "`";
 }
 
