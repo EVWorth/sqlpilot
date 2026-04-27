@@ -52,7 +52,7 @@ describe("aiStore - synchronous methods", () => {
   describe("setActiveConversation", () => {
     it("sets the active conversation id", () => {
       const id1 = useAiStore.getState().newConversation();
-      const id2 = useAiStore.getState().newConversation();
+      useAiStore.getState().newConversation();
       useAiStore.getState().setActiveConversation(id1);
       expect(useAiStore.getState().activeConversationId).toBe(id1);
     });
