@@ -143,7 +143,6 @@ export async function generateBackup(
       let rowsExported = 0;
       let columnNames: string[] = [];
 
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         if (cancelRef.current) break;
 

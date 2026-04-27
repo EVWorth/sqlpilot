@@ -111,9 +111,11 @@ export function AppLayout() {
           document.execCommand("paste");
           break;
         case "select-all":
-          editorInstance
-            ? editorInstance.trigger("menu", "editor.action.selectAll", null)
-            : document.execCommand("selectAll");
+          if (editorInstance) {
+            editorInstance.trigger("menu", "editor.action.selectAll", null);
+          } else {
+            document.execCommand("selectAll");
+          }
           break;
         case "find":
           editorInstance?.getAction("actions.find")?.run();
@@ -172,7 +174,7 @@ export function AppLayout() {
       window.removeEventListener("menu-action", domHandler);
       tauriUnlisten.then((fn) => fn());
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // Listen for sidebar context menu events
   useEffect(() => {

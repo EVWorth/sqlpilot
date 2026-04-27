@@ -7,6 +7,7 @@ describe("cn", () => {
   });
 
   it("handles conditional classes", () => {
+    // eslint-disable-next-line no-constant-binary-expression
     expect(cn("base", true && "conditional", false && "never")).toBe(
       "base conditional",
     );
