@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
-import { PanelGroup, Panel, PanelResizeHandle } from "react-resizable-panels";
+import { Group, Panel, Separator } from "react-resizable-panels";
 import { Sidebar } from "./Sidebar";
 import { StatusBar } from "./StatusBar";
 import { MainPanel } from "./MainPanel";
@@ -222,27 +222,27 @@ export function AppLayout() {
       )}
       <ConnectionTabs />
       <div className="flex-1 overflow-hidden">
-        <PanelGroup direction="horizontal" autoSaveId="main-layout">
+        <Group orientation="horizontal">
           {!sidebarCollapsed && (
             <>
-              <Panel defaultSize={20} minSize={15} maxSize={40}>
+              <Panel defaultSize="20%" minSize="15%" maxSize="40%">
                 <Sidebar />
               </Panel>
-              <PanelResizeHandle className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
+              <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
             </>
           )}
-          <Panel defaultSize={sidebarCollapsed && !aiPanelOpen ? 100 : sidebarCollapsed ? 75 : aiPanelOpen ? 55 : 80} minSize={30}>
+          <Panel defaultSize={sidebarCollapsed && !aiPanelOpen ? "100%" : sidebarCollapsed ? "75%" : aiPanelOpen ? "55%" : "80%"} minSize="30%">
             <MainPanel />
           </Panel>
           {aiPanelOpen && (
             <>
-              <PanelResizeHandle className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
-              <Panel defaultSize={25} minSize={15} maxSize={40}>
+              <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
+              <Panel defaultSize="25%" minSize="15%" maxSize="40%">
                 <AIChatPanel onClose={() => setAiPanelOpen(false)} />
               </Panel>
             </>
           )}
-        </PanelGroup>
+        </Group>
       </div>
       <StatusBar />
       <ShortcutsDialog
