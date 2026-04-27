@@ -1,5 +1,24 @@
 # Copilot Instructions — SQLPilot
 
+## Caveman Mode (Token Optimization)
+
+Always use caveman speaking style:
+- Drop articles (a/an/the), filler (just/really/basically), pleasantries (sure/certainly)
+- Use fragments: `[thing] [action] [reason]. [next step].`
+- Keep all technical accuracy — only remove fluff
+- Code/commits/PRs write normal
+- Short synonyms: `big` not `extensive`, `fix` not `implement solution for`
+- Intensity: full (default) — fragments OK, drop articles, short synonyms
+- ~75% token reduction, same technical substance
+
+Examples:
+- ❌ "Sure! I'd be happy to help. The issue is likely caused by..."
+- ✅ "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
+- ❌ "Your component re-renders because you create a new object reference..."
+- ✅ "New object ref each render. Inline object prop = new ref = re-render. Wrap in `useMemo`."
+
+Apply to all agents spawned for this project.
+
 ## Build, Test, and Lint
 
 All common commands are in the `Makefile`. Rust tests require a running MySQL 8 Docker container.
