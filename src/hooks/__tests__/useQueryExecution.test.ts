@@ -24,7 +24,7 @@ beforeEach(() => {
     selectedConnectionId: null,
     activeConnections: [],
     profiles: [],
-  } as Parameters<typeof useConnectionStore.setState>[0]);
+  } as unknown as Parameters<typeof useConnectionStore.setState>[0]);
 
   useEditorStore.setState({ tabs: [], activeTabId: null });
 
@@ -35,7 +35,7 @@ beforeEach(() => {
     executeQuery: mockExecuteQuery,
     executeExplain: mockExecuteExplain,
     executeExplainAnalyze: mockExecuteExplainAnalyze,
-  } as Parameters<typeof useResultStore.setState>[0]);
+  } as unknown as Parameters<typeof useResultStore.setState>[0]);
 });
 
 describe("useQueryExecution", () => {
