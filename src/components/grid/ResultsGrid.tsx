@@ -7,6 +7,7 @@ import {
   type SortingState,
   type ColumnDef,
 } from "@tanstack/react-table";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { useResultStore } from "../../stores/resultStore";
 import {
   ArrowUp,
@@ -86,6 +87,7 @@ export function ResultsGrid() {
   const editingCellRef = useRef<{ rowIndex: number; colIndex: number } | null>(
     null,
   );
+  const rowVirtualizerParentRef = useRef<HTMLDivElement | null>(null);
 
   const editing = useGridEditing();
   const activeResult = results[activeResultIndex];
@@ -378,6 +380,17 @@ export function ResultsGrid() {
     getSortedRowModel: getSortedRowModel(),
   });
 
+  // Row virtualization: only render visible rows to avoid DOM bloat
+  const ROW_HEIGHT = 32; // px per row
+  const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
+  const shouldVirtualize = totalRows > 500;
+  const rowVirtualizer = useVirtualizer({
+    count: totalRows,
+    getScrollElement: () => rowVirtualizerParentRef.current,
+    estimateSize: () => ROW_HEIGHT,
+    enabled: shouldVirtualize,
+  });
+
   if (isExecuting) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
@@ -468,8 +481,13 @@ export function ResultsGrid() {
       )}
 
       {/* Table */}
-      <div className="flex-1 overflow-auto">
-        <table className="w-full border-collapse text-xs">
+      <div
+        ref={(node) => {
+          rowVirtualizerParentRef.current = node;
+        }}
+        className="flex-1 overflow-auto"
+      >
+        <table className="w-full border-collapse text-xs" style={{ tableLayout: "fixed" }}>
           <thead className="sticky top-0 z-10">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -500,39 +518,122 @@ export function ResultsGrid() {
               </tr>
             ))}
           </thead>
-          <tbody>
-            {table.getRowModel().rows.map((row, rowIdx) => {
-              const isDeleted = editing.isRowDeleted(rowIdx);
-              const isEdited = editing.isRowEdited(rowIdx);
-              let rowClass = "hover:bg-[var(--color-bg-secondary)]";
-              if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
-              else if (isEdited) rowClass = "bg-amber-900/10";
+          <tbody style={{ height: `${totalRows * ROW_HEIGHT}px`, pointerEvents: "auto" }}>
+            {shouldVirtualize
+              ? rowVirtualizer.getVirtualItems().map((virtualRow) => {
+                  const rowIdx = virtualRow.index;
+                  const isInsert = rowIdx >= data.length;
+                  const insertIdx = rowIdx - data.length;
 
-              return (
-                <tr
-                  key={row.id}
-                  className={rowClass}
-                  onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
-                >
-                  <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
-                    {rowIdx + 1}
-                  </td>
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                  if (isInsert && editing.editMode) {
+                    const insertRow = editing.inserts[insertIdx];
+                    return (
+                      <tr
+                        key={`insert-${insertIdx}`}
+                        className="bg-green-900/15"
+                        style={{
+                          position: "absolute",
+                          top: 0,
+                          left: 0,
+                          width: "100%",
+                          transform: `translateY(${virtualRow.start}px)`,
+                          height: `${virtualRow.size}px`,
+                        }}
+                      >
+                        <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
+                          +
+                        </td>
+                        {activeResult.columns.map((col) => (
+                          <td
+                            key={col.name}
+                            className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                          >
+                            <EditableCell
+                              value={insertRow[col.name] === undefined ? null : insertRow[col.name]}
+                              dataType={col.data_type}
+                              isEdited={insertRow[col.name] !== undefined}
+                              onCommit={(newValue) => {
+                                editing.editInsertCell(insertIdx, col.name, newValue);
+                              }}
+                            />
+                          </td>
+                        ))}
+                      </tr>
+                    );
+                  }
+
+                  const tableRow = table.getRowModel().rows[rowIdx];
+                  if (!tableRow) return null;
+                  const isDeleted = editing.isRowDeleted(rowIdx);
+                  const isEdited = editing.isRowEdited(rowIdx);
+                  let rowClass = "hover:bg-[var(--color-bg-secondary)]";
+                  if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
+                  else if (isEdited) rowClass = "bg-amber-900/10";
+
+                  return (
+                    <tr
+                      key={tableRow.id}
+                      data-index={rowIdx}
+                      className={rowClass}
+                      onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        width: "100%",
+                        transform: `translateY(${virtualRow.start}px)`,
+                        height: `${virtualRow.size}px`,
+                      }}
                     >
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              );
-            })}
-            {/* Inserted rows */}
-            {editing.editMode &&
+                      <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
+                        {rowIdx + 1}
+                      </td>
+                      {tableRow.getVisibleCells().map((cell) => (
+                        <td
+                          key={cell.id}
+                          className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })
+              : table.getRowModel().rows.map((row, rowIdx) => {
+                  const isDeleted = editing.isRowDeleted(rowIdx);
+                  const isEdited = editing.isRowEdited(rowIdx);
+                  let rowClass = "hover:bg-[var(--color-bg-secondary)]";
+                  if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
+                  else if (isEdited) rowClass = "bg-amber-900/10";
+
+                  return (
+                    <tr
+                      key={row.id}
+                      className={rowClass}
+                      onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
+                    >
+                      <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
+                        {rowIdx + 1}
+                      </td>
+                      {row.getVisibleCells().map((cell) => (
+                        <td
+                          key={cell.id}
+                          className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
+                        </td>
+                      ))}
+                    </tr>
+                  );
+                })}
+            {/* Inserted rows (non-virtualized path) */}
+            {!shouldVirtualize && editing.editMode &&
               editing.inserts.map((insertRow, insertIdx) => (
                 <tr key={`insert-${insertIdx}`} className="bg-green-900/15">
                   <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
