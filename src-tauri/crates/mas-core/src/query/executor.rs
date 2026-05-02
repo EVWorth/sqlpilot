@@ -35,31 +35,30 @@ impl QueryExecutor {
         database: Option<String>,
         limit: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
+        const HARD_MAX_ROWS: u64 = 50_000;
+        let effective_limit = limit.unwrap_or(HARD_MAX_ROWS);
+        let capped_limit = effective_limit.min(HARD_MAX_ROWS);
+
         let pool = self.connection_manager.get_pool(&connection_id)?;
         let statements = split_statements(&sql);
 
-        // Apply global row limit to SELECT/SHOW/DESCRIBE statements
-        let statements: Vec<String> = if let Some(max_rows) = limit {
-            statements
-                .into_iter()
-                .map(|stmt| {
-                    let upper = stmt.trim().to_uppercase();
-                    if upper.starts_with("SELECT")
-                        || upper.starts_with("SHOW")
-                        || upper.starts_with("DESCRIBE")
-                        || upper.starts_with("EXPLAIN")
-                    {
-                        // Remove any existing LIMIT/OFFSET at the end before injecting our own
-                        let cleaned = strip_limit(&stmt);
-                        format!("{} LIMIT {}", cleaned, max_rows)
-                    } else {
-                        stmt
-                    }
-                })
-                .collect()
-        } else {
-            statements
-        };
+        // Always apply row limit to SELECT/SHOW/DESCRIBE statements (hard cap prevents OOM)
+        let statements: Vec<String> = statements
+            .into_iter()
+            .map(|stmt| {
+                let upper = stmt.trim().to_uppercase();
+                if upper.starts_with("SELECT")
+                    || upper.starts_with("SHOW")
+                    || upper.starts_with("DESCRIBE")
+                    || upper.starts_with("EXPLAIN")
+                {
+                    let cleaned = strip_limit(&stmt);
+                    format!("{} LIMIT {}", cleaned, capped_limit)
+                } else {
+                    stmt
+                }
+            })
+            .collect();
 
         tracing::Span::current().record("statement_count", statements.len());
         tracing::trace!(sql = %sql, "Full SQL input");
@@ -173,8 +172,7 @@ impl QueryExecutor {
                             );
 
                             // Detect if rows may be truncated by our injected LIMIT
-                            let rows_truncated =
-                                limit.is_some() && is_select && row_count >= limit.unwrap();
+                            let rows_truncated = row_count >= capped_limit;
 
                             results.push(QueryResult {
                                 query_id,
