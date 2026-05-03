@@ -32,6 +32,9 @@ pub enum CoreError {
     #[error("Cancelled")]
     Cancelled,
 
+    #[error("Out of memory: {0}")]
+    OutOfMemory(String),
+
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
 
