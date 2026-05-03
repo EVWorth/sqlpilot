@@ -38,7 +38,7 @@ impl QueryExecutor {
         let pool = self.connection_manager.get_pool(&connection_id)?;
         let statements = split_statements(&sql);
 
-        // Apply global row limit to SELECT/SHOW/DESCRIBE statements
+        // Apply user-specified row limit to SELECT/SHOW/DESCRIBE statements (if provided)
         let statements: Vec<String> = if let Some(max_rows) = limit {
             statements
                 .into_iter()
@@ -49,7 +49,6 @@ impl QueryExecutor {
                         || upper.starts_with("DESCRIBE")
                         || upper.starts_with("EXPLAIN")
                     {
-                        // Remove any existing LIMIT/OFFSET at the end before injecting our own
                         let cleaned = strip_limit(&stmt);
                         format!("{} LIMIT {}", cleaned, max_rows)
                     } else {
@@ -60,6 +59,9 @@ impl QueryExecutor {
         } else {
             statements
         };
+
+        // Memory guard: detect OOM before the OS kills us
+        let mut mem_guard = MemoryGuard::new();
 
         tracing::Span::current().record("statement_count", statements.len());
         tracing::trace!(sql = %sql, "Full SQL input");
@@ -99,6 +101,15 @@ impl QueryExecutor {
                 Either::Right(row) => {
                     // SELECT/SHOW/DESCRIBE/EXPLAIN row — accumulate until trailing Left.
                     if stmt_idx >= 0 {
+                        // Check memory every 1000 rows to prevent OOM
+                        if current_rows.len().is_multiple_of(1000) && mem_guard.check().is_err() {
+                            mem_guard.set_triggered();
+                            tracing::warn!(
+                                rows_accumulated = current_rows.len(),
+                                "Memory limit reached, stopping query fetch"
+                            );
+                            break;
+                        }
                         current_rows.push(row);
                     }
                 }
@@ -172,9 +183,10 @@ impl QueryExecutor {
                                 "Query executed"
                             );
 
-                            // Detect if rows may be truncated by our injected LIMIT
+                            // Detect truncation: user limit enforced, or memory guard kicked in
                             let rows_truncated =
-                                limit.is_some() && is_select && row_count >= limit.unwrap();
+                                limit.is_some() && is_select && row_count >= limit.unwrap()
+                                    || mem_guard.triggered();
 
                             results.push(QueryResult {
                                 query_id,
@@ -227,6 +239,62 @@ impl QueryExecutor {
                     }
                     stmt_idx += 1;
                 }
+            }
+        }
+
+        // If memory guard triggered mid-stream, process accumulated rows for current statement
+        if mem_guard.triggered() && stmt_idx >= 0 && !current_rows.is_empty() {
+            let idx = stmt_idx as usize;
+            let stmt = &statements[idx];
+            let query_id = uuid::Uuid::new_v4().to_string();
+            let execution_time = start.elapsed().as_millis() as u64;
+
+            let upper = stmt.to_uppercase();
+            let is_select = upper.starts_with("SELECT")
+                || upper.starts_with("SHOW")
+                || upper.starts_with("DESCRIBE")
+                || upper.starts_with("EXPLAIN");
+
+            if is_select {
+                let columns: Vec<ColumnMeta> = if let Some(first_row) = current_rows.first() {
+                    first_row
+                        .columns()
+                        .iter()
+                        .map(|col| ColumnMeta {
+                            name: col.name().to_string(),
+                            data_type: col.type_info().name().to_string(),
+                            nullable: true,
+                            is_primary_key: false,
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
+
+                let result_rows: Vec<Vec<SqlValue>> = current_rows
+                    .iter()
+                    .map(|row| {
+                        row.columns()
+                            .iter()
+                            .enumerate()
+                            .map(|(i, col)| extract_value(row, i, col.type_info().name()))
+                            .collect()
+                    })
+                    .collect();
+
+                let row_count = result_rows.len() as u64;
+
+                results.push(QueryResult {
+                    query_id,
+                    statement_index: idx,
+                    columns,
+                    rows: result_rows,
+                    rows_affected: row_count,
+                    execution_time_ms: execution_time,
+                    warnings: vec!["Query truncated: memory limit reached".to_string()],
+                    rows_truncated: true,
+                    total_rows_available: Some(row_count),
+                });
             }
         }
 
@@ -469,6 +537,75 @@ fn find_keyword_offset(s: &str, keyword: &str) -> Option<usize> {
     }
 
     last_pos
+}
+
+/// Monitors process memory usage to prevent OOM crashes.
+/// Checks every N rows during query execution and triggers when
+/// process RSS exceeds a threshold of total system memory.
+struct MemoryGuard {
+    threshold_bytes: u64,
+    triggered: bool,
+}
+
+impl MemoryGuard {
+    /// Create a new guard. Threshold defaults to 75% of system RAM.
+    fn new() -> Self {
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+
+        let total = sys.total_memory();
+        let threshold = (total as f64 * 0.75) as u64;
+
+        tracing::debug!(
+            total_mb = total / 1024 / 1024,
+            threshold_mb = threshold / 1024 / 1024,
+            "Memory guard initialized"
+        );
+
+        Self {
+            threshold_bytes: threshold,
+            triggered: false,
+        }
+    }
+
+    /// Check current process memory against threshold.
+    /// Returns Err if memory usage exceeds threshold.
+    fn check(&self) -> Result<(), CoreError> {
+        if self.triggered {
+            return Err(CoreError::OutOfMemory(
+                "Query stopped: process memory limit reached".to_string(),
+            ));
+        }
+
+        let mut sys = sysinfo::System::new();
+        sys.refresh_memory();
+
+        // Find our process and check memory usage
+        let current_pid = std::process::id();
+        if let Some(process) = sys.process(sysinfo::Pid::from_u32(current_pid)) {
+            let rss = process.memory();
+            let rss_mb = rss / 1024 / 1024;
+            let threshold_mb = self.threshold_bytes / 1024 / 1024;
+
+            if rss > self.threshold_bytes {
+                tracing::warn!(rss_mb, threshold_mb, "Process memory exceeds threshold");
+                return Err(CoreError::OutOfMemory(format!(
+                    "Process memory ({rss_mb} MB) exceeds limit ({threshold_mb} MB). \
+                     Add a LIMIT clause to reduce result size."
+                )));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn triggered(&self) -> bool {
+        self.triggered
+    }
+
+    fn set_triggered(&mut self) {
+        self.triggered = true;
+    }
 }
 
 #[cfg(test)]

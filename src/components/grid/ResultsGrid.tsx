@@ -14,6 +14,7 @@ import {
   ArrowDown,
   Loader2,
   AlertCircle,
+  AlertTriangle,
   Copy,
   FileSpreadsheet,
   FileJson,
@@ -383,7 +384,7 @@ export function ResultsGrid() {
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
   const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
-  const shouldVirtualize = totalRows > 500;
+  const shouldVirtualize = totalRows > 100;
   const rowVirtualizer = useVirtualizer({
     count: totalRows,
     getScrollElement: () => rowVirtualizerParentRef.current,
@@ -464,6 +465,25 @@ export function ResultsGrid() {
         onSave={handleSave}
         onDiscard={editing.discardAll}
       />
+
+      {/* Truncation warning */}
+      {activeResult?.rows_truncated && (
+        <div className="flex items-center gap-2 border-b border-amber-800 bg-amber-900/20 px-3 py-1.5 text-xs text-amber-400">
+          <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            Results truncated to {activeResult.rows.length.toLocaleString()} rows.
+            Add a LIMIT clause to fetch fewer rows.
+          </span>
+        </div>
+      )}
+
+      {/* Backend warnings (e.g., memory guard) */}
+      {activeResult?.warnings?.map((warning, idx) => (
+        <div key={idx} className="flex items-center gap-2 border-b border-yellow-800 bg-yellow-900/20 px-3 py-1.5 text-xs text-yellow-400">
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          <span>{warning}</span>
+        </div>
+      ))}
 
       {/* Result set tabs */}
       {results.length > 1 && (
