@@ -102,15 +102,13 @@ impl QueryExecutor {
                     // SELECT/SHOW/DESCRIBE/EXPLAIN row — accumulate until trailing Left.
                     if stmt_idx >= 0 {
                         // Check memory every 1000 rows to prevent OOM
-                        if current_rows.len() % 1000 == 0 {
-                            if mem_guard.check().is_err() {
-                                mem_guard.set_triggered();
-                                tracing::warn!(
-                                    rows_accumulated = current_rows.len(),
-                                    "Memory limit reached, stopping query fetch"
-                                );
-                                break;
-                            }
+                        if current_rows.len().is_multiple_of(1000) && mem_guard.check().is_err() {
+                            mem_guard.set_triggered();
+                            tracing::warn!(
+                                rows_accumulated = current_rows.len(),
+                                "Memory limit reached, stopping query fetch"
+                            );
+                            break;
                         }
                         current_rows.push(row);
                     }
@@ -258,21 +256,20 @@ impl QueryExecutor {
                 || upper.starts_with("EXPLAIN");
 
             if is_select {
-                let columns: Vec<ColumnMeta> =
-                    if let Some(first_row) = current_rows.first() {
-                        first_row
-                            .columns()
-                            .iter()
-                            .map(|col| ColumnMeta {
-                                name: col.name().to_string(),
-                                data_type: col.type_info().name().to_string(),
-                                nullable: true,
-                                is_primary_key: false,
-                            })
-                            .collect()
-                    } else {
-                        Vec::new()
-                    };
+                let columns: Vec<ColumnMeta> = if let Some(first_row) = current_rows.first() {
+                    first_row
+                        .columns()
+                        .iter()
+                        .map(|col| ColumnMeta {
+                            name: col.name().to_string(),
+                            data_type: col.type_info().name().to_string(),
+                            nullable: true,
+                            is_primary_key: false,
+                        })
+                        .collect()
+                } else {
+                    Vec::new()
+                };
 
                 let result_rows: Vec<Vec<SqlValue>> = current_rows
                     .iter()
@@ -280,9 +277,7 @@ impl QueryExecutor {
                         row.columns()
                             .iter()
                             .enumerate()
-                            .map(|(i, col)| {
-                                extract_value(row, i, col.type_info().name())
-                            })
+                            .map(|(i, col)| extract_value(row, i, col.type_info().name()))
                             .collect()
                     })
                     .collect();
@@ -593,11 +588,7 @@ impl MemoryGuard {
             let threshold_mb = self.threshold_bytes / 1024 / 1024;
 
             if rss > self.threshold_bytes {
-                tracing::warn!(
-                    rss_mb,
-                    threshold_mb,
-                    "Process memory exceeds threshold"
-                );
+                tracing::warn!(rss_mb, threshold_mb, "Process memory exceeds threshold");
                 return Err(CoreError::OutOfMemory(format!(
                     "Process memory ({rss_mb} MB) exceeds limit ({threshold_mb} MB). \
                      Add a LIMIT clause to reduce result size."
