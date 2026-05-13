@@ -91,6 +91,7 @@ export function ResultsGrid() {
     isOpen: boolean;
     columnName: string;
     content: string | null;
+    dataType?: string;
   }>({ isOpen: false, columnName: "", content: null });
   const { contextMenu, showContextMenu } = useContextMenu();
   const editingCellRef = useRef<{ rowIndex: number; colIndex: number } | null>(
@@ -334,6 +335,7 @@ export function ResultsGrid() {
                   isOpen: true,
                   columnName: colName,
                   content,
+                  dataType: col.data_type,
                 });
               }}
             />
@@ -745,6 +747,7 @@ export function ResultsGrid() {
         isOpen={cellViewer.isOpen}
         columnName={cellViewer.columnName}
         content={cellViewer.content}
+        dataType={cellViewer.dataType}
         onClose={() =>
           setCellViewer({ isOpen: false, columnName: "", content: null })
         }
