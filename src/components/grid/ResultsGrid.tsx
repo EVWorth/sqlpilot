@@ -41,6 +41,8 @@ import {
 import { useEditorStore } from "../../stores/editorStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useAiStore } from "../../stores/aiStore";
+import { CellViewerModal } from "./CellViewerModal";
+import { TruncatedCell } from "./TruncatedCell";
 
 function downloadBlob(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -84,6 +86,11 @@ export function ResultsGrid() {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [cellViewer, setCellViewer] = useState<{
+    isOpen: boolean;
+    columnName: string;
+    content: string | null;
+  }>({ isOpen: false, columnName: "", content: null });
   const { contextMenu, showContextMenu } = useContextMenu();
   const editingCellRef = useRef<{ rowIndex: number; colIndex: number } | null>(
     null,
@@ -320,14 +327,19 @@ export function ResultsGrid() {
         const originalValue = getValue();
 
         if (!editing.editMode) {
-          if (originalValue === null || originalValue === undefined) {
-            return (
-              <span className="italic text-[var(--color-text-muted)]">
-                NULL
-              </span>
-            );
-          }
-          return <span>{String(originalValue)}</span>;
+          return (
+            <TruncatedCell
+              value={originalValue}
+              columnName={col.name}
+              onViewFull={(content, colName) => {
+                setCellViewer({
+                  isOpen: true,
+                  columnName: colName,
+                  content,
+                });
+              }}
+            />
+          );
         }
 
         const currentValue = editing.getCellValue(
@@ -731,6 +743,14 @@ export function ResultsGrid() {
 
       {toast && <ExportToast message={toast} />}
       {contextMenu}
+      <CellViewerModal
+        isOpen={cellViewer.isOpen}
+        columnName={cellViewer.columnName}
+        content={cellViewer.content}
+        onClose={() =>
+          setCellViewer({ isOpen: false, columnName: "", content: null })
+        }
+      />
     </div>
   );
 }
