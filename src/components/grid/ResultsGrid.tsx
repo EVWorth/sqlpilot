@@ -27,6 +27,7 @@ import {
 } from "lucide-react";
 import { api } from "../../lib/tauri-api";
 import type { SqlValue } from "../../types";
+import { SqlValueGuard } from "../../types";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
 import { EditableCell } from "./EditableCell";
@@ -114,7 +115,7 @@ export function ResultsGrid() {
     if (!activeResult) return;
     const header = activeResult.columns.map((c) => c.name).join("\t");
     const rows = activeResult.rows
-      .map((row) => row.map((v) => (v === null ? "NULL" : String(v))).join("\t"))
+      .map((row) => row.map((v) => SqlValueGuard.toString(v)).join("\t"))
       .join("\n");
     await navigator.clipboard.writeText(header + "\n" + rows);
     showToast(`Copied ${activeResult.rows.length} rows to clipboard`);
@@ -142,10 +143,7 @@ export function ResultsGrid() {
   );
 
   const formatSqlVal = useCallback((val: SqlValue): string => {
-    if (val === null) return "NULL";
-    if (typeof val === "string") return `'${val.replace(/'/g, "''")}'`;
-    if (typeof val === "boolean") return val ? "1" : "0";
-    return String(val);
+    return SqlValueGuard.toSqlLiteral(val);
   }, []);
 
   const handleRowContextMenu = useCallback(
@@ -168,7 +166,7 @@ export function ResultsGrid() {
       const cellValue = row[cellColIdx];
 
       const rowTsv = row
-        .map((v) => (v === null ? "NULL" : String(v)))
+        .map((v) => SqlValueGuard.toString(v))
         .join("\t");
 
       const insertCols = colNames.map((n) => `\`${n}\``).join(", ");
@@ -178,7 +176,7 @@ export function ResultsGrid() {
       const allRowsTsv = [
         colNames.join("\t"),
         ...activeResult.rows.map((r) =>
-          r.map((v) => (v === null ? "NULL" : String(v))).join("\t"),
+          r.map((v) => SqlValueGuard.toString(v)).join("\t"),
         ),
       ].join("\n");
 
@@ -188,7 +186,7 @@ export function ResultsGrid() {
           icon: <Copy className="h-3.5 w-3.5" />,
           onClick: () => {
             navigator.clipboard.writeText(
-              cellValue === null ? "NULL" : String(cellValue),
+              SqlValueGuard.toString(cellValue),
             );
           },
         },
@@ -236,10 +234,10 @@ export function ResultsGrid() {
 
   // Build the original row record for a given row index
   const getOriginalRow = useCallback(
-    (rowIdx: number): Record<string, unknown> => {
+    (rowIdx: number): Record<string, SqlValue> => {
       if (!activeResult) return {};
       const row = activeResult.rows[rowIdx];
-      const obj: Record<string, unknown> = {};
+      const obj: Record<string, SqlValue> = {};
       activeResult.columns.forEach((col, idx) => {
         obj[col.name] = row[idx];
       });
@@ -376,7 +374,7 @@ export function ResultsGrid() {
   const data = useMemo(() => {
     if (!activeResult) return [];
     return activeResult.rows.map((row) => {
-      const obj: Record<string, unknown> = {};
+      const obj: Record<string, SqlValue> = {};
       activeResult.columns.forEach((col, idx) => {
         obj[col.name] = row[idx];
       });

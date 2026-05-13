@@ -81,6 +81,71 @@ export interface ColumnMeta {
 
 export type SqlValue = null | boolean | number | string | number[];
 
+// Type guards and validators for SqlValue
+export namespace SqlValueGuard {
+  export function isNull(val: unknown): val is null {
+    return val === null;
+  }
+
+  export function isBoolean(val: unknown): val is boolean {
+    return typeof val === 'boolean';
+  }
+
+  export function isNumber(val: unknown): val is number {
+    return typeof val === 'number' && !isNaN(val) && isFinite(val);
+  }
+
+  export function isString(val: unknown): val is string {
+    return typeof val === 'string';
+  }
+
+  export function isNumberArray(val: unknown): val is number[] {
+    return Array.isArray(val) && val.every(v => typeof v === 'number' && !isNaN(v) && isFinite(v));
+  }
+
+  // Exhaustive check - returns true if val is a valid SqlValue
+  export function isValid(val: unknown): val is SqlValue {
+    return (
+      isNull(val) ||
+      isBoolean(val) ||
+      isNumber(val) ||
+      isString(val) ||
+      isNumberArray(val)
+    );
+  }
+
+  // Assert value is valid, throw if not
+  export function assert(val: unknown): SqlValue {
+    if (isValid(val)) {
+      return val;
+    }
+    throw new TypeError(`Invalid SqlValue: ${String(val)}`);
+  }
+
+  // Safe stringify conversion
+  export function toString(val: SqlValue): string {
+    if (val === null) return 'NULL';
+    if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+    if (typeof val === 'number') return String(val);
+    if (typeof val === 'string') return val;
+    if (Array.isArray(val)) return JSON.stringify(val);
+    // Exhaustive check - this should never happen if val is SqlValue
+    const _exhaustive: never = val;
+    return String(_exhaustive);
+  }
+
+  // SQL literal formatting for queries
+  export function toSqlLiteral(val: SqlValue): string {
+    if (val === null) return 'NULL';
+    if (typeof val === 'boolean') return val ? '1' : '0';
+    if (typeof val === 'number') return String(val);
+    if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+    if (Array.isArray(val)) return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
+    const _exhaustive: never = val;
+    return String(_exhaustive);
+  }
+}
+
 // Schema types
 export interface DatabaseInfo {
   name: string;

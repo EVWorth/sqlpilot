@@ -1,10 +1,12 @@
 import { useState, useRef, useEffect, useCallback } from "react";
+import type { SqlValue } from "../../types";
+import { SqlValueGuard } from "../../types";
 
 interface EditableCellProps {
-  value: unknown;
+  value: SqlValue;
   dataType: string;
   isEdited: boolean;
-  onCommit: (newValue: unknown) => void;
+  onCommit: (newValue: SqlValue) => void;
   onTab?: (shiftKey: boolean) => void;
 }
 
@@ -46,7 +48,7 @@ export function EditableCell({
     if (value === null) {
       setEditValue("");
     } else {
-      setEditValue(String(value));
+      setEditValue(SqlValueGuard.toString(value));
     }
     setEditing(true);
   }, [value]);
@@ -56,41 +58,47 @@ export function EditableCell({
   }, []);
 
   const commitEdit = useCallback(
-    (newVal: unknown) => {
+    (newVal: SqlValue) => {
       setEditing(false);
       onCommit(newVal);
     },
     [onCommit],
   );
 
+  const parseEditValue = useCallback((rawValue: string): SqlValue => {
+    if (rawValue === "" && value === null) {
+      return null;
+    }
+    if (rawValue === "") {
+      return "";
+    }
+    if (isNumericType(dataType)) {
+      const n = Number(rawValue);
+      if (!isNaN(n) && isFinite(n)) {
+        return n;
+      }
+      // If parse fails, keep as string
+      return rawValue;
+    }
+    return rawValue;
+  }, [value, dataType]);
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        let parsed: unknown = editValue;
-        if (editValue === "" && value === null) {
-          parsed = null;
-        } else if (isNumericType(dataType) && editValue !== "") {
-          const n = Number(editValue);
-          if (!isNaN(n)) parsed = n;
-        }
+        const parsed = parseEditValue(editValue);
         commitEdit(parsed);
       } else if (e.key === "Escape") {
         cancelEdit();
       } else if (e.key === "Tab") {
         e.preventDefault();
-        let parsed: unknown = editValue;
-        if (editValue === "" && value === null) {
-          parsed = null;
-        } else if (isNumericType(dataType) && editValue !== "") {
-          const n = Number(editValue);
-          if (!isNaN(n)) parsed = n;
-        }
+        const parsed = parseEditValue(editValue);
         commitEdit(parsed);
         onTab?.(e.shiftKey);
       }
     },
-    [editValue, dataType, value, commitEdit, cancelEdit, onTab],
+    [editValue, parseEditValue, commitEdit, cancelEdit, onTab],
   );
 
   const toggleNull = useCallback(() => {
@@ -112,7 +120,7 @@ export function EditableCell({
       >
         <input
           type="checkbox"
-          checked={value === true || value === 1}
+          checked={SqlValueGuard.isBoolean(value) ? value : SqlValueGuard.isNumber(value) ? value !== 0 : false}
           onChange={(e) => onCommit(e.target.checked ? 1 : 0)}
           className="h-3 w-3 accent-brand-500"
         />
@@ -137,7 +145,7 @@ export function EditableCell({
         {value === null ? (
           <span className="italic text-[var(--color-text-muted)]">NULL</span>
         ) : (
-          <span className="truncate">{String(value)}</span>
+          <span className="truncate">{SqlValueGuard.toString(value)}</span>
         )}
       </div>
     );
@@ -153,8 +161,7 @@ export function EditableCell({
           onChange={(e) => setEditValue(e.target.value)}
           onKeyDown={handleKeyDown}
           onBlur={() => {
-            let parsed: unknown = editValue;
-            if (editValue === "" && value === null) parsed = null;
+            const parsed = parseEditValue(editValue);
             commitEdit(parsed);
           }}
           rows={3}
@@ -184,12 +191,7 @@ export function EditableCell({
         onChange={(e) => setEditValue(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => {
-          let parsed: unknown = editValue;
-          if (editValue === "" && value === null) parsed = null;
-          else if (isNumericType(dataType) && editValue !== "") {
-            const n = Number(editValue);
-            if (!isNaN(n)) parsed = n;
-          }
+          const parsed = parseEditValue(editValue);
           commitEdit(parsed);
         }}
         className="w-full rounded border border-brand-500 bg-[var(--color-bg-primary)] px-1 py-0.5 text-xs text-[var(--color-text-primary)] outline-none"
