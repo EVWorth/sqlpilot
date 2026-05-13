@@ -17,6 +17,7 @@ rusqlite = { workspace = true }
 dashmap = "6"
 futures = "0.3"
 sysinfo = "0.39.0"
+keyring = "2.3"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }

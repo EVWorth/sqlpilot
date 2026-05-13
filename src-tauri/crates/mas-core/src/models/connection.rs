@@ -22,6 +22,25 @@ pub struct ConnectionProfile {
     pub updated_at: DateTime<Utc>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionProfileSummary {
+    pub id: String,
+    pub name: String,
+    pub group: Option<String>,
+    pub color: Option<String>,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub default_database: Option<String>,
+    pub ssh_config: Option<SSHConfig>,
+    pub ssl_config: Option<SSLConfig>,
+    pub pool_min: u32,
+    pub pool_max: u32,
+    pub read_only: bool,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
 impl Default for ConnectionProfile {
     fn default() -> Self {
         Self {

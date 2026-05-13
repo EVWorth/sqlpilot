@@ -21,6 +21,8 @@ export interface ConnectionProfile {
   updated_at: string;
 }
 
+export type ConnectionProfileSummary = Omit<ConnectionProfile, "password">;
+
 export interface SSHConfig {
   host: string;
   port: number;

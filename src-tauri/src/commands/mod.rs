@@ -2,7 +2,9 @@ pub mod ai;
 
 use mas_admin::AdminService;
 use mas_core::connection::{ConnectionManager, ConnectionStore};
-use mas_core::models::{ConnectionInfo, ConnectionProfile, QueryResult, TestConnectionResult};
+use mas_core::models::{
+    ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, TestConnectionResult,
+};
 use mas_core::query::QueryExecutor;
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, IndexInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo,
@@ -46,7 +48,7 @@ pub async fn save_connection_profile(
 #[tracing::instrument(skip(state))]
 pub async fn list_connection_profiles(
     state: State<'_, AppState>,
-) -> Result<Vec<ConnectionProfile>, String> {
+) -> Result<Vec<ConnectionProfileSummary>, String> {
     let profiles = state.connection_store.list().map_err(|e| {
         tracing::error!(error = %e, "Failed to list connection profiles");
         e.to_string()
