@@ -27,4 +27,29 @@ export default defineConfig(async () => ({
       ignored: ["**/src-tauri/**"],
     },
   },
+  build: {
+    sourcemap: process.env.NODE_ENV === "development",
+    minify: "terser",
+    terserOptions: {
+      compress: {
+        drop_console: true,
+      },
+    },
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Split Monaco Editor into its own chunk for better caching
+          // Monaco is ~2MB and rarely changes
+          monaco: ["monaco-editor", "@monaco-editor/react"],
+          // Split TanStack libraries (table virtualization)
+          tanstack: ["@tanstack/react-table", "@tanstack/react-virtual"],
+          // Split UI libraries
+          lucide: ["lucide-react"],
+        },
+        // Generate smaller chunks for better parallelism
+        chunkFileNames: "chunks/[name].[hash].js",
+        entryFileNames: "[name].[hash].js",
+      },
+    },
+  },
 }));
