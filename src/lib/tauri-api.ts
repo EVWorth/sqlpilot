@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import type {
   ConnectionProfile,
+  ConnectionProfileSummary,
   ConnectionInfo,
   TestConnectionResult,
   QueryResult,
@@ -40,7 +41,7 @@ export const api = {
     tauriInvoke<string>("save_connection_profile", { profile }),
 
   listConnectionProfiles: () =>
-    tauriInvoke<ConnectionProfile[]>("list_connection_profiles"),
+    tauriInvoke<ConnectionProfileSummary[]>("list_connection_profiles"),
 
   deleteConnectionProfile: (profileId: string) =>
     tauriInvoke<void>("delete_connection_profile", { profileId }),

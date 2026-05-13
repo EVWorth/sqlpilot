@@ -384,7 +384,7 @@ export function ResultsGrid() {
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
   const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
-  const shouldVirtualize = totalRows > 500;
+  const shouldVirtualize = totalRows > 100;
   const rowVirtualizer = useVirtualizer({
     count: totalRows,
     getScrollElement: () => rowVirtualizerParentRef.current,

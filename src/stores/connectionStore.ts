@@ -1,9 +1,13 @@
 import { create } from "zustand";
-import type { ConnectionProfile, ConnectionInfo } from "../types";
+import type {
+  ConnectionProfile,
+  ConnectionProfileSummary,
+  ConnectionInfo,
+} from "../types";
 import { api } from "../lib/tauri-api";
 
 interface ConnectionState {
-  profiles: ConnectionProfile[];
+  profiles: ConnectionProfileSummary[];
   activeConnections: ConnectionInfo[];
   selectedConnectionId: string | null;
   loading: boolean;
