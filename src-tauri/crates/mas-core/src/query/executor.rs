@@ -140,9 +140,8 @@ impl QueryExecutor {
 
                         if is_select {
                             let row_count = current_rows.len() as u64;
-                            let rows_truncated =
-                                limit.is_some() && row_count >= limit.unwrap()
-                                    || mem_guard.triggered();
+                            let rows_truncated = limit.is_some() && row_count >= limit.unwrap()
+                                || mem_guard.triggered();
 
                             if execution_time > 1000 {
                                 tracing::warn!(
@@ -513,7 +512,11 @@ fn build_select_result(
         execution_time_ms,
         warnings: vec![],
         rows_truncated,
-        total_rows_available: if rows_truncated { Some(row_count) } else { None },
+        total_rows_available: if rows_truncated {
+            Some(row_count)
+        } else {
+            None
+        },
     }
 }
 
@@ -540,7 +543,10 @@ impl MemoryGuard {
             "Memory guard initialized, will stop query if available memory drops below 512 MB"
         );
 
-        Self { sys, triggered: false }
+        Self {
+            sys,
+            triggered: false,
+        }
     }
 
     /// Refresh system memory and return Err if available memory is below 512 MB.
@@ -557,10 +563,7 @@ impl MemoryGuard {
 
         if available_mb < 512 {
             self.triggered = true;
-            tracing::warn!(
-                available_mb,
-                "System memory critically low, stopping query"
-            );
+            tracing::warn!(available_mb, "System memory critically low, stopping query");
             return Err(CoreError::OutOfMemory(format!(
                 "System memory critically low ({available_mb} MB available). \
                  Add a LIMIT clause to reduce result size."
