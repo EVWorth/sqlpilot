@@ -70,3 +70,17 @@ See [ARCHITECTURE.md](./design/ARCHITECTURE.md) Section 6.2 "Tauri Security Mode
 - IPC origin validation
 - Permission scopes enforcement
 - Absence of remote content loading
+
+### Release Signing
+
+The release workflow signs macOS and Windows artifacts when the required secrets are available:
+
+- `APPLE_CERTIFICATE`
+- `APPLE_CERTIFICATE_PASSWORD`
+- `APPLE_ID`
+- `APPLE_PASSWORD`
+- `APPLE_TEAM_ID`
+- `WINDOWS_CERTIFICATE`
+- `WINDOWS_CERTIFICATE_PASSWORD`
+
+The workflow injects the Windows certificate thumbprint into the build config at runtime so the repository does not need to store machine-specific signing metadata. macOS signing and notarization use the Apple environment variables above through Tauri's bundler.
