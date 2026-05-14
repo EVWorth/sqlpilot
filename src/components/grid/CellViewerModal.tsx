@@ -1,5 +1,9 @@
-import { useState, useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import Editor, { type OnMount } from "@monaco-editor/react";
+import type { editor } from "monaco-editor";
+import { format } from "sql-formatter";
 import { Copy, Check, X, Download } from "lucide-react";
+import { useThemeStore } from "../../stores/themeStore";
 
 interface Props {
   isOpen: boolean;
@@ -9,40 +13,68 @@ interface Props {
   onClose: () => void;
 }
 
-function detectContentType(content: string): 'json' | 'sql' | 'markdown' | 'text' {
+type ContentType = "json" | "sql" | "markdown" | "text";
+
+function detectContentType(content: string, dataType?: string): ContentType {
+  const hint = dataType?.toUpperCase() ?? "";
+  if (hint.includes("JSON")) return "json";
+  if (hint.includes("TEXT") || hint.includes("BLOB")) return "text";
+  if (hint.includes("SQL")) return "sql";
+
   const trimmed = content.trim();
-  
-  // Detect JSON
-  if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && 
-      (trimmed.endsWith('}') || trimmed.endsWith(']'))) {
+
+  if (
+    (trimmed.startsWith("{") || trimmed.startsWith("[")) &&
+    (trimmed.endsWith("}") || trimmed.endsWith("]"))
+  ) {
     try {
       JSON.parse(trimmed);
-      return 'json';
+      return "json";
     } catch {
-      // Not valid JSON, continue
+      // fall through
     }
   }
-  
-  // Detect SQL
-  if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH)\s/i.test(trimmed)) {
-    return 'sql';
+
+  if (/^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH|CALL|SET)\s/i.test(trimmed)) {
+    return "sql";
   }
-  
-  // Detect Markdown
+
   if (/^#+\s|^\*\*|^-\s|^\d+\.|^\[.+\]\(/.test(trimmed)) {
-    return 'markdown';
+    return "markdown";
   }
-  
-  return 'text';
+
+  return "text";
 }
 
-function formatJson(content: string): string {
-  try {
-    const parsed = JSON.parse(content);
-    return JSON.stringify(parsed, null, 2);
-  } catch {
-    return content;
+function formatDisplayContent(content: string, type: ContentType): string {
+  if (type === "json") {
+    try {
+      return JSON.stringify(JSON.parse(content), null, 2);
+    } catch {
+      return content;
+    }
   }
+
+  if (type === "sql") {
+    try {
+      return format(content, {
+        language: "mysql",
+        keywordCase: "upper",
+        indentStyle: "standard",
+      });
+    } catch {
+      return content;
+    }
+  }
+
+  return content;
+}
+
+function getLanguage(type: ContentType): string {
+  if (type === "json") return "json";
+  if (type === "sql") return "sql";
+  if (type === "markdown") return "markdown";
+  return "plaintext";
 }
 
 export function CellViewerModal({
@@ -52,42 +84,61 @@ export function CellViewerModal({
   dataType,
   onClose,
 }: Props) {
+  const theme = useThemeStore((s) => s.effectiveTheme);
   const [copied, setCopied] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const decorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null);
+
+  const isNullValue = content === null;
+  const displayContent = isNullValue ? "NULL" : String(content);
+  const contentType = useMemo(
+    () => detectContentType(displayContent, dataType),
+    [displayContent, dataType],
+  );
+  const formattedContent = useMemo(
+    () =>
+      isNullValue
+        ? "NULL"
+        : formatDisplayContent(displayContent, contentType),
+    [displayContent, contentType, isNullValue],
+  );
+  const language = useMemo(() => getLanguage(contentType), [contentType]);
+
+  useEffect(() => {
+    const editor = editorRef.current;
+    const decorations = decorationsRef.current;
+    if (!editor || !decorations) return;
+
+    const model = editor.getModel();
+    if (!model || !searchTerm || formattedContent.length > 100000) {
+      decorations.set([]);
+      return;
+    }
+
+    const matches = model.findMatches(searchTerm, false, false, false, null, false);
+    decorations.set(
+      matches.map((match) => ({
+        range: match.range,
+        options: {
+          inlineClassName: "cell-viewer-search-hit",
+        },
+      })),
+    );
+  }, [searchTerm, formattedContent]);
 
   if (!isOpen) return null;
 
-  const displayContent = content === null ? "NULL" : String(content);
-  const contentType = useMemo(() => detectContentType(displayContent), [displayContent]);
-  
-  // Format JSON for better readability
-  const formattedContent = useMemo(() => {
-    if (contentType === 'json') {
-      return formatJson(displayContent);
-    }
-    return displayContent;
-  }, [displayContent, contentType]);
-
-  // Highlight search term
-  const highlightedContent = useMemo(() => {
-    if (!searchTerm || formattedContent.length > 100000) {
-      return formattedContent;
-    }
-    
-    const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-    return formattedContent.replace(regex, '<mark>$1</mark>');
-  }, [formattedContent, searchTerm]);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(displayContent);
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(formattedContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownload = () => {
-    const blob = new Blob([displayContent], { type: 'text/plain' });
+    const blob = new Blob([formattedContent], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
+    const a = document.createElement("a");
     a.href = url;
     a.download = `${columnName}.txt`;
     document.body.appendChild(a);
@@ -98,29 +149,37 @@ export function CellViewerModal({
 
   const getTypeLabel = () => {
     if (dataType) {
-      if (dataType.toUpperCase().includes('JSON')) return 'JSON';
-      if (dataType.toUpperCase().includes('TEXT')) return 'TEXT';
-      if (dataType.toUpperCase().includes('BLOB')) return 'BLOB';
+      const upper = dataType.toUpperCase();
+      if (upper.includes("JSON")) return "JSON";
+      if (upper.includes("TEXT")) return "TEXT";
+      if (upper.includes("BLOB")) return "BLOB";
+      if (upper.includes("SQL")) return "SQL";
     }
     return contentType.toUpperCase();
   };
 
+  const onMount: OnMount = (editor) => {
+    editorRef.current = editor;
+    decorationsRef.current = editor.createDecorationsCollection();
+  };
+
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60">
-      <div className="max-h-[80vh] w-[700px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl flex flex-col">
-        {/* Header */}
+      <div className="flex max-h-[80vh] w-[780px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
         <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
           <div>
             <div className="flex items-center gap-2">
               <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
                 {columnName}
               </h3>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-brand-600/20 text-brand-400 font-medium">
+              <span className="rounded bg-brand-600/20 px-2 py-0.5 text-[10px] font-medium text-brand-400">
                 {getTypeLabel()}
               </span>
             </div>
-            <p className="text-xs text-[var(--color-text-secondary)] mt-1">
-              {displayContent === "NULL" ? "NULL value" : `${displayContent.length} characters`}
+            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+              {isNullValue
+                ? "NULL value"
+                : `${displayContent.length} characters`}
             </p>
           </div>
           <button
@@ -131,51 +190,63 @@ export function CellViewerModal({
           </button>
         </div>
 
-        {/* Search Bar (only show for large content) */}
-        {displayContent.length > 500 && (
+        {!isNullValue && displayContent.length > 500 && (
           <div className="border-b border-[var(--color-border)] px-4 py-2">
             <input
               type="text"
               placeholder="Search content..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder-[var(--color-text-muted)]"
+              className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
             />
           </div>
         )}
 
-        {/* Content */}
-        <div className="flex-1 overflow-auto p-4">
-          <div className="rounded bg-[var(--color-bg-primary)] border border-[var(--color-border)] p-3">
-            {displayContent === "NULL" ? (
-              <pre className="text-xs font-mono text-[var(--color-text-muted)] italic">
+        <div className="min-h-0 flex-1 p-4">
+          <div className="h-full overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)]">
+            {isNullValue ? (
+              <div className="p-3 text-xs font-mono italic text-[var(--color-text-muted)]">
                 NULL
-              </pre>
+              </div>
             ) : (
-              <pre className="text-xs font-mono text-[var(--color-text-primary)] whitespace-pre-wrap break-words">
-                <code
-                  dangerouslySetInnerHTML={{
-                    __html: highlightedContent,
-                  }}
-                />
-              </pre>
+              <Editor
+                height="100%"
+                language={language}
+                value={formattedContent}
+                onMount={onMount}
+                theme={theme === "dark" ? "vs-dark" : "vs"}
+                options={{
+                  readOnly: true,
+                  domReadOnly: true,
+                  minimap: { enabled: false },
+                  lineNumbers: "on",
+                  scrollBeyondLastLine: false,
+                  wordWrap: "on",
+                  renderWhitespace: "selection",
+                  folding: true,
+                  fontSize: 12,
+                  automaticLayout: true,
+                  padding: { top: 8, bottom: 8 },
+                  smoothScrolling: true,
+                  renderLineHighlightOnlyWhenFocus: true,
+                }}
+              />
             )}
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex justify-end gap-2 border-t border-[var(--color-border)] p-3">
           <button
             onClick={handleDownload}
-            disabled={displayContent === "NULL"}
-            className="inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            disabled={isNullValue}
+            className="inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />
             Download
           </button>
           <button
             onClick={handleCopy}
-            className="inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs font-medium bg-brand-600 text-white hover:bg-brand-700 transition-colors"
+            className="inline-flex items-center gap-2 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-700"
           >
             {copied ? (
               <>
@@ -191,7 +262,7 @@ export function CellViewerModal({
           </button>
           <button
             onClick={onClose}
-            className="rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+            className="rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)]"
           >
             Close
           </button>
