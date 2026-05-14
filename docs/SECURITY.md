@@ -8,7 +8,7 @@ SQLPilot uses a layered security model with Tauri's built-in protections and a c
 
 ```
 default-src 'self';
-script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:;
+script-src 'self' 'unsafe-eval' blob:;
 style-src 'self' 'unsafe-inline';
 worker-src 'self' blob:;
 connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*
@@ -20,11 +20,10 @@ connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*
 |-----------|-------|--------|
 | `default-src` | `'self'` | Baseline: all resources must come from the application package |
 | `script-src` | `'self'` | Loaded scripts must be bundled with the app |
-| `script-src` | `'unsafe-inline'` | Required for Tailwind CSS runtime style injection. See Future Work below. |
 | `script-src` | `'unsafe-eval'` | Required by Monaco Editor's WebWorker and dynamic module loading |
-| `script-src` | `blob:` | Needed for WebWorkers (Monaco uses workers for parsing/highlighting) |
+| `script-src` | `blob:` | Needed for Monaco worker bootstrapping in the embedded webview |
 | `style-src` | `'self'` | Bundled stylesheets (Tailwind build) |
-| `style-src` | `'unsafe-inline'` | Inline styles for dynamic component positioning (dynamic maxHeight, width calculations) |
+| `style-src` | `'unsafe-inline'` | Inline styles for dynamic layout values (width/height calculations) |
 | `worker-src` | `'self' blob:` | WebWorkers (Monaco Editor parsing, syntax highlighting) |
 | `connect-src` | `ipc:` | Tauri IPC command channel |
 | `connect-src` | `http://localhost:*` | Development: Vite dev server (removed in production builds) |
@@ -34,7 +33,7 @@ connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*
 
 1. **unsafe-eval**: Monaco Editor is fundamental to the app's functionality. Modern versions (~0.55+) have reduced eval dependencies, but WebWorkers and dynamic module loading still require this directive.
    
-2. **unsafe-inline for styles**: Tailwind CSS v3+ can inject styles at runtime for dynamic values. Removing this would require:
+2. **unsafe-inline for styles**: Inline styles are still used for dynamic layout values. Removing this would require:
    - Pre-computing all possible dynamic values (impractical)
    - Or using CSS custom properties + external stylesheets (significant refactor)
    - Or generating style nonces at runtime (complex Tauri integration)

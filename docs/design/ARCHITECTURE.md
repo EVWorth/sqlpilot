@@ -1264,7 +1264,7 @@ async fn table_maintenance(
 | Layer | Configuration |
 |---|---|
 | **Command Allowlist** | Only explicitly registered `#[tauri::command]` functions are callable from the frontend. No filesystem, shell, or HTTP access is granted by default. |
-| **Content Security Policy** | `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost` — blocks all external resource loading |
+| **Content Security Policy** | `default-src 'self'; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*` — blocks external resource loading while allowing Monaco workers and local dev endpoints |
 | **IPC Origin Check** | Tauri validates that IPC messages originate from the app's webview, not injected scripts |
 | **Permission Scopes** | Tauri 2's granular permissions restrict each plugin/command to minimum required capabilities |
 | **No Remote Content** | The frontend is bundled locally; no remote URLs are loaded in the webview |
