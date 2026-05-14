@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
 import type { editor } from "monaco-editor";
 import { format } from "sql-formatter";
-import { Copy, Check, X, Download } from "lucide-react";
+import { Copy, Check, X, Download, Pencil, Lock } from "lucide-react";
 import { useThemeStore } from "../../stores/themeStore";
 
 interface Props {
@@ -87,6 +87,8 @@ export function CellViewerModal({
   const theme = useThemeStore((s) => s.effectiveTheme);
   const [copied, setCopied] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
+  const [isEditable, setIsEditable] = useState(false);
+  const [draftContent, setDraftContent] = useState("");
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const decorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null);
 
@@ -104,6 +106,15 @@ export function CellViewerModal({
     [displayContent, contentType, isNullValue],
   );
   const language = useMemo(() => getLanguage(contentType), [contentType]);
+  const viewerContent = isEditable ? draftContent : formattedContent;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setIsEditable(false);
+    setDraftContent(formattedContent);
+    setSearchTerm("");
+    setCopied(false);
+  }, [isOpen, formattedContent]);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -111,7 +122,7 @@ export function CellViewerModal({
     if (!editor || !decorations) return;
 
     const model = editor.getModel();
-    if (!model || !searchTerm || formattedContent.length > 100000) {
+    if (!model || !searchTerm || viewerContent.length > 100000) {
       decorations.set([]);
       return;
     }
@@ -125,18 +136,18 @@ export function CellViewerModal({
         },
       })),
     );
-  }, [searchTerm, formattedContent]);
+  }, [searchTerm, viewerContent]);
 
   if (!isOpen) return null;
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(formattedContent);
+    await navigator.clipboard.writeText(viewerContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownload = () => {
-    const blob = new Blob([formattedContent], { type: "text/plain" });
+    const blob = new Blob([viewerContent], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -182,12 +193,32 @@ export function CellViewerModal({
                 : `${displayContent.length} characters`}
             </p>
           </div>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setIsEditable((prev) => !prev)}
+              disabled={isNullValue}
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+              title={isEditable ? "Switch to read-only" : "Edit content locally"}
+            >
+              {isEditable ? (
+                <>
+                  <Lock className="h-3.5 w-3.5" />
+                  Read-only
+                </>
+              ) : (
+                <>
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
+                </>
+              )}
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {!isNullValue && displayContent.length > 500 && (
@@ -212,12 +243,17 @@ export function CellViewerModal({
               <Editor
                 height="100%"
                 language={language}
-                value={formattedContent}
+                value={viewerContent}
+                onChange={(value) => {
+                  if (isEditable) {
+                    setDraftContent(value ?? "");
+                  }
+                }}
                 onMount={onMount}
                 theme={theme === "dark" ? "vs-dark" : "vs"}
                 options={{
-                  readOnly: true,
-                  domReadOnly: true,
+                  readOnly: !isEditable,
+                  domReadOnly: !isEditable,
                   minimap: { enabled: false },
                   lineNumbers: "on",
                   scrollBeyondLastLine: false,

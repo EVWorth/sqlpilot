@@ -85,6 +85,7 @@ export function ResultsGrid() {
   const isExecuting = useResultStore((s) => s.isExecuting);
   const error = useResultStore((s) => s.error);
   const [sorting, setSorting] = useState<SortingState>([]);
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [cellViewer, setCellViewer] = useState<{
@@ -387,10 +388,13 @@ export function ResultsGrid() {
   const table = useReactTable({
     data,
     columns,
-    state: { sorting },
+    state: { sorting, columnSizing },
     onSortingChange: setSorting,
+    onColumnSizingChange: setColumnSizing,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
+    enableColumnResizing: true,
+    columnResizeMode: "onChange",
   });
 
   // Row virtualization: only render visible rows to avoid DOM bloat
@@ -530,7 +534,7 @@ export function ResultsGrid() {
                   <th
                     key={header.id}
                     onClick={header.column.getToggleSortingHandler()}
-                    className="cursor-pointer select-none border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-left font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+                    className="relative cursor-pointer select-none border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-left font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
                     style={{ width: header.getSize() }}
                   >
                     <div className="flex items-center gap-1">
@@ -545,6 +549,18 @@ export function ResultsGrid() {
                         <ArrowDown className="h-3 w-3" />
                       )}
                     </div>
+                    {header.column.getCanResize() && (
+                      <div
+                        onMouseDown={header.getResizeHandler()}
+                        onTouchStart={header.getResizeHandler()}
+                        className={`absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none ${
+                          header.column.getIsResizing()
+                            ? "bg-brand-500"
+                            : "hover:bg-brand-500/40"
+                        }`}
+                        title="Drag to resize column"
+                      />
+                    )}
                   </th>
                 ))}
               </tr>
