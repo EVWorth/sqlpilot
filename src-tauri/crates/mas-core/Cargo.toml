@@ -16,7 +16,7 @@ chrono = { workspace = true }
 rusqlite = { workspace = true }
 dashmap = "6"
 futures = "0.3"
-sysinfo = "0.39.0"
+sysinfo = "0.39.2"
 keyring = "2.3"
 
 [dev-dependencies]
