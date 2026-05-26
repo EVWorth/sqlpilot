@@ -80,7 +80,7 @@ jobs:
         run: cargo tarpaulin -p mas-core -p mas-export -p mas-admin --out Lcov --output-dir coverage/
         working-directory: src-tauri
       - name: Upload Rust coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: rust
@@ -101,7 +101,7 @@ jobs:
       - name: Run unit tests
         run: npm run test:unit -- --coverage
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2 # v6.0.0
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           flags: frontend
