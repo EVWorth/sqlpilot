@@ -324,7 +324,7 @@ export function ResultsGrid() {
       header: col.name,
       cell: ({ getValue, row }) => {
         const rowIdx = row.index;
-        const originalValue = getValue();
+        const originalValue = getValue() as SqlValue;
 
         if (!editing.editMode) {
           return (

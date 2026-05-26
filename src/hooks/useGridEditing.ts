@@ -1,15 +1,16 @@
 import { useState, useCallback, useMemo } from "react";
+import type { SqlValue } from "../types";
 
 export interface CellChange {
   rowIndex: number;
   column: string;
-  originalValue: unknown;
-  newValue: unknown;
+  originalValue: SqlValue;
+  newValue: SqlValue;
 }
 
 export interface PendingChanges {
   updates: Map<number, CellChange[]>;
-  inserts: Record<string, unknown>[];
+  inserts: Record<string, SqlValue>[];
   deletes: Set<number>;
 }
 
@@ -18,11 +19,11 @@ export function useGridEditing() {
   const [updates, setUpdates] = useState<Map<number, CellChange[]>>(
     () => new Map(),
   );
-  const [inserts, setInserts] = useState<Record<string, unknown>[]>([]);
+  const [inserts, setInserts] = useState<Record<string, SqlValue>[]>([]);
   const [deletes, setDeletes] = useState<Set<number>>(() => new Set());
 
   const editCell = useCallback(
-    (rowIndex: number, column: string, originalValue: unknown, newValue: unknown) => {
+    (rowIndex: number, column: string, originalValue: SqlValue, newValue: SqlValue) => {
       setUpdates((prev) => {
         const next = new Map(prev);
         const rowChanges = [...(next.get(rowIndex) ?? [])];
@@ -68,7 +69,7 @@ export function useGridEditing() {
   }, []);
 
   const editInsertCell = useCallback(
-    (insertIndex: number, column: string, value: unknown) => {
+    (insertIndex: number, column: string, value: SqlValue) => {
       setInserts((prev) => {
         const next = [...prev];
         next[insertIndex] = { ...next[insertIndex], [column]: value };
@@ -119,7 +120,7 @@ export function useGridEditing() {
   const hasChanges = getPendingCount > 0;
 
   const getCellValue = useCallback(
-    (rowIndex: number, column: string, originalValue: unknown): unknown => {
+    (rowIndex: number, column: string, originalValue: SqlValue): SqlValue => {
       const rowChanges = updates.get(rowIndex);
       if (!rowChanges) return originalValue;
       const change = rowChanges.find((c) => c.column === column);

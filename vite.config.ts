@@ -37,14 +37,10 @@ export default defineConfig(async () => ({
     },
     rollupOptions: {
       output: {
-        manualChunks: {
-          // Split Monaco Editor into its own chunk for better caching
-          // Monaco is ~2MB and rarely changes
-          monaco: ["monaco-editor", "@monaco-editor/react"],
-          // Split TanStack libraries (table virtualization)
-          tanstack: ["@tanstack/react-table", "@tanstack/react-virtual"],
-          // Split UI libraries
-          lucide: ["lucide-react"],
+        manualChunks(id: string) {
+          if (id.includes("monaco-editor") || id.includes("@monaco-editor/react")) return "monaco";
+          if (id.includes("@tanstack/react-table") || id.includes("@tanstack/react-virtual")) return "tanstack";
+          if (id.includes("lucide-react")) return "lucide";
         },
         // Generate smaller chunks for better parallelism
         chunkFileNames: "chunks/[name].[hash].js",
