@@ -41,6 +41,16 @@ mas-admin = { path = "crates/mas-admin" }
 mas-ai = { path = "crates/mas-ai" }
 dirs = "6"
 rfd = "0.17"
+keyring-core = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+linux-keyutils-keyring-store = "1"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows-native-keyring-store = "1"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+apple-native-keyring-store = "1"
 
 [lib]
 name = "sqlpilot_lib"

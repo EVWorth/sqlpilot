@@ -17,10 +17,11 @@ rusqlite = { workspace = true }
 dashmap = "6"
 futures = "0.3"
 sysinfo = "0.39.2"
-keyring = "2.3"
+keyring-core = "1"
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["test-util"] }
 tempfile = "3"
 mas-export = { path = "../mas-export" }
 mas-admin = { path = "../mas-admin" }
+db-keystore = "0.4"

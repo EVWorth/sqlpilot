@@ -1,7 +1,7 @@
 use crate::error::CoreError;
 use crate::models::{ConnectionProfile, ConnectionProfileSummary};
 use chrono::Utc;
-use keyring::{error::Error as KeyringError, Entry};
+use keyring_core::{Error as KeyringError, Entry};
 use rusqlite::{params, Connection as SqliteConn};
 use std::path::Path;
 use std::sync::Mutex;
@@ -267,7 +267,7 @@ impl ConnectionStore {
 
     fn delete_password(&self, profile_id: &str) -> Result<(), CoreError> {
         let entry = self.keyring_entry(profile_id)?;
-        match entry.delete_password() {
+        match entry.delete_credential() {
             Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
             Err(e) => Err(CoreError::Storage(format!(
                 "Failed to delete password from keyring for profile {}: {}",

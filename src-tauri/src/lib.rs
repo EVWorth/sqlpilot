@@ -14,6 +14,27 @@ use tauri::Manager;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
+fn init_keyring() {
+    #[cfg(target_os = "linux")]
+    {
+        let store = linux_keyutils_keyring_store::Store::new()
+            .expect("Failed to initialize Linux keyring store");
+        mas_core::connection::init_keyring(std::sync::Arc::new(store));
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let store = windows_native_keyring_store::Store::new()
+            .expect("Failed to initialize Windows keyring store");
+        mas_core::connection::init_keyring(std::sync::Arc::new(store));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let store = apple_native_keyring_store::Store::new()
+            .expect("Failed to initialize macOS keyring store");
+        mas_core::connection::init_keyring(std::sync::Arc::new(store));
+    }
+}
+
 /// On macOS GUI apps, the PATH is restricted to /usr/bin:/bin:/usr/sbin:/sbin.
 /// Augment it with directories where tools like the Copilot CLI are commonly installed.
 #[cfg(target_os = "macos")]
@@ -96,6 +117,8 @@ pub fn run() {
     // Keep the non-blocking guard alive for the lifetime of the app
     // by leaking it (it flushes on drop, but we need it alive until exit)
     std::mem::forget(_guard);
+
+    init_keyring();
 
     let store = ConnectionStore::new(&data_dir.join("connections.db"))
         .expect("Failed to initialize connection store");

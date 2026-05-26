@@ -6,11 +6,25 @@
 //!   docker exec -i mas-mysql-8 mysql -u root -ptest_root_password < tests/fixtures/sql/seed.sql
 
 use chrono::Utc;
-use mas_core::connection::{ConnectionManager, ConnectionStore};
+use mas_core::connection::{self, ConnectionManager, ConnectionStore};
 use mas_core::models::ConnectionProfile;
 use mas_core::query::QueryExecutor;
 use mas_core::schema::SchemaInspector;
 use std::sync::Arc;
+
+fn setup_keyring() {
+    use std::sync::OnceLock;
+    static INIT: OnceLock<()> = OnceLock::new();
+    INIT.get_or_init(|| {
+        let config = db_keystore::DbKeyStoreConfig {
+            path: "".into(),
+            vfs: Some("memory".into()),
+            ..Default::default()
+        };
+        let store = db_keystore::DbKeyStore::new(config).expect("Failed to init keyring store");
+        connection::init_keyring(store);
+    });
+}
 
 fn test_profile() -> ConnectionProfile {
     ConnectionProfile {
@@ -133,6 +147,7 @@ async fn test_concurrent_connections() {
 
 #[test]
 fn test_connection_store_crud() {
+    setup_keyring();
     let dir = tempfile::tempdir().unwrap();
     let store = ConnectionStore::new(&dir.path().join("test.db")).unwrap();
 
@@ -155,6 +170,7 @@ fn test_connection_store_crud() {
 
 #[test]
 fn test_connection_store_get_nonexistent() {
+    setup_keyring();
     let dir = tempfile::tempdir().unwrap();
     let store = ConnectionStore::new(&dir.path().join("test.db")).unwrap();
     let result = store.get("nonexistent");
@@ -163,6 +179,7 @@ fn test_connection_store_get_nonexistent() {
 
 #[test]
 fn test_connection_store_update() {
+    setup_keyring();
     let dir = tempfile::tempdir().unwrap();
     let store = ConnectionStore::new(&dir.path().join("test.db")).unwrap();
 
