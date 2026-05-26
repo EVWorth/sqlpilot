@@ -39,7 +39,7 @@ mas-core = { path = "crates/mas-core" }
 mas-export = { path = "crates/mas-export" }
 mas-admin = { path = "crates/mas-admin" }
 mas-ai = { path = "crates/mas-ai" }
-dirs = "5"
+dirs = "6"
 rfd = "0.15"
 
 [lib]
