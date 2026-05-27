@@ -19,7 +19,7 @@ tauri = { version = "2", features = [] }
 
 [package]
 name = "sqlpilot"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 description = "AI-powered MySQL GUI management tool"
 
