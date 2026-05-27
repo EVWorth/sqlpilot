@@ -15,6 +15,11 @@ updates:
     labels:
       - "dependencies"
       - "rust"
+    open-pull-requests-limit: 10
+    groups:
+      cargo:
+        patterns:
+          - "*"
 
   - package-ecosystem: "npm"
     directory: "/"
@@ -23,3 +28,12 @@ updates:
     labels:
       - "dependencies"
       - "javascript"
+    open-pull-requests-limit: 10
+    groups:
+      npm:
+        patterns:
+          - "*"
+
+# Minimum package age is enforced by the CI `deps-age` job
+# (scripts/check-deps.mjs). Dependabot PRs that bump packages younger
+# than 7 days will fail CI and cannot be merged.

@@ -30,9 +30,10 @@ interface TitleBarProps {
   onShowRestore?: () => void;
   onToggleAI?: () => void;
   aiPanelOpen?: boolean;
+  aiEnabled?: boolean;
 }
 
-export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen }: TitleBarProps) {
+export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen, aiEnabled }: TitleBarProps) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [systemMenu, setSystemMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -163,6 +164,7 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
         <button onClick={onShowRestore} disabled={!selectedConnectionId} title="Restore Database" className={toolBtn(!selectedConnectionId)}>
           <HardDriveUpload className="h-3.5 w-3.5" /><span>Restore</span>
         </button>
+        {aiEnabled && (
         <button
           onClick={onToggleAI}
           title="Toggle AI Assistant"
@@ -175,6 +177,7 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
         >
           <Sparkles className="h-3.5 w-3.5" /><span>AI</span>
         </button>
+        )}
         <button onClick={cycleTheme} title={`Theme: ${themeLabels[theme]} (click to cycle)`} className={toolBtn()}>
           <ThemeIcon className="h-3.5 w-3.5" />
         </button>

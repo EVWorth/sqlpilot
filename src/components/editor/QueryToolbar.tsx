@@ -268,6 +268,8 @@ export function QueryToolbar() {
 
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 
+      {useAiStore((s) => s.aiEnabled) && (
+      <>
       <button
         onClick={() => {
           const sql = getCurrentSql();
@@ -305,6 +307,8 @@ export function QueryToolbar() {
         <Zap className="h-3 w-3" />
         AI Optimize
       </button>
+      </>
+      )}
 
       <div className="flex-1" />
 

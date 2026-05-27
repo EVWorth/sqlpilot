@@ -104,15 +104,18 @@ pub fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             true,
             Some("CmdOrCtrl+Shift+F"),
         )?)
-        .separator()
-        .item(&MenuItem::with_id(
-            app,
-            "ai-assistant",
-            "AI Assistant",
-            true,
-            None::<&str>,
-        )?)
-        .build()?;
+        .separator();
+
+    #[cfg(feature = "beta-ai")]
+    let tools_menu = tools_menu.item(&MenuItem::with_id(
+        app,
+        "ai-assistant",
+        "AI Assistant",
+        true,
+        None::<&str>,
+    )?);
+
+    let tools_menu = tools_menu.build()?;
 
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&MenuItem::with_id(

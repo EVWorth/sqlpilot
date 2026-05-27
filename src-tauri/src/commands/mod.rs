@@ -1,3 +1,4 @@
+#[cfg(feature = "beta-ai")]
 pub mod ai;
 
 use mas_admin::AdminService;
@@ -20,6 +21,7 @@ pub struct AppState {
     pub query_executor: QueryExecutor,
     pub schema_inspector: SchemaInspector,
     pub admin_service: AdminService,
+    #[cfg(feature = "beta-ai")]
     pub ai_service: mas_ai::AiService,
 }
 

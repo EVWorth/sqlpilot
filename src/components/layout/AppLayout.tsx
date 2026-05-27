@@ -17,6 +17,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { useAiStore } from "../../stores/aiStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -45,6 +46,7 @@ export function AppLayout() {
   const confirmDialog = useResultStore((s) => s.confirmDialog);
   const confirmExecution = useResultStore((s) => s.confirmExecution);
   const cancelExecution = useResultStore((s) => s.cancelExecution);
+  const aiEnabled = useAiStore((s) => s.aiEnabled);
 
   useTheme();
 
@@ -71,6 +73,11 @@ export function AppLayout() {
   }, []);
 
   useKeyboardShortcuts(toggleSidebar, openShortcuts, openSaveFavorite);
+
+  // Check AI availability on mount
+  useEffect(() => {
+    useAiStore.getState().checkStatus();
+  }, []);
 
   // Handle menu actions from both native OS menu (macOS via Tauri event) and
   // inline custom menu (Windows/Linux via DOM CustomEvent)
@@ -147,7 +154,7 @@ export function AppLayout() {
           editorInstance?.getAction("format-sql")?.run();
           break;
         case "ai-assistant":
-          setAiPanelOpen((prev) => !prev);
+          if (useAiStore.getState().aiEnabled) setAiPanelOpen((prev) => !prev);
           break;
         case "keyboard-shortcuts":
           setHelpTab("shortcuts");
@@ -211,6 +218,7 @@ export function AppLayout() {
           onShowRestore={openRestore}
           onToggleAI={toggleAiPanel}
           aiPanelOpen={aiPanelOpen}
+          aiEnabled={aiEnabled}
         />
       )}
       {isMac && (
@@ -220,6 +228,7 @@ export function AppLayout() {
           onShowRestore={openRestore}
           onToggleAI={toggleAiPanel}
           aiPanelOpen={aiPanelOpen}
+          aiEnabled={aiEnabled}
         />
       )}
       <ConnectionTabs />
@@ -233,10 +242,10 @@ export function AppLayout() {
               <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
             </>
           )}
-          <Panel defaultSize={sidebarCollapsed && !aiPanelOpen ? "100%" : sidebarCollapsed ? "75%" : aiPanelOpen ? "55%" : "80%"} minSize="30%">
+          <Panel defaultSize={sidebarCollapsed && !(aiPanelOpen && aiEnabled) ? "100%" : sidebarCollapsed ? "75%" : aiPanelOpen && aiEnabled ? "55%" : "80%"} minSize="30%">
             <MainPanel />
           </Panel>
-          {aiPanelOpen && (
+          {aiEnabled && aiPanelOpen && (
             <>
               <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
               <Panel defaultSize="25%" minSize="15%" maxSize="40%">

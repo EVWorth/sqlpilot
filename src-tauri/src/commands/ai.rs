@@ -15,11 +15,15 @@ pub async fn ai_chat(
     connection_id: Option<String>,
     database: Option<String>,
 ) -> Result<String, String> {
+    let ai_service = state
+        .ai_service
+        .as_ref()
+        .ok_or_else(|| "AI features are not enabled".to_string())?;
+
     let (tx, mut rx) = mpsc::channel::<AiStreamEvent>(256);
 
     let emit_handle = app.clone();
 
-    // Spawn a task to forward structured events as Tauri events
     let emitter = tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
             if let Err(e) = emit_handle.emit("ai:event", &event) {
@@ -28,8 +32,7 @@ pub async fn ai_chat(
         }
     });
 
-    let result = state
-        .ai_service
+    let result = ai_service
         .chat(
             &message,
             &conversation_id,
@@ -44,7 +47,6 @@ pub async fn ai_chat(
             e.to_string()
         })?;
 
-    // Wait for emitter to finish
     let _ = emitter.await;
 
     tracing::info!(conversation_id = %conversation_id, "AI chat completed");
@@ -54,7 +56,17 @@ pub async fn ai_chat(
 #[tauri::command]
 #[tracing::instrument(skip(state))]
 pub async fn ai_get_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
-    let status = state.ai_service.get_status().await;
+    let ai_service = match state.ai_service.as_ref() {
+        Some(svc) => svc,
+        None => {
+            return Ok(AiStatus {
+                provider: "none".to_string(),
+                available: false,
+                model: None,
+            });
+        }
+    };
+    let status = ai_service.get_status().await;
     tracing::info!(provider = %status.provider, available = status.available, "AI status retrieved");
     Ok(status)
 }
@@ -62,7 +74,11 @@ pub async fn ai_get_status(state: State<'_, AppState>) -> Result<AiStatus, Strin
 #[tauri::command]
 #[tracing::instrument(skip(state, config))]
 pub async fn ai_set_config(state: State<'_, AppState>, config: AiConfig) -> Result<(), String> {
-    state.ai_service.set_config(config).await.map_err(|e| {
+    let ai_service = state
+        .ai_service
+        .as_ref()
+        .ok_or_else(|| "AI features are not enabled".to_string())?;
+    ai_service.set_config(config).await.map_err(|e| {
         tracing::error!(error = %e, "AI config update failed");
         e.to_string()
     })?;
@@ -73,14 +89,14 @@ pub async fn ai_set_config(state: State<'_, AppState>, config: AiConfig) -> Resu
 #[tauri::command]
 #[tracing::instrument(skip(state))]
 pub async fn ai_cancel(state: State<'_, AppState>, conversation_id: String) -> Result<(), String> {
-    state
+    let ai_service = state
         .ai_service
-        .cancel(&conversation_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "AI cancel failed");
-            e.to_string()
-        })?;
+        .as_ref()
+        .ok_or_else(|| "AI features are not enabled".to_string())?;
+    ai_service.cancel(&conversation_id).await.map_err(|e| {
+        tracing::error!(error = %e, "AI cancel failed");
+        e.to_string()
+    })?;
     tracing::info!(conversation_id = %conversation_id, "AI chat cancelled");
     Ok(())
 }
@@ -93,8 +109,11 @@ pub async fn ai_approve_permission(
     request_id: String,
     approved: bool,
 ) -> Result<(), String> {
-    state
+    let ai_service = state
         .ai_service
+        .as_ref()
+        .ok_or_else(|| "AI features are not enabled".to_string())?;
+    ai_service
         .resolve_permission(&conversation_id, &request_id, approved)
         .await
         .map_err(|e| {

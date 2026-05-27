@@ -28,7 +28,7 @@ export function MainPanel() {
   const isQueryBuilder = activeTab?.type === "querybuilder";
 
   return (
-    <div className="flex h-full flex-col bg-[var(--color-bg-primary)]">
+    <div className="flex h-full flex-col min-h-0 bg-[var(--color-bg-primary)]">
       <EditorTabs />
       {isAdmin && activeTab?.connectionId ? (
         <AdminPanel connectionId={activeTab.connectionId} />
@@ -55,6 +55,7 @@ export function MainPanel() {
       ) : (
         <>
           <QueryToolbar />
+          <div className="flex-1 min-h-0">
           <Group orientation="vertical">
             <Panel defaultSize="50%" minSize="20%">
               <SQLEditor />
@@ -68,6 +69,7 @@ export function MainPanel() {
               />
             </Panel>
           </Group>
+          </div>
         </>
       )}
     </div>
@@ -103,7 +105,7 @@ function ResultsPanel({
   const hasExplain = showExplain && !!explainResult;
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col min-h-0">
       {hasExplain && (
         <div className="flex border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
           <button

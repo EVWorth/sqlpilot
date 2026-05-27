@@ -9,13 +9,14 @@ interface ToolbarProps {
   onShowRestore?: () => void;
   onToggleAI?: () => void;
   aiPanelOpen?: boolean;
+  aiEnabled?: boolean;
 }
 
 const themeOrder: ThemeMode[] = ["dark", "light", "system"];
 const themeIcons: Record<ThemeMode, typeof Sun> = { dark: Moon, light: Sun, system: Monitor };
 const themeLabels: Record<ThemeMode, string> = { dark: "Dark", light: "Light", system: "System" };
 
-export function Toolbar({ onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen }: ToolbarProps) {
+export function Toolbar({ onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen, aiEnabled }: ToolbarProps) {
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const theme = useThemeStore((s) => s.theme);
@@ -101,6 +102,7 @@ export function Toolbar({ onShowImport, onShowBackup, onShowRestore, onToggleAI,
         <HardDriveUpload className="h-3.5 w-3.5" />
         <span>Restore</span>
       </button>
+      {aiEnabled && (
       <button
         onClick={onToggleAI}
         title="Toggle AI Assistant"
@@ -113,6 +115,7 @@ export function Toolbar({ onShowImport, onShowBackup, onShowRestore, onToggleAI,
         <Sparkles className="h-3.5 w-3.5" />
         <span>AI</span>
       </button>
+      )}
       <button
         onClick={cycleTheme}
         title={`Theme: ${themeLabels[theme]} (click to cycle)`}

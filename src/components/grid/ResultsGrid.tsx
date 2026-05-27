@@ -1,4 +1,4 @@
-import { useMemo, useState, useCallback, useRef } from "react";
+import { useMemo, useState, useCallback, useRef, useEffect } from "react";
 import {
   useReactTable,
   getCoreRowModel,
@@ -98,10 +98,10 @@ export function ResultsGrid() {
   const editingCellRef = useRef<{ rowIndex: number; colIndex: number } | null>(
     null,
   );
-  const rowVirtualizerParentRef = useRef<HTMLDivElement | null>(null);
 
   const editing = useGridEditing();
   const activeResult = results[activeResultIndex];
+  const aiEnabled = useAiStore((s) => s.aiEnabled);
 
   const whereInfo = useMemo(() => {
     if (!activeResult) return { columns: [] as string[], hasPrimaryKey: true };
@@ -149,7 +149,7 @@ export function ResultsGrid() {
   }, []);
 
   const handleRowContextMenu = useCallback(
-    (e: React.MouseEvent<HTMLTableRowElement>, rowIdx: number) => {
+    (e: React.MouseEvent<HTMLElement>, rowIdx: number) => {
       if (!activeResult) return;
       const target = e.target as HTMLElement;
       const td = target.closest("td");
@@ -316,8 +316,26 @@ export function ResultsGrid() {
     }
   }, [activeResult, editing, getOriginalRow, whereInfo, showToast]);
 
+  const maxContentLen = useMemo<Record<string, number>>(() => {
+    if (!activeResult) return {};
+    const lens: Record<string, number> = {};
+    activeResult.columns.forEach((col) => {
+      lens[col.name] = col.name.length;
+    });
+    activeResult.rows.forEach((row) => {
+      row.forEach((val, idx) => {
+        const colName = activeResult.columns[idx]?.name;
+        if (!colName) return;
+        const len = String(val ?? "").length;
+        if (len > lens[colName]) lens[colName] = len;
+      });
+    });
+    return lens;
+  }, [activeResult]);
+
   const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
     if (!activeResult) return [];
+
     return activeResult.columns.map((col, colIdx) => ({
       id: col.name,
       accessorKey: col.name,
@@ -370,9 +388,9 @@ export function ResultsGrid() {
           />
         );
       },
-      size: Math.max(100, Math.min(300, col.name.length * 10 + 40)),
+      size: Math.max(80, Math.min(350, Math.min(maxContentLen[col.name] ?? 5, 30) * 9 + 40)),
     }));
-  }, [activeResult, editing]);
+  }, [activeResult, editing, maxContentLen]);
 
   const data = useMemo(() => {
     if (!activeResult) return [];
@@ -400,12 +418,28 @@ export function ResultsGrid() {
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
   const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
-  const shouldVirtualize = totalRows > 100;
+  const shouldVirtualize = totalRows > 5000;
+
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    const el = scrollContainerRef.current;
+    if (!el || totalRows <= 5000) return;
+    const SCROLL_BOOST = Math.min(totalRows / 100, 100);
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      el.scrollTop += e.deltaY * SCROLL_BOOST;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [totalRows]);
+
   const rowVirtualizer = useVirtualizer({
     count: totalRows,
-    getScrollElement: () => rowVirtualizerParentRef.current,
+    getScrollElement: () => scrollContainerRef.current,
     estimateSize: () => ROW_HEIGHT,
     enabled: shouldVirtualize,
+    overscan: 5,
   });
 
   if (isExecuting) {
@@ -419,6 +453,7 @@ export function ResultsGrid() {
 
   if (error) {
     const handleFixWithAI = () => {
+      if (!aiEnabled) return;
       const editorTab = useEditorStore.getState().tabs.find(
         (t) => t.id === useEditorStore.getState().activeTabId,
       );
@@ -439,6 +474,7 @@ export function ResultsGrid() {
           <pre className="mt-2 whitespace-pre-wrap text-xs text-red-300">
             {error}
           </pre>
+          {aiEnabled && (
           <button
             onClick={handleFixWithAI}
             className="mt-3 flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 transition-colors"
@@ -446,6 +482,7 @@ export function ResultsGrid() {
             <Sparkles className="h-3 w-3" />
             Fix with AI
           </button>
+          )}
         </div>
       </div>
     );
@@ -468,7 +505,7 @@ export function ResultsGrid() {
   }
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col min-h-0">
       {/* Edit toolbar */}
       <EditToolbar
         editMode={editing.editMode}
@@ -519,18 +556,156 @@ export function ResultsGrid() {
       {/* Table */}
       <div
         ref={(node) => {
-          rowVirtualizerParentRef.current = node;
+          scrollContainerRef.current = node;
         }}
-        className="flex-1 overflow-auto"
+        className="relative flex-1 overflow-auto"
+        style={{ scrollbarGutter: "stable" }}
       >
-        <table className="w-full border-collapse text-xs" style={{ tableLayout: "fixed" }}>
-          <thead className="sticky top-0 z-10">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr key={headerGroup.id}>
-                <th className="w-12 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]">
-                  #
-                </th>
-                {headerGroup.headers.map((header) => (
+        {shouldVirtualize ? (
+          <div style={{ height: `${totalRows * ROW_HEIGHT + ROW_HEIGHT}px`, position: "relative" }}>
+            <div className="sticky top-0 z-10 flex text-xs">
+              <div className="flex items-center justify-center border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]" style={{ flex: "0 0 48px" }}>
+                #
+              </div>
+              {table.getFlatHeaders().map((header) => {
+                const minW = Math.max(50, Math.min(maxContentLen[header.column.id] ?? 5, 20) * 7 + 30);
+                return (
+                <div
+                  key={header.id}
+                  onClick={header.column.getToggleSortingHandler()}
+                  className="relative flex cursor-pointer select-none items-center gap-1 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-left font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+                  style={{ flex: `1 1 ${header.getSize()}px`, minWidth: minW }}
+                >
+                  {flexRender(header.column.columnDef.header, header.getContext())}
+                  {header.column.getIsSorted() === "asc" && <ArrowUp className="h-3 w-3 shrink-0" />}
+                  {header.column.getIsSorted() === "desc" && <ArrowDown className="h-3 w-3 shrink-0" />}
+                  {header.column.getCanResize() && (
+                    <div
+                      onMouseDown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
+                      onTouchStart={header.getResizeHandler()}
+                      onClick={(e) => e.stopPropagation()}
+                      onDoubleClick={(e) => {
+                        e.stopPropagation();
+                        const colName = header.column.id;
+                        const colIdx = activeResult.columns.findIndex((c) => c.name === colName);
+                        let maxLen = colName.length;
+                        if (colIdx >= 0) {
+                          for (const row of data) {
+                            const len = String(row[colName] ?? "").length;
+                            if (len > maxLen) maxLen = len;
+                          }
+                        }
+                        const autoWidth = Math.max(80, Math.min(600, Math.min(maxLen, 50) * 9 + 40));
+                        table.setColumnSizing((prev) => ({ ...prev, [colName]: autoWidth }));
+                      }}
+                      className={`absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none ${header.column.getIsResizing() ? "bg-brand-500" : "hover:bg-brand-500/40"}`}
+                      title="Drag to resize column"
+                    />
+                  )}
+                </div>
+              );
+              })}
+            </div>
+            {/* Virtual rows */}
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const rowIdx = virtualRow.index;
+              const isInsert = rowIdx >= data.length;
+              const insertIdx = rowIdx - data.length;
+              const tableRow = !isInsert ? table.getRowModel().rows[rowIdx] : null;
+
+              if (isInsert && editing.editMode) {
+                const insertRow = editing.inserts[insertIdx];
+                return (
+                  <div
+                    key={`insert-${insertIdx}`}
+                    style={{
+                      display: "flex",
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${virtualRow.start}px)`,
+                      height: `${virtualRow.size}px`,
+                    }}
+                  >
+                    <div className="flex items-center justify-center border-b border-r border-[var(--color-border)] bg-green-900/15 px-2 py-1 text-center text-green-400 text-xs" style={{ flex: "0 0 48px" }}>
+                      +
+                    </div>
+                    {activeResult.columns.map((col, colIdx) => {
+                      const header = table.getFlatHeaders()[colIdx + 1];
+                      const colSize = header ? header.getSize() : 150;
+                      const minW = Math.max(50, Math.min(maxContentLen[col.name] ?? 5, 20) * 7 + 30);
+                      return (
+                        <div
+                          key={col.name}
+                          className="border-b border-r border-[var(--color-border)] bg-green-900/15 px-2 py-1 text-xs text-[var(--color-text-primary)]"
+                          style={{ flex: `1 1 ${colSize}px`, minWidth: minW }}
+                        >
+                          <EditableCell
+                            value={insertRow[col.name] === undefined ? null : insertRow[col.name]}
+                            dataType={col.data_type}
+                            isEdited={insertRow[col.name] !== undefined}
+                            onCommit={(newValue) => {
+                              editing.editInsertCell(insertIdx, col.name, newValue);
+                            }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+
+              if (!tableRow) return null;
+              const isDeleted = editing.isRowDeleted(rowIdx);
+              const isEdited = editing.isRowEdited(rowIdx);
+              let rowBg = "";
+              if (isDeleted) rowBg = "bg-red-900/20 line-through opacity-60";
+              else if (isEdited) rowBg = "bg-amber-900/10";
+              else rowBg = "hover:bg-[var(--color-bg-secondary)]";
+
+              return (
+                <div
+                  key={tableRow.id}
+                  onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
+                  style={{
+                    display: "flex",
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    transform: `translateY(${virtualRow.start}px)`,
+                    height: `${virtualRow.size}px`,
+                  }}
+                >
+                  <div className={`flex items-center justify-center border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-xs text-[var(--color-text-muted)] ${rowBg}`} style={{ flex: "0 0 48px" }}>
+                    {rowIdx + 1}
+                  </div>
+                  {tableRow.getVisibleCells().map((cell) => {
+                    const minW = Math.max(50, Math.min(maxContentLen[cell.column.id] ?? 5, 20) * 7 + 30);
+                    return (
+                    <div
+                      key={cell.id}
+                      className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-primary)] ${rowBg}`}
+                      style={{ flex: `1 1 ${cell.column.getSize()}px`, minWidth: minW }}
+                    >
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext(),
+                      )}
+                    </div>
+                  );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+        <table className="border-collapse text-xs" style={{ tableLayout: "fixed", width: "100%" }}>
+            <thead className="sticky top-0 z-10">
+              <tr>
+                <th className="w-12 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]">#</th>
+                {table.getFlatHeaders().map((header) => (
                   <th
                     key={header.id}
                     onClick={header.column.getToggleSortingHandler()}
@@ -538,178 +713,98 @@ export function ResultsGrid() {
                     style={{ width: header.getSize() }}
                   >
                     <div className="flex items-center gap-1">
-                      {flexRender(
-                        header.column.columnDef.header,
-                        header.getContext(),
-                      )}
-                      {header.column.getIsSorted() === "asc" && (
-                        <ArrowUp className="h-3 w-3" />
-                      )}
-                      {header.column.getIsSorted() === "desc" && (
-                        <ArrowDown className="h-3 w-3" />
-                      )}
+                      {flexRender(header.column.columnDef.header, header.getContext())}
+                      {header.column.getIsSorted() === "asc" && <ArrowUp className="h-3 w-3" />}
+                      {header.column.getIsSorted() === "desc" && <ArrowDown className="h-3 w-3" />}
                     </div>
                     {header.column.getCanResize() && (
                       <div
-                        onMouseDown={header.getResizeHandler()}
+                        onMouseDown={(e) => { e.stopPropagation(); header.getResizeHandler()(e); }}
                         onTouchStart={header.getResizeHandler()}
-                        className={`absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none ${
-                          header.column.getIsResizing()
-                            ? "bg-brand-500"
-                            : "hover:bg-brand-500/40"
-                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => {
+                          e.stopPropagation();
+                          const colName = header.column.id;
+                          const colIdx = activeResult.columns.findIndex((c) => c.name === colName);
+                          let maxLen = colName.length;
+                          if (colIdx >= 0) {
+                            for (const row of data) {
+                              const len = String(row[colName] ?? "").length;
+                              if (len > maxLen) maxLen = len;
+                            }
+                          }
+                          const autoWidth = Math.max(80, Math.min(600, Math.min(maxLen, 50) * 9 + 40));
+                          table.setColumnSizing((prev) => ({ ...prev, [colName]: autoWidth }));
+                        }}
+                        className={`absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none ${header.column.getIsResizing() ? "bg-brand-500" : "hover:bg-brand-500/40"}`}
                         title="Drag to resize column"
                       />
                     )}
                   </th>
                 ))}
               </tr>
-            ))}
-          </thead>
-          <tbody style={{ height: `${totalRows * ROW_HEIGHT}px`, pointerEvents: "auto" }}>
-            {shouldVirtualize
-              ? rowVirtualizer.getVirtualItems().map((virtualRow) => {
-                  const rowIdx = virtualRow.index;
-                  const isInsert = rowIdx >= data.length;
-                  const insertIdx = rowIdx - data.length;
+            </thead>
+            <tbody>
+              {table.getRowModel().rows.map((row, rowIdx) => {
+                const isDeleted = editing.isRowDeleted(rowIdx);
+                const isEdited = editing.isRowEdited(rowIdx);
+                let rowClass = "hover:bg-[var(--color-bg-secondary)]";
+                if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
+                else if (isEdited) rowClass = "bg-amber-900/10";
 
-                  if (isInsert && editing.editMode) {
-                    const insertRow = editing.inserts[insertIdx];
-                    return (
-                      <tr
-                        key={`insert-${insertIdx}`}
-                        className="bg-green-900/15"
-                        style={{
-                          position: "absolute",
-                          top: 0,
-                          left: 0,
-                          width: "100%",
-                          transform: `translateY(${virtualRow.start}px)`,
-                          height: `${virtualRow.size}px`,
-                        }}
-                      >
-                        <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
-                          +
-                        </td>
-                        {activeResult.columns.map((col) => (
-                          <td
-                            key={col.name}
-                            className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
-                          >
-                            <EditableCell
-                              value={insertRow[col.name] === undefined ? null : insertRow[col.name]}
-                              dataType={col.data_type}
-                              isEdited={insertRow[col.name] !== undefined}
-                              onCommit={(newValue) => {
-                                editing.editInsertCell(insertIdx, col.name, newValue);
-                              }}
-                            />
-                          </td>
-                        ))}
-                      </tr>
-                    );
-                  }
-
-                  const tableRow = table.getRowModel().rows[rowIdx];
-                  if (!tableRow) return null;
-                  const isDeleted = editing.isRowDeleted(rowIdx);
-                  const isEdited = editing.isRowEdited(rowIdx);
-                  let rowClass = "hover:bg-[var(--color-bg-secondary)]";
-                  if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
-                  else if (isEdited) rowClass = "bg-amber-900/10";
-
-                  return (
-                    <tr
-                      key={tableRow.id}
-                      data-index={rowIdx}
-                      className={rowClass}
-                      onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        left: 0,
-                        width: "100%",
-                        transform: `translateY(${virtualRow.start}px)`,
-                        height: `${virtualRow.size}px`,
-                      }}
-                    >
-                      <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
-                        {rowIdx + 1}
-                      </td>
-                      {tableRow.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
-                          className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })
-              : table.getRowModel().rows.map((row, rowIdx) => {
-                  const isDeleted = editing.isRowDeleted(rowIdx);
-                  const isEdited = editing.isRowEdited(rowIdx);
-                  let rowClass = "hover:bg-[var(--color-bg-secondary)]";
-                  if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
-                  else if (isEdited) rowClass = "bg-amber-900/10";
-
-                  return (
-                    <tr
-                      key={row.id}
-                      className={rowClass}
-                      onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
-                    >
-                      <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
-                        {rowIdx + 1}
-                      </td>
-                      {row.getVisibleCells().map((cell) => (
-                        <td
-                          key={cell.id}
-                          className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
-                        >
-                          {flexRender(
-                            cell.column.columnDef.cell,
-                            cell.getContext(),
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  );
-                })}
-            {/* Inserted rows (non-virtualized path) */}
-            {!shouldVirtualize && editing.editMode &&
-              editing.inserts.map((insertRow, insertIdx) => (
-                <tr key={`insert-${insertIdx}`} className="bg-green-900/15">
-                  <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
-                    +
-                  </td>
-                  {activeResult.columns.map((col) => (
-                    <td
-                      key={col.name}
-                      className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
-                    >
-                      <EditableCell
-                        value={
-                          insertRow[col.name] === undefined
-                            ? null
-                            : insertRow[col.name]
-                        }
-                        dataType={col.data_type}
-                        isEdited={insertRow[col.name] !== undefined}
-                        onCommit={(newValue) => {
-                          editing.editInsertCell(insertIdx, col.name, newValue);
-                        }}
-                      />
+                return (
+                  <tr
+                    key={row.id}
+                    className={rowClass}
+                    onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
+                  >
+                    <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
+                      {rowIdx + 1}
                     </td>
-                  ))}
-                </tr>
-              ))}
-          </tbody>
-        </table>
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext(),
+                        )}
+                      </td>
+                    ))}
+                  </tr>
+                );
+              })}
+              {editing.editMode &&
+                editing.inserts.map((insertRow, insertIdx) => (
+                  <tr key={`insert-${insertIdx}`} className="bg-green-900/15">
+                    <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
+                      +
+                    </td>
+                    {activeResult.columns.map((col) => (
+                      <td
+                        key={col.name}
+                        className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                      >
+                        <EditableCell
+                          value={
+                            insertRow[col.name] === undefined
+                              ? null
+                              : insertRow[col.name]
+                          }
+                          dataType={col.data_type}
+                          isEdited={insertRow[col.name] !== undefined}
+                          onCommit={(newValue) => {
+                            editing.editInsertCell(insertIdx, col.name, newValue);
+                          }}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
       {/* Footer */}

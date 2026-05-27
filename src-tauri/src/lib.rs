@@ -19,19 +19,19 @@ fn init_keyring() {
     {
         let store = linux_keyutils_keyring_store::Store::new()
             .expect("Failed to initialize Linux keyring store");
-        mas_core::connection::init_keyring(std::sync::Arc::new(store));
+        mas_core::connection::init_keyring(store);
     }
     #[cfg(target_os = "windows")]
     {
         let store = windows_native_keyring_store::Store::new()
             .expect("Failed to initialize Windows keyring store");
-        mas_core::connection::init_keyring(std::sync::Arc::new(store));
+        mas_core::connection::init_keyring(store);
     }
     #[cfg(target_os = "macos")]
     {
         let store = apple_native_keyring_store::Store::new()
             .expect("Failed to initialize macOS keyring store");
-        mas_core::connection::init_keyring(std::sync::Arc::new(store));
+        mas_core::connection::init_keyring(store);
     }
 }
 
@@ -127,6 +127,7 @@ pub fn run() {
     let executor = QueryExecutor::new(manager.clone());
     let inspector = SchemaInspector::new(manager.clone());
     let admin = AdminService::new(manager.clone());
+    #[cfg(feature = "beta-ai")]
     let ai = mas_ai::AiService::new(manager.clone());
 
     tauri::Builder::default()
@@ -158,6 +159,7 @@ pub fn run() {
             query_executor: executor,
             schema_inspector: inspector,
             admin_service: admin,
+            #[cfg(feature = "beta-ai")]
             ai_service: ai,
         })
         .invoke_handler(tauri::generate_handler![
@@ -188,10 +190,15 @@ pub fn run() {
             commands::pick_file,
             commands::write_file_contents,
             commands::pick_save_file,
+            #[cfg(feature = "beta-ai")]
             commands::ai::ai_chat,
+            #[cfg(feature = "beta-ai")]
             commands::ai::ai_get_status,
+            #[cfg(feature = "beta-ai")]
             commands::ai::ai_set_config,
+            #[cfg(feature = "beta-ai")]
             commands::ai::ai_cancel,
+            #[cfg(feature = "beta-ai")]
             commands::ai::ai_approve_permission,
         ])
         .run(tauri::generate_context!())

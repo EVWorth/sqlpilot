@@ -33,6 +33,8 @@ const HIDDEN_TOOLS = new Set([
 ]);
 
 interface AiState {
+  aiEnabled: boolean;
+
   // Status
   status: AiStatus | null;
   isStreaming: boolean;
@@ -71,6 +73,7 @@ function generateId(): string {
 }
 
 export const useAiStore = create<AiState>((set, get) => ({
+  aiEnabled: false,
   status: null,
   isStreaming: false,
   mode: "ask",
@@ -83,10 +86,11 @@ export const useAiStore = create<AiState>((set, get) => ({
   checkStatus: async () => {
     try {
       const status = await api.aiGetStatus();
-      set({ status });
+      set({ status, aiEnabled: true });
     } catch {
       set({
         status: { provider: "none", available: false },
+        aiEnabled: false,
       });
     }
   },
@@ -126,6 +130,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
 
   sendMessage: async (message, connectionId, database) => {
+    if (!get().aiEnabled) return;
     let conversationId = get().activeConversationId;
     if (!conversationId) {
       conversationId = get().newConversation();
@@ -362,6 +367,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
 
   approvePermission: async (approved: boolean) => {
+    if (!get().aiEnabled) return;
     const conversationId = get().activeConversationId;
     const permission = get().pendingPermission;
     if (!conversationId || !permission) return;
@@ -374,6 +380,7 @@ export const useAiStore = create<AiState>((set, get) => ({
   },
 
   cancelChat: async () => {
+    if (!get().aiEnabled) return;
     const conversationId = get().activeConversationId;
     if (!conversationId) return;
     try {
