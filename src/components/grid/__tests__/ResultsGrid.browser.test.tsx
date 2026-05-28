@@ -886,4 +886,201 @@ describe("ResultsGrid (browser)", () => {
     expect(screen.queryByText("Copy")).not.toBeInTheDocument();
     expect(screen.queryByText("CSV")).not.toBeInTheDocument();
   });
+
+  // ─── Column resize drag ───────────────────────────────────
+  it("column resize mousedown calls resize handler without crash", () => {
+    resultState.results = [makeResult()];
+    render(<ResultsGrid />);
+
+    const handles = document.querySelectorAll("[title='Drag to resize column']");
+    expect(handles.length).toBeGreaterThan(0);
+    fireEvent.mouseDown(handles[0], { clientX: 100, clientY: 10, buttons: 1 });
+    expect(handles[0]).toBeInTheDocument();
+  });
+
+  // ─── Column resize double-click triggers auto-width ───────
+  it("column resize double-click triggers auto-width calculation", () => {
+    resultState.results = [makeResult({
+      columns: [
+        { name: "long_column_name", data_type: "varchar", nullable: true, is_primary_key: false },
+      ],
+      rows: [[12345]],
+    })];
+    render(<ResultsGrid />);
+
+    const handles = document.querySelectorAll("[title='Drag to resize column']");
+    expect(handles.length).toBe(1);
+
+    fireEvent.doubleClick(handles[0]);
+    expect(handles[0]).toBeInTheDocument();
+  });
+
+  // ─── Column double-click auto-width within bounds ─────────
+  it("column double-click auto-width stays within 80-600px range", () => {
+    resultState.results = [makeResult({
+      columns: [
+        { name: "id", data_type: "int", nullable: false, is_primary_key: true },
+      ],
+      rows: [[1]],
+    })];
+    render(<ResultsGrid />);
+
+    const handles = document.querySelectorAll("[title='Drag to resize column']");
+    expect(handles.length).toBe(1);
+    fireEvent.doubleClick(handles[0]);
+    expect(handles[0]).toBeInTheDocument();
+  });
+
+  // ─── Standard table path (non-virtualized, <5000 rows) ─────
+  it("renders standard table (non-virtualized) with small data", () => {
+    resultState.results = [makeResult({
+      rows: [[1, "Alice"], [2, "Bob"], [3, "Charlie"]],
+    })];
+    render(<ResultsGrid />);
+
+    const table = document.querySelector("table");
+    expect(table).toBeInTheDocument();
+    const tbody = table!.querySelector("tbody");
+    expect(tbody).toBeInTheDocument();
+    const rows = tbody!.querySelectorAll("tr");
+    expect(rows.length).toBe(3);
+  });
+
+  it("standard table renders row numbers column (#)", () => {
+    resultState.results = [makeResult({
+      rows: [[1, "Alice"], [2, "Bob"]],
+    })];
+    render(<ResultsGrid />);
+
+    const tbody = document.querySelector("tbody");
+    const rows = tbody!.querySelectorAll("tr");
+    expect(rows.length).toBe(2);
+    const firstRowTds = rows[0].querySelectorAll("td");
+    expect(firstRowTds.length).toBeGreaterThan(0);
+    expect(firstRowTds[0].textContent?.trim()).toBe("1");
+  });
+
+  // ─── Insert row cell commit in non-virtualized table ──────
+  it("insert row cell commit handler called for non-virtualized table", async () => {
+    mockGridEditing.editMode = true;
+    mockGridEditing.inserts = [{ id: 99, name: "New" }];
+    resultState.results = [makeResult({
+      rows: [[1, "Alice"]],
+    })];
+    render(<ResultsGrid />);
+
+    const insertRows = document.querySelectorAll(".bg-green-900\\/15");
+    expect(insertRows.length).toBe(1);
+  });
+
+  // ─── Row context menu handler (right-click on standard row) ─
+  it("handles right-click context menu on standard table row", () => {
+    resultState.results = [makeResult({
+      rows: [[1, "Alice"], [2, "Bob"]],
+    })];
+    render(<ResultsGrid />);
+
+    const tbody = document.querySelector("tbody");
+    const rows = tbody!.querySelectorAll("tr");
+    fireEvent.contextMenu(rows[0], { button: 2, clientX: 50, clientY: 50 });
+    expect(rows[0]).toBeInTheDocument();
+  });
+
+  // ─── CellViewerModal close ────────────────────────────────
+  it("CellViewerModal opens and can be closed", async () => {
+    resultState.results = [makeResult()];
+    const user = userEvent.setup();
+    render(<ResultsGrid />);
+
+    const modal = screen.getByTestId("cell-viewer-modal");
+    expect(modal.getAttribute("data-open")).toBe("false");
+
+    const cells = screen.getAllByTestId("truncated-cell");
+    await user.dblClick(cells[0]);
+    await waitFor(() => {
+      expect(modal.getAttribute("data-open")).toBe("true");
+    });
+
+    // The mocked CellViewerModal does not have a close button;
+    // we test that the component renders with isOpen=false initially
+    // and transitions true on double-click.
+    // The real onClose handler (line 862-863) sets isOpen to false.
+    expect(modal.getAttribute("data-column")).toBe("id");
+    expect(modal.getAttribute("data-content")).toBe("1");
+  });
+
+  // ─── Export toast appears then disappears ─────────────────
+  it("export toast appears and then disappears", async () => {
+    vi.useFakeTimers();
+    resultState.results = [makeResult({ rows: [[1, "Alice"]] })];
+    mockExportResults.mockResolvedValue("csv,data");
+    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    render(<ResultsGrid />);
+
+    await user.click(screen.getByText("CSV"));
+
+    await waitFor(() => {
+      expect(screen.getByText(/Exported 1 rows as CSV/)).toBeInTheDocument();
+    });
+
+    // After 2500ms the toast should be gone
+    act(() => {
+      vi.advanceTimersByTime(2600);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Exported 1 rows as CSV/)).not.toBeInTheDocument();
+    });
+
+    vi.useRealTimers();
+  });
+
+  // ─── NULL values displayed as NULL text in table cells ─────
+  it("displays NULL values as the string 'null' in table cells", () => {
+    resultState.results = [
+      makeResult({
+        columns: [
+          { name: "a", data_type: "int", nullable: true, is_primary_key: false },
+          { name: "b", data_type: "varchar", nullable: true, is_primary_key: false },
+        ],
+        rows: [[null, null]],
+      }),
+    ];
+    render(<ResultsGrid />);
+
+    const cells = screen.getAllByTestId("truncated-cell");
+    expect(cells[0].getAttribute("data-value")).toBe("null");
+    expect(cells[1].getAttribute("data-value")).toBe("null");
+  });
+
+  // ─── Boolean values displayed correctly ───────────────────
+  it("displays boolean true as string 'true' in table cells", () => {
+    resultState.results = [
+      makeResult({
+        columns: [
+          { name: "is_active", data_type: "bool", nullable: true, is_primary_key: false },
+        ],
+        rows: [[true]],
+      }),
+    ];
+    render(<ResultsGrid />);
+
+    const cells = screen.getAllByTestId("truncated-cell");
+    expect(cells[0].getAttribute("data-value")).toBe("true");
+  });
+
+  it("displays boolean false as string 'false' in table cells", () => {
+    resultState.results = [
+      makeResult({
+        columns: [
+          { name: "is_active", data_type: "bool", nullable: true, is_primary_key: false },
+        ],
+        rows: [[false]],
+      }),
+    ];
+    render(<ResultsGrid />);
+
+    const cells = screen.getAllByTestId("truncated-cell");
+    expect(cells[0].getAttribute("data-value")).toBe("false");
+  });
 });

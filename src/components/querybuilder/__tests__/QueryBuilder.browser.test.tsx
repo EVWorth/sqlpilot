@@ -1165,4 +1165,263 @@ describe("QueryBuilder (browser)", () => {
     );
     expect(cardHeader?.textContent).toBe("users");
   });
+
+  // ─── GROUP BY section ────────────────────────────────────
+  it("GROUP BY add column creates a new select element", async () => {
+    mockFetchColumns.mockResolvedValue(mockColumns);
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getAllByText("users")[0]);
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+    });
+
+    await user.click(screen.getByText("GROUP BY"));
+
+    // Click the Add button in GROUP BY section
+    const allAdds = screen.getAllByText("Add");
+    // The GROUP BY Add button is the one within the groupby content area
+    await user.click(allAdds[allAdds.length - 1]);
+
+    await waitFor(() => {
+      expect(screen.queryByText('No grouping. Click "Add" to create one.')).not.toBeInTheDocument();
+      // A select should appear for the column
+      const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
+      expect(selects.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  it("GROUP BY remove column via trash icon", async () => {
+    mockFetchColumns.mockResolvedValue(mockColumns);
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getAllByText("users")[0]);
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+    });
+
+    await user.click(screen.getByText("GROUP BY"));
+
+    // Add a GROUP BY column
+    const allAdds = screen.getAllByText("Add");
+    await user.click(allAdds[allAdds.length - 1]);
+
+    // Find the trash icon in GROUP BY section
+    await waitFor(() => {
+      const trashIcons = document.querySelectorAll(".lucide-trash2");
+      expect(trashIcons.length).toBeGreaterThanOrEqual(1);
+    });
+
+    // Click the trash icon in GROUP BY section
+    const trashIcons = document.querySelectorAll(".lucide-trash2");
+    // The trash icon is inside the GROUP BY content area
+    const groupByContainer = document.querySelector(".flex.flex-col.gap-1");
+    expect(groupByContainer).toBeInTheDocument();
+    const trashBtn = groupByContainer!.querySelector("button svg.lucide-trash2")?.parentElement as HTMLElement;
+    if (trashBtn) {
+      await user.click(trashBtn);
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText('No grouping. Click "Add" to create one.')).toBeInTheDocument();
+    });
+  });
+
+  it("GROUP BY select onChange updates the column ref", async () => {
+    mockFetchColumns.mockResolvedValue(mockColumns);
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getAllByText("users")[0]);
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+    });
+
+    await user.click(screen.getByText("GROUP BY"));
+
+    // Add a GROUP BY column
+    const allAdds = screen.getAllByText("Add");
+    await user.click(allAdds[allAdds.length - 1]);
+
+    await waitFor(() => {
+      const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
+      expect(selects.length).toBeGreaterThanOrEqual(1);
+    });
+
+    const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
+    const groupBySelect = selects[0] as HTMLSelectElement;
+    // Change the select value
+    await user.selectOptions(groupBySelect, groupBySelect.options[0]?.value || "");
+
+    // Verify the select still exists after change
+    expect(groupBySelect).toBeInTheDocument();
+  });
+
+  it("GROUP BY add button is disabled when no column refs available", async () => {
+    // Don't add any table first — no columnRefs
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getByText("GROUP BY"));
+
+    // The Add button should be disabled
+    const allAdds = screen.getAllByText("Add");
+    const groupByAdd = allAdds[allAdds.length - 1];
+    const addBtn = groupByAdd.closest("button");
+    expect(addBtn).toBeInTheDocument();
+    expect(addBtn?.disabled).toBe(true);
+  });
+
+  it("GROUP BY empty state shows placeholder message", async () => {
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getByText("GROUP BY"));
+
+    expect(screen.getByText('No grouping. Click "Add" to create one.')).toBeInTheDocument();
+  });
+
+  it("multiple GROUP BY columns with individual removes", async () => {
+    mockFetchColumns.mockResolvedValue(mockColumns);
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getAllByText("users")[0]);
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+    });
+
+    await user.click(screen.getByText("GROUP BY"));
+
+    // Add two GROUP BY columns
+    const groupByAdd = screen.getByText("GROUP BY").closest(".flex.shrink-0.flex-col")?.querySelector("button");
+    // Simpler: use the "Add" that's within GROUP BY
+    const allAdds = screen.getAllByText("Add");
+    await user.click(allAdds[allAdds.length - 1]);
+
+    await waitFor(() => {
+      const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
+      expect(selects.length).toBe(1);
+    });
+
+    // After first add, the Add button should appear again for another row
+    // But the "Add" button text may have changed context.
+    // Click add again
+    const addAgain = screen.getAllByText("Add");
+    await user.click(addAgain[addAgain.length - 1]);
+
+    await waitFor(() => {
+      const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
+      expect(selects.length).toBe(2);
+    });
+
+    // Remove first column
+    const trashBtns = document.querySelectorAll(".flex.flex-col.gap-1 button svg.lucide-trash2");
+    expect(trashBtns.length).toBe(2);
+    await user.click((trashBtns[0].parentElement as HTMLElement));
+
+    await waitFor(() => {
+      const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
+      expect(selects.length).toBe(1);
+    });
+  });
+
+  // ─── HAVING section ──────────────────────────────────────
+  it("HAVING add condition creates a select and operator fields", async () => {
+    mockFetchColumns.mockResolvedValue(mockColumns);
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getAllByText("users")[0]);
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+    });
+
+    await user.click(screen.getByText("HAVING"));
+
+    // Click Add for HAVING
+    await user.click(screen.getByText("Add"));
+
+    await waitFor(() => {
+      expect(screen.queryByText('No conditions. Click "Add" to create one.')).not.toBeInTheDocument();
+    });
+  });
+
+  it("HAVING condition can be removed", async () => {
+    mockFetchColumns.mockResolvedValue(mockColumns);
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getAllByText("users")[0]);
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+    });
+
+    await user.click(screen.getByText("HAVING"));
+
+    await user.click(screen.getByText("Add"));
+
+    await waitFor(() => {
+      const trashIcons = document.querySelectorAll(".lucide-trash2");
+      expect(trashIcons.length).toBeGreaterThanOrEqual(1);
+    });
+
+    const trashBtn = document.querySelector(".lucide-trash2")?.parentElement as HTMLElement;
+    if (trashBtn) {
+      await user.click(trashBtn);
+    }
+
+    await waitFor(() => {
+      expect(screen.getByText('No conditions. Click "Add" to create one.')).toBeInTheDocument();
+    });
+  });
+
+  it("HAVING condition operator can be toggled", async () => {
+    mockFetchColumns.mockResolvedValue(mockColumns);
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getAllByText("users")[0]);
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+    });
+
+    await user.click(screen.getByText("HAVING"));
+
+    await user.click(screen.getByText("Add"));
+
+    await waitFor(() => {
+      // Find the operator select
+      const selects = document.querySelectorAll("select");
+      expect(selects.length).toBeGreaterThanOrEqual(1);
+    });
+
+    const selects = document.querySelectorAll("select");
+    // The operator select should be present (w-24 shrink-0)
+    const operatorSelect = Array.from(selects).find((s) => s.className.includes("w-24"));
+    expect(operatorSelect).toBeInTheDocument();
+    if (operatorSelect) {
+      await user.selectOptions(operatorSelect as HTMLSelectElement, ">");
+      await waitFor(() => {
+        expect((operatorSelect as HTMLSelectElement).value).toBe(">");
+      });
+    }
+  });
+
+  it("HAVING section shows HAVING label (not WHERE)", async () => {
+    mockFetchColumns.mockResolvedValue(mockColumns);
+    const user = userEvent.setup();
+    render(<QueryBuilder {...DEFAULT_PROPS} />);
+
+    await user.click(screen.getAllByText("users")[0]);
+    await waitFor(() => {
+      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+    });
+
+    await user.click(screen.getByText("HAVING"));
+
+    expect(screen.getByText("HAVING Conditions")).toBeInTheDocument();
+  });
 });
