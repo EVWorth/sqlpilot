@@ -72,6 +72,22 @@ describe("schema-diff", () => {
       expect(result.modified[0].changes).toContain("default: pending → active");
     });
 
+    it("detects extra column changes", () => {
+      const source = [makeColumn({ name: "id", extra: "auto_increment" })];
+      const target = [makeColumn({ name: "id", extra: "" })];
+      const result = compareColumns(source, target);
+      expect(result.modified).toHaveLength(1);
+      expect(result.modified[0].changes).toContain("extra: (none) → auto_increment");
+    });
+
+    it("detects comment changes", () => {
+      const source = [makeColumn({ name: "id", comment: "Primary key" })];
+      const target = [makeColumn({ name: "id", comment: "" })];
+      const result = compareColumns(source, target);
+      expect(result.modified).toHaveLength(1);
+      expect(result.modified[0].changes).toContain('comment: "" → "Primary key"');
+    });
+
     it("reports identical columns as no changes", () => {
       const col = makeColumn({ name: "id" });
       const result = compareColumns([col], [col]);
@@ -233,8 +249,25 @@ describe("schema-diff", () => {
       expect(result.routines.onlyInSource).toHaveLength(1);
     });
 
-    it("compares triggers", () => {
+    it("detects routines only in target", () => {
       const source: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [],
+        triggers: [],
+      };
+      const target: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [{ info: { name: "update_user", routine_type: "PROCEDURE", data_type: "" }, ddl: "CREATE PROCEDURE update_user(IN uid INT) BEGIN UPDATE users SET name = 'x' WHERE id = uid; END" }],
+        triggers: [],
+      };
+      const result = compareSchemas(source, target);
+      expect(result.routines.onlyInTarget).toHaveLength(1);
+      expect(result.routines.onlyInTarget[0].name).toBe("update_user");
+    });
+
+    it("compares triggers", () => {      const source: SchemaSnapshot = {
         tables: [],
         views: [],
         routines: [],
@@ -248,6 +281,116 @@ describe("schema-diff", () => {
       };
       const result = compareSchemas(source, target);
       expect(result.triggers.onlyInSource).toHaveLength(1);
+    });
+
+    it("detects triggers only in target", () => {
+      const source: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [],
+        triggers: [],
+      };
+      const target: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [],
+        triggers: [{ info: { name: "trg_log", event: "INSERT", table: "orders", timing: "AFTER" }, ddl: "CREATE TRIGGER trg_log AFTER INSERT ON orders FOR EACH ROW BEGIN END" }],
+      };
+      const result = compareSchemas(source, target);
+      expect(result.triggers.onlyInTarget).toHaveLength(1);
+      expect(result.triggers.onlyInTarget[0].name).toBe("trg_log");
+    });
+
+    it("detects identical views", () => {
+      const viewDdl = "CREATE VIEW v_users AS SELECT * FROM users";
+      const source: SchemaSnapshot = {
+        tables: [],
+        views: [{ info: { name: "v_users", is_updatable: false }, ddl: viewDdl }],
+        routines: [],
+        triggers: [],
+      };
+      const target: SchemaSnapshot = {
+        tables: [],
+        views: [{ info: { name: "v_users", is_updatable: false }, ddl: viewDdl }],
+        routines: [],
+        triggers: [],
+      };
+      const result = compareSchemas(source, target);
+      expect(result.views.identical).toEqual(["v_users"]);
+      expect(result.views.different).toHaveLength(0);
+    });
+
+    it("detects identical routines", () => {
+      const ddl = "CREATE FUNCTION get_name() RETURNS varchar(100) BEGIN RETURN 'bob'; END";
+      const source: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [{ info: { name: "get_name", routine_type: "FUNCTION", data_type: "varchar" }, ddl }],
+        triggers: [],
+      };
+      const target: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [{ info: { name: "get_name", routine_type: "FUNCTION", data_type: "varchar" }, ddl }],
+        triggers: [],
+      };
+      const result = compareSchemas(source, target);
+      expect(result.routines.identical).toEqual(["get_name"]);
+    });
+
+    it("detects identical triggers", () => {
+      const ddl = "CREATE TRIGGER trg_audit BEFORE UPDATE ON users FOR EACH ROW BEGIN END";
+      const source: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [],
+        triggers: [{ info: { name: "trg_audit", event: "UPDATE", table: "users", timing: "BEFORE" }, ddl }],
+      };
+      const target: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [],
+        triggers: [{ info: { name: "trg_audit", event: "UPDATE", table: "users", timing: "BEFORE" }, ddl }],
+      };
+      const result = compareSchemas(source, target);
+      expect(result.triggers.identical).toEqual(["trg_audit"]);
+    });
+
+    it("detects views only in target", () => {
+      const source: SchemaSnapshot = {
+        tables: [],
+        views: [],
+        routines: [],
+        triggers: [],
+      };
+      const target: SchemaSnapshot = {
+        tables: [],
+        views: [{ info: { name: "v_orders", is_updatable: false }, ddl: "CREATE VIEW v_orders AS SELECT * FROM orders" }],
+        routines: [],
+        triggers: [],
+      };
+      const result = compareSchemas(source, target);
+      expect(result.views.onlyInTarget).toHaveLength(1);
+      expect(result.views.onlyInTarget[0].name).toBe("v_orders");
+    });
+
+    it("includes columns.added in TableDiff when different", () => {
+      const source: SchemaSnapshot = {
+        tables: [{ name: "items", columns: [makeColumn({ name: "id" }), makeColumn({ name: "sku" })], indexes: [] }],
+        views: [],
+        routines: [],
+        triggers: [],
+      };
+      const target: SchemaSnapshot = {
+        tables: [{ name: "items", columns: [makeColumn({ name: "id" })], indexes: [] }],
+        views: [],
+        routines: [],
+        triggers: [],
+      };
+      const result = compareSchemas(source, target);
+      expect(result.tables.different).toHaveLength(1);
+      expect(result.tables.different[0].columns.added).toHaveLength(1);
+      expect(result.tables.different[0].columns.added[0].name).toBe("sku");
     });
   });
 });

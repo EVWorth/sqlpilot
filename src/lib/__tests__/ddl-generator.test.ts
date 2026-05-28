@@ -62,6 +62,17 @@ describe("ddl-generator", () => {
       expect(sql).toContain("`name` VARCHAR(255) NULL");
     });
 
+    it("handles ENUM with values", () => {
+      const sql = generateCreateTable(
+        makeConfig({
+          columns: [
+            makeCol({ id: "c1", name: "status", type: "ENUM", length: "'active','inactive'", autoIncrement: false, nullable: true }),
+          ],
+        }),
+      );
+      expect(sql).toContain("`status` ENUM('active','inactive')");
+    });
+
     it("handles default values", () => {
       const sql = generateCreateTable(
         makeConfig({
@@ -324,6 +335,126 @@ describe("ddl-generator", () => {
       const modified = makeConfig();
       const sql = generateAlterTable("users", original, modified);
       expect(sql).toContain("DROP PRIMARY KEY");
+    });
+
+    it("handles CURRENT_TIMESTAMP ON UPDATE default", () => {
+      const sql = generateCreateTable(
+        makeConfig({
+          columns: [
+            makeCol({
+              id: "c1",
+              name: "updated_at",
+              type: "TIMESTAMP",
+              autoIncrement: false,
+              nullable: true,
+              defaultValue: "CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP",
+            }),
+          ],
+        }),
+      );
+      expect(sql).toContain("DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+    });
+
+    it("handles collation option change", () => {
+      const original = makeConfig({
+        options: { ...defaultOptions, collation: "utf8mb4_general_ci" },
+      });
+      const modified = makeConfig({
+        options: { ...defaultOptions, collation: "utf8mb4_0900_ai_ci" },
+      });
+      const sql = generateAlterTable("users", original, modified);
+      expect(sql).toContain("COLLATE = utf8mb4_0900_ai_ci");
+    });
+
+    it("handles charset option change", () => {
+      const original = makeConfig({
+        options: { ...defaultOptions, charset: "utf8mb4" },
+      });
+      const modified = makeConfig({
+        options: { ...defaultOptions, charset: "utf8mb3" },
+      });
+      const sql = generateAlterTable("users", original, modified);
+      expect(sql).toContain("DEFAULT CHARSET = utf8mb3");
+    });
+
+    it("detects modified indexes as drop+add", () => {
+      const original = makeConfig({
+        columns: [
+          makeCol(),
+          makeCol({ id: "c2", name: "email", type: "VARCHAR", length: "255", autoIncrement: false }),
+        ],
+        indexes: [{ id: "idx-1", name: "idx_a", type: "INDEX", columns: ["email"] }],
+      });
+      const modified = makeConfig({
+        columns: [
+          makeCol(),
+          makeCol({ id: "c2", name: "email", type: "VARCHAR", length: "255", autoIncrement: false }),
+        ],
+        indexes: [{ id: "idx-1", name: "idx_b", type: "UNIQUE", columns: ["email"] }],
+      });
+      const sql = generateAlterTable("users", original, modified);
+      expect(sql).toContain("DROP INDEX `idx_a`");
+      expect(sql).toContain("UNIQUE INDEX `idx_b`");
+    });
+
+    it("detects modified PRIMARY KEY", () => {
+      const original = makeConfig({
+        indexes: [{ id: "pk-1", name: "PRIMARY", type: "PRIMARY KEY", columns: ["id"] }],
+      });
+      const modified = makeConfig({
+        indexes: [{ id: "pk-1", name: "pk_combined", type: "PRIMARY KEY", columns: ["id", "name"] }],
+      });
+      const sql = generateAlterTable("users", original, modified);
+      expect(sql).toContain("DROP PRIMARY KEY");
+      expect(sql).toContain("ADD PRIMARY KEY");
+    });
+
+    it("detects modified foreign keys as drop+add", () => {
+      const fk1: DesignerForeignKey = {
+        id: "fk-1",
+        name: "fk_ref",
+        columns: ["user_id"],
+        referenceTable: "users",
+        referenceColumns: ["id"],
+        onDelete: "CASCADE",
+        onUpdate: "RESTRICT",
+      };
+      const fk2: DesignerForeignKey = {
+        id: "fk-1",
+        name: "fk_ref_new",
+        columns: ["user_id"],
+        referenceTable: "accounts",
+        referenceColumns: ["id"],
+        onDelete: "SET NULL",
+        onUpdate: "RESTRICT",
+      };
+      const original = makeConfig({ foreignKeys: [fk1] });
+      const modified = makeConfig({ foreignKeys: [fk2] });
+      const sql = generateAlterTable("users", original, modified);
+      expect(sql).toContain("DROP FOREIGN KEY `fk_ref`");
+      expect(sql).toContain("ADD CONSTRAINT");
+    });
+
+    it("handles add PRIMARY KEY index", () => {
+      const original = makeConfig();
+      const modified = makeConfig({
+        indexes: [{ id: "pk-new", name: "PRIMARY", type: "PRIMARY KEY", columns: ["id"] }],
+      });
+      const sql = generateAlterTable("users", original, modified);
+      expect(sql).toContain("ADD PRIMARY KEY");
+    });
+
+    it("handles FULLTEXT index in CREATE TABLE", () => {
+      const sql = generateCreateTable(
+        makeConfig({
+          columns: [
+            makeCol({ id: "c1", name: "id", type: "INT" }),
+            makeCol({ id: "c2", name: "description", type: "TEXT", autoIncrement: false, nullable: true }),
+          ],
+          indexes: [{ id: "ft-1", name: "ft_desc", type: "FULLTEXT", columns: ["description"] }],
+        }),
+      );
+      expect(sql).toContain("FULLTEXT `ft_desc`");
     });
   });
 });

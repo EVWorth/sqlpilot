@@ -88,4 +88,24 @@ describe("parseCSV", () => {
       ["3", "4"],
     ]);
   });
+
+  it("should skip empty lines", () => {
+    const result = parseCSV("a,b\n\n\n1,2\n", {
+      delimiter: ",",
+      hasHeader: true,
+      quoteChar: '"',
+    });
+    expect(result.headers).toEqual(["a", "b"]);
+    expect(result.rows).toEqual([["1", "2"]]);
+  });
+
+  it("should skip whitespace-only lines", () => {
+    const result = parseCSV("a,b\n   \n1,2\n", {
+      delimiter: ",",
+      hasHeader: true,
+      quoteChar: '"',
+    });
+    expect(result.headers).toEqual(["a", "b"]);
+    expect(result.rows).toEqual([["1", "2"]]);
+  });
 });

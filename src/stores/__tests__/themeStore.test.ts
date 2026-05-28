@@ -1,9 +1,13 @@
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { useThemeStore } from "../themeStore";
 
 describe("themeStore", () => {
-  beforeEach(() => {
+  let useThemeStore: typeof import("../themeStore").useThemeStore;
+
+  beforeEach(async () => {
     localStorage.clear();
+    vi.resetModules();
+    const mod = await import("../themeStore");
+    useThemeStore = mod.useThemeStore;
     useThemeStore.setState({ theme: "dark", effectiveTheme: "dark" });
   });
 
@@ -52,4 +56,91 @@ describe("themeStore", () => {
     expect(state.theme).toBe("system");
     expect(state.effectiveTheme).toBe("dark");
   });
+
+  it("system theme listener responds to matchMedia changes", async () => {
+    let changeHandler: (() => void) | null = null;
+
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: (_event: string, handler: () => void) => {
+        changeHandler = handler;
+      },
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    vi.resetModules();
+    const mod = await import("../themeStore");
+    const freshStore = mod.useThemeStore;
+
+    freshStore.getState().setTheme("system");
+    expect(freshStore.getState().theme).toBe("system");
+    expect(freshStore.getState().effectiveTheme).toBe("dark");
+
+    expect(changeHandler).not.toBeNull();
+    changeHandler!();
+    expect(freshStore.getState().effectiveTheme).toBe("dark");
+  });
+
+  it("system theme listener does nothing when not in system mode", async () => {
+    let changeHandler: (() => void) | null = null;
+
+    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
+      matches: true,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: (_event: string, handler: () => void) => {
+        changeHandler = handler;
+      },
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+
+    vi.resetModules();
+    const mod = await import("../themeStore");
+    const freshStore = mod.useThemeStore;
+
+    freshStore.getState().setTheme("light");
+    expect(freshStore.getState().effectiveTheme).toBe("light");
+
+    changeHandler!();
+    expect(freshStore.getState().effectiveTheme).toBe("light");
+  });
+
+  it("reads light theme from localStorage on init", async () => {
+    localStorage.setItem("theme", "light");
+    vi.resetModules();
+    const mod = await import("../themeStore");
+    expect(mod.useThemeStore.getState().theme).toBe("light");
+    expect(mod.useThemeStore.getState().effectiveTheme).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
+  it("falls back to dark when localStorage.getItem throws", async () => {
+    vi.spyOn(localStorage, "getItem").mockImplementation(() => {
+      throw new Error("quota exceeded");
+    });
+
+    vi.resetModules();
+    const mod = await import("../themeStore");
+    expect(mod.useThemeStore.getState().theme).toBe("dark");
+    expect(mod.useThemeStore.getState().effectiveTheme).toBe("dark");
+  });
+
+  it("handles localStorage.setItem throwing gracefully", async () => {
+    vi.spyOn(localStorage, "setItem").mockImplementation(() => {
+      throw new Error("quota exceeded");
+    });
+
+    vi.resetModules();
+    const mod = await import("../themeStore");
+    expect(() => mod.useThemeStore.getState().setTheme("light")).not.toThrow();
+    expect(mod.useThemeStore.getState().theme).toBe("light");
+});
 });

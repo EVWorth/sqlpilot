@@ -1,7 +1,7 @@
 {
   "name": "sqlpilot",
   "private": true,
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -39,9 +39,12 @@
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^6.4.0",
     "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^6.0.1",
+    "@vitest/browser": "^4.1.7",
+    "@vitest/browser-playwright": "^4.1.7",
     "@vitest/coverage-v8": "^4.1.7",
     "eslint": "^10.4.0",
     "eslint-plugin-react-hooks": "^7.0.0",

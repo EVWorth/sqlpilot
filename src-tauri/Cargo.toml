@@ -19,7 +19,7 @@ tauri = { version = "2", features = [] }
 
 [package]
 name = "sqlpilot"
-version = "0.1.4"
+version = "0.1.5"
 edition = "2021"
 description = "AI-powered MySQL GUI management tool"
 
@@ -44,13 +44,13 @@ rfd = "0.17"
 keyring-core = "1"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-linux-keyutils-keyring-store = "1"
+linux-keyutils-keyring-store = "1.0"
 
 [target.'cfg(target_os = "windows")'.dependencies]
-windows-native-keyring-store = "1"
+windows-native-keyring-store = "1.0"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-apple-native-keyring-store = "1"
+apple-native-keyring-store = { version = "1.0", features = ["keychain"] }
 
 [lib]
 name = "sqlpilot_lib"
