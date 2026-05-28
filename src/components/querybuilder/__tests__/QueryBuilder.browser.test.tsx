@@ -1177,16 +1177,19 @@ describe("QueryBuilder (browser)", () => {
       expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
     });
 
-    await user.click(screen.getByText("GROUP BY"));
+    // Navigate to GROUP BY tab by clicking the tab button
+    const groupByTab = screen.getAllByText("GROUP BY").find(
+      (el) => el.tagName === "BUTTON",
+    );
+    expect(groupByTab).toBeDefined();
+    await user.click(groupByTab!);
 
     // Click the Add button in GROUP BY section
     const allAdds = screen.getAllByText("Add");
-    // The GROUP BY Add button is the one within the groupby content area
     await user.click(allAdds[allAdds.length - 1]);
 
     await waitFor(() => {
       expect(screen.queryByText('No grouping. Click "Add" to create one.')).not.toBeInTheDocument();
-      // A select should appear for the column
       const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
       expect(selects.length).toBeGreaterThanOrEqual(1);
     });
@@ -1202,21 +1205,21 @@ describe("QueryBuilder (browser)", () => {
       expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
     });
 
-    await user.click(screen.getByText("GROUP BY"));
+    const groupByTab = screen.getAllByText("GROUP BY").find(
+      (el) => el.tagName === "BUTTON",
+    );
+    await user.click(groupByTab!);
 
     // Add a GROUP BY column
     const allAdds = screen.getAllByText("Add");
     await user.click(allAdds[allAdds.length - 1]);
 
-    // Find the trash icon in GROUP BY section
     await waitFor(() => {
       const trashIcons = document.querySelectorAll(".lucide-trash2");
       expect(trashIcons.length).toBeGreaterThanOrEqual(1);
     });
 
-    // Click the trash icon in GROUP BY section
-    const trashIcons = document.querySelectorAll(".lucide-trash2");
-    // The trash icon is inside the GROUP BY content area
+    // Click the trash icon in GROUP BY content area
     const groupByContainer = document.querySelector(".flex.flex-col.gap-1");
     expect(groupByContainer).toBeInTheDocument();
     const trashBtn = groupByContainer!.querySelector("button svg.lucide-trash2")?.parentElement as HTMLElement;
@@ -1239,7 +1242,10 @@ describe("QueryBuilder (browser)", () => {
       expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
     });
 
-    await user.click(screen.getByText("GROUP BY"));
+    const groupByTab = screen.getAllByText("GROUP BY").find(
+      (el) => el.tagName === "BUTTON",
+    );
+    await user.click(groupByTab!);
 
     // Add a GROUP BY column
     const allAdds = screen.getAllByText("Add");
@@ -1252,10 +1258,8 @@ describe("QueryBuilder (browser)", () => {
 
     const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
     const groupBySelect = selects[0] as HTMLSelectElement;
-    // Change the select value
     await user.selectOptions(groupBySelect, groupBySelect.options[0]?.value || "");
 
-    // Verify the select still exists after change
     expect(groupBySelect).toBeInTheDocument();
   });
 
@@ -1264,7 +1268,10 @@ describe("QueryBuilder (browser)", () => {
     const user = userEvent.setup();
     render(<QueryBuilder {...DEFAULT_PROPS} />);
 
-    await user.click(screen.getByText("GROUP BY"));
+    const groupByTab = screen.getAllByText("GROUP BY").find(
+      (el) => el.tagName === "BUTTON",
+    );
+    await user.click(groupByTab!);
 
     // The Add button should be disabled
     const allAdds = screen.getAllByText("Add");
@@ -1278,7 +1285,10 @@ describe("QueryBuilder (browser)", () => {
     const user = userEvent.setup();
     render(<QueryBuilder {...DEFAULT_PROPS} />);
 
-    await user.click(screen.getByText("GROUP BY"));
+    const groupByTab = screen.getAllByText("GROUP BY").find(
+      (el) => el.tagName === "BUTTON",
+    );
+    await user.click(groupByTab!);
 
     expect(screen.getByText('No grouping. Click "Add" to create one.')).toBeInTheDocument();
   });
@@ -1293,11 +1303,14 @@ describe("QueryBuilder (browser)", () => {
       expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
     });
 
-    await user.click(screen.getByText("GROUP BY"));
+    // Navigate to GROUP BY tab: click the tab button
+    const groupByTab = screen.getAllByText("GROUP BY").find(
+      (el) => el.tagName === "BUTTON",
+    );
+    expect(groupByTab).toBeDefined();
+    await user.click(groupByTab!);
 
     // Add two GROUP BY columns
-    const groupByAdd = screen.getByText("GROUP BY").closest(".flex.shrink-0.flex-col")?.querySelector("button");
-    // Simpler: use the "Add" that's within GROUP BY
     const allAdds = screen.getAllByText("Add");
     await user.click(allAdds[allAdds.length - 1]);
 
@@ -1306,9 +1319,7 @@ describe("QueryBuilder (browser)", () => {
       expect(selects.length).toBe(1);
     });
 
-    // After first add, the Add button should appear again for another row
-    // But the "Add" button text may have changed context.
-    // Click add again
+    // Click Add again for second column
     const addAgain = screen.getAllByText("Add");
     await user.click(addAgain[addAgain.length - 1]);
 
@@ -1317,7 +1328,7 @@ describe("QueryBuilder (browser)", () => {
       expect(selects.length).toBe(2);
     });
 
-    // Remove first column
+    // Remove first column via its trash icon
     const trashBtns = document.querySelectorAll(".flex.flex-col.gap-1 button svg.lucide-trash2");
     expect(trashBtns.length).toBe(2);
     await user.click((trashBtns[0].parentElement as HTMLElement));

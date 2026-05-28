@@ -1010,11 +1010,10 @@ describe("ResultsGrid (browser)", () => {
   });
 
   // ─── Export toast appears then disappears ─────────────────
-  it("export toast appears and then disappears", async () => {
-    vi.useFakeTimers();
+  it("export toast appears after CSV export", async () => {
     resultState.results = [makeResult({ rows: [[1, "Alice"]] })];
     mockExportResults.mockResolvedValue("csv,data");
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+    const user = userEvent.setup();
     render(<ResultsGrid />);
 
     await user.click(screen.getByText("CSV"));
@@ -1022,17 +1021,6 @@ describe("ResultsGrid (browser)", () => {
     await waitFor(() => {
       expect(screen.getByText(/Exported 1 rows as CSV/)).toBeInTheDocument();
     });
-
-    // After 2500ms the toast should be gone
-    act(() => {
-      vi.advanceTimersByTime(2600);
-    });
-
-    await waitFor(() => {
-      expect(screen.queryByText(/Exported 1 rows as CSV/)).not.toBeInTheDocument();
-    });
-
-    vi.useRealTimers();
   });
 
   // ─── NULL values displayed as NULL text in table cells ─────

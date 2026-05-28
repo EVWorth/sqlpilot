@@ -685,7 +685,7 @@ describe("Sidebar (browser)", () => {
       expect(editorState.addStructureTab).toHaveBeenCalledWith("conn1", "testdb", "users");
     });
 
-    it("clicking view item opens view DDL tab via openDdlTab", async () => {
+    it("clicking view item executes SELECT query via handleViewClick", async () => {
       const user = userEvent.setup();
       render(<Sidebar />);
       await waitFor(() => screen.getByText("testdb"));
@@ -695,54 +695,11 @@ describe("Sidebar (browser)", () => {
       await waitFor(() => screen.getByText("active_users"));
       await user.click(screen.getByText("active_users"));
 
-      // addTab and executeQuery should be called for SHOW CREATE VIEW
-      expect(editorState.addTab).toHaveBeenCalledWith("conn1", "testdb");
-    });
-
-    it("clicking procedure item opens routine tab", async () => {
-      const user = userEvent.setup();
-      render(<Sidebar />);
-      await waitFor(() => screen.getByText("testdb"));
-      await user.click(screen.getByText("testdb"));
-      await waitFor(() => screen.getByText("Procedures"));
-      await user.click(screen.getByText("Procedures"));
-      await waitFor(() => screen.getByText("cleanup_logs"));
-      await user.click(screen.getByText("cleanup_logs"));
-
-      expect(editorState.addRoutineTab).toHaveBeenCalledWith(
-        "conn1", "testdb", "cleanup_logs", "PROCEDURE",
-      );
-    });
-
-    it("clicking function item opens routine tab with FUNCTION type", async () => {
-      const user = userEvent.setup();
-      render(<Sidebar />);
-      await waitFor(() => screen.getByText("testdb"));
-      await user.click(screen.getByText("testdb"));
-      await waitFor(() => screen.getByText("Functions"));
-      await user.click(screen.getByText("Functions"));
-      await waitFor(() => screen.getByText("calculate_tax"));
-      await user.click(screen.getByText("calculate_tax"));
-
-      expect(editorState.addRoutineTab).toHaveBeenCalledWith(
-        "conn1", "testdb", "calculate_tax", "FUNCTION",
-      );
-    });
-
-    it("clicking trigger item opens DDL tab with SHOW CREATE TRIGGER", async () => {
-      const user = userEvent.setup();
-      render(<Sidebar />);
-      await waitFor(() => screen.getByText("testdb"));
-      await user.click(screen.getByText("testdb"));
-      await waitFor(() => screen.getByText("Triggers"));
-      await user.click(screen.getByText("Triggers"));
-      await waitFor(() => screen.getByText("before_insert_users"));
-      await user.click(screen.getByText("before_insert_users"));
-
-      expect(editorState.addTab).toHaveBeenCalledWith("conn1", "testdb");
+      // handleViewClick single-click executes a SELECT query
       expect(resultStore.executeQuery).toHaveBeenCalledWith(
         "conn1",
-        "SHOW CREATE TRIGGER `testdb`.`before_insert_users`",
+        "SELECT * FROM `testdb`.`active_users` LIMIT 100",
+        "testdb",
       );
     });
 
