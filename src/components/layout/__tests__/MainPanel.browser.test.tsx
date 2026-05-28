@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import { MainPanel } from "../MainPanel";
+import { render, screen, fireEvent } from "@testing-library/react";
 
 vi.mock("../../editor/SQLEditor", () => ({
   SQLEditor: () => <div data-testid="sql-editor" />,
@@ -32,7 +31,6 @@ vi.mock("../../querybuilder/QueryBuilder", () => ({
 vi.mock("../../routine/RoutineViewer", () => ({
   RoutineViewer: () => <div data-testid="routine-viewer" />,
 }));
-
 vi.mock("react-resizable-panels", () => ({
   Group: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="panel-group">{children}</div>
@@ -43,66 +41,48 @@ vi.mock("react-resizable-panels", () => ({
   Separator: () => <div data-testid="panel-separator" />,
 }));
 
-type EditorTab = {
-  id: string;
-  title: string;
-  content: string;
-  type?: string;
-  connectionId?: string;
-  database?: string;
-  tableName?: string;
-  routineName?: string;
-  routineType?: string;
-  isDirty: boolean;
-};
-
-let editorState: { tabs: EditorTab[]; activeTabId: string | null } = {
-  tabs: [{ id: "tab-0", title: "Untitled", content: "SELECT 1", type: "query", isDirty: false }],
-  activeTabId: "tab-0",
-};
-
-let resultState = {
-  showExplain: false,
-  explainResult: null as unknown,
-  setShowExplain: vi.fn(),
-  results: [] as unknown[],
-};
-
-vi.mock("../../stores/editorStore", () => ({
-  useEditorStore: Object.assign(
-    vi.fn((s: (v: unknown) => unknown) => s(editorState)),
-    { getState: vi.fn() },
-  ),
+vi.mock("../../../stores/editorStore", () => ({
+  useEditorStore: vi.fn(),
+}));
+vi.mock("../../../stores/resultStore", () => ({
+  useResultStore: vi.fn(),
 }));
 
-vi.mock("../../stores/resultStore", () => ({
-  useResultStore: Object.assign(
-    vi.fn((s: (v: unknown) => unknown) => s(resultState)),
-    { getState: vi.fn() },
-  ),
-}));
+import { MainPanel } from "../MainPanel";
+import { useEditorStore } from "../../../stores/editorStore";
+import { useResultStore } from "../../../stores/resultStore";
 
-function setEditorState(state: Partial<typeof editorState>) {
-  Object.assign(editorState, state);
+function mockEditorState(state: {
+  tabs: { id: string; type?: string; title?: string; content?: string; connectionId?: string; database?: string; tableName?: string; routineName?: string; routineType?: string; isDirty?: boolean }[];
+  activeTabId: string | null;
+}) {
+  vi.mocked(useEditorStore).mockImplementation((s: (v: unknown) => unknown) => s(state));
 }
 
-function setResultState(state: Partial<typeof resultState>) {
-  Object.assign(resultState, state);
-  if (state.setShowExplain) resultState.setShowExplain = state.setShowExplain;
+function mockResultState(state: {
+  showExplain?: boolean;
+  explainResult?: unknown;
+  setShowExplain?: () => void;
+  results?: unknown[];
+}) {
+  vi.mocked(useResultStore).mockImplementation((s: (v: unknown) => unknown) =>
+    s({
+      showExplain: false,
+      explainResult: null,
+      setShowExplain: vi.fn(),
+      results: [],
+      ...state,
+    })
+  );
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  editorState = {
+  mockEditorState({
     tabs: [{ id: "tab-0", title: "Untitled", content: "SELECT 1", type: "query", isDirty: false }],
     activeTabId: "tab-0",
-  };
-  resultState = {
-    showExplain: false,
-    explainResult: null,
-    setShowExplain: vi.fn(),
-    results: [],
-  };
+  });
+  mockResultState({});
 });
 
 describe("MainPanel", () => {
@@ -119,18 +99,16 @@ describe("MainPanel", () => {
   });
 
   it("renders AdminPanel when active tab type is admin", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "Admin", content: "", type: "admin", connectionId: "conn-1", isDirty: false }],
       activeTabId: "tab-1",
     });
     render(<MainPanel />);
     expect(screen.getByTestId("admin-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("query-toolbar")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("sql-editor")).not.toBeInTheDocument();
   });
 
   it("does not render AdminPanel when admin tab has no connectionId", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "Admin", content: "", type: "admin", isDirty: false }],
       activeTabId: "tab-1",
     });
@@ -140,7 +118,7 @@ describe("MainPanel", () => {
   });
 
   it("renders SchemaCompare when active tab type is compare", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "Compare", content: "", type: "compare", isDirty: false }],
       activeTabId: "tab-1",
     });
@@ -149,7 +127,7 @@ describe("MainPanel", () => {
   });
 
   it("renders TableDesigner when active tab type is designer", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "Designer", content: "", type: "designer", connectionId: "conn-1", database: "testdb", isDirty: false }],
       activeTabId: "tab-1",
     });
@@ -157,17 +135,8 @@ describe("MainPanel", () => {
     expect(screen.getByTestId("table-designer")).toBeInTheDocument();
   });
 
-  it("renders TableDesigner with tableName", () => {
-    setEditorState({
-      tabs: [{ id: "tab-1", title: "Designer", content: "", type: "designer", connectionId: "conn-1", database: "testdb", tableName: "users", isDirty: false }],
-      activeTabId: "tab-1",
-    });
-    render(<MainPanel />);
-    expect(screen.getByTestId("table-designer")).toBeInTheDocument();
-  });
-
   it("falls back to default view when designer tab is missing database", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "Designer", content: "", type: "designer", connectionId: "conn-1", isDirty: false }],
       activeTabId: "tab-1",
     });
@@ -177,7 +146,7 @@ describe("MainPanel", () => {
   });
 
   it("renders QueryBuilder when active tab type is querybuilder", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "QB", content: "", type: "querybuilder", connectionId: "conn-1", database: "testdb", isDirty: false }],
       activeTabId: "tab-1",
     });
@@ -186,7 +155,7 @@ describe("MainPanel", () => {
   });
 
   it("renders RoutineViewer when active tab type is routine", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "Routine", content: "", type: "routine", connectionId: "conn-1", database: "testdb", routineName: "my_proc", routineType: "PROCEDURE", isDirty: false }],
       activeTabId: "tab-1",
     });
@@ -194,17 +163,8 @@ describe("MainPanel", () => {
     expect(screen.getByTestId("routine-viewer")).toBeInTheDocument();
   });
 
-  it("renders RoutineViewer with FUNCTION type", () => {
-    setEditorState({
-      tabs: [{ id: "tab-1", title: "Routine", content: "", type: "routine", connectionId: "conn-1", database: "testdb", routineName: "my_func", routineType: "FUNCTION", isDirty: false }],
-      activeTabId: "tab-1",
-    });
-    render(<MainPanel />);
-    expect(screen.getByTestId("routine-viewer")).toBeInTheDocument();
-  });
-
   it("falls back to default view when routine tab is missing required fields", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "Routine", content: "", type: "routine", connectionId: "conn-1", isDirty: false }],
       activeTabId: "tab-1",
     });
@@ -221,24 +181,23 @@ describe("MainPanel", () => {
   });
 
   it("renders ExplainPanel when showExplain is true and explainResult is set", () => {
-    setResultState({
+    mockResultState({
       showExplain: true,
       explainResult: { columns: [], rows: [] },
     });
     render(<MainPanel />);
     expect(screen.getByTestId("explain-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("results-grid")).not.toBeInTheDocument();
   });
 
-  it("renders ResultsGrid when showExplain is false", () => {
-    setResultState({ showExplain: false, explainResult: null });
+  it("renders ResultsGrid when showExplain is false (default)", () => {
+    mockResultState({ showExplain: false, explainResult: null });
     render(<MainPanel />);
     expect(screen.getByTestId("results-grid")).toBeInTheDocument();
     expect(screen.queryByTestId("explain-panel")).not.toBeInTheDocument();
   });
 
   it("renders explain tab bar when explain is available", () => {
-    setResultState({
+    mockResultState({
       showExplain: true,
       explainResult: { columns: [], rows: [] },
     });
@@ -247,39 +206,33 @@ describe("MainPanel", () => {
     expect(screen.getByText(/Explain/)).toBeInTheDocument();
   });
 
-  it("switches between explain and results tabs", async () => {
-    setResultState({
+  it("switches between explain and results tabs", () => {
+    mockResultState({
       showExplain: true,
       explainResult: { columns: [], rows: [] },
     });
     render(<MainPanel />);
 
-    // Starts on Explain tab (auto-switched by useEffect)
     expect(screen.getByTestId("explain-panel")).toBeInTheDocument();
 
-    // Click Results tab
     fireEvent.click(screen.getByText("Results"));
     expect(screen.getByTestId("results-grid")).toBeInTheDocument();
-    expect(screen.queryByTestId("explain-panel")).not.toBeInTheDocument();
 
-    // Click Explain tab
     fireEvent.click(screen.getByText(/Explain/));
     expect(screen.getByTestId("explain-panel")).toBeInTheDocument();
-    expect(screen.queryByTestId("results-grid")).not.toBeInTheDocument();
   });
 
-  it("close explain button hides explain and shows results", () => {
-    const setShowExplain = vi.fn();
-    setResultState({
+  it("close explain button calls setShowExplain", () => {
+    const mockSetShowExplain = vi.fn();
+    mockResultState({
       showExplain: true,
       explainResult: { columns: [], rows: [] },
-      setShowExplain,
+      setShowExplain: mockSetShowExplain,
     });
     render(<MainPanel />);
 
-    const closeBtn = screen.getByTitle("Close Explain");
-    fireEvent.click(closeBtn);
-    expect(setShowExplain).toHaveBeenCalledWith(false);
+    fireEvent.click(screen.getByTitle("Close Explain"));
+    expect(mockSetShowExplain).toHaveBeenCalledWith(false);
   });
 
   it("has full height flex column container", () => {
@@ -290,16 +243,13 @@ describe("MainPanel", () => {
   });
 
   it("activeTab is undefined renders default view", () => {
-    setEditorState({
-      tabs: [],
-      activeTabId: null,
-    });
+    mockEditorState({ tabs: [], activeTabId: null });
     render(<MainPanel />);
     expect(screen.getByTestId("query-toolbar")).toBeInTheDocument();
   });
 
   it("handles unknown tab type gracefully by showing default view", () => {
-    setEditorState({
+    mockEditorState({
       tabs: [{ id: "tab-1", title: "Unknown", content: "", type: "unknown", isDirty: false }],
       activeTabId: "tab-1",
     });

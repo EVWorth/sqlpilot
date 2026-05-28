@@ -14,7 +14,7 @@ const resultState = {
 
 const mockStoreGetState = vi.fn();
 
-vi.mock("../../stores/resultStore", () => ({
+vi.mock("../../../stores/resultStore", () => ({
   useResultStore: Object.assign(
     (selector?: (s: unknown) => unknown) => {
       const full = { ...resultState, setActiveResult: vi.fn(), executeQuery: vi.fn() };
@@ -33,7 +33,7 @@ vi.mock("../../stores/resultStore", () => ({
 let editorTabs: { id: string; content: string; connectionId?: string; database?: string }[] = [];
 let editorActiveTabId: string | null = null;
 
-vi.mock("../../stores/editorStore", () => ({
+vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
     vi.fn((selector?: (s: unknown) => unknown) => {
       const s = { tabs: editorTabs, activeTabId: editorActiveTabId };
@@ -46,7 +46,7 @@ vi.mock("../../stores/editorStore", () => ({
 // ─── Mutable refs for connectionStore ─────────────────────────
 let connSelectedId: string | null = null;
 
-vi.mock("../../stores/connectionStore", () => ({
+vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: Object.assign(
     vi.fn((selector?: (s: unknown) => unknown) => {
       const s = { selectedConnectionId: connSelectedId };
@@ -60,7 +60,7 @@ vi.mock("../../stores/connectionStore", () => ({
 let aiMockEnabled = false;
 let aiMockSend = vi.fn();
 
-vi.mock("../../stores/aiStore", () => ({
+vi.mock("../../../stores/aiStore", () => ({
   useAiStore: Object.assign(
     vi.fn((selector?: (s: unknown) => unknown) => {
       const s = { aiEnabled: aiMockEnabled, sendMessage: aiMockSend };
@@ -71,7 +71,7 @@ vi.mock("../../stores/aiStore", () => ({
 }));
 
 // ─── Hook mocks ───────────────────────────────────────────────
-vi.mock("../../hooks/useContextMenu", () => ({
+vi.mock("../../../hooks/useContextMenu", () => ({
   useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu: vi.fn() })),
 }));
 
@@ -94,14 +94,14 @@ const mockGridEditing = {
   editInsertCell: vi.fn(),
 };
 
-vi.mock("../../hooks/useGridEditing", () => ({
+vi.mock("../../../hooks/useGridEditing", () => ({
   useGridEditing: vi.fn(() => mockGridEditing),
 }));
 
 // ─── API mock ─────────────────────────────────────────────────
 const mockExportResults = vi.fn();
 
-vi.mock("../../lib/tauri-api", () => ({
+vi.mock("../../../lib/tauri-api", () => ({
   api: {
     exportResults: (...args: unknown[]) => mockExportResults(...args),
     executeQuery: vi.fn(),
@@ -109,7 +109,7 @@ vi.mock("../../lib/tauri-api", () => ({
 }));
 
 // ─── SQL generator mock ──────────────────────────────────────
-vi.mock("../../lib/sql-generator", () => ({
+vi.mock("../../../lib/sql-generator", () => ({
   generateUpdate: vi.fn(() => "UPDATE ..."),
   generateInsert: vi.fn(() => "INSERT ..."),
   generateDelete: vi.fn(() => "DELETE ..."),

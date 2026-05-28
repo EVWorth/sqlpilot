@@ -66,7 +66,10 @@ jobs:
           WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
           WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
         run: |
-          $ErrorActionPreference = 'Stop'
+          if (-not $env:WINDOWS_CERTIFICATE) {
+            Write-Host "No Windows signing certificate configured, skipping..."
+            exit 0
+          }
           New-Item -ItemType Directory -Force -Path certificate | Out-Null
           Set-Content -Path certificate/tempCert.txt -Value $env:WINDOWS_CERTIFICATE
           certutil -decode certificate/tempCert.txt certificate/certificate.pfx | Out-Null

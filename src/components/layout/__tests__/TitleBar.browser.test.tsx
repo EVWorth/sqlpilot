@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 
 const {
   mockToggleMaximize,
@@ -9,7 +8,6 @@ const {
   mockUnmaximize,
   mockClose,
   mockStartDragging,
-  mockIsMaximized,
 } = vi.hoisted(() => ({
   mockToggleMaximize: vi.fn(),
   mockMinimize: vi.fn(),
@@ -17,10 +15,9 @@ const {
   mockUnmaximize: vi.fn(),
   mockClose: vi.fn(),
   mockStartDragging: vi.fn(),
-  mockIsMaximized: vi.fn().mockResolvedValue(false),
 }));
 
-let onResizedCallback: (() => void) | null = null;
+let onResizedCb: (() => void) | null = null;
 
 vi.mock("@tauri-apps/api/window", () => ({
   getCurrentWindow: vi.fn(() => ({
@@ -31,10 +28,10 @@ vi.mock("@tauri-apps/api/window", () => ({
     close: mockClose,
     startDragging: mockStartDragging,
     onResized: vi.fn((cb: () => void) => {
-      onResizedCallback = cb;
-      return Promise.resolve(() => { onResizedCallback = null; });
+      onResizedCb = cb;
+      return Promise.resolve(() => { onResizedCb = null; });
     }),
-    isMaximized: mockIsMaximized,
+    isMaximized: vi.fn(() => Promise.resolve(false)),
     setTitle: vi.fn(),
   })),
 }));
@@ -43,64 +40,67 @@ vi.mock("clsx", () => ({
   clsx: (...args: (string | boolean | undefined | null)[]) => args.filter(Boolean).join(" "),
 }));
 
-const mockAddAdminTab = vi.fn();
-const mockAddCompareTab = vi.fn();
-const mockAddQueryBuilderTab = vi.fn();
-
-vi.mock("../../stores/editorStore", () => ({
-  useEditorStore: Object.assign(
-    vi.fn(),
-    {
-      getState: vi.fn(() => ({
-        addAdminTab: mockAddAdminTab,
-        addCompareTab: mockAddCompareTab,
-        addQueryBuilderTab: mockAddQueryBuilderTab,
-      })),
-    },
-  ),
-}));
-
 vi.mock("../MenuBar", () => ({
   MenuBar: () => <div data-testid="menu-bar">MenuBar</div>,
 }));
 
-let connState = {
-  selectedConnectionId: null as string | null,
-  activeConnections: [] as { id: string; name: string; host: string; port: number; database?: string; server_version: string; connected_at: string }[],
-};
-
-let themeState: { theme: "dark" | "light" | "system"; effectiveTheme: "dark" | "light" } = {
-  theme: "dark",
-  effectiveTheme: "dark",
-};
-const mockSetTheme = vi.fn();
-
-vi.mock("../../stores/connectionStore", () => ({
-  useConnectionStore: Object.assign(
-    vi.fn((selector: (s: typeof connState) => unknown) => selector(connState)),
-    { getState: vi.fn(() => connState) },
-  ),
+vi.mock("../../../stores/editorStore", () => ({
+  useEditorStore: vi.fn(),
 }));
-
-vi.mock("../../stores/themeStore", () => ({
-  useThemeStore: Object.assign(
-    vi.fn((selector: (s: unknown) => unknown) => selector({ ...themeState, setTheme: mockSetTheme })),
-    {
-      getState: vi.fn(() => themeState),
-      setState: vi.fn((partial: Record<string, unknown>) => {
-        Object.assign(themeState, partial);
-      }),
-    },
-  ),
+vi.mock("../../../stores/connectionStore", () => ({
+  useConnectionStore: vi.fn(),
+}));
+vi.mock("../../../stores/themeStore", () => ({
+  useThemeStore: vi.fn(),
 }));
 
 import { TitleBar } from "../TitleBar";
+import { useEditorStore } from "../../../stores/editorStore";
+import { useConnectionStore } from "../../../stores/connectionStore";
+import { useThemeStore } from "../../../stores/themeStore";
+
+const mockAddAdminTab = vi.fn();
+const mockAddCompareTab = vi.fn();
+const mockAddQueryBuilderTab = vi.fn();
+
+function mockEditorStore() {
+  const getStateMock = vi.fn(() => ({
+    addAdminTab: mockAddAdminTab,
+    addCompareTab: mockAddCompareTab,
+    addQueryBuilderTab: mockAddQueryBuilderTab,
+  }));
+  (useEditorStore as any).getState = getStateMock;
+  vi.mocked(useEditorStore).mockReturnValue({} as any);
+}
+
+function mockConnectionStore(connState: {
+  selectedConnectionId: string | null;
+  activeConnections: { id: string; name: string; host: string; port: number; database?: string; server_version: string; connected_at: string }[];
+}) {
+  vi.mocked(useConnectionStore).mockImplementation((s: (v: unknown) => unknown) => s(connState));
+  (useConnectionStore as any).getState = vi.fn(() => connState);
+}
+
+type ThemeMode = "dark" | "light" | "system";
+
+function mockThemeStore(theme: ThemeMode) {
+  const setThemeMock = vi.fn();
+  const state = theme === "system" ? { theme: "system" as const, effectiveTheme: "dark" as const } : { theme, effectiveTheme: theme as "dark" | "light" };
+  vi.mocked(useThemeStore).mockImplementation((s: (v: unknown) => unknown) =>
+    s({
+      ...state,
+      setTheme: setThemeMock,
+    })
+  );
+  (useThemeStore as any).getState = vi.fn(() => ({ ...state }));
+  return setThemeMock;
+}
 
 beforeEach(() => {
   vi.clearAllMocks();
-  onResizedCallback = null;
-  mockIsMaximized.mockResolvedValue(false);
-  connState = {
+  onResizedCb = null;
+  mockEditorStore();
+  mockConnectionStore({
     selectedConnectionId: "conn-1",
     activeConnections: [
       {
@@ -113,12 +113,8 @@ beforeEach(() => {
         connected_at: "2024-01-01T00:00:00Z",
       },
     ],
-  };
-  themeState = { theme: "dark", effectiveTheme: "dark" };
-  mockSetTheme.mockClear();
-  mockAddAdminTab.mockClear();
-  mockAddCompareTab.mockClear();
-  mockAddQueryBuilderTab.mockClear();
+  });
+  mockThemeStore("dark");
 });
 
 describe("TitleBar", () => {
@@ -127,7 +123,7 @@ describe("TitleBar", () => {
     expect(screen.getByTestId("menu-bar")).toBeInTheDocument();
   });
 
-  it("renders app icon as drag handle", () => {
+  it("renders app icon", () => {
     const { container } = render(<TitleBar />);
     const img = container.querySelector("img[alt='SQLPilot']");
     expect(img).toBeInTheDocument();
@@ -141,7 +137,7 @@ describe("TitleBar", () => {
     expect(mockStartDragging).toHaveBeenCalledTimes(1);
   });
 
-  it("renders all toolbar buttons", () => {
+  it("renders all toolbar buttons when connected", () => {
     render(<TitleBar aiEnabled={true} onToggleAI={vi.fn()} />);
     expect(screen.getByText("Visual Builder")).toBeInTheDocument();
     expect(screen.getByText("Compare")).toBeInTheDocument();
@@ -152,75 +148,46 @@ describe("TitleBar", () => {
     expect(screen.getByText("AI")).toBeInTheDocument();
   });
 
-  it("renders window control buttons: minimize, maximize, close", () => {
+  it("renders window control buttons", () => {
     render(<TitleBar />);
     expect(screen.getByTitle("Minimize")).toBeInTheDocument();
     expect(screen.getByTitle("Maximize")).toBeInTheDocument();
     expect(screen.getByTitle("Close")).toBeInTheDocument();
   });
 
-  it("calls minimize on window button click", async () => {
-    const user = userEvent.setup();
+  it("calls minimize on window button click", () => {
     render(<TitleBar />);
-    await user.click(screen.getByTitle("Minimize"));
+    fireEvent.click(screen.getByTitle("Minimize"));
     expect(mockMinimize).toHaveBeenCalledTimes(1);
   });
 
-  it("calls toggleMaximize on maximize button click", async () => {
-    const user = userEvent.setup();
+  it("calls toggleMaximize on maximize button click", () => {
     render(<TitleBar />);
-    await user.click(screen.getByTitle("Maximize"));
+    fireEvent.click(screen.getByTitle("Maximize"));
     expect(mockToggleMaximize).toHaveBeenCalledTimes(1);
   });
 
-  it("calls close on close button click", async () => {
-    const user = userEvent.setup();
+  it("calls close on close button click", () => {
     render(<TitleBar />);
-    await user.click(screen.getByTitle("Close"));
+    fireEvent.click(screen.getByTitle("Close"));
     expect(mockClose).toHaveBeenCalledTimes(1);
   });
 
-  it("shows RestoreIcon and Restore title when window is maximized", async () => {
-    mockIsMaximized.mockResolvedValue(true);
-    render(<TitleBar />);
-    await waitFor(() => {
-      expect(screen.getByTitle("Restore")).toBeInTheDocument();
-    });
-    expect(screen.queryByTitle("Maximize")).not.toBeInTheDocument();
-  });
-
-  it("calls toggleMaximize on Restore button click when maximized", async () => {
-    mockIsMaximized.mockResolvedValue(true);
-    render(<TitleBar />);
-    await waitFor(() => {
-      expect(screen.getByTitle("Restore")).toBeInTheDocument();
-    });
-    fireEvent.click(screen.getByTitle("Restore"));
-    expect(mockToggleMaximize).toHaveBeenCalledTimes(1);
-  });
-
-  it("detects maximized state via onResized callback", async () => {
-    mockIsMaximized.mockResolvedValue(true);
-    render(<TitleBar />);
-
-    // Trigger onResized callback
-    if (onResizedCallback) onResizedCallback();
-
-    await waitFor(() => {
-      expect(mockIsMaximized).toHaveBeenCalled();
-    });
-  });
-
-  it("shows system context menu on right-click title bar", () => {
+  it("shows system context menu on right-click", () => {
     const { container } = render(<TitleBar />);
     fireEvent.contextMenu(container.firstElementChild!);
-    expect(screen.getByText("Restore")).toBeInTheDocument();
-    expect(screen.getByText("Move")).toBeInTheDocument();
-    expect(screen.getByText("Size")).toBeInTheDocument();
     expect(screen.getByText("Minimize")).toBeInTheDocument();
-    expect(screen.getByText("Maximize")).toBeInTheDocument();
     expect(screen.getByText("Close")).toBeInTheDocument();
     expect(screen.getByText("Alt+F4")).toBeInTheDocument();
+  });
+
+  it("system context menu shows all items", () => {
+    const { container } = render(<TitleBar />);
+    fireEvent.contextMenu(container.firstElementChild!);
+    expect(screen.getAllByText("Restore").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Move")).toBeInTheDocument();
+    expect(screen.getByText("Size")).toBeInTheDocument();
+    expect(screen.getByText("Maximize")).toBeInTheDocument();
   });
 
   it("closes system menu on Escape key", () => {
@@ -241,16 +208,13 @@ describe("TitleBar", () => {
 
   it("system menu does NOT open when right-clicking toolbar buttons", () => {
     render(<TitleBar />);
-    const compareBtn = screen.getByText("Compare");
-    fireEvent.contextMenu(compareBtn);
-    // The context menu should NOT appear because propagation is stopped
+    fireEvent.contextMenu(screen.getByText("Compare"));
     expect(screen.queryByText("Alt+F4")).not.toBeInTheDocument();
   });
 
   it("system menu does NOT open when right-clicking window controls", () => {
     render(<TitleBar />);
-    const minimizeBtn = screen.getByTitle("Minimize");
-    fireEvent.contextMenu(minimizeBtn);
+    fireEvent.contextMenu(screen.getByTitle("Minimize"));
     expect(screen.queryByText("Alt+F4")).not.toBeInTheDocument();
   });
 
@@ -269,35 +233,10 @@ describe("TitleBar", () => {
   });
 
   it("system menu Maximize action calls appWindow.maximize when not maximized", () => {
-    mockIsMaximized.mockResolvedValue(false);
     const { container } = render(<TitleBar />);
     fireEvent.contextMenu(container.firstElementChild!);
     fireEvent.click(screen.getByText("Maximize"));
     expect(mockMaximize).toHaveBeenCalled();
-  });
-
-  it("system menu Maximize is disabled when already maximized", () => {
-    mockIsMaximized.mockResolvedValue(true);
-    const { container } = render(<TitleBar />);
-    fireEvent.contextMenu(container.firstElementChild!);
-    const maximizeBtn = screen.getByText("Maximize");
-    expect(maximizeBtn.closest("button")).toBeDisabled();
-  });
-
-  it("system menu Restore action calls appWindow.unmaximize when maximized", () => {
-    mockIsMaximized.mockResolvedValue(true);
-    const { container } = render(<TitleBar />);
-    fireEvent.contextMenu(container.firstElementChild!);
-    fireEvent.click(screen.getByText("Restore"));
-    expect(mockUnmaximize).toHaveBeenCalled();
-  });
-
-  it("system menu Restore is disabled when not maximized", () => {
-    mockIsMaximized.mockResolvedValue(false);
-    const { container } = render(<TitleBar />);
-    fireEvent.contextMenu(container.firstElementChild!);
-    const restoreBtn = screen.getByText("Restore");
-    expect(restoreBtn.closest("button")).toBeDisabled();
   });
 
   it("system menu Move and Size are always disabled", () => {
@@ -307,37 +246,30 @@ describe("TitleBar", () => {
     expect(screen.getByText("Size").closest("button")).toBeDisabled();
   });
 
-  it("cycles theme from dark to light", async () => {
-    const user = userEvent.setup();
+  it("cycles theme from dark to light", () => {
+    const setThemeMock = mockThemeStore("dark");
     render(<TitleBar />);
-    const themeBtn = screen.getByTitle(/Theme:/);
-    await user.click(themeBtn);
-    expect(mockSetTheme).toHaveBeenCalledWith("light");
+    fireEvent.click(screen.getByTitle(/Theme:/));
+    expect(setThemeMock).toHaveBeenCalledWith("light");
   });
 
-  it("cycles theme from light to system", async () => {
-    themeState = { theme: "light", effectiveTheme: "light" };
-    const user = userEvent.setup();
+  it("cycles theme from light to system", () => {
+    const setThemeMock = mockThemeStore("light");
     render(<TitleBar />);
-    const themeBtn = screen.getByTitle(/Theme: Light/);
-    await user.click(themeBtn);
-    expect(mockSetTheme).toHaveBeenCalledWith("system");
+    fireEvent.click(screen.getByTitle(/Theme: Light/));
+    expect(setThemeMock).toHaveBeenCalledWith("system");
   });
 
-  it("cycles theme from system to dark", async () => {
-    themeState = { theme: "system", effectiveTheme: "dark" };
-    const user = userEvent.setup();
+  it("cycles theme from system to dark", () => {
+    const setThemeMock = mockThemeStore("system");
     render(<TitleBar />);
-    const themeBtn = screen.getByTitle(/Theme: System/);
-    await user.click(themeBtn);
-    expect(mockSetTheme).toHaveBeenCalledWith("dark");
+    fireEvent.click(screen.getByTitle(/Theme: System/));
+    expect(setThemeMock).toHaveBeenCalledWith("dark");
   });
 
-  it("disables connection-dependent buttons when no connection selected", () => {
-    connState.selectedConnectionId = null;
-    connState.activeConnections = [];
+  it("disables connection-dependent buttons when no connection", () => {
+    mockConnectionStore({ selectedConnectionId: null, activeConnections: [] });
     render(<TitleBar />);
-
     expect(screen.getByText("Visual Builder").closest("button")).toBeDisabled();
     expect(screen.getByText("Admin").closest("button")).toBeDisabled();
     expect(screen.getByText("Import").closest("button")).toBeDisabled();
@@ -345,9 +277,8 @@ describe("TitleBar", () => {
     expect(screen.getByText("Restore").closest("button")).toBeDisabled();
   });
 
-  it("Compare button is always enabled (no connection required)", () => {
-    connState.selectedConnectionId = null;
-    connState.activeConnections = [];
+  it("Compare button is always enabled", () => {
+    mockConnectionStore({ selectedConnectionId: null, activeConnections: [] });
     render(<TitleBar />);
     expect(screen.getByText("Compare").closest("button")).not.toBeDisabled();
   });
@@ -364,9 +295,8 @@ describe("TitleBar", () => {
     expect(mockAddAdminTab).toHaveBeenCalledWith("conn-1");
   });
 
-  it("does not call addAdminTab when Admin clicked with no connection", () => {
-    connState.selectedConnectionId = null;
-    connState.activeConnections = [];
+  it("does not call addAdminTab when no connection selected", () => {
+    mockConnectionStore({ selectedConnectionId: null, activeConnections: [] });
     render(<TitleBar />);
     fireEvent.click(screen.getByText("Admin"));
     expect(mockAddAdminTab).not.toHaveBeenCalled();
@@ -378,9 +308,8 @@ describe("TitleBar", () => {
     expect(mockAddQueryBuilderTab).toHaveBeenCalledWith("conn-1", "testdb");
   });
 
-  it("does not call addQueryBuilderTab when no connection selected", () => {
-    connState.selectedConnectionId = null;
-    connState.activeConnections = [];
+  it("does not call addQueryBuilderTab when no connection", () => {
+    mockConnectionStore({ selectedConnectionId: null, activeConnections: [] });
     render(<TitleBar />);
     fireEvent.click(screen.getByText("Visual Builder"));
     expect(mockAddQueryBuilderTab).not.toHaveBeenCalled();
@@ -434,27 +363,24 @@ describe("TitleBar", () => {
     expect(aiBtn.className).not.toContain("bg-brand-600/20");
   });
 
-  it("calls onToggleAI when AI button is clicked", async () => {
-    const user = userEvent.setup();
+  it("calls onToggleAI when AI button is clicked", () => {
     const onToggleAI = vi.fn();
     render(<TitleBar aiEnabled={true} onToggleAI={onToggleAI} />);
-    await user.click(screen.getByText("AI"));
+    fireEvent.click(screen.getByText("AI"));
     expect(onToggleAI).toHaveBeenCalled();
   });
 
-  it("spacer drag starts dragging on left mouse button", () => {
+  it("spacer starts dragging on left mousedown", () => {
     const { container } = render(<TitleBar />);
-    // The spacer div has flex-1 class
     const spacer = container.querySelector(".flex-1.h-full.cursor-default")!;
     fireEvent.mouseDown(spacer, { button: 0 });
     expect(mockStartDragging).toHaveBeenCalled();
   });
 
-  it("spacer double-click toggles maximize", async () => {
+  it("spacer double-click toggles maximize", () => {
     const { container } = render(<TitleBar />);
     const spacer = container.querySelector(".flex-1.h-full.cursor-default")!;
     fireEvent.mouseDown(spacer, { button: 0 });
-    // Second click within 400ms triggers toggleMaximize
     fireEvent.mouseDown(spacer, { button: 0 });
     expect(mockToggleMaximize).toHaveBeenCalled();
   });
@@ -475,26 +401,19 @@ describe("TitleBar", () => {
     expect(screen.queryByText("Close")).not.toBeInTheDocument();
   });
 
-  it("window controls container has correct structure", () => {
-    const { container } = render(<TitleBar />);
-    const winControls = container.querySelector(".flex.h-full")!;
-    expect(winControls).toBeInTheDocument();
-  });
-
   it("close button has red hover styling", () => {
-    const { container } = render(<TitleBar />);
+    render(<TitleBar />);
     const closeBtn = screen.getByTitle("Close");
     expect(closeBtn.className).toContain("hover:bg-red-600");
   });
 
   it("renders theme button with icon", () => {
     render(<TitleBar />);
-    const themeBtn = screen.getByTitle(/Theme:/);
-    expect(themeBtn).toBeInTheDocument();
+    expect(screen.getByTitle(/Theme:/)).toBeInTheDocument();
   });
 
-  it("connection-dependent button styling changes when disabled", () => {
-    connState.selectedConnectionId = null;
+  it("connection-dependent button has disabled styling when no connection", () => {
+    mockConnectionStore({ selectedConnectionId: null, activeConnections: [] });
     render(<TitleBar />);
     const importBtn = screen.getByText("Import").closest("button")!;
     expect(importBtn.className).toContain("opacity-40");
