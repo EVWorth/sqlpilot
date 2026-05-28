@@ -38,3 +38,5 @@ test-results/
 *.rpm
 src-tauri/gen/
 src-tauri/query-results-*.csv
+.vitest-attachments/
+__screenshots__/
