@@ -22,7 +22,7 @@ pub struct AppState {
     pub schema_inspector: SchemaInspector,
     pub admin_service: AdminService,
     #[cfg(feature = "beta-ai")]
-    pub ai_service: mas_ai::AiService,
+    pub ai_service: Option<mas_ai::AiService>,
 }
 
 // Connection commands

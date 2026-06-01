@@ -160,7 +160,7 @@ pub fn run() {
             schema_inspector: inspector,
             admin_service: admin,
             #[cfg(feature = "beta-ai")]
-            ai_service: ai,
+            ai_service: Some(ai),
         })
         .invoke_handler(tauri::generate_handler![
             commands::save_connection_profile,
