@@ -1,7 +1,7 @@
 use crate::error::CoreError;
 use crate::models::{ConnectionProfile, ConnectionProfileSummary};
 use chrono::Utc;
-use keyring_core::{Error as KeyringError, Entry};
+use keyring_core::{Entry, Error as KeyringError};
 use rusqlite::{params, Connection as SqliteConn};
 use std::path::Path;
 use std::sync::Mutex;
