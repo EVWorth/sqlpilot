@@ -22,8 +22,6 @@ jobs:
       - name: Install npm dependencies (for lockfile resolution)
         run: npm ci
       - name: Check dependency ages
-        env:
-          MIN_AGE_DAYS: '0'
         run: npm run deps:check
 
   lint-ts:
