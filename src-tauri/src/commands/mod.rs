@@ -1,5 +1,6 @@
 #[cfg(feature = "beta-ai")]
 pub mod ai;
+pub mod sqlite;
 
 use mas_admin::AdminService;
 use mas_core::connection::{ConnectionManager, ConnectionStore};
@@ -11,6 +12,9 @@ use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, IndexInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo,
 };
 use mas_core::schema::SchemaInspector;
+use mas_sqlite::connection::SqliteConnectionManager;
+use mas_sqlite::query::SqliteQueryExecutor;
+use mas_sqlite::schema::SqliteSchemaInspector;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
@@ -23,6 +27,9 @@ pub struct AppState {
     pub admin_service: AdminService,
     #[cfg(feature = "beta-ai")]
     pub ai_service: Option<mas_ai::AiService>,
+    pub sqlite_manager: Arc<SqliteConnectionManager>,
+    pub sqlite_executor: Arc<SqliteQueryExecutor>,
+    pub sqlite_inspector: Arc<SqliteSchemaInspector>,
 }
 
 // Connection commands

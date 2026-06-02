@@ -2964,6 +2964,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mas-sqlite"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "dashmap",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "match_token"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5171,6 +5187,7 @@ dependencies = [
  "mas-ai",
  "mas-core",
  "mas-export",
+ "mas-sqlite",
  "rfd",
  "serde",
  "serde_json",
@@ -5181,6 +5198,7 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "uuid",
  "windows-native-keyring-store",
 ]
 

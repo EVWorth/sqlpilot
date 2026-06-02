@@ -130,6 +130,14 @@ pub fn run() {
     #[cfg(feature = "beta-ai")]
     let ai = mas_ai::AiService::new(manager.clone());
 
+    let sqlite_manager = Arc::new(mas_sqlite::connection::SqliteConnectionManager::new());
+    let sqlite_executor = Arc::new(mas_sqlite::query::SqliteQueryExecutor::new(
+        sqlite_manager.clone(),
+    ));
+    let sqlite_inspector = Arc::new(mas_sqlite::schema::SqliteSchemaInspector::new(
+        sqlite_manager.clone(),
+    ));
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
@@ -161,6 +169,9 @@ pub fn run() {
             admin_service: admin,
             #[cfg(feature = "beta-ai")]
             ai_service: Some(ai),
+            sqlite_manager,
+            sqlite_executor,
+            sqlite_inspector,
         })
         .invoke_handler(tauri::generate_handler![
             commands::save_connection_profile,
@@ -200,6 +211,14 @@ pub fn run() {
             commands::ai::ai_cancel,
             #[cfg(feature = "beta-ai")]
             commands::ai::ai_approve_permission,
+            commands::sqlite::sqlite_open,
+            commands::sqlite::sqlite_close,
+            commands::sqlite::sqlite_list,
+            commands::sqlite::sqlite_execute,
+            commands::sqlite::sqlite_get_tables,
+            commands::sqlite::sqlite_get_columns,
+            commands::sqlite::sqlite_get_indexes,
+            commands::sqlite::sqlite_get_table_ddl,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

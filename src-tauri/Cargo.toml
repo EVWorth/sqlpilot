@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/mas-core", "crates/mas-export", "crates/mas-admin", "crates/mas-ai"]
+members = [".", "crates/mas-core", "crates/mas-export", "crates/mas-admin", "crates/mas-ai", "crates/mas-sqlite"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -39,6 +39,8 @@ mas-core = { path = "crates/mas-core" }
 mas-export = { path = "crates/mas-export" }
 mas-admin = { path = "crates/mas-admin" }
 mas-ai = { path = "crates/mas-ai", optional = true }
+mas-sqlite = { path = "crates/mas-sqlite" }
+uuid = { workspace = true }
 dirs = "6"
 rfd = "0.17"
 keyring-core = "1"

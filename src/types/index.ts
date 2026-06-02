@@ -289,3 +289,43 @@ export interface Conversation {
   title: string;
   createdAt: string;
 }
+
+// SQLite types
+export interface SqliteQueryResult {
+  query_id: string;
+  statement_index: number;
+  columns: SqliteColumnMeta[];
+  rows: unknown[][];
+  rows_affected: number;
+  execution_time_ms: number;
+  warnings: string[];
+  rows_truncated: boolean;
+}
+
+export interface SqliteColumnMeta {
+  name: string;
+  data_type: string;
+  nullable: boolean;
+  is_primary_key: boolean;
+}
+
+export interface SqliteTableInfo {
+  name: string;
+  table_type: string;
+  row_count: number | null;
+  sql: string | null;
+}
+
+export interface SqliteColumnInfo {
+  name: string;
+  data_type: string;
+  nullable: boolean;
+  default_value: string | null;
+  is_primary_key: boolean;
+}
+
+export interface SqliteIndexInfo {
+  name: string;
+  columns: string[];
+  is_unique: boolean;
+}

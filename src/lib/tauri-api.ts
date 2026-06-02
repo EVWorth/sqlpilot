@@ -18,6 +18,10 @@ import type {
   AiStatus,
   AiConfig,
   AiMode,
+  SqliteQueryResult,
+  SqliteTableInfo,
+  SqliteColumnInfo,
+  SqliteIndexInfo,
 } from "../types";
 
 // In dev mode without Tauri, provide mock fallbacks
@@ -152,4 +156,29 @@ export const api = {
     isTauri
       ? getVersion()
       : Promise.resolve(import.meta.env.VITE_APP_VERSION ?? ""),
+
+  // SQLite
+  sqliteOpen: (path: string) =>
+    tauriInvoke<string>("sqlite_open", { path }),
+
+  sqliteClose: (connectionId: string) =>
+    tauriInvoke<void>("sqlite_close", { connectionId }),
+
+  sqliteList: () =>
+    tauriInvoke<string[]>("sqlite_list"),
+
+  sqliteExecute: (connectionId: string, sql: string) =>
+    tauriInvoke<SqliteQueryResult[]>("sqlite_execute", { connectionId, sql }),
+
+  sqliteGetTables: (connectionId: string) =>
+    tauriInvoke<SqliteTableInfo[]>("sqlite_get_tables", { connectionId }),
+
+  sqliteGetColumns: (connectionId: string, table: string) =>
+    tauriInvoke<SqliteColumnInfo[]>("sqlite_get_columns", { connectionId, table }),
+
+  sqliteGetIndexes: (connectionId: string, table: string) =>
+    tauriInvoke<SqliteIndexInfo[]>("sqlite_get_indexes", { connectionId, table }),
+
+  sqliteGetTableDdl: (connectionId: string, table: string) =>
+    tauriInvoke<string>("sqlite_get_table_ddl", { connectionId, table }),
 };
