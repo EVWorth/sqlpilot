@@ -49,8 +49,12 @@ impl QueryExecutor {
                         || upper.starts_with("DESCRIBE")
                         || upper.starts_with("EXPLAIN")
                     {
-                        let cleaned = strip_limit(&stmt);
-                        format!("{} LIMIT {}", cleaned, max_rows)
+                        // Respect in-statement LIMIT: only apply global limit if user didn't specify one
+                        if has_limit_clause(&upper) {
+                            stmt
+                        } else {
+                            format!("{} LIMIT {}", stmt.trim_end_matches(';'), max_rows)
+                        }
                     } else {
                         stmt
                     }
@@ -393,6 +397,12 @@ fn split_statements(sql: &str) -> Vec<String> {
     statements
 }
 
+/// Check if a SQL statement already has a LIMIT clause.
+fn has_limit_clause(upper: &str) -> bool {
+    find_limit_keyword(upper).is_some()
+}
+
+#[allow(dead_code)]
 /// Strip trailing LIMIT/OFFSET from a SQL statement so we can inject our own global limit.
 /// Handles common patterns: LIMIT N, LIMIT M,N, LIMIT N OFFSET M
 fn strip_limit(stmt: &str) -> String {

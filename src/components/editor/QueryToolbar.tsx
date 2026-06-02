@@ -256,6 +256,10 @@ export function QueryToolbar() {
 
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 
+      <RowLimit />
+
+      <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
+
       <button
         onClick={() => setShowSaveDialog(true)}
         disabled={!activeTab?.content?.trim()}
@@ -334,6 +338,50 @@ export function QueryToolbar() {
         isOpen={showFormatterSettings}
         onClose={() => setShowFormatterSettings(false)}
       />
+    </div>
+  );
+}
+
+function RowLimit() {
+  const { limitEnabled, maxResultRows } = useSettingsStore((s) => s.querySettings);
+  const setQuerySettings = useSettingsStore((s) => s.setQuerySettings);
+
+  return (
+    <div className="flex items-center gap-1">
+      <button
+        onClick={() =>
+          setQuerySettings({
+            ...useSettingsStore.getState().querySettings,
+            limitEnabled: !limitEnabled,
+          })
+        }
+        title={limitEnabled ? "Disable row limit" : "Enable row limit"}
+        className={`flex items-center rounded px-1.5 py-1 text-xs transition-colors ${
+          limitEnabled
+            ? "bg-[var(--color-accent)] text-white"
+            : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+        }`}
+      >
+        LIMIT
+      </button>
+      {limitEnabled && (
+        <input
+          type="number"
+          value={maxResultRows}
+          onChange={(e) => {
+            const val = parseInt(e.target.value, 10);
+            if (val > 0 && val <= 100000) {
+              setQuerySettings({
+                ...useSettingsStore.getState().querySettings,
+                maxResultRows: val,
+              });
+            }
+          }}
+          min={1}
+          max={100000}
+          className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-xs text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+        />
+      )}
     </div>
   );
 }

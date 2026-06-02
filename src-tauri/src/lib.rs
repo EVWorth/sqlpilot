@@ -151,6 +151,7 @@ pub fn run() {
                 app.remove_menu()?;
                 if let Some(window) = app.get_webview_window("main") {
                     window.set_decorations(false)?;
+                    window.set_resizable(true)?;
                 }
             }
             Ok(())
