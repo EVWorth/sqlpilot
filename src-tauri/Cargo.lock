@@ -740,7 +740,7 @@ dependencies = [
 [[package]]
 name = "copilot-sdk"
 version = "0.1.17"
-source = "git+https://github.com/copilot-community-sdk/copilot-sdk-rust.git#2946ba176297acc3cbbc97cf6d526152dad54b62"
+source = "git+https://github.com/copilot-community-sdk/copilot-sdk-rust.git?rev=2946ba176297acc3cbbc97cf6d526152dad54b62#2946ba176297acc3cbbc97cf6d526152dad54b62"
 dependencies = [
  "chrono",
  "serde",

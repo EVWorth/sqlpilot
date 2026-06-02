@@ -69,8 +69,10 @@ pub struct SSHConfig {
     pub host: String,
     pub port: u16,
     pub username: String,
+    #[serde(skip_serializing, default)]
     pub password: Option<String>,
     pub private_key_path: Option<String>,
+    #[serde(skip_serializing, default)]
     pub passphrase: Option<String>,
 }
 

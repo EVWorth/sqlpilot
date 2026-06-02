@@ -358,7 +358,11 @@ impl AiService {
             session
         } else {
             let sessions = self.sessions.read().await;
-            sessions.get(conversation_id).unwrap().session.clone()
+            sessions
+                .get(conversation_id)
+                .ok_or_else(|| AiError::SessionNotFound(conversation_id.to_string()))?
+                .session
+                .clone()
         };
 
         // Subscribe to events before sending

@@ -101,7 +101,8 @@ impl AdminService {
     ) -> Result<(), CoreError> {
         tracing::info!(process_id = process_id, "Killing MySQL process");
         let pool = self.connection_manager.get_pool(connection_id)?;
-        sqlx::query(&format!("KILL {}", process_id))
+        sqlx::query("KILL ?")
+            .bind(process_id)
             .execute(&pool)
             .await
             .map_err(|e| CoreError::Query(e.to_string()))?;

@@ -37,6 +37,6 @@ test-results/
 *.deb
 *.rpm
 src-tauri/gen/
-src-tauri/query-results-*.csv
+src-tauri/query-results-*
 .vitest-attachments/
 __screenshots__/
