@@ -16,6 +16,8 @@ pub enum AiError {
     ContextError(String),
     #[error("Cancelled")]
     Cancelled,
+    #[error("Permission request does not belong to this conversation")]
+    PermissionConversationMismatch,
 }
 
 impl serde::Serialize for AiError {

@@ -20,12 +20,14 @@ struct SessionEntry {
     mode: AiMode,
 }
 
+type PendingApproval = (String, oneshot::Sender<bool>);
+
 pub struct AiService {
     client: Arc<RwLock<Option<Client>>>,
     connection_manager: Arc<ConnectionManager>,
     sessions: Arc<RwLock<HashMap<String, SessionEntry>>>,
     config: Arc<RwLock<AiConfig>>,
-    pending_approvals: Arc<RwLock<HashMap<String, oneshot::Sender<bool>>>>,
+    pending_approvals: Arc<RwLock<HashMap<String, PendingApproval>>>,
 }
 
 impl AiService {
@@ -300,7 +302,7 @@ impl AiService {
                                 approvals
                                     .write()
                                     .await
-                                    .insert(request_id.clone(), response_tx);
+                                    .insert(request_id.clone(), (conv_id.clone(), response_tx));
 
                                 let _ = tx
                                     .send(AiStreamEvent::PermissionRequest {
@@ -536,12 +538,15 @@ impl AiService {
 
     pub async fn resolve_permission(
         &self,
-        _conversation_id: &str,
+        conversation_id: &str,
         request_id: &str,
         approved: bool,
     ) -> Result<(), AiError> {
         let mut approvals = self.pending_approvals.write().await;
-        if let Some(tx) = approvals.remove(request_id) {
+        if let Some((conv_id, tx)) = approvals.remove(request_id) {
+            if conv_id != conversation_id {
+                return Err(AiError::PermissionConversationMismatch);
+            }
             let _ = tx.send(approved);
             Ok(())
         } else {
