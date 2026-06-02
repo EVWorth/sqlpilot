@@ -13,7 +13,7 @@
     "type-check": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:e2e": "playwright test --pass-with-no-tests",
+    "test:e2e": "playwright test",
     "deps:check": "node scripts/check-deps.mjs"
   },
   "dependencies": {
