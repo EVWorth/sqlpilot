@@ -472,9 +472,11 @@ pub async fn kill_process(
 #[tauri::command]
 #[tracing::instrument]
 pub async fn read_file_contents(path: String) -> Result<String, String> {
-    let path_buf = PathBuf::from(&path);
-    if !path_buf.exists() {
-        return Err(format!("File not found: {}", path));
+    let path_buf = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {e}"))?;
+    if !path_buf.is_file() {
+        return Err(format!("Not a regular file: {}", path));
     }
     let contents = tokio::fs::read_to_string(&path_buf).await.map_err(|e| {
         tracing::error!(error = %e, path = %path, "Failed to read file");
@@ -512,7 +514,9 @@ pub async fn pick_file(
 #[tauri::command]
 #[tracing::instrument(skip(contents), fields(path = %path, content_len = contents.len()))]
 pub async fn write_file_contents(path: String, contents: String) -> Result<(), String> {
-    let path_buf = PathBuf::from(&path);
+    let path_buf = PathBuf::from(&path)
+        .canonicalize()
+        .map_err(|e| format!("Invalid path: {e}"))?;
     tokio::fs::write(&path_buf, &contents).await.map_err(|e| {
         tracing::error!(error = %e, path = %path, "Failed to write file");
         format!("Failed to write file: {}", e)
