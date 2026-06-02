@@ -127,7 +127,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
 
   // Load reference tables for FK tab
   useEffect(() => {
-    api.getTables(connectionId, database).then(setRefTables).catch(() => {});
+    api.getTables(connectionId, database).then(setRefTables).catch((e) => console.error("Failed to load reference tables", e));
   }, [connectionId, database]);
 
   // Load columns for reference tables as needed

@@ -4,6 +4,19 @@ use mas_core::connection::ConnectionManager;
 use mas_core::query::QueryExecutor;
 use mas_core::schema::SchemaInspector;
 use std::sync::Arc;
+use std::time::Duration;
+
+/// Run an async future synchronously with a timeout to prevent deadlocks.
+/// Used because the copilot SDK ToolHandler trait requires synchronous callbacks.
+fn block_on_async<F: std::future::Future>(fut: F) -> F::Output {
+    tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(async {
+            tokio::time::timeout(Duration::from_secs(60), fut)
+                .await
+                .expect("AI tool execution timed out after 60s")
+        })
+    })
+}
 
 /// Build all read-only database tool definitions.
 pub fn build_read_tools() -> Vec<Tool> {
@@ -150,10 +163,6 @@ pub fn build_read_tool_handlers(
             (tool, handler)
         })
         .collect()
-}
-
-fn block_on_async<F: std::future::Future>(fut: F) -> F::Output {
-    tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(fut))
 }
 
 fn make_read_handler(
@@ -402,7 +411,25 @@ fn handle_run_query(
     connection_id: &str,
     sql: &str,
 ) -> Result<String, String> {
-    let results = block_on_async(executor.execute(connection_id, sql.trim(), None, None))
+    let trimmed = sql.trim();
+    let upper = trimmed.to_uppercase();
+
+    // Reject destructive DROP statements
+    if upper.starts_with("DROP") {
+        return Err(
+            "DROP statements are not allowed via AI tools. Use the UI to drop tables/databases."
+                .to_string(),
+        );
+    }
+
+    // Warn if DELETE/UPDATE without WHERE (but allow — user must approve via permission dialog)
+    if (upper.starts_with("DELETE") || upper.starts_with("UPDATE")) && !upper.contains("WHERE") {
+        return Err(
+            "DELETE/UPDATE without WHERE clause is not allowed via AI tools. Add a WHERE clause to proceed.".to_string(),
+        );
+    }
+
+    let results = block_on_async(executor.execute(connection_id, trimmed, None, None))
         .map_err(|e| e.to_string())?;
     format_query_results(&results)
 }

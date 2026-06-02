@@ -53,7 +53,7 @@ export function HelpDialog({ isOpen, onClose, initialTab = "shortcuts" }: HelpDi
   }, [isOpen, initialTab]);
 
   useEffect(() => {
-    api.getAppVersion().then(setAppVersion).catch(() => {});
+    api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
   }, []);
 
   if (!isOpen) return null;

@@ -640,7 +640,7 @@ function PrivilegesEditor({
             ),
         ),
       )
-      .catch(() => {});
+      .catch((e) => console.error("Failed to load schemas", e));
   }, [connectionId]);
 
   useEffect(() => {
@@ -678,7 +678,7 @@ function PrivilegesEditor({
           setEditedDbPrivs(new Set(privs));
         }
       })
-      .catch(() => {})
+      .catch((e) => console.error("Failed to load grants", e))
       .finally(() => setDbLoading(false));
   }, [connectionId, user, host, selectedDb]);
 

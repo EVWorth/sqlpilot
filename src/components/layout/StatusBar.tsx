@@ -41,7 +41,7 @@ export function StatusBar() {
   const [appVersion, setAppVersion] = useState("");
 
   useEffect(() => {
-    api.getAppVersion().then(setAppVersion).catch(() => {});
+    api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
   }, []);
 
   const activeConn = activeConnections.find(

@@ -64,7 +64,7 @@ export function RestoreDialog({
     api
       .getDatabases(connectionId)
       .then(setDatabases)
-      .catch(() => setDatabases([]));
+      .catch((e) => { console.error("Failed to load databases for restore", e); setDatabases([]); });
   }, [connectionId]);
 
   // Reset on open

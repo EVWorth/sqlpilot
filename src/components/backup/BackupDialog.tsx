@@ -66,7 +66,7 @@ export function BackupDialog({
     api
       .getDatabases(connectionId)
       .then(setDatabases)
-      .catch(() => setDatabases([]));
+      .catch((e) => { console.error("Failed to load databases for backup", e); setDatabases([]); });
   }, [connectionId]);
 
   // Load tables when database changes
@@ -82,7 +82,7 @@ export function BackupDialog({
         setTables(baseTables);
         setSelectedTables(new Set(baseTables.map((tb) => tb.name)));
       })
-      .catch(() => setTables([]));
+      .catch((e) => { console.error("Failed to load tables for backup", e); setTables([]); });
   }, [connectionId, database]);
 
   // Set defaults on open
