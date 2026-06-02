@@ -1,6 +1,26 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub enum ConnectionEnvironment {
+    #[serde(rename = "development")]
+    Development,
+    #[serde(rename = "staging")]
+    Staging,
+    #[serde(rename = "production")]
+    Production,
+}
+
+impl std::fmt::Display for ConnectionEnvironment {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Development => write!(f, "development"),
+            Self::Staging => write!(f, "staging"),
+            Self::Production => write!(f, "production"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConnectionProfile {
     pub id: String,
@@ -18,6 +38,7 @@ pub struct ConnectionProfile {
     pub pool_min: u32,
     pub pool_max: u32,
     pub read_only: bool,
+    pub environment: Option<ConnectionEnvironment>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -37,6 +58,7 @@ pub struct ConnectionProfileSummary {
     pub pool_min: u32,
     pub pool_max: u32,
     pub read_only: bool,
+    pub environment: Option<ConnectionEnvironment>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -58,6 +80,7 @@ impl Default for ConnectionProfile {
             pool_min: 1,
             pool_max: 5,
             read_only: false,
+            environment: None,
             created_at: Utc::now(),
             updated_at: Utc::now(),
         }
@@ -104,6 +127,7 @@ pub struct ConnectionInfo {
     pub server_version: String,
     pub connected_at: DateTime<Utc>,
     pub color: Option<String>,
+    pub environment: Option<ConnectionEnvironment>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

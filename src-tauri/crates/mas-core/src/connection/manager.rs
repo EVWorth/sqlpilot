@@ -109,6 +109,7 @@ impl ConnectionManager {
             server_version: version.0,
             connected_at: Utc::now(),
             color: profile.color.clone(),
+            environment: profile.environment.clone(),
         };
 
         self.connections.insert(
