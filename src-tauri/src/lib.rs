@@ -146,13 +146,17 @@ pub fn run() {
                 let menu = menu::build_menu(&app.handle())?;
                 app.set_menu(menu)?;
             }
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "windows")]
             {
                 app.remove_menu()?;
                 if let Some(window) = app.get_webview_window("main") {
                     window.set_decorations(false)?;
                     window.set_resizable(true)?;
                 }
+            }
+            #[cfg(target_os = "linux")]
+            {
+                app.remove_menu()?;
             }
             Ok(())
         })
