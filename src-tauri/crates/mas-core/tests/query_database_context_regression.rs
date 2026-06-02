@@ -20,6 +20,7 @@ fn test_profile() -> ConnectionProfile {
         pool_min: 1,
         pool_max: 5,
         read_only: false,
+        environment: None,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }

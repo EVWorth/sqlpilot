@@ -43,9 +43,9 @@ impl ConnectionStore {
                 pool_min INTEGER NOT NULL DEFAULT 1,
                 pool_max INTEGER NOT NULL DEFAULT 5,
                 read_only INTEGER NOT NULL DEFAULT 0,
-                env TEXT,
                 created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL
+                updated_at TEXT NOT NULL,
+                env TEXT
             )",
         )?;
         // Migration: add env column if missing
@@ -80,7 +80,7 @@ impl ConnectionStore {
         db.execute(
             "INSERT OR REPLACE INTO connection_profiles
              (id, name, grp, color, host, port, username, password, default_database,
-              ssh_config, ssl_config, pool_min, pool_max, read_only, env, created_at, updated_at)
+              ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
             params![
                 profile.id,
@@ -97,9 +97,9 @@ impl ConnectionStore {
                 profile.pool_min,
                 profile.pool_max,
                 profile.read_only as i32,
-                profile.environment.as_ref().map(|e| e.to_string()),
                 profile.created_at.to_rfc3339(),
                 Utc::now().to_rfc3339(),
+                profile.environment.as_ref().map(|e| e.to_string()),
             ],
         )?;
         tracing::debug!("Connection profile saved");
@@ -115,7 +115,7 @@ impl ConnectionStore {
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut stmt = db.prepare(
             "SELECT id, name, grp, color, host, port, username, default_database,
-                    ssh_config, ssl_config, pool_min, pool_max, read_only, env, created_at, updated_at
+                    ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env
               FROM connection_profiles ORDER BY name",
         )?;
 
@@ -123,9 +123,9 @@ impl ConnectionStore {
             .query_map([], |row| {
                 let ssh_str: Option<String> = row.get(8)?;
                 let ssl_str: Option<String> = row.get(9)?;
-                let env_str: Option<String> = row.get(14)?;
-                let created_str: String = row.get(15)?;
-                let updated_str: String = row.get(16)?;
+                let created_str: String = row.get(14)?;
+                let updated_str: String = row.get(15)?;
+                let env_str: Option<String> = row.get(16)?;
 
                 Ok(ConnectionProfileSummary {
                     id: row.get(0)?,
@@ -170,7 +170,7 @@ impl ConnectionStore {
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut stmt = db.prepare(
             "SELECT id, name, grp, color, host, port, username, password, default_database,
-                    ssh_config, ssl_config, pool_min, pool_max, read_only, env, created_at, updated_at
+                    ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env
              FROM connection_profiles WHERE id = ?1",
         )?;
 
@@ -178,9 +178,9 @@ impl ConnectionStore {
             .query_row(params![id], |row| {
                 let ssh_str: Option<String> = row.get(9)?;
                 let ssl_str: Option<String> = row.get(10)?;
-                let env_str: Option<String> = row.get(15)?;
-                let created_str: String = row.get(16)?;
-                let updated_str: String = row.get(17)?;
+                let created_str: String = row.get(14)?;
+                let updated_str: String = row.get(15)?;
+                let env_str: Option<String> = row.get(16)?;
                 Ok(ConnectionProfile {
                     id: row.get(0)?,
                     name: row.get(1)?,
