@@ -78,6 +78,7 @@ vi.mock("../../../stores/aiStore", () => ({
 vi.mock("../../../stores/settingsStore", () => ({
   useSettingsStore: vi.fn((selector?: (s: any) => any) => {
     const state = {
+      querySettings: { limitEnabled: true, maxResultRows: 1000 },
       formatterSettings: {
         keywordCase: "upper",
         identifierCase: "preserve",
