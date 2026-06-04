@@ -59,6 +59,7 @@ vi.mock("../../../hooks/useSchemaCache", () => ({
 
 let mockAiEnabled = true;
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
+const mockSetQuerySettings = vi.fn();
 
 vi.mock("../../../stores/aiStore", () => ({
   useAiStore: Object.assign(
@@ -75,26 +76,37 @@ vi.mock("../../../stores/aiStore", () => ({
   ),
 }));
 
+const mockSettingsState = {
+  querySettings: {
+    maxResultRows: 1000,
+    limitEnabled: true,
+  },
+  formatterSettings: {
+    keywordCase: "upper",
+    identifierCase: "preserve",
+    dataTypeCase: "upper",
+    functionCase: "preserve",
+    indentStyle: "standard",
+    tabWidth: 2,
+    useTabs: false,
+    logicalOperatorNewline: "before",
+    newlineBeforeSemicolon: false,
+    expressionWidth: 50,
+    linesBetweenQueries: 1,
+    denseOperators: false,
+  },
+  setQuerySettings: mockSetQuerySettings,
+};
+
 vi.mock("../../../stores/settingsStore", () => ({
-  useSettingsStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
-      formatterSettings: {
-        keywordCase: "upper",
-        identifierCase: "preserve",
-        dataTypeCase: "upper",
-        functionCase: "preserve",
-        indentStyle: "standard",
-        tabWidth: 2,
-        useTabs: false,
-        logicalOperatorNewline: "before",
-        newlineBeforeSemicolon: false,
-        expressionWidth: 50,
-        linesBetweenQueries: 1,
-        denseOperators: false,
-      },
-    };
-    return selector ? selector(state) : state;
-  }),
+  useSettingsStore: Object.assign(
+    vi.fn((selector?: (s: any) => any) => {
+      return selector ? selector(mockSettingsState) : mockSettingsState;
+    }),
+    {
+      getState: vi.fn(() => mockSettingsState),
+    },
+  ),
 }));
 
 let mockEditorInstance: any = {
@@ -198,6 +210,7 @@ describe("QueryToolbar", () => {
     mockExecuteExplain.mockClear();
     mockExecuteExplainAnalyze.mockClear();
     mockSendMessage.mockClear();
+    mockSetQuerySettings.mockClear();
   });
 
   it("renders the Run button", () => {
