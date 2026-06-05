@@ -51,10 +51,11 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   deleteProfile: async (id) => {
     try {
+      set({ loading: true, error: null });
       await api.deleteConnectionProfile(id);
       await get().loadProfiles();
     } catch (e) {
-      set({ error: String(e) });
+      set({ error: String(e), loading: false });
     }
   },
 

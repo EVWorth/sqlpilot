@@ -50,6 +50,16 @@ const mockConnectionProfile: ConnectionProfile = {
   password: "secret",
 };
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 describe("connectionStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -143,12 +153,30 @@ describe("connectionStore", () => {
       expect(useConnectionStore.getState().profiles).toEqual([]);
     });
 
+    it("sets loading to true and clears previous error during delete", async () => {
+      const deleteRequest = deferred<void>();
+      vi.mocked(api.deleteConnectionProfile).mockReturnValue(deleteRequest.promise);
+      vi.mocked(api.listConnectionProfiles).mockResolvedValue([]);
+      useConnectionStore.setState({ error: "Previous error" });
+
+      const promise = useConnectionStore.getState().deleteProfile("profile-1");
+
+      expect(useConnectionStore.getState().loading).toBe(true);
+      expect(useConnectionStore.getState().error).toBeNull();
+
+      deleteRequest.resolve();
+      await promise;
+
+      expect(useConnectionStore.getState().loading).toBe(false);
+    });
+
     it("handles deleteProfile error", async () => {
       vi.mocked(api.deleteConnectionProfile).mockRejectedValue(new Error("Delete failed"));
 
       await useConnectionStore.getState().deleteProfile("profile-1");
 
       expect(useConnectionStore.getState().error).toBe("Error: Delete failed");
+      expect(useConnectionStore.getState().loading).toBe(false);
     });
   });
 
