@@ -22,6 +22,26 @@ export function SQLEditor() {
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const effectiveTheme = useThemeStore((s) => s.effectiveTheme);
 
+  // Debounce store updates on keystroke to avoid excessive re-renders
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingRef = useRef<string>('');
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const debouncedUpdateTabContent = useCallback(
+    (tabId: string, content: string) => {
+      pendingRef.current = content;
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      debounceRef.current = setTimeout(() => {
+        updateTabContent(tabId, pendingRef.current);
+      }, 150);
+    },
+    [updateTabContent],
+  );
+
   const monaco = useMonaco();
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
@@ -92,8 +112,11 @@ export function SQLEditor() {
           // Read current state directly to avoid stale closure
           const connectionId =
             useConnectionStore.getState().selectedConnectionId;
+          const { tabs: editorTabs, activeTabId: editorActiveTabId } =
+            useEditorStore.getState();
+          const editorActiveTab = editorTabs.find((t) => t.id === editorActiveTabId);
           if (sql.trim() && connectionId) {
-            useResultStore.getState().executeQuery(connectionId, sql);
+            useResultStore.getState().executeQuery(connectionId, sql, editorActiveTab?.database);
           }
         },
       });
@@ -189,7 +212,7 @@ export function SQLEditor() {
       value={activeTab.content}
       onChange={(value) => {
         if (activeTab) {
-          updateTabContent(activeTab.id, value ?? "");
+          debouncedUpdateTabContent(activeTab.id, value ?? "");
         }
       }}
       onMount={handleMount}

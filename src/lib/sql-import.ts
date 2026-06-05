@@ -2,7 +2,7 @@
  * Escape a value for use in a MySQL INSERT statement.
  */
 function escapeValue(value: string): string {
-  if (value === "" || value.toLowerCase() === "null") {
+  if (value === "") {
     return "NULL";
   }
   const escaped = value
@@ -116,10 +116,14 @@ export function splitSqlStatements(sql: string): string[] {
     }
 
     // Detect start of comments
+    // Per MySQL spec, `--` is only a line comment when followed by whitespace or newline
     if (ch === "-" && next === "-") {
-      inLineComment = true;
-      current += ch;
-      continue;
+      const afterDash = sql[i + 2] ?? "\n";
+      if (afterDash === " " || afterDash === "\t" || afterDash === "\n" || afterDash === "\r") {
+        inLineComment = true;
+        current += ch;
+        continue;
+      }
     }
     if (ch === "#") {
       inLineComment = true;

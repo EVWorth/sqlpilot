@@ -45,11 +45,21 @@ impl ConnectionStore {
                 read_only INTEGER NOT NULL DEFAULT 0,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
-                env TEXT
+                env TEXT,
+                connect_timeout_secs INTEGER,
+                query_timeout_secs INTEGER,
+                charset TEXT
             )",
         )?;
         // Migration: add env column if missing
         db.execute("ALTER TABLE connection_profiles ADD COLUMN env TEXT", [])
+            .ok();
+        // Migration: add advanced settings columns if missing
+        db.execute("ALTER TABLE connection_profiles ADD COLUMN connect_timeout_secs INTEGER", [])
+            .ok();
+        db.execute("ALTER TABLE connection_profiles ADD COLUMN query_timeout_secs INTEGER", [])
+            .ok();
+        db.execute("ALTER TABLE connection_profiles ADD COLUMN charset TEXT", [])
             .ok();
         tracing::debug!("Connection profiles table initialized");
         Ok(())
@@ -80,8 +90,9 @@ impl ConnectionStore {
         db.execute(
             "INSERT OR REPLACE INTO connection_profiles
              (id, name, grp, color, host, port, username, password, default_database,
-              ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+              ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env,
+              connect_timeout_secs, query_timeout_secs, charset)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
             params![
                 profile.id,
                 profile.name,
@@ -100,6 +111,9 @@ impl ConnectionStore {
                 profile.created_at.to_rfc3339(),
                 Utc::now().to_rfc3339(),
                 profile.environment.as_ref().map(|e| e.to_string()),
+                profile.connect_timeout_secs,
+                profile.query_timeout_secs,
+                profile.charset,
             ],
         )?;
         tracing::debug!("Connection profile saved");
@@ -115,7 +129,8 @@ impl ConnectionStore {
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut stmt = db.prepare(
             "SELECT id, name, grp, color, host, port, username, default_database,
-                    ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env
+                    ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env,
+                    connect_timeout_secs, query_timeout_secs, charset
               FROM connection_profiles ORDER BY name",
         )?;
 
@@ -123,9 +138,9 @@ impl ConnectionStore {
             .query_map([], |row| {
                 let ssh_str: Option<String> = row.get(8)?;
                 let ssl_str: Option<String> = row.get(9)?;
-                let created_str: String = row.get(14)?;
-                let updated_str: String = row.get(15)?;
-                let env_str: Option<String> = row.get(16)?;
+                let created_str: String = row.get(13)?;
+                let updated_str: String = row.get(14)?;
+                let env_str: Option<String> = row.get(15)?;
 
                 Ok(ConnectionProfileSummary {
                     id: row.get(0)?,
@@ -141,6 +156,9 @@ impl ConnectionStore {
                     pool_min: row.get::<_, i32>(10)? as u32,
                     pool_max: row.get::<_, i32>(11)? as u32,
                     read_only: row.get::<_, i32>(12)? != 0,
+                    connect_timeout_secs: row.get(16)?,
+                    query_timeout_secs: row.get(17)?,
+                    charset: row.get(18)?,
                     environment: env_str.and_then(|s| match s.as_str() {
                         "development" => Some(crate::models::ConnectionEnvironment::Development),
                         "staging" => Some(crate::models::ConnectionEnvironment::Staging),
@@ -170,8 +188,9 @@ impl ConnectionStore {
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut stmt = db.prepare(
             "SELECT id, name, grp, color, host, port, username, password, default_database,
-                    ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env
-             FROM connection_profiles WHERE id = ?1",
+                    ssh_config, ssl_config, pool_min, pool_max, read_only, created_at, updated_at, env,
+                    connect_timeout_secs, query_timeout_secs, charset
+              FROM connection_profiles WHERE id = ?1",
         )?;
 
         let mut profile = stmt
@@ -196,6 +215,9 @@ impl ConnectionStore {
                     pool_min: row.get::<_, i32>(11)? as u32,
                     pool_max: row.get::<_, i32>(12)? as u32,
                     read_only: row.get::<_, i32>(13)? != 0,
+                    connect_timeout_secs: row.get(17)?,
+                    query_timeout_secs: row.get(18)?,
+                    charset: row.get(19)?,
                     environment: env_str.and_then(|s| match s.as_str() {
                         "development" => Some(crate::models::ConnectionEnvironment::Development),
                         "staging" => Some(crate::models::ConnectionEnvironment::Staging),

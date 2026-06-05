@@ -15,6 +15,8 @@ interface EditorState {
   addCompareTab: () => string;
   addDesignerTab: (connectionId: string, database: string, tableName?: string) => string;
   closeTab: (id: string) => void;
+  closeOtherTabs: (id: string) => void;
+  closeTabsToRight: (id: string) => void;
   setActiveTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
   setTabConnection: (
@@ -250,6 +252,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   addQueryBuilderTab: (connectionId, database) => {
+    const { tabs: existingTabs } = get();
+    const existing = existingTabs.find(
+      (t) => t.type === "querybuilder" &&
+        t.connectionId === connectionId &&
+        t.database === database,
+    );
+    if (existing) {
+      set({ activeTabId: existing.id });
+      return existing.id;
+    }
     tabCounter++;
     const id = `tab-${tabCounter}`;
     const tab: EditorTab = {
@@ -284,6 +296,34 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             : null
           : state.activeTabId;
       return { tabs: newTabs, activeTabId: newActiveId };
+    });
+  },
+
+  closeOtherTabs: (id) => {
+    set((state) => {
+      const tab = state.tabs.find((t) => t.id === id);
+      if (!tab) return state;
+      // Keep only this tab and non-query tabs (structure, admin, etc.)
+      const newTabs = state.tabs.filter(
+        (t) => t.id === id || t.type !== tab.type,
+      );
+      return { tabs: newTabs, activeTabId: id };
+    });
+  },
+
+  closeTabsToRight: (id) => {
+    set((state) => {
+      const idx = state.tabs.findIndex((t) => t.id === id);
+      if (idx === -1) return state;
+      const tab = state.tabs[idx];
+      // Close all tabs of same type to the right
+      const newTabs = state.tabs.filter(
+        (t, i) =>
+          i <= idx ||
+          t.type !== tab.type ||
+          t.type === "query" && state.tabs.filter((x) => x.type === "query").length <= 2,
+      );
+      return { tabs: newTabs, activeTabId: id };
     });
   },
 

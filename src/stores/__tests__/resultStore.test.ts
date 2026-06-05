@@ -476,4 +476,49 @@ describe("resultStore", () => {
       expect(useResultStore.getState().isExecuting).toBe(false);
     });
   });
+
+  describe("cancelActiveQuery", () => {
+    it("sets isExecuting to false", () => {
+      useResultStore.setState({ isExecuting: true });
+
+      useResultStore.getState().cancelActiveQuery();
+
+      expect(useResultStore.getState().isExecuting).toBe(false);
+    });
+
+    it("sets error message", () => {
+      useResultStore.getState().cancelActiveQuery();
+
+      expect(useResultStore.getState().error).toBe("Query cancelled by user");
+    });
+
+    it("does not apply results after cancellation", async () => {
+      const results = [makeQueryResult()];
+      let resolveQuery: (value: any) => void;
+      const deferred = new Promise<any>((resolve) => {
+        resolveQuery = resolve;
+      });
+      executeQueryMock.mockReturnValue(deferred);
+
+      useResultStore.setState({
+        activeConnections: [
+          {
+            id: "conn-1",
+            name: "Test",
+            server_version: "8.0",
+            database: "testdb",
+          },
+        ],
+      });
+
+      const queryPromise = useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+      useResultStore.getState().cancelActiveQuery();
+
+      resolveQuery!(results);
+      await queryPromise;
+
+      // Results should be empty since the query was cancelled
+      expect(useResultStore.getState().results).toEqual([]);
+    });
+  });
 });

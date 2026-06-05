@@ -61,12 +61,15 @@ export const useSchemaCache = create<SchemaCache>((set, get) => ({
     try {
       set({ loading: true });
       const dbInfos = await api.getDatabases(connectionId);
+      if (get().connectionId !== connectionId) return [];
       const names = dbInfos.map((d) => d.name);
       set({ databases: names, loading: false });
 
-      // Eagerly pre-fetch tables for all databases so autocomplete works immediately
+      // Eagerly pre-fetch tables for all databases so autocomplete works immediately.
+      // Fire sequentially to avoid overwhelming the connection pool.
       for (const db of names) {
-        get().fetchTables(connectionId, db);
+        if (get().connectionId !== connectionId) break;
+        await get().fetchTables(connectionId, db);
       }
 
       return names;
@@ -80,17 +83,15 @@ export const useSchemaCache = create<SchemaCache>((set, get) => ({
     const cached = get().tables.get(database);
     if (cached) return cached;
     try {
-      set({ loading: true });
       const tableInfos = await api.getTables(connectionId, database);
       const names = tableInfos.map((t) => t.name);
       set((state) => {
         const newTables = new Map(state.tables);
         newTables.set(database, names);
-        return { tables: newTables, loading: false };
+        return { tables: newTables };
       });
       return names;
     } catch {
-      set({ loading: false });
       return [];
     }
   },
@@ -99,17 +100,15 @@ export const useSchemaCache = create<SchemaCache>((set, get) => ({
     const cached = get().views.get(database);
     if (cached) return cached;
     try {
-      set({ loading: true });
       const viewInfos = await api.getViews(connectionId, database);
       const names = viewInfos.map((v) => v.name);
       set((state) => {
         const newViews = new Map(state.views);
         newViews.set(database, names);
-        return { views: newViews, loading: false };
+        return { views: newViews };
       });
       return names;
     } catch {
-      set({ loading: false });
       return [];
     }
   },
@@ -118,17 +117,15 @@ export const useSchemaCache = create<SchemaCache>((set, get) => ({
     const cached = get().routines.get(database);
     if (cached) return cached;
     try {
-      set({ loading: true });
       const routineInfos = await api.getRoutines(connectionId, database);
       const names = routineInfos.map((r) => r.name);
       set((state) => {
         const newRoutines = new Map(state.routines);
         newRoutines.set(database, names);
-        return { routines: newRoutines, loading: false };
+        return { routines: newRoutines };
       });
       return names;
     } catch {
-      set({ loading: false });
       return [];
     }
   },
@@ -137,17 +134,15 @@ export const useSchemaCache = create<SchemaCache>((set, get) => ({
     const cached = get().triggers.get(database);
     if (cached) return cached;
     try {
-      set({ loading: true });
       const triggerInfos = await api.getTriggers(connectionId, database);
       const names = triggerInfos.map((t) => t.name);
       set((state) => {
         const newTriggers = new Map(state.triggers);
         newTriggers.set(database, names);
-        return { triggers: newTriggers, loading: false };
+        return { triggers: newTriggers };
       });
       return names;
     } catch {
-      set({ loading: false });
       return [];
     }
   },
@@ -157,16 +152,14 @@ export const useSchemaCache = create<SchemaCache>((set, get) => ({
     const cached = get().columns.get(key);
     if (cached) return cached;
     try {
-      set({ loading: true });
       const cols = await api.getColumns(connectionId, database, table);
       set((state) => {
         const newColumns = new Map(state.columns);
         newColumns.set(key, cols);
-        return { columns: newColumns, loading: false };
+        return { columns: newColumns };
       });
       return cols;
     } catch {
-      set({ loading: false });
       return [];
     }
   },

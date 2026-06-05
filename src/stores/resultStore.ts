@@ -30,6 +30,7 @@ interface ResultState {
   executeQuery: (connectionId: string, sql: string, database?: string) => Promise<void>;
   executeExplain: (connectionId: string, sql: string, database?: string) => Promise<void>;
   executeExplainAnalyze: (connectionId: string, sql: string, database?: string) => Promise<void>;
+  cancelActiveQuery: () => void;
   setActiveResult: (index: number) => void;
   setShowExplain: (show: boolean) => void;
   clearResults: () => void;
@@ -37,6 +38,8 @@ interface ResultState {
   confirmExecution: () => void;
   cancelExecution: () => void;
 }
+
+let cancelGeneration = 0;
 
 function isProductionConnection(connectionId: string): boolean {
   const state = useConnectionStore.getState();
@@ -76,6 +79,11 @@ export const useResultStore = create<ResultState>((set, get) => ({
 
   cancelExecution: () => {
     set({ confirmDialog: null });
+  },
+
+  cancelActiveQuery: () => {
+    cancelGeneration++;
+    set({ isExecuting: false, error: "Query cancelled by user" });
   },
 
   setActiveResult: (index) => set({ activeResultIndex: index }),
@@ -150,7 +158,10 @@ async function doExecuteQuery(
 
   try {
     set({ isExecuting: true, error: null });
+    cancelGeneration++;
+    const myGeneration = cancelGeneration;
     const results = await api.executeQuery(connectionId, sql, effectiveDatabase, rowLimit);
+    if (cancelGeneration !== myGeneration) return;
     set({ results, activeResultIndex: 0, isExecuting: false });
 
     const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);

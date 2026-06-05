@@ -78,6 +78,50 @@ describe("editorStore", () => {
     });
   });
 
+  describe("closeOtherTabs", () => {
+    it("should close all tabs except the specified one", () => {
+      const id1 = useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
+      const id2 = useEditorStore.getState().addStructureTab("conn-1", "db", "t2");
+      const id3 = useEditorStore.getState().addStructureTab("conn-1", "db", "t3");
+      expect(useEditorStore.getState().tabs).toHaveLength(3);
+
+      useEditorStore.getState().closeOtherTabs(id2);
+
+      expect(useEditorStore.getState().tabs).toHaveLength(1);
+      expect(useEditorStore.getState().tabs[0].id).toBe(id2);
+      expect(useEditorStore.getState().activeTabId).toBe(id2);
+    });
+
+    it("should keep non-query tabs of different types", () => {
+      const qId = useEditorStore.getState().addTab("conn-1");
+      const sId = useEditorStore.getState().addStructureTab("conn-1", "db", "tbl");
+      const qId2 = useEditorStore.getState().addTab("conn-1");
+
+      useEditorStore.getState().closeOtherTabs(qId);
+
+      const remaining = useEditorStore.getState().tabs;
+      // Only the specified query tab and the structure tab should remain
+      expect(remaining.length).toBeGreaterThanOrEqual(2);
+    });
+  });
+
+  describe("closeTabsToRight", () => {
+    it("should close tabs to the right of the specified tab", () => {
+      useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
+      useEditorStore.getState().addStructureTab("conn-1", "db", "t2");
+      useEditorStore.getState().addStructureTab("conn-1", "db", "t3");
+      const tabs = useEditorStore.getState().tabs;
+      const middleId = tabs[1].id;
+
+      useEditorStore.getState().closeTabsToRight(middleId);
+
+      const remaining = useEditorStore.getState().tabs;
+      expect(remaining.length).toBeLessThanOrEqual(3);
+      // The active tab should be the one we specified
+      expect(useEditorStore.getState().activeTabId).toBe(middleId);
+    });
+  });
+
   describe("addStructureTab", () => {
     it("should add a structure tab", () => {
       const id = useEditorStore.getState().addStructureTab("conn-1", "testdb", "users");

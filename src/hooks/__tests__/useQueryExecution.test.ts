@@ -88,9 +88,11 @@ describe("useQueryExecution", () => {
     expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined);
   });
 
-  it("executeQuery does nothing when no connection is selected", async () => {
+  it("executeQuery rejects when no connection is selected", async () => {
     const { result } = renderHook(() => useQueryExecution());
-    await act(() => result.current.executeQuery("SELECT 1"));
+    await expect(
+      act(() => result.current.executeQuery("SELECT 1")),
+    ).rejects.toThrow("No active connection");
     expect(mockExecuteQuery).not.toHaveBeenCalled();
   });
 

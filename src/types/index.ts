@@ -17,6 +17,9 @@ export interface ConnectionProfile {
   pool_min: number;
   pool_max: number;
   read_only: boolean;
+  connect_timeout_secs?: number;
+  query_timeout_secs?: number;
+  charset?: string;
   created_at: string;
   updated_at: string;
 }

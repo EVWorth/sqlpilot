@@ -35,12 +35,13 @@ impl ConnectionManager {
             "Creating connection pool"
         );
 
+        let charset = profile.charset.clone().unwrap_or_else(|| "utf8mb4".to_string());
         let mut options = MySqlConnectOptions::new()
             .host(&profile.host)
             .port(profile.port)
             .username(&profile.username)
             .password(&profile.password)
-            .charset("utf8mb4");
+            .charset(&charset);
 
         if let Some(ref db) = profile.default_database {
             if !db.is_empty() {
@@ -52,14 +53,18 @@ impl ConnectionManager {
 
         tracing::debug!(connection_id = %conn_id, "Connecting to MySQL server");
 
+        let charset_for_after_connect = charset.clone();
         let pool = MySqlPoolOptions::new()
             .min_connections(profile.pool_min)
             .max_connections(profile.pool_max)
-            .acquire_timeout(std::time::Duration::from_secs(5))
+            .acquire_timeout(std::time::Duration::from_secs(
+                profile.connect_timeout_secs.unwrap_or(10) as u64,
+            ))
             .idle_timeout(std::time::Duration::from_secs(300))
-            .after_connect(|conn, _meta| {
+            .after_connect(move |conn, _meta| {
+                let charset = charset_for_after_connect.clone();
                 Box::pin(async move {
-                    sqlx::query("SET NAMES utf8mb4").execute(&mut *conn).await?;
+                    sqlx::query(&format!("SET NAMES {}", charset)).execute(&mut *conn).await?;
                     Ok(())
                 })
             })
@@ -145,12 +150,13 @@ impl ConnectionManager {
     ) -> Result<TestConnectionResult, CoreError> {
         let start = Instant::now();
 
+        let charset = profile.charset.clone().unwrap_or_else(|| "utf8mb4".to_string());
         let mut options = MySqlConnectOptions::new()
             .host(&profile.host)
             .port(profile.port)
             .username(&profile.username)
             .password(&profile.password)
-            .charset("utf8mb4");
+            .charset(&charset);
 
         if let Some(ref db) = profile.default_database {
             if !db.is_empty() {
@@ -164,7 +170,9 @@ impl ConnectionManager {
 
         match MySqlPoolOptions::new()
             .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(5))
+            .acquire_timeout(std::time::Duration::from_secs(
+                profile.connect_timeout_secs.unwrap_or(10) as u64,
+            ))
             .connect_with(options)
             .await
         {

@@ -145,7 +145,11 @@ describe("useKeyboardShortcuts", () => {
       window.dispatchEvent(event);
 
       expect(preventDefaultSpy).toHaveBeenCalled();
-      expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1");
+      expect(mockExecuteQuery).toHaveBeenCalledWith(
+        "conn-1",
+        "SELECT 1",
+        undefined,
+      );
     });
 
     it("does not execute when no active tab has content", () => {
@@ -205,7 +209,22 @@ describe("useKeyboardShortcuts", () => {
   });
 
   describe("Ctrl+S — save favorite", () => {
-    it("calls onSaveFavorite when Ctrl+S is pressed", () => {
+    let monacoTextarea: HTMLTextAreaElement;
+
+    beforeEach(() => {
+      // Create a mock Monaco editor focus context for isMonacoFocused check
+      const wrapper = document.createElement("div");
+      wrapper.className = "monaco-editor";
+      monacoTextarea = document.createElement("textarea");
+      wrapper.appendChild(monacoTextarea);
+      document.body.appendChild(wrapper);
+    });
+
+    afterEach(() => {
+      document.body.innerHTML = "";
+    });
+
+    it("calls onSaveFavorite when Ctrl+S is pressed with Monaco focused", () => {
       const onSaveFavorite = vi.fn();
       renderHook(() =>
         useKeyboardShortcuts(undefined, undefined, onSaveFavorite),
@@ -213,19 +232,21 @@ describe("useKeyboardShortcuts", () => {
 
       const event = createKeyboardEvent("s", { ctrlKey: true });
       const preventDefaultSpy = vi.spyOn(event, "preventDefault");
+      Object.defineProperty(event, "target", { value: monacoTextarea, writable: false });
       window.dispatchEvent(event);
 
       expect(preventDefaultSpy).toHaveBeenCalled();
       expect(onSaveFavorite).toHaveBeenCalled();
     });
 
-    it("calls onSaveFavorite when Cmd+S is pressed", () => {
+    it("calls onSaveFavorite when Cmd+S is pressed with Monaco focused", () => {
       const onSaveFavorite = vi.fn();
       renderHook(() =>
         useKeyboardShortcuts(undefined, undefined, onSaveFavorite),
       );
 
       const event = createKeyboardEvent("s", { metaKey: true });
+      Object.defineProperty(event, "target", { value: monacoTextarea, writable: false });
       window.dispatchEvent(event);
 
       expect(onSaveFavorite).toHaveBeenCalled();

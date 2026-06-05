@@ -77,6 +77,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   disconnect: async (connectionId) => {
     try {
+      set({ loading: true, error: null });
       await api.disconnect(connectionId);
       set((state) => ({
         activeConnections: state.activeConnections.filter(
@@ -86,9 +87,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
           state.selectedConnectionId === connectionId
             ? null
             : state.selectedConnectionId,
+        loading: false,
       }));
     } catch (e) {
-      set({ error: String(e) });
+      set({ error: String(e), loading: false });
     }
   },
 

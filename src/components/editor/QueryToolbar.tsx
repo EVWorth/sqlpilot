@@ -4,6 +4,7 @@ import { format } from "sql-formatter";
 import { postProcessSQL } from "../../lib/sql-post-process";
 import { useEditorStore } from "../../stores/editorStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useResultStore } from "../../stores/resultStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
 import { useAiStore } from "../../stores/aiStore";
@@ -41,6 +42,8 @@ export function QueryToolbar() {
     canExecute: hookCanExecute,
     isExecuting,
   } = useQueryExecution();
+
+  const cancelActiveQuery = useResultStore((s) => s.cancelActiveQuery);
 
   const activeConnection = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -140,15 +143,19 @@ export function QueryToolbar() {
   return (
     <div className="flex h-8 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2">
       <button
-        onClick={handleExecute}
-        disabled={!canExecute}
-        title="Execute Query (Ctrl+Enter)"
-        className="flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-green-600 text-white hover:bg-green-500 disabled:hover:bg-green-600"
+        onClick={isExecuting ? cancelActiveQuery : handleExecute}
+        disabled={!isExecuting && !canExecute}
+        title={isExecuting ? "Cancel Query" : "Execute Query (Ctrl+Enter)"}
+        className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+          isExecuting
+            ? "bg-red-600 text-white hover:bg-red-500"
+            : "bg-green-600 text-white hover:bg-green-500 disabled:hover:bg-green-600"
+        }`}
       >
         {isExecuting ? (
           <>
-            <Square className="h-3 w-3" />
-            Running...
+            <Square className="h-3 w-3 fill-current" />
+            Cancel
           </>
         ) : (
           <>

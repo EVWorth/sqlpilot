@@ -48,6 +48,9 @@ const defaultProfile: Omit<
   pool_min: 1,
   pool_max: 5,
   read_only: false,
+  connect_timeout_secs: 10,
+  query_timeout_secs: 0,
+  charset: "utf8mb4",
 };
 
 type TabId = "general" | "ssl" | "ssh" | "advanced";
@@ -526,14 +529,28 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                   Read-only mode
                 </span>
               </label>
-              <div className="mt-4 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-4 text-center">
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  More settings coming soon
-                </p>
-                <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
-                  Connection timeout, query timeout, character set
-                </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Field
+                  label="Connect Timeout (s)"
+                  value={String(form.connect_timeout_secs ?? 10)}
+                  onChange={(v) => handleChange("connect_timeout_secs", parseInt(v) || 10)}
+                  type="number"
+                  placeholder="10"
+                />
+                <Field
+                  label="Query Timeout (s, 0=unlimited)"
+                  value={String(form.query_timeout_secs ?? 0)}
+                  onChange={(v) => handleChange("query_timeout_secs", parseInt(v) || 0)}
+                  type="number"
+                  placeholder="0"
+                />
               </div>
+              <Field
+                label="Character Set"
+                value={form.charset ?? "utf8mb4"}
+                onChange={(v) => handleChange("charset", v || "utf8mb4")}
+                placeholder="utf8mb4"
+              />
             </div>
           )}
         </div>

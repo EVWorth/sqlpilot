@@ -28,7 +28,7 @@ export function useQueryExecution() {
 
   const executeQuery = useCallback(
     (sql: string) => {
-      if (!connectionId) return Promise.resolve();
+      if (!connectionId) return Promise.reject(new Error("No active connection"));
       return storeExecuteQuery(connectionId, sql, database);
     },
     [connectionId, database, storeExecuteQuery],
@@ -36,7 +36,7 @@ export function useQueryExecution() {
 
   const executeExplain = useCallback(
     (sql: string) => {
-      if (!connectionId) return Promise.resolve();
+      if (!connectionId) return Promise.reject(new Error("No active connection"));
       return storeExecuteExplain(connectionId, sql, database);
     },
     [connectionId, database, storeExecuteExplain],
@@ -44,7 +44,7 @@ export function useQueryExecution() {
 
   const executeExplainAnalyze = useCallback(
     (sql: string) => {
-      if (!connectionId) return Promise.resolve();
+      if (!connectionId) return Promise.reject(new Error("No active connection"));
       return storeExecuteExplainAnalyze(connectionId, sql, database);
     },
     [connectionId, database, storeExecuteExplainAnalyze],

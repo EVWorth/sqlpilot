@@ -50,7 +50,11 @@ export function MainPanel() {
           connectionId={activeTab.connectionId}
           database={activeTab.database}
           routineName={activeTab.routineName}
-          routineType={activeTab.routineType as "PROCEDURE" | "FUNCTION"}
+          routineType={
+            activeTab.routineType === "PROCEDURE" || activeTab.routineType === "FUNCTION"
+              ? activeTab.routineType
+              : "PROCEDURE"
+          }
         />
       ) : (
         <>

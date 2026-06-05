@@ -3,6 +3,7 @@ import { Plus, X, ChevronLeft } from "lucide-react";
 import { useEditorStore } from "../../stores/editorStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { cn } from "../../lib/utils";
+import { useContextMenu } from "../../hooks/useContextMenu";
 
 export function EditorTabs() {
   const tabs = useEditorStore((s) => s.tabs);
@@ -12,8 +13,11 @@ export function EditorTabs() {
   const addTab = useEditorStore((s) => s.addTab);
   const renameTab = useEditorStore((s) => s.renameTab);
   const reorderTabs = useEditorStore((s) => s.reorderTabs);
+  const closeOtherTabs = useEditorStore((s) => s.closeOtherTabs);
+  const closeTabsToRight = useEditorStore((s) => s.closeTabsToRight);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const profiles = useConnectionStore((s) => s.profiles);
+  const { contextMenu, showContextMenu } = useContextMenu();
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showScrollLeft, setShowScrollLeft] = useState(false);
@@ -136,6 +140,13 @@ export function EditorTabs() {
               }
             }}
             onDoubleClick={() => handleDoubleClick(tab.id, tab.title)}
+            onContextMenu={(e) => {
+              showContextMenu(e, [
+                { label: "Close", onClick: () => closeTab(tab.id) },
+                { label: "Close Others", onClick: () => closeOtherTabs(tab.id) },
+                { label: "Close to the Right", onClick: () => closeTabsToRight(tab.id) },
+              ]);
+            }}
             className={cn(
               "group relative flex h-9 items-center gap-1.5 border-r border-[var(--color-border)] px-3 text-xs transition-colors",
               activeTabId === tab.id
@@ -202,6 +213,7 @@ export function EditorTabs() {
           <Plus className="h-4 w-4" />
         </button>
       </div>
+      {contextMenu}
     </div>
   );
 }

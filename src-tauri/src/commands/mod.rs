@@ -521,10 +521,22 @@ pub async fn pick_file(
 #[tauri::command]
 #[tracing::instrument(skip(contents), fields(path = %path, content_len = contents.len()))]
 pub async fn write_file_contents(path: String, contents: String) -> Result<(), String> {
-    let path_buf = PathBuf::from(&path)
-        .canonicalize()
-        .map_err(|e| format!("Invalid path: {e}"))?;
-    tokio::fs::write(&path_buf, &contents).await.map_err(|e| {
+    let path_buf = PathBuf::from(&path);
+    // Canonicalize the parent directory so relative paths resolve, but
+    // preserve the filename for new files (save-as) that don't exist yet.
+    let resolved = if let Some(parent) = path_buf.parent() {
+        let canonical_parent = parent
+            .canonicalize()
+            .map_err(|e| format!("Invalid path: {e}"))?;
+        canonical_parent.join(
+            path_buf
+                .file_name()
+                .ok_or_else(|| "Invalid path: missing file name".to_string())?,
+        )
+    } else {
+        path_buf.canonicalize().map_err(|e| format!("Invalid path: {e}"))?
+    };
+    tokio::fs::write(&resolved, &contents).await.map_err(|e| {
         tracing::error!(error = %e, path = %path, "Failed to write file");
         format!("Failed to write file: {}", e)
     })?;

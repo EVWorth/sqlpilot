@@ -84,9 +84,9 @@ describe("generateBatchInsert", () => {
     expect(result[0]).toContain("'it\\'s a test'");
   });
 
-  it("should handle NULL values", () => {
+  it("should quote literal string 'null' rather than converting to SQL NULL", () => {
     const result = generateBatchInsert("t", ["val"], [["null"]], 100);
-    expect(result[0]).toContain("NULL");
+    expect(result[0]).toContain("'null'");
   });
 
   it("should handle empty values as NULL", () => {

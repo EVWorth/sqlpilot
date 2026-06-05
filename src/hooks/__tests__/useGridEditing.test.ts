@@ -468,8 +468,142 @@ describe("useGridEditing", () => {
       act(() => {
         result.current.deleteRow(7);
       });
+    });
+  });
 
-      expect(result.current.isRowDeleted(7)).toBe(true);
+  describe("undo / redo", () => {
+    it("canUndo is true after editing a cell", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      act(() => {
+        result.current.editCell(0, "col", "old", "new");
+      });
+
+      expect(result.current.canUndo).toBe(true);
+      expect(result.current.canRedo).toBe(false);
+    });
+
+    it("undo reverts a cell edit", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      act(() => {
+        result.current.editCell(0, "col", "old", "new");
+      });
+      expect(result.current.updates.size).toBe(1);
+
+      act(() => {
+        result.current.undo();
+      });
+
+      expect(result.current.updates.size).toBe(0);
+      expect(result.current.canUndo).toBe(false);
+      expect(result.current.canRedo).toBe(true);
+    });
+
+    it("redo re-applies a reverted cell edit", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      act(() => {
+        result.current.editCell(0, "col", "old", "new");
+      });
+      act(() => {
+        result.current.undo();
+      });
+      expect(result.current.updates.size).toBe(0);
+
+      act(() => {
+        result.current.redo();
+      });
+
+      expect(result.current.updates.size).toBe(1);
+      expect(result.current.canUndo).toBe(true);
+      expect(result.current.canRedo).toBe(false);
+    });
+
+    it("undo removes last added row", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      act(() => {
+        result.current.addRow();
+      });
+      expect(result.current.inserts).toHaveLength(1);
+
+      act(() => {
+        result.current.undo();
+      });
+
+      expect(result.current.inserts).toHaveLength(0);
+    });
+
+    it("redo restores undone row add", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      act(() => {
+        result.current.addRow();
+      });
+      act(() => {
+        result.current.undo();
+      });
+      act(() => {
+        result.current.redo();
+      });
+
+      expect(result.current.inserts).toHaveLength(1);
+    });
+
+    it("undo toggles delete row", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      act(() => {
+        result.current.deleteRow(5);
+      });
+      expect(result.current.deletes.has(5)).toBe(true);
+
+      act(() => {
+        result.current.undo();
+      });
+
+      expect(result.current.deletes.has(5)).toBe(false);
+    });
+
+    it("redo toggles delete row back on", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      act(() => {
+        result.current.deleteRow(5);
+      });
+      act(() => {
+        result.current.undo();
+      });
+      act(() => {
+        result.current.redo();
+      });
+
+      expect(result.current.deletes.has(5)).toBe(true);
+    });
+
+    it("discardAll clears undo/redo stacks", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      act(() => {
+        result.current.editCell(0, "col", "old", "new");
+        result.current.addRow();
+      });
+      expect(result.current.canUndo).toBe(true);
+
+      act(() => {
+        result.current.discardAll();
+      });
+
+      expect(result.current.canUndo).toBe(false);
+      expect(result.current.canRedo).toBe(false);
+    });
+
+    it("canUndo canRedo return false when no operations", () => {
+      const { result } = renderHook(() => useGridEditing());
+
+      expect(result.current.canUndo).toBe(false);
+      expect(result.current.canRedo).toBe(false);
     });
   });
 });

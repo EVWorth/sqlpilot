@@ -100,6 +100,25 @@ export function ResultsGrid() {
   );
 
   const editing = useGridEditing();
+
+  // Keyboard shortcuts for grid edit undo/redo
+  useEffect(() => {
+    if (!editing.editMode) return;
+    const handler = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+      if (e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        editing.redo();
+      } else if (e.key === "z") {
+        e.preventDefault();
+        editing.undo();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editing.editMode, editing.undo, editing.redo]);
+
   const activeResult = results[activeResultIndex];
   const aiEnabled = useAiStore((s) => s.aiEnabled);
 
@@ -300,9 +319,11 @@ export function ResultsGrid() {
         );
       }
 
-      // Execute all statements
-      for (const stmt of statements) {
-        await api.executeQuery(connId, stmt);
+      // Execute all statements as a single transactional batch.
+      // Wrap in a transaction so partial failures roll back.
+      if (statements.length > 0) {
+        const batch = "START TRANSACTION;\n" + statements.join(";\n") + ";\nCOMMIT;";
+        await api.executeQuery(connId, batch);
       }
 
       // Re-run original query to refresh
@@ -517,6 +538,10 @@ export function ResultsGrid() {
         onAddRow={editing.addRow}
         onSave={handleSave}
         onDiscard={editing.discardAll}
+        onUndo={editing.undo}
+        onRedo={editing.redo}
+        canUndo={editing.canUndo}
+        canRedo={editing.canRedo}
       />
 
       {/* Truncation warning */}

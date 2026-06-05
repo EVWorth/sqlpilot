@@ -32,15 +32,15 @@ export function useKeyboardShortcuts(
         const { tabs, activeTabId } = useEditorStore.getState();
         const activeTab = tabs.find((t) => t.id === activeTabId);
         if (activeTab?.content?.trim() && connectionId) {
-          useResultStore.getState().executeQuery(connectionId, activeTab.content);
+          useResultStore.getState().executeQuery(connectionId, activeTab.content, activeTab.database);
         }
         return;
       }
 
       if (!ctrl) return;
 
-      // Ctrl+S — save favorite
-      if (!shift && e.key === "s") {
+      // Ctrl+S — save favorite (only when Monaco editor is focused)
+      if (!shift && e.key === "s" && isMonacoFocused) {
         e.preventDefault();
         onSaveFavorite?.();
         return;

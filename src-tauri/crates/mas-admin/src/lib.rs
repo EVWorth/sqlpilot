@@ -101,12 +101,29 @@ impl AdminService {
     ) -> Result<(), CoreError> {
         tracing::info!(process_id = process_id, "Killing MySQL process");
         let pool = self.connection_manager.get_pool(connection_id)?;
-        sqlx::query("KILL ?")
+        let result = sqlx::query("KILL ?")
             .bind(process_id)
             .execute(&pool)
-            .await
-            .map_err(|e| CoreError::Query(e.to_string()))?;
-        tracing::info!(process_id = process_id, "Process killed successfully");
-        Ok(())
+            .await;
+        match result {
+            Ok(_) => {
+                tracing::info!(process_id = process_id, "Process killed successfully");
+                Ok(())
+            }
+            Err(e) => {
+                let msg = e.to_string();
+                if msg.contains("Unknown column type") || msg.contains("0xf3") {
+                    tracing::warn!(
+                        process_id = process_id,
+                        "KILL command errored during result parsing (MariaDB compatibility): {}. Process was likely killed.",
+                        msg
+                    );
+                    Ok(())
+                } else {
+                    tracing::error!(process_id = process_id, error = %msg, "Failed to kill process");
+                    Err(CoreError::Query(msg))
+                }
+            }
+        }
     }
 }

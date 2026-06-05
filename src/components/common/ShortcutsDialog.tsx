@@ -19,8 +19,11 @@ const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
     shortcuts: [
       { keys: "Ctrl+Enter", description: "Execute query" },
       { keys: "F5", description: "Execute query" },
+      { keys: "Ctrl+Shift+E", description: "Explain query" },
+      { keys: "Ctrl+Shift+A", description: "Explain Analyze" },
       { keys: "Ctrl+F", description: "Find in editor" },
       { keys: "Ctrl+H", description: "Find & Replace" },
+      { keys: "Ctrl+G", description: "Go to line" },
       { keys: "Ctrl+Shift+F", description: "Format SQL" },
       { keys: "Ctrl+S", description: "Save as favorite" },
     ],

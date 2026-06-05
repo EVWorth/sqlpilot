@@ -1,4 +1,4 @@
-import { Pencil, Plus, Save, Undo2, AlertTriangle } from "lucide-react";
+import { Pencil, Plus, Save, Undo2, Redo2, AlertTriangle } from "lucide-react";
 
 interface EditToolbarProps {
   editMode: boolean;
@@ -10,6 +10,10 @@ interface EditToolbarProps {
   onAddRow: () => void;
   onSave: () => void;
   onDiscard: () => void;
+  onUndo?: () => void;
+  onRedo?: () => void;
+  canUndo?: boolean;
+  canRedo?: boolean;
 }
 
 export function EditToolbar({
@@ -22,6 +26,10 @@ export function EditToolbar({
   onAddRow,
   onSave,
   onDiscard,
+  onUndo,
+  onRedo,
+  canUndo,
+  canRedo,
 }: EditToolbarProps) {
   return (
     <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1">
@@ -75,6 +83,37 @@ export function EditToolbar({
             <Undo2 className="h-3 w-3" />
             Discard
           </button>
+
+          {onUndo && (
+            <button
+              onClick={onUndo}
+              disabled={!canUndo}
+              className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${
+                canUndo
+                  ? "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                  : "cursor-not-allowed text-[var(--color-text-muted)] opacity-50"
+              }`}
+              title="Undo (Ctrl+Z)"
+            >
+              <Undo2 className="h-3 w-3" />
+              Undo
+            </button>
+          )}
+          {onRedo && (
+            <button
+              onClick={onRedo}
+              disabled={!canRedo}
+              className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] ${
+                canRedo
+                  ? "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                  : "cursor-not-allowed text-[var(--color-text-muted)] opacity-50"
+              }`}
+              title="Redo (Ctrl+Shift+Z)"
+            >
+              <Redo2 className="h-3 w-3" />
+              Redo
+            </button>
+          )}
 
           {!hasPrimaryKey && (
             <div className="ml-2 flex items-center gap-1 rounded bg-amber-900/30 px-2 py-0.5 text-[10px] text-amber-400">
