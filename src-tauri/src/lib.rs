@@ -10,6 +10,8 @@ use mas_core::schema::SchemaInspector;
 use std::sync::Arc;
 #[cfg(target_os = "macos")]
 use tauri::Emitter;
+#[cfg(target_os = "windows")]
+use tauri::Manager;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
