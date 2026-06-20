@@ -55,12 +55,21 @@ impl ConnectionStore {
         db.execute("ALTER TABLE connection_profiles ADD COLUMN env TEXT", [])
             .ok();
         // Migration: add advanced settings columns if missing
-        db.execute("ALTER TABLE connection_profiles ADD COLUMN connect_timeout_secs INTEGER", [])
-            .ok();
-        db.execute("ALTER TABLE connection_profiles ADD COLUMN query_timeout_secs INTEGER", [])
-            .ok();
-        db.execute("ALTER TABLE connection_profiles ADD COLUMN charset TEXT", [])
-            .ok();
+        db.execute(
+            "ALTER TABLE connection_profiles ADD COLUMN connect_timeout_secs INTEGER",
+            [],
+        )
+        .ok();
+        db.execute(
+            "ALTER TABLE connection_profiles ADD COLUMN query_timeout_secs INTEGER",
+            [],
+        )
+        .ok();
+        db.execute(
+            "ALTER TABLE connection_profiles ADD COLUMN charset TEXT",
+            [],
+        )
+        .ok();
         tracing::debug!("Connection profiles table initialized");
         Ok(())
     }
