@@ -67,3 +67,8 @@ if (typeof window !== "undefined") {
   mql.addEventListener("change", handler);
   _mqlState.cleanup = () => mql.removeEventListener("change", handler);
 }
+
+/** Removes the system theme change listener. Useful for cleanup (e.g. in tests). */
+export function cleanupThemeListener() {
+  _mqlState.cleanup?.();
+}
