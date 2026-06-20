@@ -48,24 +48,27 @@ export const useThemeStore = create<ThemeState>((set) => ({
   },
 }));
 
-// Listen for system preference changes when mode is 'system'
-let mediaQuery: MediaQueryList | undefined;
-
-const handleSystemThemeChange = () => {
-  const state = useThemeStore.getState();
-  if (state.theme === "system") {
-    const effective = resolveEffective("system");
-    applyTheme(effective);
-    useThemeStore.setState({ effectiveTheme: effective });
-  }
-};
+// Use a const object wrapper to persist cleanup across HMR module reloads
+const _mqlState = { cleanup: null as (() => void) | null };
 
 if (typeof window !== "undefined") {
-  mediaQuery = window.matchMedia("(prefers-color-scheme: dark)");
-  mediaQuery.addEventListener("change", handleSystemThemeChange);
+  _mqlState.cleanup?.();
+
+  const mql = window.matchMedia("(prefers-color-scheme: dark)");
+  const handler = () => {
+    const state = useThemeStore.getState();
+    if (state.theme === "system") {
+      const effective = resolveEffective("system");
+      applyTheme(effective);
+      useThemeStore.setState({ effectiveTheme: effective });
+    }
+  };
+
+  mql.addEventListener("change", handler);
+  _mqlState.cleanup = () => mql.removeEventListener("change", handler);
 }
 
 /** Removes the system theme change listener. Useful for cleanup (e.g. in tests). */
 export function cleanupThemeListener() {
-  mediaQuery?.removeEventListener("change", handleSystemThemeChange);
+  _mqlState.cleanup?.();
 }
