@@ -386,10 +386,10 @@ describe("QueryToolbar", () => {
     expect(screen.getByText("Save").closest("button")).toBeDisabled();
   });
 
-  it("shows Running state when executing", () => {
+  it("shows Cancel button when executing", () => {
     mockIsExecuting = true;
     render(<QueryToolbar />);
-    expect(screen.getByText("Running...")).toBeInTheDocument();
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
     expect(screen.queryByText("Run")).not.toBeInTheDocument();
   });
 
