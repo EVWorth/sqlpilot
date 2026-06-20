@@ -134,6 +134,7 @@ export function useGridEditing() {
     setDeletes(new Set());
     undoStack.current = [];
     redoStack.current = [];
+    bumpVersion();
   }, []);
 
   const applyAction = useCallback((action: EditAction): EditAction => {
@@ -143,7 +144,11 @@ export function useGridEditing() {
           const next = new Map(prev);
           const rowChanges = [...(next.get(action.rowIndex) ?? [])];
           const existing = rowChanges.findIndex((c) => c.column === action.column);
-          if (action.newValue === action.oldValue || (action.oldValue === undefined && action.newValue === action.oldValue)) {
+          if (existing >= 0 && action.newValue === rowChanges[existing].originalValue) {
+            rowChanges.splice(existing, 1);
+            if (rowChanges.length === 0) next.delete(action.rowIndex);
+            else next.set(action.rowIndex, rowChanges);
+          } else if (action.newValue === action.oldValue) {
             if (existing >= 0) {
               rowChanges.splice(existing, 1);
               if (rowChanges.length === 0) next.delete(action.rowIndex);
@@ -172,6 +177,10 @@ export function useGridEditing() {
         return { ...action, index: -1 };
       }
       case "deleteRow": {
+        if (action.rowIndex === -1) {
+          setInserts((prev) => prev.slice(0, -1));
+          return { type: "insertRow", index: 0 }; // forward action for redo
+        }
         setDeletes((prev: Set<number>) => {
           const next = new Set(prev);
           if (next.has(action.rowIndex)) next.delete(action.rowIndex);
@@ -194,7 +203,9 @@ export function useGridEditing() {
   const redo = useCallback(() => {
     const action = redoStack.current.pop();
     if (!action) return;
-    const reverse = applyAction(reverseAction(action));
+    const reverse = action.type === "insertRow"
+      ? applyAction(action)
+      : applyAction(reverseAction(action));
     undoStack.current.push(reverse);
     bumpVersion();
   }, [applyAction]);
