@@ -534,7 +534,9 @@ pub async fn write_file_contents(path: String, contents: String) -> Result<(), S
                 .ok_or_else(|| "Invalid path: missing file name".to_string())?,
         )
     } else {
-        path_buf.canonicalize().map_err(|e| format!("Invalid path: {e}"))?
+        path_buf
+            .canonicalize()
+            .map_err(|e| format!("Invalid path: {e}"))?
     };
     tokio::fs::write(&resolved, &contents).await.map_err(|e| {
         tracing::error!(error = %e, path = %path, "Failed to write file");

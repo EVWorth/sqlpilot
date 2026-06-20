@@ -35,7 +35,10 @@ impl ConnectionManager {
             "Creating connection pool"
         );
 
-        let charset = profile.charset.clone().unwrap_or_else(|| "utf8mb4".to_string());
+        let charset = profile
+            .charset
+            .clone()
+            .unwrap_or_else(|| "utf8mb4".to_string());
         let mut options = MySqlConnectOptions::new()
             .host(&profile.host)
             .port(profile.port)
@@ -64,7 +67,9 @@ impl ConnectionManager {
             .after_connect(move |conn, _meta| {
                 let charset = charset_for_after_connect.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!("SET NAMES {}", charset)).execute(&mut *conn).await?;
+                    sqlx::query(&format!("SET NAMES {}", charset))
+                        .execute(&mut *conn)
+                        .await?;
                     Ok(())
                 })
             })
@@ -150,7 +155,10 @@ impl ConnectionManager {
     ) -> Result<TestConnectionResult, CoreError> {
         let start = Instant::now();
 
-        let charset = profile.charset.clone().unwrap_or_else(|| "utf8mb4".to_string());
+        let charset = profile
+            .charset
+            .clone()
+            .unwrap_or_else(|| "utf8mb4".to_string());
         let mut options = MySqlConnectOptions::new()
             .host(&profile.host)
             .port(profile.port)
