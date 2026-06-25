@@ -137,19 +137,17 @@ jobs:
       - name: Sign artifacts and generate manifest
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${TAG#v}"
 
-          # Write private key to file (printf preserves exact content, no trailing newline)
-          printf '%s' "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/sign-key
-
           # Generate signatures for each platform binary
           for file in *.AppImage *.deb *.rpm *.msi *.exe *.dmg *.tar.gz; do
             [ -f "$file" ] || continue
             echo "Signing $file..."
-            npx tauri signer sign --private-key /tmp/sign-key "$file"
+            npx tauri signer sign "$file"
           done
 
           rm -f /tmp/sign-key
