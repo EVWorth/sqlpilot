@@ -191,8 +191,9 @@ jobs:
 
           echo "Generated manifest:"
           cat update-manifest.json
+          mv update-manifest.json latest.json
 
       - name: Upload update manifest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} update-manifest.json --clobber
+        run: gh release upload ${{ github.ref_name }} latest.json --clobber
