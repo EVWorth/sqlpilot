@@ -95,7 +95,8 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       } else {
         set({ updateStatus: "up-to-date", updateVersion: null });
       }
-    } catch {
+    } catch (e) {
+      console.error("Update check failed:", e);
       set({ updateStatus: "error", updateVersion: null });
     }
   },
