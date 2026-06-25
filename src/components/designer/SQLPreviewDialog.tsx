@@ -1,5 +1,5 @@
-import { useRef, useEffect, useCallback } from "react";
-import { X, Copy, Play, Check } from "lucide-react";
+import { Check, Copy, Play, X } from "lucide-react";
+import { useCallback, useEffect, useRef } from "react";
 import { useState } from "react";
 
 interface SQLPreviewDialogProps {

@@ -1,10 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  generateCreateTable,
-  generateAlterTable,
-  type TableDesignerConfig,
   type DesignerColumn,
   type DesignerForeignKey,
+  generateAlterTable,
+  generateCreateTable,
+  type TableDesignerConfig,
   type TableOptions,
 } from "../ddl-generator";
 
@@ -66,7 +66,14 @@ describe("ddl-generator", () => {
       const sql = generateCreateTable(
         makeConfig({
           columns: [
-            makeCol({ id: "c1", name: "status", type: "ENUM", length: "'active','inactive'", autoIncrement: false, nullable: true }),
+            makeCol({
+              id: "c1",
+              name: "status",
+              type: "ENUM",
+              length: "'active','inactive'",
+              autoIncrement: false,
+              nullable: true,
+            }),
           ],
         }),
       );

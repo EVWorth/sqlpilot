@@ -90,28 +90,28 @@ function isNull(val: unknown): val is null {
 }
 
 function isBoolean(val: unknown): val is boolean {
-  return typeof val === 'boolean';
+  return typeof val === "boolean";
 }
 
 function isNumber(val: unknown): val is number {
-  return typeof val === 'number' && !isNaN(val) && isFinite(val);
+  return typeof val === "number" && !isNaN(val) && isFinite(val);
 }
 
 function isString(val: unknown): val is string {
-  return typeof val === 'string';
+  return typeof val === "string";
 }
 
 function isNumberArray(val: unknown): val is number[] {
-  return Array.isArray(val) && val.every(v => typeof v === 'number' && !isNaN(v) && isFinite(v));
+  return Array.isArray(val) && val.every(v => typeof v === "number" && !isNaN(v) && isFinite(v));
 }
 
 function isValid(val: unknown): val is SqlValue {
   return (
-    isNull(val) ||
-    isBoolean(val) ||
-    isNumber(val) ||
-    isString(val) ||
-    isNumberArray(val)
+    isNull(val)
+    || isBoolean(val)
+    || isNumber(val)
+    || isString(val)
+    || isNumberArray(val)
   );
 }
 
@@ -123,20 +123,20 @@ function assert(val: unknown): SqlValue {
 }
 
 function toStr(val: SqlValue): string {
-  if (val === null) return 'NULL';
-  if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
-  if (typeof val === 'number') return String(val);
-  if (typeof val === 'string') return val;
+  if (val === null) return "NULL";
+  if (typeof val === "boolean") return val ? "TRUE" : "FALSE";
+  if (typeof val === "number") return String(val);
+  if (typeof val === "string") return val;
   if (Array.isArray(val)) return JSON.stringify(val);
   const _exhaustive: never = val;
   return String(_exhaustive);
 }
 
 function toSqlLiteral(val: SqlValue): string {
-  if (val === null) return 'NULL';
-  if (typeof val === 'boolean') return val ? '1' : '0';
-  if (typeof val === 'number') return String(val);
-  if (typeof val === 'string') return `'${val.replace(/'/g, "''")}'`;
+  if (val === null) return "NULL";
+  if (typeof val === "boolean") return val ? "1" : "0";
+  if (typeof val === "number") return String(val);
+  if (typeof val === "string") return `'${val.replace(/'/g, "''")}'`;
   if (Array.isArray(val)) return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
   const _exhaustive: never = val;
   return String(_exhaustive);
@@ -254,8 +254,21 @@ export interface AiConfig {
 export type AiStreamEvent =
   | { type: "text_delta"; conversation_id: string; content: string }
   | { type: "intent"; conversation_id: string; intent: string }
-  | { type: "tool_start"; conversation_id: string; tool_name: string; tool_call_id: string; arguments?: Record<string, unknown> }
-  | { type: "tool_complete"; conversation_id: string; tool_name: string; tool_call_id: string; result: string; success: boolean }
+  | {
+    type: "tool_start";
+    conversation_id: string;
+    tool_name: string;
+    tool_call_id: string;
+    arguments?: Record<string, unknown>;
+  }
+  | {
+    type: "tool_complete";
+    conversation_id: string;
+    tool_name: string;
+    tool_call_id: string;
+    result: string;
+    success: boolean;
+  }
   | { type: "permission_request"; conversation_id: string; tool_name: string; description: string; request_id: string }
   | { type: "idle"; conversation_id: string }
   | { type: "error"; conversation_id: string; message: string };

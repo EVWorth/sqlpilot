@@ -1,5 +1,5 @@
+import { CheckCircle2, ChevronDown, ChevronRight, Loader2, XCircle } from "lucide-react";
 import { useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, CheckCircle2, XCircle } from "lucide-react";
 import type { ToolExecution } from "../../types";
 
 const TOOL_LABELS: Record<string, string> = {
@@ -72,13 +72,11 @@ export function ToolCallBlock({ tool }: ToolCallBlockProps) {
         onClick={() => hasDetails && setExpanded(!expanded)}
         className="flex w-full items-center gap-1.5 px-2 py-1 text-left hover:bg-[var(--color-bg-tertiary)] transition-colors"
       >
-        {tool.status === "running" ? (
-          <Loader2 className="h-3 w-3 animate-spin text-brand-400 shrink-0" />
-        ) : tool.status === "done" ? (
-          <CheckCircle2 className="h-3 w-3 text-green-400 shrink-0" />
-        ) : (
-          <XCircle className="h-3 w-3 text-red-400 shrink-0" />
-        )}
+        {tool.status === "running"
+          ? <Loader2 className="h-3 w-3 animate-spin text-brand-400 shrink-0" />
+          : tool.status === "done"
+          ? <CheckCircle2 className="h-3 w-3 text-green-400 shrink-0" />
+          : <XCircle className="h-3 w-3 text-red-400 shrink-0" />}
         <span className="flex-1 font-medium text-[var(--color-text-secondary)] truncate">
           {label}
           {command && (
@@ -88,11 +86,9 @@ export function ToolCallBlock({ tool }: ToolCallBlockProps) {
           )}
         </span>
         {hasDetails && (
-          expanded ? (
-            <ChevronDown className="h-3 w-3 text-[var(--color-text-muted)] shrink-0" />
-          ) : (
-            <ChevronRight className="h-3 w-3 text-[var(--color-text-muted)] shrink-0" />
-          )
+          expanded
+            ? <ChevronDown className="h-3 w-3 text-[var(--color-text-muted)] shrink-0" />
+            : <ChevronRight className="h-3 w-3 text-[var(--color-text-muted)] shrink-0" />
         )}
       </button>
       {expanded && hasDetails && (

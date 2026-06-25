@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryBuilder } from "../QueryBuilder";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -20,15 +20,42 @@ vi.mock("../../../stores/editorStore", () => ({
   },
 }));
 
-import { api } from "../../../lib/tauri-api";
 import { useSchemaCache } from "../../../hooks/useSchemaCache";
+import { api } from "../../../lib/tauri-api";
 import { useEditorStore } from "../../../stores/editorStore";
 
 const mockTables = ["users", "orders", "products"];
 const mockColumns = [
-  { name: "id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: true, default_value: undefined, extra: "", comment: "" },
-  { name: "name", data_type: "varchar", column_type: "VARCHAR(255)", nullable: false, is_primary_key: false, default_value: undefined, extra: "", comment: "" },
-  { name: "email", data_type: "varchar", column_type: "VARCHAR(255)", nullable: true, is_primary_key: false, default_value: undefined, extra: "", comment: "" },
+  {
+    name: "id",
+    data_type: "int",
+    column_type: "INT",
+    nullable: false,
+    is_primary_key: true,
+    default_value: undefined,
+    extra: "",
+    comment: "",
+  },
+  {
+    name: "name",
+    data_type: "varchar",
+    column_type: "VARCHAR(255)",
+    nullable: false,
+    is_primary_key: false,
+    default_value: undefined,
+    extra: "",
+    comment: "",
+  },
+  {
+    name: "email",
+    data_type: "varchar",
+    column_type: "VARCHAR(255)",
+    nullable: true,
+    is_primary_key: false,
+    default_value: undefined,
+    extra: "",
+    comment: "",
+  },
 ];
 
 describe("QueryBuilder", () => {
@@ -123,19 +150,19 @@ describe("QueryBuilder", () => {
     render(<QueryBuilder connectionId="conn-1" database="testdb" />);
     fireEvent.click(screen.getByText("WHERE"));
     expect(screen.getByText("WHERE Conditions")).toBeDefined();
-    expect(screen.getByText('No conditions. Click "Add" to create one.')).toBeDefined();
+    expect(screen.getByText("No conditions. Click \"Add\" to create one.")).toBeDefined();
   });
 
   it("switches to ORDER BY tab and shows empty order clause", () => {
     render(<QueryBuilder connectionId="conn-1" database="testdb" />);
     fireEvent.click(screen.getByText("ORDER BY"));
-    expect(screen.getByText('No ordering. Click "Add" to create one.')).toBeDefined();
+    expect(screen.getByText("No ordering. Click \"Add\" to create one.")).toBeDefined();
   });
 
   it("switches to GROUP BY tab and shows empty group clause", () => {
     render(<QueryBuilder connectionId="conn-1" database="testdb" />);
     fireEvent.click(screen.getByText("GROUP BY"));
-    expect(screen.getByText('No grouping. Click "Add" to create one.')).toBeDefined();
+    expect(screen.getByText("No grouping. Click \"Add\" to create one.")).toBeDefined();
   });
 
   it("switches to HAVING tab", () => {
@@ -217,11 +244,11 @@ describe("QueryBuilder", () => {
       });
 
       await waitFor(() => {
-        const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+        const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]");
         expect(checkboxes.length).toBeGreaterThan(0);
       });
 
-      const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+      const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]");
       if (checkboxes.length > 0) {
         fireEvent.click(checkboxes[0]);
       }

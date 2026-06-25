@@ -9,6 +9,7 @@ Caveman cuts ~75% output tokens while keeping full technical accuracy. Applies t
 ### Default: Full Intensity
 
 Always use caveman speaking style:
+
 - Drop articles (a/an/the), filler (just/really/basically), pleasantries (sure/certainly)
 - Use fragments: `[thing] [action] [reason]. [next step].`
 - Keep all technical accuracy — only remove fluff
@@ -17,6 +18,7 @@ Always use caveman speaking style:
 - ~75% token reduction, same technical substance
 
 Examples:
+
 - ❌ "Sure! I'd be happy to help. The issue is likely caused by..."
 - ✅ "Bug in auth middleware. Token expiry check use `<` not `<=`. Fix:"
 - ❌ "Your component re-renders because you create a new object reference..."
@@ -24,14 +26,14 @@ Examples:
 
 ### Intensity Levels
 
-| Level | Trigger | What it do |
-|-------|---------|------------|
-| **Lite** | `/caveman lite` | Drop filler, keep grammar. Professional but no fluff |
-| **Full** | `/caveman full` (default) | Drop articles, fragments, full grunt |
-| **Ultra** | `/caveman ultra` | Maximum compression. Telegraphic. Abbreviate everything |
-| **Wenyan-Lite** | `/caveman wenyan-lite` | Semi-classical Chinese. Grammar intact, filler gone |
-| **Wenyan-Full** | `/caveman wenyan` | Full 文言文. Maximum classical terseness |
-| **Wenyan-Ultra** | `/caveman wenyan-ultra` | Extreme. Ancient scholar on budget |
+| Level            | Trigger                   | What it do                                              |
+| ---------------- | ------------------------- | ------------------------------------------------------- |
+| **Lite**         | `/caveman lite`           | Drop filler, keep grammar. Professional but no fluff    |
+| **Full**         | `/caveman full` (default) | Drop articles, fragments, full grunt                    |
+| **Ultra**        | `/caveman ultra`          | Maximum compression. Telegraphic. Abbreviate everything |
+| **Wenyan-Lite**  | `/caveman wenyan-lite`    | Semi-classical Chinese. Grammar intact, filler gone     |
+| **Wenyan-Full**  | `/caveman wenyan`         | Full 文言文. Maximum classical terseness                |
+| **Wenyan-Ultra** | `/caveman wenyan-ultra`   | Extreme. Ancient scholar on budget                      |
 
 ### Caveman Skills
 
@@ -104,23 +106,23 @@ When adding a new feature, you typically touch: a Rust command, a `tauri-api.ts`
 
 The backend is a Cargo workspace with three library crates and the Tauri app crate:
 
-| Crate | Purpose |
-|-------|---------|
-| `mas-core` | Connection pool management (`ConnectionManager`), query execution (`QueryExecutor`), schema  inspection (`SchemaInspector`), and local SQLite storage for profiles (`ConnectionStore`) |
-| `mas-export` | Stateless export functions: CSV, JSON, SQL INSERT, Markdown |
-| `mas-admin` | Server admin: process list, server variables, kill process |
-| `sqlpilot` (root) | Tauri app shell — registers commands, initializes state, sets up logging |
+| Crate             | Purpose                                                                                                                                                                               |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `mas-core`        | Connection pool management (`ConnectionManager`), query execution (`QueryExecutor`), schema inspection (`SchemaInspector`), and local SQLite storage for profiles (`ConnectionStore`) |
+| `mas-export`      | Stateless export functions: CSV, JSON, SQL INSERT, Markdown                                                                                                                           |
+| `mas-admin`       | Server admin: process list, server variables, kill process                                                                                                                            |
+| `sqlpilot` (root) | Tauri app shell — registers commands, initializes state, sets up logging                                                                                                              |
 
 New Tauri commands must be added to the `invoke_handler` array in `src-tauri/src/lib.rs`.
 
 ### Frontend (`src/`)
 
-| Layer | Location | Notes |
-|-------|----------|-------|
-| State | `src/stores/` | Zustand stores (one per domain: connections, editor, results) |
-| IPC | `src/lib/tauri-api.ts` | Single `api` object wrapping all Tauri `invoke()` calls |
-| Types | `src/types/index.ts` | Shared TypeScript types mirroring Rust models |
-| Components | `src/components/` | Organized by feature: `connection/`, `editor/`, `grid/`, `layout/`, `schema/`, `admin/`, `ai/` |
+| Layer      | Location               | Notes                                                                                          |
+| ---------- | ---------------------- | ---------------------------------------------------------------------------------------------- |
+| State      | `src/stores/`          | Zustand stores (one per domain: connections, editor, results)                                  |
+| IPC        | `src/lib/tauri-api.ts` | Single `api` object wrapping all Tauri `invoke()` calls                                        |
+| Types      | `src/types/index.ts`   | Shared TypeScript types mirroring Rust models                                                  |
+| Components | `src/components/`      | Organized by feature: `connection/`, `editor/`, `grid/`, `layout/`, `schema/`, `admin/`, `ai/` |
 
 ## Key Conventions
 

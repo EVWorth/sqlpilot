@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
-import { AIChatPanel } from "../AIChatPanel";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useAiStore } from "../../../stores/aiStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
+import { AIChatPanel } from "../AIChatPanel";
 
 // Mock navigator.clipboard
 Object.defineProperty(navigator, "clipboard", {

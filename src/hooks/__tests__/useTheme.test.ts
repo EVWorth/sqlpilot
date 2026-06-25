@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useTheme } from "../useTheme";
 
 const mockSetTheme = vi.fn();
@@ -22,8 +22,7 @@ beforeEach(() => {
 describe("useTheme", () => {
   it("sets vs-dark when effectiveTheme is dark and monaco is available", () => {
     (useThemeStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: { effectiveTheme: string }) => string) =>
-        selector({ effectiveTheme: "dark" }),
+      (selector: (s: { effectiveTheme: string }) => string) => selector({ effectiveTheme: "dark" }),
     );
     (useMonaco as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       editor: { setTheme: mockSetTheme },
@@ -36,8 +35,7 @@ describe("useTheme", () => {
 
   it("sets vs when effectiveTheme is light and monaco is available", () => {
     (useThemeStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: { effectiveTheme: string }) => string) =>
-        selector({ effectiveTheme: "light" }),
+      (selector: (s: { effectiveTheme: string }) => string) => selector({ effectiveTheme: "light" }),
     );
     (useMonaco as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
       editor: { setTheme: mockSetTheme },
@@ -50,8 +48,7 @@ describe("useTheme", () => {
 
   it("does not crash when monaco is not available", () => {
     (useThemeStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: { effectiveTheme: string }) => string) =>
-        selector({ effectiveTheme: "dark" }),
+      (selector: (s: { effectiveTheme: string }) => string) => selector({ effectiveTheme: "dark" }),
     );
     (useMonaco as unknown as ReturnType<typeof vi.fn>).mockReturnValue(null);
 
@@ -61,8 +58,7 @@ describe("useTheme", () => {
 
   it("does not crash when monaco is null (edge case)", () => {
     (useThemeStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: { effectiveTheme: string }) => string) =>
-        selector({ effectiveTheme: "light" }),
+      (selector: (s: { effectiveTheme: string }) => string) => selector({ effectiveTheme: "light" }),
     );
     (useMonaco as unknown as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
 
@@ -101,8 +97,7 @@ describe("useTheme", () => {
     let currentTheme = "dark";
 
     (useThemeStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: { effectiveTheme: string }) => string) =>
-        selector({ effectiveTheme: currentTheme }),
+      (selector: (s: { effectiveTheme: string }) => string) => selector({ effectiveTheme: currentTheme }),
     );
 
     (useMonaco as unknown as ReturnType<typeof vi.fn>).mockReturnValue({

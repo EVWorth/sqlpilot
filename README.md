@@ -45,6 +45,7 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 ## ✨ Features
 
 ### SQL Editor
+
 - **Monaco Editor** — the same editor engine as VS Code
 - **Schema-aware autocomplete** — suggests tables after `FROM`, columns after `SELECT`, databases after `USE`, plus 90+ MySQL keywords and 40+ functions
 - **SQL formatting** — one-click beautify with `Ctrl+Shift+F`
@@ -53,43 +54,51 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 - **Query execution** — `Ctrl+Enter` or `F5`, multi-statement support with result tabs
 
 ### Results Grid
+
 - **Sortable columns** with click-to-sort headers
 - **Inline cell editing** — double-click to edit, generates `UPDATE`/`INSERT`/`DELETE` statements with primary key detection
 - **Export** — Copy, CSV, JSON, SQL, Markdown with one click
 - **Right-click context menus** — copy cell, copy row, copy as INSERT statement
 
 ### Schema Browser
+
 - **Full object tree** — databases → tables, views, procedures, functions, triggers
 - **Table structure viewer** — columns, indexes, and DDL in a tabbed panel
 - **Context menus** — SELECT top 100, view structure, copy name, drop, design table
 - **Double-click actions** — tables open data, procedures open the viewer/executor
 
 ### Visual Tools
+
 - **Table Designer** — create and alter tables with a visual form: column editor, index editor, foreign key editor, table options, DDL preview
 - **EXPLAIN Visualizer** — color-coded execution plan with cost bars, access type legend, and tree view for `EXPLAIN ANALYZE`
 
 ### Database Administration
+
 - **Process list** — auto-refreshing with time color-coding and kill process button
 - **Server variables** — searchable, grouped by category, copy-to-clipboard
 - **Server status** — metric cards (uptime, QPS, connections, buffer pool, threads, slow queries)
 - **User management** — list users, view/edit privileges with checkbox grid, create/drop users, change passwords
 
 ### Backup & Restore
+
 - **Backup** — full SQL dump with options: structure only/data only/both, DROP TABLE, multi-row INSERTs, views/procedures/triggers inclusion, progress tracking
 - **Restore** — SQL file execution with progress bar and error reporting
 
 ### Schema Comparison
+
 - **Cross-connection diff** — compare schemas across different servers
 - **Color-coded results** — green (added), red (removed), yellow (modified), grey (identical)
 - **Column-level detail** — see exactly what changed: type, nullable, default, etc.
 - **Sync SQL generation** — generate `CREATE`/`ALTER`/`DROP` statements to synchronize, with selective execution
 
 ### Import & Export
+
 - **SQL import** — execute `.sql` files with statement splitting and progress tracking
 - **CSV import** — configurable delimiter, header detection, column mapping to target tables, batch INSERTs
 - **Export formats** — CSV, JSON, SQL (`INSERT` statements), Markdown
 
 ### Connection Management
+
 - **Connection profiles** — save, test, color-code, and label connections
 - **SSL/TLS** — configurable SSL mode (disabled → verify identity), CA cert, client cert/key
 - **SSH tunnels** — host, port, username, password or key file authentication
@@ -97,11 +106,13 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 - **Production safety** — confirmation dialogs before running `DROP`/`DELETE`/`TRUNCATE` on production
 
 ### Query Management
+
 - **Query history** — every execution recorded with timestamp, duration, row count, status; searchable and click-to-reload
 - **Query favorites** — save queries with name, category, and description; organized in folders
 - **Stored procedure/function viewer** — auto-detect parameters, execute with input form, display results
 
 ### UX & Polish
+
 - **Dark & light themes** — toggle with one click, or follow system preference; Monaco editor theme syncs automatically
 - **Keyboard shortcuts** — `Ctrl+N` new tab, `Ctrl+W` close, `Ctrl+Tab` cycle, `F1` shortcuts help, `F5` execute, and more
 - **Color-coded tabs** — connection color stripe on every tab for quick identification
@@ -130,11 +141,11 @@ Pre-built binaries are available on the [Releases](https://github.com/EVWorth/sq
 
 ### Prerequisites
 
-| Tool | Version | Purpose |
-|------|---------|---------|
-| [Rust](https://rustup.rs/) | 1.75+ | Backend compilation |
-| [Node.js](https://nodejs.org/) | 20+ | Frontend tooling |
-| [Docker](https://www.docker.com/) | 24+ | Integration test containers |
+| Tool                              | Version | Purpose                     |
+| --------------------------------- | ------- | --------------------------- |
+| [Rust](https://rustup.rs/)        | 1.75+   | Backend compilation         |
+| [Node.js](https://nodejs.org/)    | 20+     | Frontend tooling            |
+| [Docker](https://www.docker.com/) | 24+     | Integration test containers |
 
 **Linux/WSL system dependencies** (for Tauri desktop builds):
 
@@ -210,6 +221,7 @@ npx tauri build
 Tagging a commit with `v*` triggers the release workflow in CI, which builds binaries and generates a signed update manifest.
 
 **To set up update signing (one-time):**
+
 ```bash
 # Generate a signing key pair (keep the private key secret!)
 npx tauri signer generate -w ~/.tauri/sqlpilot-updater.key
@@ -226,19 +238,19 @@ The `TAURI_SIGNING_PRIVATE_KEY` secret must exist for the `generate-update-manif
 
 ### Make Commands
 
-| Command | Description |
-|---------|-------------|
-| `make dev` | Run desktop app in development mode |
-| `make dev-web` | Run browser preview on `localhost:1420` |
-| `make build` | Build production desktop binary |
-| `make test` | Run all tests (Rust + frontend) |
-| `make test-rust` | Run Rust integration tests against Docker MySQL |
-| `make test-frontend` | Run frontend unit tests (Vitest) |
-| `make lint` | Run clippy + TypeScript type checking |
-| `make db-up` | Start MySQL 8 Docker container (port 13306) |
-| `make db-down` | Stop and remove test containers |
-| `make db-reset` | Restart containers fresh |
-| `make setup` | Install all dependencies |
+| Command              | Description                                     |
+| -------------------- | ----------------------------------------------- |
+| `make dev`           | Run desktop app in development mode             |
+| `make dev-web`       | Run browser preview on `localhost:1420`         |
+| `make build`         | Build production desktop binary                 |
+| `make test`          | Run all tests (Rust + frontend)                 |
+| `make test-rust`     | Run Rust integration tests against Docker MySQL |
+| `make test-frontend` | Run frontend unit tests (Vitest)                |
+| `make lint`          | Run clippy + TypeScript type checking           |
+| `make db-up`         | Start MySQL 8 Docker container (port 13306)     |
+| `make db-down`       | Stop and remove test containers                 |
+| `make db-reset`      | Restart containers fresh                        |
+| `make setup`         | Install all dependencies                        |
 
 ### Environment Variables
 
@@ -251,38 +263,38 @@ RUST_LOG=debug
 
 ### Frontend
 
-| Technology | Purpose |
-|------------|---------|
-| [React 18](https://react.dev/) | UI framework |
-| [TypeScript](https://www.typescriptlang.org/) | Type safety |
-| [Vite](https://vitejs.dev/) | Build tooling and HMR |
-| [Monaco Editor](https://microsoft.github.io/monaco-editor/) | SQL editor (same engine as VS Code) |
-| [TanStack Table v8](https://tanstack.com/table) | Data grid with sorting and virtualization |
-| [Zustand](https://zustand-demo.pmnd.rs/) | Lightweight state management (7 stores) |
-| [Tailwind CSS](https://tailwindcss.com/) | Utility-first styling with CSS variable theming |
-| [sql-formatter](https://github.com/sql-formatter-org/sql-formatter) | SQL beautification |
-| [Lucide React](https://lucide.dev/) | Icon library |
+| Technology                                                          | Purpose                                         |
+| ------------------------------------------------------------------- | ----------------------------------------------- |
+| [React 18](https://react.dev/)                                      | UI framework                                    |
+| [TypeScript](https://www.typescriptlang.org/)                       | Type safety                                     |
+| [Vite](https://vitejs.dev/)                                         | Build tooling and HMR                           |
+| [Monaco Editor](https://microsoft.github.io/monaco-editor/)         | SQL editor (same engine as VS Code)             |
+| [TanStack Table v8](https://tanstack.com/table)                     | Data grid with sorting and virtualization       |
+| [Zustand](https://zustand-demo.pmnd.rs/)                            | Lightweight state management (7 stores)         |
+| [Tailwind CSS](https://tailwindcss.com/)                            | Utility-first styling with CSS variable theming |
+| [sql-formatter](https://github.com/sql-formatter-org/sql-formatter) | SQL beautification                              |
+| [Lucide React](https://lucide.dev/)                                 | Icon library                                    |
 
 ### Backend (Rust)
 
-| Technology | Purpose |
-|------------|---------|
-| [Tauri 2.0](https://v2.tauri.app/) | Desktop app framework (WebView, not Electron) |
-| [sqlx](https://github.com/launchbadge/sqlx) | Async MySQL driver with connection pooling |
-| [tokio](https://tokio.rs/) | Async runtime |
-| [rusqlite](https://github.com/rusqlite/rusqlite) | Local SQLite for connection profile storage |
-| [tracing](https://docs.rs/tracing/) | Structured logging with JSON file output |
-| [serde](https://serde.rs/) | Serialization / deserialization |
-| [DashMap](https://docs.rs/dashmap/) | Thread-safe concurrent connection registry |
-| [rfd](https://docs.rs/rfd/) | Native file dialogs |
+| Technology                                       | Purpose                                       |
+| ------------------------------------------------ | --------------------------------------------- |
+| [Tauri 2.0](https://v2.tauri.app/)               | Desktop app framework (WebView, not Electron) |
+| [sqlx](https://github.com/launchbadge/sqlx)      | Async MySQL driver with connection pooling    |
+| [tokio](https://tokio.rs/)                       | Async runtime                                 |
+| [rusqlite](https://github.com/rusqlite/rusqlite) | Local SQLite for connection profile storage   |
+| [tracing](https://docs.rs/tracing/)              | Structured logging with JSON file output      |
+| [serde](https://serde.rs/)                       | Serialization / deserialization               |
+| [DashMap](https://docs.rs/dashmap/)              | Thread-safe concurrent connection registry    |
+| [rfd](https://docs.rs/rfd/)                      | Native file dialogs                           |
 
 ### Testing
 
-| Technology | Purpose |
-|------------|---------|
-| [Vitest](https://vitest.dev/) | Frontend unit tests (1465 tests) |
+| Technology                                     | Purpose                                                |
+| ---------------------------------------------- | ------------------------------------------------------ |
+| [Vitest](https://vitest.dev/)                  | Frontend unit tests (1465 tests)                       |
 | [cargo test](https://doc.rust-lang.org/cargo/) | Rust integration tests against Docker MySQL (36 tests) |
-| [Docker](https://www.docker.com/) | MySQL 8, MySQL 5.7, MariaDB 11 test containers |
+| [Docker](https://www.docker.com/)              | MySQL 8, MySQL 5.7, MariaDB 11 test containers         |
 
 ## 📁 Project Structure
 

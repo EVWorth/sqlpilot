@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parseCSV } from "../csv-parser";
 
 describe("parseCSV", () => {
@@ -6,7 +6,7 @@ describe("parseCSV", () => {
     const result = parseCSV("name,age\nAlice,30\nBob,25", {
       delimiter: ",",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.headers).toEqual(["name", "age"]);
     expect(result.rows).toEqual([
@@ -19,7 +19,7 @@ describe("parseCSV", () => {
     const result = parseCSV("Alice,30\nBob,25", {
       delimiter: ",",
       hasHeader: false,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.headers).toEqual(["column_1", "column_2"]);
     expect(result.rows).toEqual([
@@ -29,29 +29,29 @@ describe("parseCSV", () => {
   });
 
   it("should handle quoted fields with commas", () => {
-    const result = parseCSV('name,address\n"Smith, John","123 Main St"', {
+    const result = parseCSV("name,address\n\"Smith, John\",\"123 Main St\"", {
       delimiter: ",",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.headers).toEqual(["name", "address"]);
     expect(result.rows).toEqual([["Smith, John", "123 Main St"]]);
   });
 
   it("should handle escaped quotes", () => {
-    const result = parseCSV('val\n"He said ""hello"""', {
+    const result = parseCSV("val\n\"He said \"\"hello\"\"\"", {
       delimiter: ",",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
-    expect(result.rows).toEqual([['He said "hello"']]);
+    expect(result.rows).toEqual([["He said \"hello\""]]);
   });
 
   it("should handle newlines inside quoted fields", () => {
-    const result = parseCSV('a,b\n"line1\nline2",ok', {
+    const result = parseCSV("a,b\n\"line1\nline2\",ok", {
       delimiter: ",",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.rows).toEqual([["line1\nline2", "ok"]]);
   });
@@ -60,7 +60,7 @@ describe("parseCSV", () => {
     const result = parseCSV("name\tage\nAlice\t30", {
       delimiter: "\t",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.headers).toEqual(["name", "age"]);
     expect(result.rows).toEqual([["Alice", "30"]]);
@@ -70,7 +70,7 @@ describe("parseCSV", () => {
     const result = parseCSV("", {
       delimiter: ",",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.headers).toEqual([]);
     expect(result.rows).toEqual([]);
@@ -80,7 +80,7 @@ describe("parseCSV", () => {
     const result = parseCSV("a,b\r\n1,2\r\n3,4", {
       delimiter: ",",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.headers).toEqual(["a", "b"]);
     expect(result.rows).toEqual([
@@ -93,7 +93,7 @@ describe("parseCSV", () => {
     const result = parseCSV("a,b\n\n\n1,2\n", {
       delimiter: ",",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.headers).toEqual(["a", "b"]);
     expect(result.rows).toEqual([["1", "2"]]);
@@ -103,7 +103,7 @@ describe("parseCSV", () => {
     const result = parseCSV("a,b\n   \n1,2\n", {
       delimiter: ",",
       hasHeader: true,
-      quoteChar: '"',
+      quoteChar: "\"",
     });
     expect(result.headers).toEqual(["a", "b"]);
     expect(result.rows).toEqual([["1", "2"]]);

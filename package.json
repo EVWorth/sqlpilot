@@ -48,6 +48,7 @@
     "@vitest/browser": "^4.1.8",
     "@vitest/browser-playwright": "^4.1.7",
     "@vitest/coverage-v8": "^4.1.7",
+    "dprint": "^0.54.0",
     "eslint": "^10.5.0",
     "eslint-plugin-react-hooks": "^7.0.0",
     "jsdom": "^29.1.1",

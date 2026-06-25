@@ -1,5 +1,5 @@
-import { useState, useEffect } from "react";
-import { X, Keyboard, Info } from "lucide-react";
+import { Info, Keyboard, X } from "lucide-react";
+import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri-api";
 
 interface HelpDialogProps {
@@ -133,9 +133,7 @@ export function HelpDialog({ isOpen, onClose, initialTab = "shortcuts" }: HelpDi
             </div>
             <div>
               <h2 className="text-lg font-bold text-[var(--color-text-primary)]">SQLPilot</h2>
-              {appVersion && (
-                <p className="text-xs text-[var(--color-text-muted)]">Version {appVersion}</p>
-              )}
+              {appVersion && <p className="text-xs text-[var(--color-text-muted)]">Version {appVersion}</p>}
             </div>
             <p className="text-xs text-[var(--color-text-secondary)] max-w-xs">
               A blazing-fast, AI-powered MySQL GUI — built with Rust &amp; React.

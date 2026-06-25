@@ -1,9 +1,5 @@
-import { describe, it, expect } from "vitest";
-import {
-  parseGrantStatements,
-  categorizeGrants,
-  escapeIdentifier,
-} from "../userPrivileges";
+import { describe, expect, it } from "vitest";
+import { categorizeGrants, escapeIdentifier, parseGrantStatements } from "../userPrivileges";
 
 describe("escapeIdentifier", () => {
   it("escapes single quotes in identifier", () => {

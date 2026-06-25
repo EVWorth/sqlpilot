@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ResultsGrid } from "../ResultsGrid";
 
 const state = {
@@ -10,7 +10,7 @@ const state = {
 };
 
 vi.mock("../../../stores/resultStore", () => {
-  const storeFn = function (selector: (v: unknown) => unknown) {
+  const storeFn = function(selector: (v: unknown) => unknown) {
     return selector({
       ...state,
       setActiveResult: vi.fn(),
@@ -67,11 +67,22 @@ vi.mock("../../../hooks/useContextMenu", () => ({
 }));
 
 const mockGridEditing = {
-  editMode: false, toggleEditMode: vi.fn(), pendingCount: 0, hasChanges: false,
-  addRow: vi.fn(), discardAll: vi.fn(), inserts: [] as any[], updates: new Map(), deletes: [] as number[],
+  editMode: false,
+  toggleEditMode: vi.fn(),
+  pendingCount: 0,
+  hasChanges: false,
+  addRow: vi.fn(),
+  discardAll: vi.fn(),
+  inserts: [] as any[],
+  updates: new Map(),
+  deletes: [] as number[],
   getCellValue: vi.fn((_r: number, _c: string, o: unknown) => o),
-  isCellEdited: vi.fn(() => false), isRowEdited: vi.fn(() => false), isRowDeleted: vi.fn(() => false),
-  editCell: vi.fn(), deleteRow: vi.fn(), editInsertCell: vi.fn(),
+  isCellEdited: vi.fn(() => false),
+  isRowEdited: vi.fn(() => false),
+  isRowDeleted: vi.fn(() => false),
+  editCell: vi.fn(),
+  deleteRow: vi.fn(),
+  editInsertCell: vi.fn(),
 };
 
 vi.mock("../../../hooks/useGridEditing", () => ({
@@ -93,13 +104,15 @@ vi.mock("../EditToolbar", () => ({
   )),
 }));
 vi.mock("../TruncatedCell", () => ({
-  TruncatedCell: vi.fn(({ value }: { value: unknown }) => (
-    <div data-testid="truncated-cell">{String(value)}</div>
-  )),
+  TruncatedCell: vi.fn(({ value }: { value: unknown }) => <div data-testid="truncated-cell">{String(value)}</div>),
 }));
 vi.mock("../CellViewerModal", () => ({
-  CellViewerModal: vi.fn(({ isOpen, columnName, content }: { isOpen: boolean; columnName: string; content: string | null }) => (
-    <div data-testid="cell-viewer-modal" data-open={isOpen} data-column={columnName} data-content={content}>CellViewerModal</div>
+  CellViewerModal: vi.fn((
+    { isOpen, columnName, content }: { isOpen: boolean; columnName: string; content: string | null },
+  ) => (
+    <div data-testid="cell-viewer-modal" data-open={isOpen} data-column={columnName} data-content={content}>
+      CellViewerModal
+    </div>
   )),
 }));
 
@@ -197,8 +210,20 @@ describe("ResultsGrid", () => {
 
   it("shows result tabs when multiple results exist", () => {
     state.results = [
-      { ...baseResult, query_id: "q1", statement_index: 0, columns: [{ name: "a", data_type: "int", nullable: true, is_primary_key: false }], rows: [[1]] },
-      { ...baseResult, query_id: "q2", statement_index: 1, columns: [{ name: "b", data_type: "int", nullable: true, is_primary_key: false }], rows: [[2]] },
+      {
+        ...baseResult,
+        query_id: "q1",
+        statement_index: 0,
+        columns: [{ name: "a", data_type: "int", nullable: true, is_primary_key: false }],
+        rows: [[1]],
+      },
+      {
+        ...baseResult,
+        query_id: "q2",
+        statement_index: 1,
+        columns: [{ name: "b", data_type: "int", nullable: true, is_primary_key: false }],
+        rows: [[2]],
+      },
     ];
     render(<ResultsGrid />);
     expect(screen.getByText("Result 1")).toBeInTheDocument();
@@ -326,8 +351,18 @@ describe("ResultsGrid", () => {
 describe("ResultsGrid tab switching", () => {
   it("clicking Result 2 sets active tab", () => {
     state.results = [
-      { ...baseResult, query_id: "q1", columns: [{ name: "a", data_type: "int", nullable: true, is_primary_key: false }], rows: [[1]] },
-      { ...baseResult, query_id: "q2", columns: [{ name: "b", data_type: "int", nullable: true, is_primary_key: false }], rows: [[2]] },
+      {
+        ...baseResult,
+        query_id: "q1",
+        columns: [{ name: "a", data_type: "int", nullable: true, is_primary_key: false }],
+        rows: [[1]],
+      },
+      {
+        ...baseResult,
+        query_id: "q2",
+        columns: [{ name: "b", data_type: "int", nullable: true, is_primary_key: false }],
+        rows: [[2]],
+      },
     ];
     state.activeResultIndex = 0;
     render(<ResultsGrid />);

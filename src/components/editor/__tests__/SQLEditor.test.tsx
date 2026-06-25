@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SQLEditor } from "../SQLEditor";
 
 // Mock @monaco-editor/react
@@ -78,10 +78,12 @@ vi.mock("../../../stores/editorStore", () => ({
       };
       return selector ? selector(state) : state;
     }),
-    { getState: vi.fn(() => ({
-      tabs: editorStoreTabs,
-      activeTabId: editorStoreActiveTabId,
-    })) },
+    {
+      getState: vi.fn(() => ({
+        tabs: editorStoreTabs,
+        activeTabId: editorStoreActiveTabId,
+      })),
+    },
   ),
 }));
 

@@ -98,13 +98,13 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 
 ### Key Architectural Principles
 
-| Principle | Description |
-|---|---|
-| **Separation of Concerns** | All database I/O and OS integration lives in Rust; the frontend is purely presentational and state-management |
-| **Async Everywhere** | Every backend operation is non-blocking, powered by Tokio; the UI thread is never starved |
-| **Stream by Default** | Large result sets and exports are streamed, not buffered; memory usage stays constant regardless of data size |
-| **Offline First** | Core functionality (connect, query, browse) requires zero network beyond the MySQL target; AI features degrade gracefully |
-| **Security by Design** | Credentials never leave the OS keychain; no secrets traverse IPC; Tauri's CSP and allowlist are strictly configured |
+| Principle                  | Description                                                                                                               |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| **Separation of Concerns** | All database I/O and OS integration lives in Rust; the frontend is purely presentational and state-management             |
+| **Async Everywhere**       | Every backend operation is non-blocking, powered by Tokio; the UI thread is never starved                                 |
+| **Stream by Default**      | Large result sets and exports are streamed, not buffered; memory usage stays constant regardless of data size             |
+| **Offline First**          | Core functionality (connect, query, browse) requires zero network beyond the MySQL target; AI features degrade gracefully |
+| **Security by Design**     | Credentials never leave the OS keychain; no secrets traverse IPC; Tauri's CSP and allowlist are strictly configured       |
 
 ---
 
@@ -112,55 +112,55 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 
 ### Frontend Stack
 
-| Technology | Purpose | Version | Rationale |
-|---|---|---|---|
-| **React** | UI Framework | 18+ | Largest ecosystem, extensive component library support, concurrent rendering |
-| **TypeScript** | Type Safety | 5.x | Catch errors at compile time, superior IDE experience, self-documenting APIs |
-| **Vite** | Build Tool | 5.x | Sub-second HMR, ESBuild-powered bundling, first-class Tauri integration |
-| **TanStack Table** | Data Grid | v8 | Headless & virtualized, handles 1M+ rows, fully customizable rendering |
-| **TanStack Virtual** | Virtualization | v3 | Smooth scrolling for large datasets, row and column virtualization |
-| **Monaco Editor** | SQL Editor | Latest | VS Code's editor engine, rich IntelliSense, bracket matching, minimap |
-| **monaco-sql-languages** | SQL Support | Latest | MySQL dialect support, keyword autocomplete, syntax validation |
-| **Zustand** | State Management | v4 | Lightweight (~1 KB), no boilerplate, supports middleware and devtools |
-| **Tailwind CSS** | Styling | v3 | Utility-first, dark/light theming via CSS variables, minimal CSS bundle |
-| **React Flow** | ERD Diagrams | v11 | Node-based graph rendering, pan/zoom, custom node types, minimap |
-| **Recharts** | Charts | v2 | Declarative charting for dashboards, responsive, composable |
-| **cmdk** | Command Palette | Latest | VS Code–style `Cmd+K` command palette, fuzzy search, keyboard navigation |
-| **React Resizable Panels** | Layout | Latest | Draggable panel system, persistent sizes, nested layouts |
-| **@tauri-apps/api** | Tauri Bridge | 2.x | Type-safe IPC invoke/listen, file dialogs, window management |
+| Technology                 | Purpose          | Version | Rationale                                                                    |
+| -------------------------- | ---------------- | ------- | ---------------------------------------------------------------------------- |
+| **React**                  | UI Framework     | 18+     | Largest ecosystem, extensive component library support, concurrent rendering |
+| **TypeScript**             | Type Safety      | 5.x     | Catch errors at compile time, superior IDE experience, self-documenting APIs |
+| **Vite**                   | Build Tool       | 5.x     | Sub-second HMR, ESBuild-powered bundling, first-class Tauri integration      |
+| **TanStack Table**         | Data Grid        | v8      | Headless & virtualized, handles 1M+ rows, fully customizable rendering       |
+| **TanStack Virtual**       | Virtualization   | v3      | Smooth scrolling for large datasets, row and column virtualization           |
+| **Monaco Editor**          | SQL Editor       | Latest  | VS Code's editor engine, rich IntelliSense, bracket matching, minimap        |
+| **monaco-sql-languages**   | SQL Support      | Latest  | MySQL dialect support, keyword autocomplete, syntax validation               |
+| **Zustand**                | State Management | v4      | Lightweight (~1 KB), no boilerplate, supports middleware and devtools        |
+| **Tailwind CSS**           | Styling          | v3      | Utility-first, dark/light theming via CSS variables, minimal CSS bundle      |
+| **React Flow**             | ERD Diagrams     | v11     | Node-based graph rendering, pan/zoom, custom node types, minimap             |
+| **Recharts**               | Charts           | v2      | Declarative charting for dashboards, responsive, composable                  |
+| **cmdk**                   | Command Palette  | Latest  | VS Code–style `Cmd+K` command palette, fuzzy search, keyboard navigation     |
+| **React Resizable Panels** | Layout           | Latest  | Draggable panel system, persistent sizes, nested layouts                     |
+| **@tauri-apps/api**        | Tauri Bridge     | 2.x     | Type-safe IPC invoke/listen, file dialogs, window management                 |
 
 ### Backend Stack
 
-| Technology | Purpose | Version | Rationale |
-|---|---|---|---|
-| **Rust** | Language | 1.75+ | Memory safety without GC, zero-cost abstractions, fearless concurrency |
-| **Tauri** | App Framework | 2.x | ~3 MB binary, OS-native webview, granular permission system |
-| **sqlx** | MySQL Driver | 0.7+ | Async, compile-time checked queries, connection pooling, TLS built-in |
-| **tokio** | Async Runtime | 1.x | Industry-standard async executor, timers, channels, task spawning |
-| **serde** | Serialization | 1.x | Derive-based JSON/TOML/YAML (de)serialization, zero-copy where possible |
-| **ssh2** | SSH Tunneling | 0.9+ | libssh2 bindings, public key and password auth, local port forwarding |
-| **keyring** | Credentials | 2.x | Windows Credential Manager, macOS Keychain, Linux Secret Service/GNOME Keyring |
-| **rusqlite** | Local Storage | 0.31+ | Embedded SQLite for connection profiles, query history, settings |
-| **tracing** | Logging | 0.1+ | Structured, async-aware logging with span-based context propagation |
-| **tracing-subscriber** | Log Output | 0.3+ | Formatters for console and file output, filtering by level/module |
-| **uuid** | Identifiers | 1.x | UUIDv4 generation for connection IDs, session IDs, query handles |
-| **thiserror** | Error Types | 1.x | Derive macro for ergonomic, typed error enums |
-| **anyhow** | Error Context | 1.x | Contextual error wrapping for debugging, `.context("msg")` chains |
-| **copilot-sdk** | AI Features | Latest | GitHub Copilot integration for NL→SQL, query explanation, optimization |
-| **chrono** | Date/Time | 0.4+ | Timezone-aware datetime handling for MySQL temporal types |
+| Technology             | Purpose       | Version | Rationale                                                                      |
+| ---------------------- | ------------- | ------- | ------------------------------------------------------------------------------ |
+| **Rust**               | Language      | 1.75+   | Memory safety without GC, zero-cost abstractions, fearless concurrency         |
+| **Tauri**              | App Framework | 2.x     | ~3 MB binary, OS-native webview, granular permission system                    |
+| **sqlx**               | MySQL Driver  | 0.7+    | Async, compile-time checked queries, connection pooling, TLS built-in          |
+| **tokio**              | Async Runtime | 1.x     | Industry-standard async executor, timers, channels, task spawning              |
+| **serde**              | Serialization | 1.x     | Derive-based JSON/TOML/YAML (de)serialization, zero-copy where possible        |
+| **ssh2**               | SSH Tunneling | 0.9+    | libssh2 bindings, public key and password auth, local port forwarding          |
+| **keyring**            | Credentials   | 2.x     | Windows Credential Manager, macOS Keychain, Linux Secret Service/GNOME Keyring |
+| **rusqlite**           | Local Storage | 0.31+   | Embedded SQLite for connection profiles, query history, settings               |
+| **tracing**            | Logging       | 0.1+    | Structured, async-aware logging with span-based context propagation            |
+| **tracing-subscriber** | Log Output    | 0.3+    | Formatters for console and file output, filtering by level/module              |
+| **uuid**               | Identifiers   | 1.x     | UUIDv4 generation for connection IDs, session IDs, query handles               |
+| **thiserror**          | Error Types   | 1.x     | Derive macro for ergonomic, typed error enums                                  |
+| **anyhow**             | Error Context | 1.x     | Contextual error wrapping for debugging, `.context("msg")` chains              |
+| **copilot-sdk**        | AI Features   | Latest  | GitHub Copilot integration for NL→SQL, query explanation, optimization         |
+| **chrono**             | Date/Time     | 0.4+    | Timezone-aware datetime handling for MySQL temporal types                      |
 
 ### Development & Build Tools
 
-| Tool | Purpose |
-|---|---|
-| **Tauri CLI** | Build, dev server, bundling for all platforms |
-| **Cargo** | Rust dependency management and compilation |
-| **pnpm** | Fast, disk-efficient JS package manager |
-| **ESLint + Prettier** | Code style enforcement |
-| **Clippy** | Rust linting |
-| **Vitest** | Frontend unit tests |
-| **Playwright** | End-to-end testing |
-| **GitHub Actions** | CI/CD for multi-platform builds |
+| Tool                  | Purpose                                       |
+| --------------------- | --------------------------------------------- |
+| **Tauri CLI**         | Build, dev server, bundling for all platforms |
+| **Cargo**             | Rust dependency management and compilation    |
+| **pnpm**              | Fast, disk-efficient JS package manager       |
+| **ESLint + Prettier** | Code style enforcement                        |
+| **Clippy**            | Rust linting                                  |
+| **Vitest**            | Frontend unit tests                           |
+| **Playwright**        | End-to-end testing                            |
+| **GitHub Actions**    | CI/CD for multi-platform builds               |
 
 ---
 
@@ -221,13 +221,13 @@ pub struct PoolConfig {
 
 #### Sub-Components
 
-| Component | Responsibility |
-|---|---|
-| **ConnectionPool** | Wraps `sqlx::MySqlPool` with periodic health checks (`SELECT 1`), automatic reconnection, and configurable pool sizing |
-| **SSHTunnel** | Manages `ssh2::Session` tunnels with local port forwarding; monitors tunnel liveness on a background Tokio task |
-| **ConnectionRegistry** | Thread-safe, in-memory `DashMap<String, ActiveConnection>` of all live connections indexed by connection ID |
-| **ConnectionStore** | `rusqlite`-backed persistence of `ConnectionProfile` records; passwords stored separately in the OS keychain via `keyring` |
-| **HealthChecker** | Background task per connection that runs `SELECT 1` on an interval, emits `connection_health` events, and triggers reconnection on failure |
+| Component              | Responsibility                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **ConnectionPool**     | Wraps `sqlx::MySqlPool` with periodic health checks (`SELECT 1`), automatic reconnection, and configurable pool sizing                     |
+| **SSHTunnel**          | Manages `ssh2::Session` tunnels with local port forwarding; monitors tunnel liveness on a background Tokio task                            |
+| **ConnectionRegistry** | Thread-safe, in-memory `DashMap<String, ActiveConnection>` of all live connections indexed by connection ID                                |
+| **ConnectionStore**    | `rusqlite`-backed persistence of `ConnectionProfile` records; passwords stored separately in the OS keychain via `keyring`                 |
+| **HealthChecker**      | Background task per connection that runs `SELECT 1` on an interval, emits `connection_health` events, and triggers reconnection on failure |
 
 #### Reconnection Strategy
 
@@ -311,15 +311,15 @@ pub trait QueryExecutor: Send + Sync {
 
 #### Features
 
-| Feature | Implementation |
-|---|---|
-| **Streaming results** | Rows are fetched in configurable batches (default: 1000) and pushed to the frontend via Tauri `emit()` events. The frontend assembles them incrementally. |
-| **Query cancellation** | Each query runs inside a `tokio::select!` with a cancellation token. On cancel, a separate connection sends `KILL QUERY <id>` to the MySQL server. |
-| **Transaction tracking** | A per-connection state machine tracks `BEGIN` / `COMMIT` / `ROLLBACK` transitions. The UI displays the current transaction state. |
-| **Timing & statistics** | Every execution records: wall-clock time, rows affected/returned, bytes transferred, warnings count. |
-| **Parameterized queries** | Support for `?` placeholders with typed parameter binding via sqlx. |
-| **Multi-statement execution** | Statements are split by `;` (respecting string literals and comments), executed sequentially, and each result set is tagged with its statement index. |
-| **EXPLAIN integration** | One-click EXPLAIN or EXPLAIN ANALYZE with visual tree rendering on the frontend. |
+| Feature                       | Implementation                                                                                                                                            |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Streaming results**         | Rows are fetched in configurable batches (default: 1000) and pushed to the frontend via Tauri `emit()` events. The frontend assembles them incrementally. |
+| **Query cancellation**        | Each query runs inside a `tokio::select!` with a cancellation token. On cancel, a separate connection sends `KILL QUERY <id>` to the MySQL server.        |
+| **Transaction tracking**      | A per-connection state machine tracks `BEGIN` / `COMMIT` / `ROLLBACK` transitions. The UI displays the current transaction state.                         |
+| **Timing & statistics**       | Every execution records: wall-clock time, rows affected/returned, bytes transferred, warnings count.                                                      |
+| **Parameterized queries**     | Support for `?` placeholders with typed parameter binding via sqlx.                                                                                       |
+| **Multi-statement execution** | Statements are split by `;` (respecting string literals and comments), executed sequentially, and each result set is tagged with its statement index.     |
+| **EXPLAIN integration**       | One-click EXPLAIN or EXPLAIN ANALYZE with visual tree rendering on the frontend.                                                                          |
 
 #### Result Structures
 
@@ -354,20 +354,20 @@ The Schema Inspector provides the backend's view of every MySQL server's metadat
 
 #### Data Sources
 
-| MySQL Source | What We Read |
-|---|---|
-| `INFORMATION_SCHEMA.SCHEMATA` | Database list, default character set, collation |
-| `INFORMATION_SCHEMA.TABLES` | Table/view names, engine, row count estimate, data/index size |
-| `INFORMATION_SCHEMA.COLUMNS` | Column name, type, nullable, default, extra (auto_increment), comment |
-| `INFORMATION_SCHEMA.STATISTICS` | Index name, columns, uniqueness, type (BTREE/HASH/FULLTEXT) |
-| `INFORMATION_SCHEMA.KEY_COLUMN_USAGE` | Foreign key relationships |
-| `INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS` | ON DELETE / ON UPDATE rules |
-| `INFORMATION_SCHEMA.TRIGGERS` | Trigger name, event, timing, statement |
-| `INFORMATION_SCHEMA.ROUTINES` | Stored procedures and functions |
-| `INFORMATION_SCHEMA.EVENTS` | Scheduled events |
-| `INFORMATION_SCHEMA.PARTITIONS` | Partition definitions |
-| `performance_schema.threads` | Active thread/connection metrics |
-| `mysql.user` / `INFORMATION_SCHEMA.USER_PRIVILEGES` | User accounts and grants |
+| MySQL Source                                        | What We Read                                                          |
+| --------------------------------------------------- | --------------------------------------------------------------------- |
+| `INFORMATION_SCHEMA.SCHEMATA`                       | Database list, default character set, collation                       |
+| `INFORMATION_SCHEMA.TABLES`                         | Table/view names, engine, row count estimate, data/index size         |
+| `INFORMATION_SCHEMA.COLUMNS`                        | Column name, type, nullable, default, extra (auto_increment), comment |
+| `INFORMATION_SCHEMA.STATISTICS`                     | Index name, columns, uniqueness, type (BTREE/HASH/FULLTEXT)           |
+| `INFORMATION_SCHEMA.KEY_COLUMN_USAGE`               | Foreign key relationships                                             |
+| `INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS`        | ON DELETE / ON UPDATE rules                                           |
+| `INFORMATION_SCHEMA.TRIGGERS`                       | Trigger name, event, timing, statement                                |
+| `INFORMATION_SCHEMA.ROUTINES`                       | Stored procedures and functions                                       |
+| `INFORMATION_SCHEMA.EVENTS`                         | Scheduled events                                                      |
+| `INFORMATION_SCHEMA.PARTITIONS`                     | Partition definitions                                                 |
+| `performance_schema.threads`                        | Active thread/connection metrics                                      |
+| `mysql.user` / `INFORMATION_SCHEMA.USER_PRIVILEGES` | User accounts and grants                                              |
 
 #### Caching Strategy
 
@@ -443,14 +443,14 @@ The AI Service integrates large language model capabilities into the application
 
 #### Capabilities
 
-| Feature | Description |
-|---|---|
-| **NL → SQL** | Converts natural language questions into MySQL queries. Schema context (table names, columns, types, FK relationships) is injected into the prompt so the model produces accurate, runnable SQL. |
-| **Query Explanation** | Takes a SQL statement and produces a plain-English explanation of what it does, including potential performance implications. |
-| **Query Optimization** | Accepts a SQL statement and its `EXPLAIN` output, then suggests index additions, query rewrites, or schema changes. |
-| **Documentation Generation** | Generates Markdown documentation for tables, views, and stored procedures based on schema metadata. |
-| **Error Diagnosis** | When a query fails, the error message and surrounding schema context are sent to the model for a human-readable explanation and fix suggestions. |
-| **Chat Interface** | Free-form conversation with database context awareness; supports follow-up questions and multi-turn dialogue. |
+| Feature                      | Description                                                                                                                                                                                      |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **NL → SQL**                 | Converts natural language questions into MySQL queries. Schema context (table names, columns, types, FK relationships) is injected into the prompt so the model produces accurate, runnable SQL. |
+| **Query Explanation**        | Takes a SQL statement and produces a plain-English explanation of what it does, including potential performance implications.                                                                    |
+| **Query Optimization**       | Accepts a SQL statement and its `EXPLAIN` output, then suggests index additions, query rewrites, or schema changes.                                                                              |
+| **Documentation Generation** | Generates Markdown documentation for tables, views, and stored procedures based on schema metadata.                                                                                              |
+| **Error Diagnosis**          | When a query fails, the error message and surrounding schema context are sent to the model for a human-readable explanation and fix suggestions.                                                 |
+| **Chat Interface**           | Free-form conversation with database context awareness; supports follow-up questions and multi-turn dialogue.                                                                                    |
 
 #### Prompt Engineering
 
@@ -516,14 +516,14 @@ pub trait DataExporter: Send + Sync {
 
 #### Supported Formats
 
-| Exporter | Extension | Features |
-|---|---|---|
-| **CSVExporter** | `.csv` | Configurable delimiter, quoting, headers, encoding (UTF-8/Latin-1) |
-| **JSONExporter** | `.json` | Array-of-objects or array-of-arrays, pretty-print option |
-| **SQLExporter** | `.sql` | INSERT statements, CREATE TABLE included optionally, batch size configurable |
-| **ExcelExporter** | `.xlsx` | Sheet per result set, auto-column-width, header styling |
-| **MarkdownExporter** | `.md` | GitHub-flavored Markdown tables, alignment |
-| **XMLExporter** | `.xml` | Configurable root/row element names, attribute vs. element mode |
+| Exporter             | Extension | Features                                                                     |
+| -------------------- | --------- | ---------------------------------------------------------------------------- |
+| **CSVExporter**      | `.csv`    | Configurable delimiter, quoting, headers, encoding (UTF-8/Latin-1)           |
+| **JSONExporter**     | `.json`   | Array-of-objects or array-of-arrays, pretty-print option                     |
+| **SQLExporter**      | `.sql`    | INSERT statements, CREATE TABLE included optionally, batch size configurable |
+| **ExcelExporter**    | `.xlsx`   | Sheet per result set, auto-column-width, header styling                      |
+| **MarkdownExporter** | `.md`     | GitHub-flavored Markdown tables, alignment                                   |
+| **XMLExporter**      | `.xml`    | Configurable root/row element names, attribute vs. element mode              |
 
 #### Streaming Architecture
 
@@ -563,14 +563,14 @@ The Admin Service exposes MySQL server administration capabilities through the T
 
 #### Capabilities
 
-| Category | Operations |
-|---|---|
-| **User Management** | `CREATE USER`, `ALTER USER`, `DROP USER`, `GRANT`, `REVOKE`, `SHOW GRANTS`, password changes, account locking |
-| **Process Management** | `SHOW PROCESSLIST` (polling at configurable interval), `KILL <id>`, `KILL QUERY <id>`, filtering by user/database/state |
-| **Server Variables** | `SHOW [GLOBAL\|SESSION] VARIABLES`, `SET` for modifiable variables, search/filter, diff between global and session values |
-| **Table Maintenance** | `OPTIMIZE TABLE`, `REPAIR TABLE`, `ANALYZE TABLE`, `CHECK TABLE` — with multi-table batch support and progress tracking |
-| **Backup** | `mysqldump` wrapper (detects binary on PATH), custom SQL-based dump for environments without mysqldump, schema-only or data-only modes, compression |
-| **Server Metrics** | `SHOW GLOBAL STATUS`, `SHOW ENGINE INNODB STATUS`, uptime, connections, query throughput, buffer pool usage — exposed as time-series for the dashboard |
+| Category               | Operations                                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **User Management**    | `CREATE USER`, `ALTER USER`, `DROP USER`, `GRANT`, `REVOKE`, `SHOW GRANTS`, password changes, account locking                                          |
+| **Process Management** | `SHOW PROCESSLIST` (polling at configurable interval), `KILL <id>`, `KILL QUERY <id>`, filtering by user/database/state                                |
+| **Server Variables**   | `SHOW [GLOBAL\|SESSION] VARIABLES`, `SET` for modifiable variables, search/filter, diff between global and session values                              |
+| **Table Maintenance**  | `OPTIMIZE TABLE`, `REPAIR TABLE`, `ANALYZE TABLE`, `CHECK TABLE` — with multi-table batch support and progress tracking                                |
+| **Backup**             | `mysqldump` wrapper (detects binary on PATH), custom SQL-based dump for environments without mysqldump, schema-only or data-only modes, compression    |
+| **Server Metrics**     | `SHOW GLOBAL STATUS`, `SHOW ENGINE INNODB STATUS`, uptime, connections, query throughput, buffer pool usage — exposed as time-series for the dashboard |
 
 #### Process Monitor Architecture
 
@@ -620,9 +620,9 @@ src/stores/
 Every store follows the same pattern:
 
 ```typescript
-import { create } from 'zustand';
-import { devtools, persist } from 'zustand/middleware';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from "@tauri-apps/api/core";
+import { create } from "zustand";
+import { devtools, persist } from "zustand/middleware";
 
 interface EditorTab {
   id: string;
@@ -656,8 +656,8 @@ export const useEditorStore = create<EditorState>()(
           const tab: EditorTab = {
             id: crypto.randomUUID(),
             connectionId,
-            title: 'Untitled',
-            content: '',
+            title: "Untitled",
+            content: "",
             cursorPosition: { line: 1, column: 1 },
             isDirty: false,
             results: null,
@@ -673,24 +673,21 @@ export const useEditorStore = create<EditorState>()(
           const tab = tabs.find((t) => t.id === activeTabId);
           if (!tab) return;
 
-          const result = await invoke<QueryResult>('execute_query', {
+          const result = await invoke<QueryResult>("execute_query", {
             connectionId: tab.connectionId,
             sql: tab.content,
           });
 
           set((state) => ({
-            tabs: state.tabs.map((t) =>
-              t.id === activeTabId ? { ...t, results: result } : t
-            ),
+            tabs: state.tabs.map((t) => t.id === activeTabId ? { ...t, results: result } : t),
           }));
         },
-
         // ... more actions
       }),
-      { name: 'editor-store' }
+      { name: "editor-store" },
     ),
-    { name: 'EditorStore' }
-  )
+    { name: "EditorStore" },
+  ),
 );
 ```
 
@@ -712,57 +709,57 @@ settingsStore   ──(subscription: theme changed)────► document.body
 ### 4.1 Query Execution Flow
 
 ```
- ┌──────────┐
- │   User   │
- └────┬─────┘
-      │ Types SQL
-      ▼
- ┌──────────────────┐
- │   Monaco Editor   │  ← Syntax highlighting, autocomplete
- └────────┬─────────┘
-          │ Ctrl+Enter (or ⌘+Enter)
-          ▼
- ┌──────────────────┐
- │  editorStore      │  → Sets loading state, captures timestamp
- │  .executeQuery()  │
- └────────┬─────────┘
-          │ invoke("execute_query", { connectionId, sql })
-          ▼
- ┌──────────────────┐
- │  Tauri IPC        │  ← JSON serialization
- └────────┬─────────┘
-          │
-          ▼
- ┌──────────────────┐
- │  QueryExecutor    │  → Rust backend
- │  ::execute()      │
- └────────┬─────────┘
-          │ sqlx::query(sql).fetch_all(&pool)
-          ▼
- ┌──────────────────┐
- │   MySQL Server    │
- └────────┬─────────┘
-          │ Result set (binary protocol)
-          ▼
- ┌──────────────────┐
- │  Serialize rows   │  → Vec<Vec<SqlValue>> + ColumnMeta
- └────────┬─────────┘
-          │ IPC response (JSON)
-          ▼
- ┌──────────────────┐
- │  resultStore      │  → Updates results, row count, timing
- │  .setResults()    │
- └────────┬─────────┘
-          │ React re-render
-          ▼
- ┌──────────────────┐
- │  TanStack Table   │  ← Virtualized rendering (visible rows only)
- └──────────────────┘
-          │
-          ▼
- ┌──────────────────┐
- │  Status Bar       │  → "42 rows in 12ms" + warnings badge
- └──────────────────┘
+┌──────────┐
+│   User   │
+└────┬─────┘
+     │ Types SQL
+     ▼
+┌──────────────────┐
+│   Monaco Editor   │  ← Syntax highlighting, autocomplete
+└────────┬─────────┘
+         │ Ctrl+Enter (or ⌘+Enter)
+         ▼
+┌──────────────────┐
+│  editorStore      │  → Sets loading state, captures timestamp
+│  .executeQuery()  │
+└────────┬─────────┘
+         │ invoke("execute_query", { connectionId, sql })
+         ▼
+┌──────────────────┐
+│  Tauri IPC        │  ← JSON serialization
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  QueryExecutor    │  → Rust backend
+│  ::execute()      │
+└────────┬─────────┘
+         │ sqlx::query(sql).fetch_all(&pool)
+         ▼
+┌──────────────────┐
+│   MySQL Server    │
+└────────┬─────────┘
+         │ Result set (binary protocol)
+         ▼
+┌──────────────────┐
+│  Serialize rows   │  → Vec<Vec<SqlValue>> + ColumnMeta
+└────────┬─────────┘
+         │ IPC response (JSON)
+         ▼
+┌──────────────────┐
+│  resultStore      │  → Updates results, row count, timing
+│  .setResults()    │
+└────────┬─────────┘
+         │ React re-render
+         ▼
+┌──────────────────┐
+│  TanStack Table   │  ← Virtualized rendering (visible rows only)
+└──────────────────┘
+         │
+         ▼
+┌──────────────────┐
+│  Status Bar       │  → "42 rows in 12ms" + warnings badge
+└──────────────────┘
 ```
 
 ### 4.2 Streaming Query Flow (Large Result Sets)
@@ -793,107 +790,107 @@ Frontend                         Rust Backend                    MySQL
 ### 4.3 AI Query Generation Flow
 
 ```
- ┌──────────┐
- │   User   │
- └────┬─────┘
-      │ Types: "Show top 10 customers by revenue last month"
-      ▼
- ┌──────────────────┐
- │  AI Chat Panel    │
- └────────┬─────────┘
-          │ aiStore.generateSQL(prompt)
-          ▼
- ┌──────────────────┐
- │  invoke(          │
- │  "ai_generate_sql"│  → { prompt, schemaContext }
- │  )                │
- └────────┬─────────┘
-          │
-          ▼
- ┌──────────────────┐
- │  AI Service       │
- │                   │
- │  1. Load schema   │ ← SchemaInspector cache
- │     for current   │
- │     database      │
- │                   │
- │  2. Build prompt: │
- │     System prompt │
- │     + Schema DDL  │
- │     + User query  │
- │     + History     │
- │                   │
- │  3. Call Copilot  │ ──► GitHub Copilot API
- │     SDK           │ ◄── Streamed response
- └────────┬─────────┘
-          │ Generated SQL
-          ▼
- ┌──────────────────┐
- │  AI Chat Panel    │  ← Displays SQL in code block
- │                   │
- │  [Insert into     │  ← Click to insert into active editor tab
- │   Editor]         │
- │  [Execute]        │  ← Click to execute directly
- │  [Explain]        │  ← Click to get explanation
- └──────────────────┘
+┌──────────┐
+│   User   │
+└────┬─────┘
+     │ Types: "Show top 10 customers by revenue last month"
+     ▼
+┌──────────────────┐
+│  AI Chat Panel    │
+└────────┬─────────┘
+         │ aiStore.generateSQL(prompt)
+         ▼
+┌──────────────────┐
+│  invoke(          │
+│  "ai_generate_sql"│  → { prompt, schemaContext }
+│  )                │
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────┐
+│  AI Service       │
+│                   │
+│  1. Load schema   │ ← SchemaInspector cache
+│     for current   │
+│     database      │
+│                   │
+│  2. Build prompt: │
+│     System prompt │
+│     + Schema DDL  │
+│     + User query  │
+│     + History     │
+│                   │
+│  3. Call Copilot  │ ──► GitHub Copilot API
+│     SDK           │ ◄── Streamed response
+└────────┬─────────┘
+         │ Generated SQL
+         ▼
+┌──────────────────┐
+│  AI Chat Panel    │  ← Displays SQL in code block
+│                   │
+│  [Insert into     │  ← Click to insert into active editor tab
+│   Editor]         │
+│  [Execute]        │  ← Click to execute directly
+│  [Explain]        │  ← Click to get explanation
+└──────────────────┘
 ```
 
 ### 4.4 Connection Establishment Flow
 
 ```
- ┌──────────────────┐
- │  User selects     │
- │  saved profile    │
- └────────┬─────────┘
-          │ connectionStore.connect(profileId)
-          ▼
- ┌──────────────────┐
- │  invoke("connect" │  → { profileId }
- │  )                │
- └────────┬─────────┘
-          │
-          ▼
- ┌──────────────────────────────────────────────────────┐
- │  ConnectionManager::connect()                         │
- │                                                       │
- │  1. Load profile from ConnectionStore (rusqlite)      │
- │  2. Retrieve password from OS keychain                │
- │                                                       │
- │  ┌─────────────────────────────────────────────────┐ │
- │  │  If SSH configured:                              │ │
- │  │                                                   │ │
- │  │  SSHTunnel::establish()                          │ │
- │  │    → ssh2::Session::connect(ssh_host:ssh_port)   │ │
- │  │    → Authenticate (key or password)              │ │
- │  │    → Forward local_port → db_host:db_port        │ │
- │  │    → Rewrite connect URL: 127.0.0.1:local_port  │ │
- │  └─────────────────────────────────────────────────┘ │
- │                                                       │
- │  3. Build sqlx::MySqlConnectOptions                   │
- │     → host, port, user, password                      │
- │     → SSL mode + certificates (if configured)         │
- │     → default database                                │
- │                                                       │
- │  4. sqlx::MySqlPool::connect_with(options)            │
- │                                                       │
- │  5. Health check: SELECT 1                            │
- │                                                       │
- │  6. Detect MySQL version: SELECT VERSION()            │
- │                                                       │
- │  7. ConnectionRegistry::insert(id, active_conn)       │
- │                                                       │
- │  8. SchemaInspector::introspect()                     │
- │     → Load database list → cache                      │
- │                                                       │
- │  9. Start HealthChecker background task               │
- └──────────────────┬───────────────────────────────────┘
-                    │
-                    ▼
- ┌──────────────────┐
- │  Event:           │ ──► connectionStore updates
- │  "connection_     │ ──► schemaStore loads tree
- │   established"    │ ──► editorStore opens new tab
- └──────────────────┘
+┌──────────────────┐
+│  User selects     │
+│  saved profile    │
+└────────┬─────────┘
+         │ connectionStore.connect(profileId)
+         ▼
+┌──────────────────┐
+│  invoke("connect" │  → { profileId }
+│  )                │
+└────────┬─────────┘
+         │
+         ▼
+┌──────────────────────────────────────────────────────┐
+│  ConnectionManager::connect()                         │
+│                                                       │
+│  1. Load profile from ConnectionStore (rusqlite)      │
+│  2. Retrieve password from OS keychain                │
+│                                                       │
+│  ┌─────────────────────────────────────────────────┐ │
+│  │  If SSH configured:                              │ │
+│  │                                                   │ │
+│  │  SSHTunnel::establish()                          │ │
+│  │    → ssh2::Session::connect(ssh_host:ssh_port)   │ │
+│  │    → Authenticate (key or password)              │ │
+│  │    → Forward local_port → db_host:db_port        │ │
+│  │    → Rewrite connect URL: 127.0.0.1:local_port  │ │
+│  └─────────────────────────────────────────────────┘ │
+│                                                       │
+│  3. Build sqlx::MySqlConnectOptions                   │
+│     → host, port, user, password                      │
+│     → SSL mode + certificates (if configured)         │
+│     → default database                                │
+│                                                       │
+│  4. sqlx::MySqlPool::connect_with(options)            │
+│                                                       │
+│  5. Health check: SELECT 1                            │
+│                                                       │
+│  6. Detect MySQL version: SELECT VERSION()            │
+│                                                       │
+│  7. ConnectionRegistry::insert(id, active_conn)       │
+│                                                       │
+│  8. SchemaInspector::introspect()                     │
+│     → Load database list → cache                      │
+│                                                       │
+│  9. Start HealthChecker background task               │
+└──────────────────┬───────────────────────────────────┘
+                   │
+                   ▼
+┌──────────────────┐
+│  Event:           │ ──► connectionStore updates
+│  "connection_     │ ──► schemaStore loads tree
+│   established"    │ ──► editorStore opens new tab
+└──────────────────┘
 ```
 
 ---
@@ -1204,19 +1201,19 @@ async fn table_maintenance(
 
 ### 5.7 Tauri Events (Backend → Frontend)
 
-| Event Name | Payload | Description |
-|---|---|---|
-| `connection_established` | `ConnectionInfo` | A new connection is active |
-| `connection_lost` | `{ connection_id, error }` | Connection dropped unexpectedly |
-| `connection_health` | `{ connection_id, healthy, latency_ms }` | Periodic health check result |
-| `query_rows` | `{ query_id, rows, partial }` | Streamed result batch |
-| `query_complete` | `{ query_id, total_rows, time_ms }` | Stream finished |
-| `query_error` | `{ query_id, error }` | Query execution failed |
-| `schema_changed` | `SchemaChangeEvent` | DDL detected, cache invalidated |
-| `export_progress` | `{ export_id, rows_done, total_est, pct }` | Export progress update |
-| `import_progress` | `{ import_id, rows_done, total_est, pct }` | Import progress update |
-| `process_list_update` | `Vec<Process>` | Polled process list refresh |
-| `ai_stream_chunk` | `{ request_id, chunk, done }` | Streamed AI response token |
+| Event Name               | Payload                                    | Description                     |
+| ------------------------ | ------------------------------------------ | ------------------------------- |
+| `connection_established` | `ConnectionInfo`                           | A new connection is active      |
+| `connection_lost`        | `{ connection_id, error }`                 | Connection dropped unexpectedly |
+| `connection_health`      | `{ connection_id, healthy, latency_ms }`   | Periodic health check result    |
+| `query_rows`             | `{ query_id, rows, partial }`              | Streamed result batch           |
+| `query_complete`         | `{ query_id, total_rows, time_ms }`        | Stream finished                 |
+| `query_error`            | `{ query_id, error }`                      | Query execution failed          |
+| `schema_changed`         | `SchemaChangeEvent`                        | DDL detected, cache invalidated |
+| `export_progress`        | `{ export_id, rows_done, total_est, pct }` | Export progress update          |
+| `import_progress`        | `{ import_id, rows_done, total_est, pct }` | Import progress update          |
+| `process_list_update`    | `Vec<Process>`                             | Polled process list refresh     |
+| `ai_stream_chunk`        | `{ request_id, chunk, done }`              | Streamed AI response token      |
 
 ---
 
@@ -1261,22 +1258,22 @@ async fn table_maintenance(
 
 ### 6.2 Tauri Security Model
 
-| Layer | Configuration |
-|---|---|
-| **Command Allowlist** | Only explicitly registered `#[tauri::command]` functions are callable from the frontend. No filesystem, shell, or HTTP access is granted by default. |
+| Layer                       | Configuration                                                                                                                                                                                                                                                                                |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Command Allowlist**       | Only explicitly registered `#[tauri::command]` functions are callable from the frontend. No filesystem, shell, or HTTP access is granted by default.                                                                                                                                         |
 | **Content Security Policy** | `default-src 'self'; script-src 'self' 'unsafe-eval' blob:; style-src 'self' 'unsafe-inline'; worker-src 'self' blob:; connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*` — blocks external resource loading while allowing Monaco workers and local dev endpoints |
-| **IPC Origin Check** | Tauri validates that IPC messages originate from the app's webview, not injected scripts |
-| **Permission Scopes** | Tauri 2's granular permissions restrict each plugin/command to minimum required capabilities |
-| **No Remote Content** | The frontend is bundled locally; no remote URLs are loaded in the webview |
+| **IPC Origin Check**        | Tauri validates that IPC messages originate from the app's webview, not injected scripts                                                                                                                                                                                                     |
+| **Permission Scopes**       | Tauri 2's granular permissions restrict each plugin/command to minimum required capabilities                                                                                                                                                                                                 |
+| **No Remote Content**       | The frontend is bundled locally; no remote URLs are loaded in the webview                                                                                                                                                                                                                    |
 
 ### 6.3 Network Security
 
-| Scenario | Protection |
-|---|---|
+| Scenario              | Protection                                                                                     |
+| --------------------- | ---------------------------------------------------------------------------------------------- |
 | **Direct Connection** | Optional SSL/TLS (`ssl-mode=REQUIRED` or `VERIFY_IDENTITY`) with custom CA certificate support |
-| **SSH Tunnel** | All MySQL traffic encrypted through SSH tunnel; supports Ed25519, RSA, and ECDSA keys |
-| **Cloud Databases** | Enforced SSL for RDS, PlanetScale, etc.; certificate bundles included or user-provided |
-| **AI API Calls** | HTTPS only; OAuth tokens stored in OS keychain; no query data logged server-side |
+| **SSH Tunnel**        | All MySQL traffic encrypted through SSH tunnel; supports Ed25519, RSA, and ECDSA keys          |
+| **Cloud Databases**   | Enforced SSL for RDS, PlanetScale, etc.; certificate bundles included or user-provided         |
+| **AI API Calls**      | HTTPS only; OAuth tokens stored in OS keychain; no query data logged server-side               |
 
 ### 6.4 Destructive Operation Safeguards
 
@@ -1418,14 +1415,14 @@ let pool = MySqlPool::connect_with(options)
 
 ### 7.3 Frontend Error Handling
 
-| Error Location | Handling Strategy |
-|---|---|
-| **React Error Boundary** | Wraps each major panel (editor, results, schema tree). Catches render crashes and shows a "Something went wrong" fallback with a retry button. |
-| **IPC Errors** | Caught in store actions; parsed into typed errors; displayed as toast notifications with appropriate severity (info/warning/error). |
-| **Query Errors** | Displayed inline in the results panel. If the error includes `line`/`column`, the corresponding position is highlighted in the Monaco editor with a red squiggly underline. |
-| **Connection Errors** | Trigger a reconnection dialog with options: Retry Now, Retry with Different Credentials, Cancel. Auto-reconnect attempts run in the background. |
-| **AI Errors** | Non-blocking; shown as a message in the AI chat panel. The application remains fully functional without AI. |
-| **Export/Import Errors** | Displayed in the progress dialog. Partial exports are preserved (user can resume or discard). |
+| Error Location           | Handling Strategy                                                                                                                                                           |
+| ------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **React Error Boundary** | Wraps each major panel (editor, results, schema tree). Catches render crashes and shows a "Something went wrong" fallback with a retry button.                              |
+| **IPC Errors**           | Caught in store actions; parsed into typed errors; displayed as toast notifications with appropriate severity (info/warning/error).                                         |
+| **Query Errors**         | Displayed inline in the results panel. If the error includes `line`/`column`, the corresponding position is highlighted in the Monaco editor with a red squiggly underline. |
+| **Connection Errors**    | Trigger a reconnection dialog with options: Retry Now, Retry with Different Credentials, Cancel. Auto-reconnect attempts run in the background.                             |
+| **AI Errors**            | Non-blocking; shown as a message in the AI chat panel. The application remains fully functional without AI.                                                                 |
+| **Export/Import Errors** | Displayed in the progress dialog. Partial exports are preserved (user can resume or discard).                                                                               |
 
 ### 7.4 Graceful Degradation
 
@@ -1457,41 +1454,41 @@ Feature availability when dependencies are unavailable:
 
 ### 8.1 Backend Optimizations
 
-| Strategy | Implementation | Impact |
-|---|---|---|
-| **Connection Pooling** | `sqlx::MySqlPool` with configurable min/max connections (default: 1–5 per profile) | Eliminates connection setup overhead for repeated queries |
-| **Schema Caching** | In-memory `HashMap` with TTL per object type; invalidated on DDL detection | Reduces INFORMATION_SCHEMA queries from seconds to microseconds |
-| **Result Streaming** | Rows fetched in batches of 1,000 via `sqlx::query().fetch()`; pushed via Tauri events | Constant memory regardless of result size |
-| **Binary Protocol** | `sqlx` uses MySQL's binary protocol by default for prepared statements | 2–5× less bandwidth than text protocol for numeric types |
-| **Query Pagination** | Rust adds `LIMIT` / `OFFSET` for table browsing; frontend requests pages on demand | Only transfers visible data |
-| **Async I/O** | Every database, file, and network operation is non-blocking via Tokio | Main thread and UI thread are never blocked |
-| **SSH Tunnel Reuse** | One tunnel per SSH host; multiple MySQL connections share the same tunnel | Avoids SSH handshake per connection |
+| Strategy               | Implementation                                                                        | Impact                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Connection Pooling** | `sqlx::MySqlPool` with configurable min/max connections (default: 1–5 per profile)    | Eliminates connection setup overhead for repeated queries       |
+| **Schema Caching**     | In-memory `HashMap` with TTL per object type; invalidated on DDL detection            | Reduces INFORMATION_SCHEMA queries from seconds to microseconds |
+| **Result Streaming**   | Rows fetched in batches of 1,000 via `sqlx::query().fetch()`; pushed via Tauri events | Constant memory regardless of result size                       |
+| **Binary Protocol**    | `sqlx` uses MySQL's binary protocol by default for prepared statements                | 2–5× less bandwidth than text protocol for numeric types        |
+| **Query Pagination**   | Rust adds `LIMIT` / `OFFSET` for table browsing; frontend requests pages on demand    | Only transfers visible data                                     |
+| **Async I/O**          | Every database, file, and network operation is non-blocking via Tokio                 | Main thread and UI thread are never blocked                     |
+| **SSH Tunnel Reuse**   | One tunnel per SSH host; multiple MySQL connections share the same tunnel             | Avoids SSH handshake per connection                             |
 
 ### 8.2 Frontend Optimizations
 
-| Strategy | Implementation | Impact |
-|---|---|---|
-| **Row Virtualization** | TanStack Virtual renders only visible rows (~30–50 at a time) | Handles 1M+ rows without DOM bloat |
-| **Column Virtualization** | Only visible columns are rendered; horizontal scroll triggers re-render | Wide tables (100+ columns) remain performant |
-| **Lazy Schema Tree** | Databases load on connect; tables load on expand; columns load on expand | Fast initial load even with hundreds of databases |
-| **Debounced Autocomplete** | Monaco completions fire after 150ms of idle typing | Prevents API spam during fast typing |
-| **Web Worker for Monaco** | Syntax highlighting and validation run in a Web Worker | Keeps the UI thread responsive during editing |
-| **Memoized Components** | `React.memo` on table cells, tree nodes, and tab headers | Prevents unnecessary re-renders in hot paths |
-| **Zustand Selectors** | Fine-grained subscriptions (`useStore(s => s.field)`) | Components re-render only when their slice changes |
-| **Persisted Panel Layout** | Panel sizes saved to localStorage; restored on launch | No layout recalculation on startup |
+| Strategy                   | Implementation                                                           | Impact                                             |
+| -------------------------- | ------------------------------------------------------------------------ | -------------------------------------------------- |
+| **Row Virtualization**     | TanStack Virtual renders only visible rows (~30–50 at a time)            | Handles 1M+ rows without DOM bloat                 |
+| **Column Virtualization**  | Only visible columns are rendered; horizontal scroll triggers re-render  | Wide tables (100+ columns) remain performant       |
+| **Lazy Schema Tree**       | Databases load on connect; tables load on expand; columns load on expand | Fast initial load even with hundreds of databases  |
+| **Debounced Autocomplete** | Monaco completions fire after 150ms of idle typing                       | Prevents API spam during fast typing               |
+| **Web Worker for Monaco**  | Syntax highlighting and validation run in a Web Worker                   | Keeps the UI thread responsive during editing      |
+| **Memoized Components**    | `React.memo` on table cells, tree nodes, and tab headers                 | Prevents unnecessary re-renders in hot paths       |
+| **Zustand Selectors**      | Fine-grained subscriptions (`useStore(s => s.field)`)                    | Components re-render only when their slice changes |
+| **Persisted Panel Layout** | Panel sizes saved to localStorage; restored on launch                    | No layout recalculation on startup                 |
 
 ### 8.3 Performance Budgets
 
-| Metric | Target | Measurement |
-|---|---|---|
-| App launch to interactive | < 2 seconds | Tauri window open + React hydration |
-| Connection establishment | < 3 seconds | Profile select to schema tree populated |
-| Simple query (100 rows) | < 200ms | Ctrl+Enter to results rendered |
-| Large query (100K rows) | < 5 seconds | First batch visible in < 500ms |
-| Schema tree expand | < 300ms | Click to children visible |
-| Autocomplete popup | < 200ms | Keystroke to suggestions visible |
-| Memory (idle, 1 connection) | < 150 MB | Measured via OS task manager |
-| Binary size (installed) | < 30 MB | Platform-specific installer |
+| Metric                      | Target      | Measurement                             |
+| --------------------------- | ----------- | --------------------------------------- |
+| App launch to interactive   | < 2 seconds | Tauri window open + React hydration     |
+| Connection establishment    | < 3 seconds | Profile select to schema tree populated |
+| Simple query (100 rows)     | < 200ms     | Ctrl+Enter to results rendered          |
+| Large query (100K rows)     | < 5 seconds | First batch visible in < 500ms          |
+| Schema tree expand          | < 300ms     | Click to children visible               |
+| Autocomplete popup          | < 200ms     | Keystroke to suggestions visible        |
+| Memory (idle, 1 connection) | < 150 MB    | Measured via OS task manager            |
+| Binary size (installed)     | < 30 MB     | Platform-specific installer             |
 
 ---
 
@@ -1537,24 +1534,24 @@ All application data is stored under the platform-appropriate data directory, ma
 
 ```toml
 [general]
-theme = "dark"                           # "dark" | "light" | "system" | custom name
+theme = "dark" # "dark" | "light" | "system" | custom name
 language = "en"
 check_updates = true
-telemetry = false                        # No telemetry by default
+telemetry = false # No telemetry by default
 
 [editor]
 font_family = "JetBrains Mono, Fira Code, monospace"
 font_size = 14
 tab_size = 4
-word_wrap = "off"                        # "off" | "on" | "wordWrapColumn"
+word_wrap = "off" # "off" | "on" | "wordWrapColumn"
 minimap = true
 line_numbers = true
 auto_save_interval_secs = 30
 
 [query]
-default_limit = 1000                     # Auto-append LIMIT to SELECT queries
+default_limit = 1000 # Auto-append LIMIT to SELECT queries
 max_display_rows = 100_000
-confirm_destructive = true               # Confirm DROP, TRUNCATE, DELETE w/o WHERE
+confirm_destructive = true # Confirm DROP, TRUNCATE, DELETE w/o WHERE
 auto_uppercase_keywords = false
 
 [export]
@@ -1564,8 +1561,7 @@ csv_quote = "\""
 include_headers = true
 
 [ai]
-provider = "copilot"                     # "copilot" | "none"
-
+provider = "copilot" # "copilot" | "none"
 
 max_context_tokens = 4096
 ```
@@ -1681,34 +1677,34 @@ license = "MIT"
 min_app_version = "2.0.0"
 
 [permissions]
-ipc_commands = ["execute_query", "get_databases"]   # Allowed core commands
-network = false                                      # No external network access
-filesystem = ["read"]                                # Read-only filesystem access
+ipc_commands = ["execute_query", "get_databases"] # Allowed core commands
+network = false # No external network access
+filesystem = ["read"] # Read-only filesystem access
 
 [backend]
-entry = "src/lib.rs"                                 # Tauri plugin entry point
+entry = "src/lib.rs" # Tauri plugin entry point
 
 [frontend]
-entry = "dist/index.js"                              # Bundled React component
+entry = "dist/index.js" # Bundled React component
 panels = [
-    { id = "redis-viewer", title = "Redis", icon = "database", position = "sidebar" }
+  { id = "redis-viewer", title = "Redis", icon = "database", position = "sidebar" },
 ]
 context_menus = [
-    { id = "copy-to-redis", title = "Copy to Redis", target = "result-cell" }
+  { id = "copy-to-redis", title = "Copy to Redis", target = "result-cell" },
 ]
 ```
 
 ### 10.3 Extension Points
 
-| Extension Point | Mechanism | Example |
-|---|---|---|
-| **New IPC Commands** | Tauri plugin system; register new `#[tauri::command]` functions | A PostgreSQL plugin adding `pg_execute_query` |
-| **Custom Export Formats** | Implement `DataExporter` trait; register via plugin init | Parquet, Avro, or Protocol Buffers exporter |
-| **Sidebar Panels** | React component registered in the component registry | Redis viewer, MongoDB browser, query planner visualizer |
-| **Result View Tabs** | React component rendered as an alternative result view | Geo-map view for spatial data, chart auto-generator |
-| **Context Menu Items** | Menu item definitions in manifest; handler in plugin code | "Generate migration" on right-click table |
-| **Toolbar Buttons** | Button definitions in manifest; click handler in plugin | "Deploy to staging" button |
-| **Themes** | CSS file in `themes/` directory following CSS variable conventions | Corporate branding theme |
+| Extension Point           | Mechanism                                                          | Example                                                 |
+| ------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------- |
+| **New IPC Commands**      | Tauri plugin system; register new `#[tauri::command]` functions    | A PostgreSQL plugin adding `pg_execute_query`           |
+| **Custom Export Formats** | Implement `DataExporter` trait; register via plugin init           | Parquet, Avro, or Protocol Buffers exporter             |
+| **Sidebar Panels**        | React component registered in the component registry               | Redis viewer, MongoDB browser, query planner visualizer |
+| **Result View Tabs**      | React component rendered as an alternative result view             | Geo-map view for spatial data, chart auto-generator     |
+| **Context Menu Items**    | Menu item definitions in manifest; handler in plugin code          | "Generate migration" on right-click table               |
+| **Toolbar Buttons**       | Button definitions in manifest; click handler in plugin            | "Deploy to staging" button                              |
+| **Themes**                | CSS file in `themes/` directory following CSS variable conventions | Corporate branding theme                                |
 
 ### 10.4 Sandboxing
 
@@ -1733,29 +1729,29 @@ Update:     Download new version → Disable old → Install new → Enable
 
 ## Appendix A: Glossary
 
-| Term | Definition |
-|---|---|
-| **IPC** | Inter-Process Communication — the message-passing channel between the Rust backend and React frontend |
-| **Tauri Command** | A Rust function annotated with `#[tauri::command]` that can be invoked from JavaScript |
-| **Tauri Event** | A named, typed message emitted from Rust and received by JavaScript event listeners |
-| **Connection Profile** | A saved set of parameters needed to connect to a MySQL server |
-| **Active Connection** | A live, pooled database session with health monitoring |
-| **Stream Handle** | An opaque identifier for a running streamed query, used for cancellation |
-| **Schema Context** | A subset of schema metadata (tables, columns, types) sent to the AI service for prompt enrichment |
-| **DDL** | Data Definition Language — SQL statements that modify schema (CREATE, ALTER, DROP) |
-| **DML** | Data Manipulation Language — SQL statements that modify data (INSERT, UPDATE, DELETE) |
+| Term                   | Definition                                                                                            |
+| ---------------------- | ----------------------------------------------------------------------------------------------------- |
+| **IPC**                | Inter-Process Communication — the message-passing channel between the Rust backend and React frontend |
+| **Tauri Command**      | A Rust function annotated with `#[tauri::command]` that can be invoked from JavaScript                |
+| **Tauri Event**        | A named, typed message emitted from Rust and received by JavaScript event listeners                   |
+| **Connection Profile** | A saved set of parameters needed to connect to a MySQL server                                         |
+| **Active Connection**  | A live, pooled database session with health monitoring                                                |
+| **Stream Handle**      | An opaque identifier for a running streamed query, used for cancellation                              |
+| **Schema Context**     | A subset of schema metadata (tables, columns, types) sent to the AI service for prompt enrichment     |
+| **DDL**                | Data Definition Language — SQL statements that modify schema (CREATE, ALTER, DROP)                    |
+| **DML**                | Data Manipulation Language — SQL statements that modify data (INSERT, UPDATE, DELETE)                 |
 
 ## Appendix B: Decision Records
 
 ### B.1 Why Tauri over Electron?
 
-| Factor | Tauri 2 | Electron |
-|---|---|---|
-| Binary size | ~3 MB | ~150 MB |
-| Memory usage | ~30 MB idle | ~100 MB idle |
-| Backend language | Rust (memory-safe, fast) | Node.js (GC pauses) |
-| Security | Allowlist, CSP, no Node in renderer | Full Node access in renderer (unless sandboxed) |
-| Auto-update | Built-in | Requires electron-updater |
+| Factor           | Tauri 2                             | Electron                                        |
+| ---------------- | ----------------------------------- | ----------------------------------------------- |
+| Binary size      | ~3 MB                               | ~150 MB                                         |
+| Memory usage     | ~30 MB idle                         | ~100 MB idle                                    |
+| Backend language | Rust (memory-safe, fast)            | Node.js (GC pauses)                             |
+| Security         | Allowlist, CSP, no Node in renderer | Full Node access in renderer (unless sandboxed) |
+| Auto-update      | Built-in                            | Requires electron-updater                       |
 
 ### B.2 Why sqlx over mysql_async?
 
@@ -1774,4 +1770,4 @@ Update:     Download new version → Disable old → Install new → Enable
 
 ---
 
-*This is a living document. It will be updated as the architecture evolves.*
+_This is a living document. It will be updated as the architecture evolves._

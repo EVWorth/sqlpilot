@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-import { useQueryExecution } from "../useQueryExecution";
+import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useQueryExecution } from "../useQueryExecution";
 
 // Mock the Tauri API so store actions that call invoke don't fail
 vi.mock("../../lib/tauri-api", () => ({
@@ -20,22 +20,26 @@ beforeEach(() => {
   vi.clearAllMocks();
 
   // Reset stores to clean state
-  useConnectionStore.setState({
-    selectedConnectionId: null,
-    activeConnections: [],
-    profiles: [],
-  } as unknown as Parameters<typeof useConnectionStore.setState>[0]);
+  useConnectionStore.setState(
+    {
+      selectedConnectionId: null,
+      activeConnections: [],
+      profiles: [],
+    } as unknown as Parameters<typeof useConnectionStore.setState>[0],
+  );
 
   useEditorStore.setState({ tabs: [], activeTabId: null });
 
-  useResultStore.setState({
-    isExecuting: false,
-    error: null,
-    results: [],
-    executeQuery: mockExecuteQuery,
-    executeExplain: mockExecuteExplain,
-    executeExplainAnalyze: mockExecuteExplainAnalyze,
-  } as unknown as Parameters<typeof useResultStore.setState>[0]);
+  useResultStore.setState(
+    {
+      isExecuting: false,
+      error: null,
+      results: [],
+      executeQuery: mockExecuteQuery,
+      executeExplain: mockExecuteExplain,
+      executeExplainAnalyze: mockExecuteExplainAnalyze,
+    } as unknown as Parameters<typeof useResultStore.setState>[0],
+  );
 });
 
 describe("useQueryExecution", () => {
@@ -45,20 +49,26 @@ describe("useQueryExecution", () => {
   });
 
   it("canExecute is false when a query is executing", () => {
-    useConnectionStore.setState({ selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0]);
+    useConnectionStore.setState(
+      { selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0],
+    );
     useResultStore.setState({ isExecuting: true } as Parameters<typeof useResultStore.setState>[0]);
     const { result } = renderHook(() => useQueryExecution());
     expect(result.current.canExecute).toBe(false);
   });
 
   it("canExecute is true when connection is set and not executing", () => {
-    useConnectionStore.setState({ selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0]);
+    useConnectionStore.setState(
+      { selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0],
+    );
     const { result } = renderHook(() => useQueryExecution());
     expect(result.current.canExecute).toBe(true);
   });
 
   it("exposes the selected connectionId and active tab database", () => {
-    useConnectionStore.setState({ selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0]);
+    useConnectionStore.setState(
+      { selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0],
+    );
     const tabId = useEditorStore.getState().addTab("conn-1", "my_db");
     useEditorStore.getState().setTabConnection(tabId, "conn-1", "my_db");
 
@@ -68,7 +78,9 @@ describe("useQueryExecution", () => {
   });
 
   it("executeQuery passes connectionId and database from active tab to the store action", async () => {
-    useConnectionStore.setState({ selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0]);
+    useConnectionStore.setState(
+      { selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0],
+    );
     const tabId = useEditorStore.getState().addTab("conn-1", "my_db");
     useEditorStore.getState().setTabConnection(tabId, "conn-1", "my_db");
 
@@ -79,7 +91,9 @@ describe("useQueryExecution", () => {
   });
 
   it("executeQuery uses undefined database when no tab database is set", async () => {
-    useConnectionStore.setState({ selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0]);
+    useConnectionStore.setState(
+      { selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0],
+    );
     useEditorStore.getState().addTab("conn-1");
 
     const { result } = renderHook(() => useQueryExecution());
@@ -97,7 +111,9 @@ describe("useQueryExecution", () => {
   });
 
   it("executeExplain passes connectionId and database from active tab", async () => {
-    useConnectionStore.setState({ selectedConnectionId: "conn-2" } as Parameters<typeof useConnectionStore.setState>[0]);
+    useConnectionStore.setState(
+      { selectedConnectionId: "conn-2" } as Parameters<typeof useConnectionStore.setState>[0],
+    );
     const tabId = useEditorStore.getState().addTab("conn-2", "schema_x");
     useEditorStore.getState().setTabConnection(tabId, "conn-2", "schema_x");
 
@@ -108,7 +124,9 @@ describe("useQueryExecution", () => {
   });
 
   it("executeExplainAnalyze passes connectionId and database from active tab", async () => {
-    useConnectionStore.setState({ selectedConnectionId: "conn-3" } as Parameters<typeof useConnectionStore.setState>[0]);
+    useConnectionStore.setState(
+      { selectedConnectionId: "conn-3" } as Parameters<typeof useConnectionStore.setState>[0],
+    );
     const tabId = useEditorStore.getState().addTab("conn-3", "db_y");
     useEditorStore.getState().setTabConnection(tabId, "conn-3", "db_y");
 
@@ -119,7 +137,9 @@ describe("useQueryExecution", () => {
   });
 
   it("database reflects the active tab after setTabConnection", () => {
-    useConnectionStore.setState({ selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0]);
+    useConnectionStore.setState(
+      { selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0],
+    );
     const tabId = useEditorStore.getState().addTab("conn-1");
 
     const { result, rerender } = renderHook(() => useQueryExecution());

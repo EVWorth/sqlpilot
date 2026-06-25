@@ -1,19 +1,12 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { AlertCircle, CheckCircle2, FolderOpen, HardDriveDownload, Loader2, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  X,
-  HardDriveDownload,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  FolderOpen,
-} from "lucide-react";
-import { api } from "../../lib/tauri-api";
-import {
-  generateBackup,
-  defaultBackupOptions,
   type BackupOptions,
   type BackupProgress,
+  defaultBackupOptions,
+  generateBackup,
 } from "../../lib/backup-generator";
+import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type { DatabaseInfo, TableInfo } from "../../types";
 
@@ -66,7 +59,10 @@ export function BackupDialog({
     api
       .getDatabases(connectionId)
       .then(setDatabases)
-      .catch((e) => { console.error("Failed to load databases for backup", e); setDatabases([]); });
+      .catch((e) => {
+        console.error("Failed to load databases for backup", e);
+        setDatabases([]);
+      });
   }, [connectionId]);
 
   // Load tables when database changes
@@ -82,7 +78,10 @@ export function BackupDialog({
         setTables(baseTables);
         setSelectedTables(new Set(baseTables.map((tb) => tb.name)));
       })
-      .catch((e) => { console.error("Failed to load tables for backup", e); setTables([]); });
+      .catch((e) => {
+        console.error("Failed to load tables for backup", e);
+        setTables([]);
+      });
   }, [connectionId, database]);
 
   // Set defaults on open
@@ -189,10 +188,8 @@ export function BackupDialog({
 
   const selectClasses =
     "w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-brand-500 focus:outline-none";
-  const labelClasses =
-    "block text-xs font-medium text-[var(--color-text-secondary)] mb-1";
-  const checkboxLabelClasses =
-    "flex items-center gap-2 text-xs text-[var(--color-text-secondary)] cursor-pointer";
+  const labelClasses = "block text-xs font-medium text-[var(--color-text-secondary)] mb-1";
+  const checkboxLabelClasses = "flex items-center gap-2 text-xs text-[var(--color-text-secondary)] cursor-pointer";
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -346,8 +343,7 @@ export function BackupDialog({
                     setOptions((o) => ({
                       ...o,
                       dropTableIfExists: e.target.checked,
-                    }))
-                  }
+                    }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -361,8 +357,7 @@ export function BackupDialog({
                     setOptions((o) => ({
                       ...o,
                       includeCreateDatabase: e.target.checked,
-                    }))
-                  }
+                    }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -376,8 +371,7 @@ export function BackupDialog({
                     setOptions((o) => ({
                       ...o,
                       addTableLocks: e.target.checked,
-                    }))
-                  }
+                    }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -391,8 +385,7 @@ export function BackupDialog({
                     setOptions((o) => ({
                       ...o,
                       includeAutoIncrement: e.target.checked,
-                    }))
-                  }
+                    }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -406,8 +399,7 @@ export function BackupDialog({
                     setOptions((o) => ({
                       ...o,
                       includeViews: e.target.checked,
-                    }))
-                  }
+                    }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -421,8 +413,7 @@ export function BackupDialog({
                     setOptions((o) => ({
                       ...o,
                       includeRoutines: e.target.checked,
-                    }))
-                  }
+                    }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -436,8 +427,7 @@ export function BackupDialog({
                     setOptions((o) => ({
                       ...o,
                       includeTriggers: e.target.checked,
-                    }))
-                  }
+                    }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -455,9 +445,7 @@ export function BackupDialog({
                   type="radio"
                   name="insertFormat"
                   checked={!options.multiRowInserts}
-                  onChange={() =>
-                    setOptions((o) => ({ ...o, multiRowInserts: false }))
-                  }
+                  onChange={() => setOptions((o) => ({ ...o, multiRowInserts: false }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -468,9 +456,7 @@ export function BackupDialog({
                   type="radio"
                   name="insertFormat"
                   checked={options.multiRowInserts}
-                  onChange={() =>
-                    setOptions((o) => ({ ...o, multiRowInserts: true }))
-                  }
+                  onChange={() => setOptions((o) => ({ ...o, multiRowInserts: true }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
@@ -489,8 +475,7 @@ export function BackupDialog({
                         1,
                         parseInt(e.target.value) || 100,
                       ),
-                    }))
-                  }
+                    }))}
                   disabled={backing}
                   className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs text-[var(--color-text-primary)]"
                 />
@@ -542,9 +527,7 @@ export function BackupDialog({
                 </div>
               )}
               <div className="text-[11px] text-[var(--color-text-muted)]">
-                {progress.tableName && (
-                  <span>Table: {progress.tableName}</span>
-                )}
+                {progress.tableName && <span>Table: {progress.tableName}</span>}
                 {progress.rowsExported > 0 && (
                   <span className="ml-3">
                     {progress.rowsExported.toLocaleString()} rows exported
@@ -573,35 +556,35 @@ export function BackupDialog({
 
         {/* Footer */}
         <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
-          {backing ? (
-            <button
-              onClick={handleCancel}
-              className="rounded border border-red-500/30 bg-red-500/10 px-4 py-1.5 text-xs text-red-400 hover:bg-red-500/20"
-            >
-              Cancel
-            </button>
-          ) : (
-            <>
+          {backing
+            ? (
               <button
-                onClick={onClose}
-                className="rounded border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                onClick={handleCancel}
+                className="rounded border border-red-500/30 bg-red-500/10 px-4 py-1.5 text-xs text-red-400 hover:bg-red-500/20"
               >
-                Close
+                Cancel
               </button>
-              <button
-                onClick={handleBackup}
-                disabled={!connectionId || !database || !filePath}
-                className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-500 disabled:opacity-50"
-              >
-                {backing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <HardDriveDownload className="h-3.5 w-3.5" />
-                )}
-                Backup
-              </button>
-            </>
-          )}
+            )
+            : (
+              <>
+                <button
+                  onClick={onClose}
+                  className="rounded border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleBackup}
+                  disabled={!connectionId || !database || !filePath}
+                  className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-500 disabled:opacity-50"
+                >
+                  {backing
+                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    : <HardDriveDownload className="h-3.5 w-3.5" />}
+                  Backup
+                </button>
+              </>
+            )}
         </div>
       </div>
     </div>

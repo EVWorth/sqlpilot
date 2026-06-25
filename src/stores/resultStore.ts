@@ -1,12 +1,11 @@
 import { create } from "zustand";
-import type { QueryResult } from "../types";
 import { api } from "../lib/tauri-api";
-import { useHistoryStore } from "./historyStore";
+import type { QueryResult } from "../types";
 import { useConnectionStore } from "./connectionStore";
+import { useHistoryStore } from "./historyStore";
 import { useSettingsStore } from "./settingsStore";
 
-const DESTRUCTIVE_PATTERN =
-  /\b(DROP|DELETE|TRUNCATE|ALTER)\b/i;
+const DESTRUCTIVE_PATTERN = /\b(DROP|DELETE|TRUNCATE|ALTER)\b/i;
 
 interface ConfirmDialogState {
   isOpen: boolean;

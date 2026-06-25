@@ -163,9 +163,13 @@ export function generateSQL(state: QueryBuilderState): string {
     const leftTable = state.tables.find((t) => t.id === join.leftTableId);
     if (!rightTable || !leftTable) continue;
 
-    const onClause = `${formatColumnRef(leftTable.alias, join.leftColumn)} = ${formatColumnRef(rightTable.alias, join.rightColumn)}`;
+    const onClause = `${formatColumnRef(leftTable.alias, join.leftColumn)} = ${
+      formatColumnRef(rightTable.alias, join.rightColumn)
+    }`;
     lines.push(
-      `${join.joinType} JOIN ${escapeIdentifier(rightTable.tableName)} AS ${escapeIdentifier(rightTable.alias)} ON ${onClause}`,
+      `${join.joinType} JOIN ${escapeIdentifier(rightTable.tableName)} AS ${
+        escapeIdentifier(rightTable.alias)
+      } ON ${onClause}`,
     );
   }
 
@@ -214,8 +218,7 @@ export function getColumnRef(alias: string, column: string): string {
 export function getAllColumnRefs(
   tables: CanvasTable[],
 ): { ref: string; label: string; alias: string; column: string }[] {
-  const refs: { ref: string; label: string; alias: string; column: string }[] =
-    [];
+  const refs: { ref: string; label: string; alias: string; column: string }[] = [];
   for (const table of tables) {
     for (const col of table.columns) {
       const ref = formatColumnRef(table.alias, col.name);

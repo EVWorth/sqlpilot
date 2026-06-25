@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { ModeSelector } from "../ModeSelector";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { AiMode } from "../../../types";
+import { ModeSelector } from "../ModeSelector";
 
 describe("ModeSelector", () => {
   it("renders all three mode options", () => {

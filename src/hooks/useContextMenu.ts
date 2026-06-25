@@ -1,4 +1,4 @@
-import { useState, useCallback, createElement } from "react";
+import { createElement, useCallback, useState } from "react";
 import { ContextMenu, type MenuItem } from "../components/common/ContextMenu";
 
 interface ContextMenuState {
@@ -25,11 +25,11 @@ export function useContextMenu() {
 
   const contextMenu = state
     ? createElement(ContextMenu, {
-        x: state.x,
-        y: state.y,
-        items: state.items,
-        onClose: hideContextMenu,
-      })
+      x: state.x,
+      y: state.y,
+      items: state.items,
+      onClose: hideContextMenu,
+    })
     : null;
 
   return { contextMenu, showContextMenu, hideContextMenu };

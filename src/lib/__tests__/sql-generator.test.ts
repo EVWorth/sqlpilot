@@ -1,14 +1,14 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
+import type { ColumnMeta } from "../../types";
 import {
-  formatSqlValue,
-  generateUpdate,
-  generateInsert,
-  generateDelete,
   extractTableName,
+  formatSqlValue,
+  generateDelete,
+  generateInsert,
+  generateUpdate,
   getPrimaryKeyColumns,
   getWhereColumns,
 } from "../sql-generator";
-import type { ColumnMeta } from "../../types";
 
 describe("sql-generator", () => {
   describe("formatSqlValue", () => {

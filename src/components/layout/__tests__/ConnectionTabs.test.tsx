@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionTabs } from "../ConnectionTabs";
 
 const mockLoadProfiles = vi.fn();
@@ -15,12 +15,14 @@ vi.mock("../../stores/connectionStore", () => ({
       deleteProfile: vi.fn(),
       setSelectedConnection: vi.fn(),
       loadProfiles: mockLoadProfiles,
-    }),
+    })
   ),
 }));
 
 vi.mock("../../stores/editorStore", () => ({
-  useEditorStore: { getState: vi.fn(() => ({ tabs: [], activeTabId: null, addTab: vi.fn(), setTabConnection: vi.fn() })) },
+  useEditorStore: {
+    getState: vi.fn(() => ({ tabs: [], activeTabId: null, addTab: vi.fn(), setTabConnection: vi.fn() })),
+  },
 }));
 
 vi.mock("../../hooks/useContextMenu", () => ({

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAiStore } from "../../stores/aiStore";
 
 type MenuItemDef =
@@ -126,18 +126,14 @@ export function MenuBar() {
           {openMenu === idx && (
             <div className="absolute left-0 top-full z-50 min-w-48 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-1 shadow-lg">
               {menu.items.map((item, i) =>
-                item.type === "separator" ? (
-                  <div key={i} className="my-1 h-px bg-[var(--color-border)]" />
-                ) : (
+                item.type === "separator" ? <div key={i} className="my-1 h-px bg-[var(--color-border)]" /> : (
                   <button
                     key={item.id}
                     onClick={() => handleItemClick(item.id)}
                     className="flex w-full items-center justify-between gap-8 px-3 py-1 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-tertiary)]"
                   >
                     <span>{item.label}</span>
-                    {item.shortcut && (
-                      <span className="shrink-0 text-[var(--color-text-muted)]">{item.shortcut}</span>
-                    )}
+                    {item.shortcut && <span className="shrink-0 text-[var(--color-text-muted)]">{item.shortcut}</span>}
                   </button>
                 )
               )}

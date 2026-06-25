@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const QUERY_SETTINGS_KEY = "sqlpilot-query-settings";
 const STORAGE_KEY = "sqlpilot-formatter-settings";

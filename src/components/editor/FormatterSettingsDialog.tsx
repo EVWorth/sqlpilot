@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
 import { Settings2 } from "lucide-react";
-import { useSettingsStore, type FormatterSettings } from "../../stores/settingsStore";
+import { useEffect, useState } from "react";
+import { type FormatterSettings, useSettingsStore } from "../../stores/settingsStore";
 
 interface FormatterSettingsDialogProps {
   isOpen: boolean;
@@ -63,7 +63,9 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
     );
   }
 
-  function CaseSelect({ label, value, onChange }: { label: string; value: CaseOption; onChange: (v: CaseOption) => void }) {
+  function CaseSelect(
+    { label, value, onChange }: { label: string; value: CaseOption; onChange: (v: CaseOption) => void },
+  ) {
     return (
       <div>
         <label className={labelClass}>{label}</label>
@@ -90,26 +92,41 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto space-y-4 p-4">
-
           {/* Casing */}
           <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">Casing</p>
 
-          <CaseSelect label="Keywords" value={local.keywordCase} onChange={(v) => setLocal({ ...local, keywordCase: v })} />
-          <CaseSelect label="Identifiers (table/column names)" value={local.identifierCase} onChange={(v) => setLocal({ ...local, identifierCase: v })} />
-          <CaseSelect label="Data types" value={local.dataTypeCase} onChange={(v) => setLocal({ ...local, dataTypeCase: v })} />
-          <CaseSelect label="Functions" value={local.functionCase} onChange={(v) => setLocal({ ...local, functionCase: v })} />
+          <CaseSelect
+            label="Keywords"
+            value={local.keywordCase}
+            onChange={(v) => setLocal({ ...local, keywordCase: v })}
+          />
+          <CaseSelect
+            label="Identifiers (table/column names)"
+            value={local.identifierCase}
+            onChange={(v) => setLocal({ ...local, identifierCase: v })}
+          />
+          <CaseSelect
+            label="Data types"
+            value={local.dataTypeCase}
+            onChange={(v) => setLocal({ ...local, dataTypeCase: v })}
+          />
+          <CaseSelect
+            label="Functions"
+            value={local.functionCase}
+            onChange={(v) => setLocal({ ...local, functionCase: v })}
+          />
 
           {/* Indentation */}
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] pt-1">Indentation</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] pt-1">
+            Indentation
+          </p>
 
           <div>
             <label className={labelClass}>Indent style</label>
             <select
               className={inputClass}
               value={local.indentStyle}
-              onChange={(e) =>
-                setLocal({ ...local, indentStyle: e.target.value as FormatterSettings["indentStyle"] })
-              }
+              onChange={(e) => setLocal({ ...local, indentStyle: e.target.value as FormatterSettings["indentStyle"] })}
             >
               <option value="standard">Standard</option>
               <option value="tabularLeft">Tabular left</option>
@@ -134,15 +151,15 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
                 max={8}
                 className={inputClass}
                 value={local.tabWidth}
-                onChange={(e) =>
-                  setLocal({ ...local, tabWidth: Math.max(1, Math.min(8, Number(e.target.value))) })
-                }
+                onChange={(e) => setLocal({ ...local, tabWidth: Math.max(1, Math.min(8, Number(e.target.value))) })}
               />
             </div>
           )}
 
           {/* Layout */}
-          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] pt-1">Layout</p>
+          <p className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] pt-1">
+            Layout
+          </p>
 
           <div>
             <label className={labelClass}>Logical operator newline</label>
@@ -153,8 +170,7 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
                 setLocal({
                   ...local,
                   logicalOperatorNewline: e.target.value as FormatterSettings["logicalOperatorNewline"],
-                })
-              }
+                })}
             >
               <option value="before">Before (AND/OR at line start)</option>
               <option value="after">After (AND/OR at line end)</option>
@@ -170,8 +186,7 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
               className={inputClass}
               value={local.expressionWidth}
               onChange={(e) =>
-                setLocal({ ...local, expressionWidth: Math.max(10, Math.min(200, Number(e.target.value))) })
-              }
+                setLocal({ ...local, expressionWidth: Math.max(10, Math.min(200, Number(e.target.value))) })}
             />
           </div>
 
@@ -184,14 +199,16 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
               className={inputClass}
               value={local.linesBetweenQueries}
               onChange={(e) =>
-                setLocal({ ...local, linesBetweenQueries: Math.max(0, Math.min(5, Number(e.target.value))) })
-              }
+                setLocal({ ...local, linesBetweenQueries: Math.max(0, Math.min(5, Number(e.target.value))) })}
             />
           </div>
 
           <div className="flex items-center justify-between">
             <span className={labelClass + " mb-0"}>Dense operators</span>
-            <Toggle value={local.denseOperators} onChange={() => setLocal({ ...local, denseOperators: !local.denseOperators })} />
+            <Toggle
+              value={local.denseOperators}
+              onChange={() => setLocal({ ...local, denseOperators: !local.denseOperators })}
+            />
           </div>
 
           <div className="flex items-center justify-between">

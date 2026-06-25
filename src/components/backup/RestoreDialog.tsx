@@ -1,15 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
-import {
-  X,
-  HardDriveUpload,
-  Loader2,
-  CheckCircle2,
-  AlertCircle,
-  FolderOpen,
-  FileText,
-} from "lucide-react";
-import { api } from "../../lib/tauri-api";
+import { AlertCircle, CheckCircle2, FileText, FolderOpen, HardDriveUpload, Loader2, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import { splitSqlStatements } from "../../lib/sql-import";
+import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type { DatabaseInfo } from "../../types";
 
@@ -64,7 +56,10 @@ export function RestoreDialog({
     api
       .getDatabases(connectionId)
       .then(setDatabases)
-      .catch((e) => { console.error("Failed to load databases for restore", e); setDatabases([]); });
+      .catch((e) => {
+        console.error("Failed to load databases for restore", e);
+        setDatabases([]);
+      });
   }, [connectionId]);
 
   // Reset on open
@@ -193,7 +188,7 @@ export function RestoreDialog({
       setProgress((prev) =>
         prev
           ? { ...prev, errors: [...prev.errors, String(e)], done: true }
-          : null,
+          : null
       );
     } finally {
       setRestoring(false);
@@ -204,16 +199,13 @@ export function RestoreDialog({
 
   const selectClasses =
     "w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] focus:border-brand-500 focus:outline-none";
-  const labelClasses =
-    "block text-xs font-medium text-[var(--color-text-secondary)] mb-1";
-  const checkboxLabelClasses =
-    "flex items-center gap-2 text-xs text-[var(--color-text-secondary)] cursor-pointer";
+  const labelClasses = "block text-xs font-medium text-[var(--color-text-secondary)] mb-1";
+  const checkboxLabelClasses = "flex items-center gap-2 text-xs text-[var(--color-text-secondary)] cursor-pointer";
 
   const isDone = progress?.done ?? false;
-  const progressPct =
-    progress && progress.total > 0
-      ? (progress.current / progress.total) * 100
-      : 0;
+  const progressPct = progress && progress.total > 0
+    ? (progress.current / progress.total) * 100
+    : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -361,9 +353,7 @@ export function RestoreDialog({
               </div>
               {progress.errors.length > 0 && (
                 <div className="mt-2 max-h-24 overflow-auto rounded bg-red-500/10 p-2 text-[10px] text-red-400 font-mono">
-                  {progress.errors.slice(-5).map((err, i) => (
-                    <div key={i}>{err}</div>
-                  ))}
+                  {progress.errors.slice(-5).map((err, i) => <div key={i}>{err}</div>)}
                 </div>
               )}
             </div>
@@ -373,8 +363,7 @@ export function RestoreDialog({
           {isDone && progress && progress.errorCount === 0 && (
             <div className="flex items-center gap-2 rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
               <CheckCircle2 className="h-4 w-4" />
-              Restore completed successfully! ({progress.successCount}{" "}
-              statements executed)
+              Restore completed successfully! ({progress.successCount} statements executed)
             </div>
           )}
           {isDone && progress && progress.errorCount > 0 && (
@@ -398,11 +387,7 @@ export function RestoreDialog({
             disabled={!connectionId || !database || !filePath || restoring}
             className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-500 disabled:opacity-50"
           >
-            {restoring ? (
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <HardDriveUpload className="h-3.5 w-3.5" />
-            )}
+            {restoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <HardDriveUpload className="h-3.5 w-3.5" />}
             {restoring ? "Restoring..." : "Restore"}
           </button>
         </div>

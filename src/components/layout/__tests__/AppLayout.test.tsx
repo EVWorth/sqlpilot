@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AppLayout } from "../AppLayout";
 
 vi.mock("../Sidebar", () => ({
@@ -116,12 +116,8 @@ vi.mock("../../ai/AIChatPanel", () => ({
 }));
 
 vi.mock("react-resizable-panels", () => ({
-  Group: vi.fn(({ children }: { children: React.ReactNode }) => (
-    <div data-testid="panel-group">{children}</div>
-  )),
-  Panel: vi.fn(({ children }: { children: React.ReactNode }) => (
-    <div data-testid="panel">{children}</div>
-  )),
+  Group: vi.fn(({ children }: { children: React.ReactNode }) => <div data-testid="panel-group">{children}</div>),
+  Panel: vi.fn(({ children }: { children: React.ReactNode }) => <div data-testid="panel">{children}</div>),
   Separator: vi.fn(() => <div data-testid="panel-separator" />),
 }));
 

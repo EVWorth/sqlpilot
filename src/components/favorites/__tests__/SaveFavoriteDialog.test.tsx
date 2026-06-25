@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { SaveFavoriteDialog } from "../SaveFavoriteDialog";
 
 const { useFavoritesStoreFn, mockAddFavorite, mockAddCategory } = vi.hoisted(() => {
@@ -12,12 +12,23 @@ vi.mock("../../stores/favoritesStore", () => ({
 
 beforeAll(() => {
   useFavoritesStoreFn.mockImplementation((s: (v: any) => unknown) =>
-    s({ categories: ["Uncategorized", "Reports", "Monitoring"], addFavorite: mockAddFavorite, addCategory: mockAddCategory }),
+    s({
+      categories: ["Uncategorized", "Reports", "Monitoring"],
+      addFavorite: mockAddFavorite,
+      addCategory: mockAddCategory,
+    })
   );
 });
 
 function dp(overrides = {}) {
-  return { isOpen: true, onClose: vi.fn(), sql: "SELECT * FROM users WHERE active = 1", connectionName: "Prod DB", database: "mydb", ...overrides };
+  return {
+    isOpen: true,
+    onClose: vi.fn(),
+    sql: "SELECT * FROM users WHERE active = 1",
+    connectionName: "Prod DB",
+    database: "mydb",
+    ...overrides,
+  };
 }
 
 describe("SaveFavoriteDialog", () => {

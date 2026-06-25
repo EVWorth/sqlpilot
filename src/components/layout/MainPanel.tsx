@@ -1,17 +1,17 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
-import { SQLEditor } from "../editor/SQLEditor";
-import { EditorTabs } from "../editor/EditorTabs";
-import { QueryToolbar } from "../editor/QueryToolbar";
-import { ResultsGrid } from "../grid/ResultsGrid";
-import { ExplainPanel } from "../explain/ExplainPanel";
-import { AdminPanel } from "../admin/AdminPanel";
-import { SchemaCompare } from "../compare/SchemaCompare";
-import { RoutineViewer } from "../routine/RoutineViewer";
-import { TableDesigner } from "../designer/TableDesigner";
-import { QueryBuilder } from "../querybuilder/QueryBuilder";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
+import { AdminPanel } from "../admin/AdminPanel";
+import { SchemaCompare } from "../compare/SchemaCompare";
+import { TableDesigner } from "../designer/TableDesigner";
+import { EditorTabs } from "../editor/EditorTabs";
+import { QueryToolbar } from "../editor/QueryToolbar";
+import { SQLEditor } from "../editor/SQLEditor";
+import { ExplainPanel } from "../explain/ExplainPanel";
+import { ResultsGrid } from "../grid/ResultsGrid";
+import { QueryBuilder } from "../querybuilder/QueryBuilder";
+import { RoutineViewer } from "../routine/RoutineViewer";
 
 export function MainPanel() {
   const tabs = useEditorStore((s) => s.tabs);
@@ -30,52 +30,57 @@ export function MainPanel() {
   return (
     <div className="flex h-full flex-col min-h-0 bg-[var(--color-bg-primary)]">
       <EditorTabs />
-      {isAdmin && activeTab?.connectionId ? (
-        <AdminPanel connectionId={activeTab.connectionId} />
-      ) : isCompare ? (
-        <SchemaCompare />
-      ) : isDesigner && activeTab?.connectionId && activeTab?.database ? (
-        <TableDesigner
-          connectionId={activeTab.connectionId}
-          database={activeTab.database}
-          tableName={activeTab.tableName}
-        />
-      ) : isQueryBuilder && activeTab?.connectionId && activeTab?.database ? (
-        <QueryBuilder
-          connectionId={activeTab.connectionId}
-          database={activeTab.database}
-        />
-      ) : isRoutine && activeTab?.connectionId && activeTab?.database && activeTab?.routineName && activeTab?.routineType ? (
-        <RoutineViewer
-          connectionId={activeTab.connectionId}
-          database={activeTab.database}
-          routineName={activeTab.routineName}
-          routineType={
-            activeTab.routineType === "PROCEDURE" || activeTab.routineType === "FUNCTION"
+      {isAdmin && activeTab?.connectionId
+        ? <AdminPanel connectionId={activeTab.connectionId} />
+        : isCompare
+        ? <SchemaCompare />
+        : isDesigner && activeTab?.connectionId && activeTab?.database
+        ? (
+          <TableDesigner
+            connectionId={activeTab.connectionId}
+            database={activeTab.database}
+            tableName={activeTab.tableName}
+          />
+        )
+        : isQueryBuilder && activeTab?.connectionId && activeTab?.database
+        ? (
+          <QueryBuilder
+            connectionId={activeTab.connectionId}
+            database={activeTab.database}
+          />
+        )
+        : isRoutine && activeTab?.connectionId && activeTab?.database && activeTab?.routineName
+            && activeTab?.routineType
+        ? (
+          <RoutineViewer
+            connectionId={activeTab.connectionId}
+            database={activeTab.database}
+            routineName={activeTab.routineName}
+            routineType={activeTab.routineType === "PROCEDURE" || activeTab.routineType === "FUNCTION"
               ? activeTab.routineType
-              : "PROCEDURE"
-          }
-        />
-      ) : (
-        <>
-          <QueryToolbar />
-          <div className="flex-1 min-h-0">
-          <Group orientation="vertical">
-            <Panel defaultSize="50%" minSize="20%">
-              <SQLEditor />
-            </Panel>
-            <Separator className="h-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500" />
-            <Panel defaultSize="50%" minSize="20%">
-              <ResultsPanel
-                showExplain={showExplain}
-                explainResult={explainResult}
-                setShowExplain={setShowExplain}
-              />
-            </Panel>
-          </Group>
-          </div>
-        </>
-      )}
+              : "PROCEDURE"}
+          />
+        )
+        : (
+          <>
+            <QueryToolbar />
+            <div className="flex-1 min-h-0">
+              <Group orientation="vertical">
+                <Panel defaultSize="50%" minSize="20%">
+                  <SQLEditor />
+                </Panel>
+                <Separator className="h-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500" />
+                <Panel defaultSize="50%" minSize="20%">
+                  <ResultsPanel
+                    showExplain={showExplain}
+                    explainResult={explainResult}
+                    setShowExplain={setShowExplain}
+                  />
+                </Panel>
+              </Group>
+            </div>
+          </>
+        )}
     </div>
   );
 }
@@ -145,11 +150,7 @@ function ResultsPanel({
         </div>
       )}
       <div className="flex-1 overflow-hidden">
-        {hasExplain && activeTab === "explain" ? (
-          <ExplainPanel />
-        ) : (
-          <ResultsGrid />
-        )}
+        {hasExplain && activeTab === "explain" ? <ExplainPanel /> : <ResultsGrid />}
       </div>
     </div>
   );

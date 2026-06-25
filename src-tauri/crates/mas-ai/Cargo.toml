@@ -4,12 +4,12 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+copilot-sdk = { git = "https://github.com/copilot-community-sdk/copilot-sdk-rust.git", rev = "2946ba176297acc3cbbc97cf6d526152dad54b62" }
+mas-admin = { path = "../mas-admin" }
+mas-core = { path = "../mas-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = "2"
 tokio = { workspace = true }
 tracing = { workspace = true }
-copilot-sdk = { git = "https://github.com/copilot-community-sdk/copilot-sdk-rust.git", rev = "2946ba176297acc3cbbc97cf6d526152dad54b62" }
-mas-core = { path = "../mas-core" }
-mas-admin = { path = "../mas-admin" }
 uuid = { workspace = true }

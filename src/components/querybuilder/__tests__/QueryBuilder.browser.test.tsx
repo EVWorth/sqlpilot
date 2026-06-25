@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { QueryBuilder } from "../QueryBuilder";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ColumnInfo } from "../../../types";
+import { QueryBuilder } from "../QueryBuilder";
 
 // ─── Module-level mock state ──────────────────────────────────
 let mockTableNames: string[] = [];
@@ -286,7 +286,7 @@ describe("QueryBuilder (browser)", () => {
     await user.click(screen.getAllByText("users")[0]);
 
     await waitFor(() => {
-      const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+      const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]");
       expect(checkboxes.length).toBe(3); // id, name, email
     });
   });
@@ -300,7 +300,7 @@ describe("QueryBuilder (browser)", () => {
 
     await waitFor(() => {
       // Column names are in the card buttons
-      const buttons = document.querySelectorAll('[title*="click to join"]');
+      const buttons = document.querySelectorAll("[title*=\"click to join\"]");
       const texts = Array.from(buttons).map((b) => b.textContent?.trim() ?? "");
       expect(texts.some((t) => t.includes("id"))).toBe(true);
       expect(texts.some((t) => t.includes("name"))).toBe(true);
@@ -333,10 +333,10 @@ describe("QueryBuilder (browser)", () => {
     // Wait for checkboxes
     let checkboxes: NodeListOf<HTMLInputElement>;
     await waitFor(() => {
-      checkboxes = document.querySelectorAll('input[type="checkbox"]');
+      checkboxes = document.querySelectorAll("input[type=\"checkbox\"]");
       expect(checkboxes.length).toBe(3);
     });
-    checkboxes = document.querySelectorAll('input[type="checkbox"]');
+    checkboxes = document.querySelectorAll("input[type=\"checkbox\"]");
 
     // Select "id" and "name" columns
     for (let i = 0; i < Math.min(2, checkboxes.length); i++) {
@@ -352,11 +352,11 @@ describe("QueryBuilder (browser)", () => {
     await user.click(screen.getAllByText("users")[0]);
 
     await waitFor(() => {
-      const checkboxes = document.querySelectorAll('input[type="checkbox"]');
+      const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]");
       expect(checkboxes.length).toBe(3);
     });
 
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]);
 
     // After selecting, a select dropdown should appear for aggregate functions
@@ -381,13 +381,31 @@ describe("QueryBuilder (browser)", () => {
 
     // Wait for table card
     await waitFor(() => {
-      expect(document.querySelectorAll('[title*="click to join"]').length).toBe(3);
+      expect(document.querySelectorAll("[title*=\"click to join\"]").length).toBe(3);
     });
 
     // Add orders table
     mockFetchColumns.mockResolvedValue([
-      { name: "id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: true, default_value: undefined, extra: "", comment: "" },
-      { name: "user_id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: false, default_value: undefined, extra: "", comment: "" },
+      {
+        name: "id",
+        data_type: "int",
+        column_type: "INT",
+        nullable: false,
+        is_primary_key: true,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
+      {
+        name: "user_id",
+        data_type: "int",
+        column_type: "INT",
+        nullable: false,
+        is_primary_key: false,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
     ]);
     const orderBtns = screen.getAllByText("orders");
     await user.click(orderBtns[0]);
@@ -399,7 +417,7 @@ describe("QueryBuilder (browser)", () => {
     });
 
     // Click "id" on first table (starts pending join)
-    const joinButtons = document.querySelectorAll('[title*="click to join"]');
+    const joinButtons = document.querySelectorAll("[title*=\"click to join\"]");
     expect(joinButtons.length).toBeGreaterThanOrEqual(3);
     await user.click(joinButtons[0]); // clicks "id" on users
   });
@@ -414,12 +432,30 @@ describe("QueryBuilder (browser)", () => {
     // Add two tables and create a join
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('[title*="click to join"]').length).toBe(3);
+      expect(document.querySelectorAll("[title*=\"click to join\"]").length).toBe(3);
     });
 
     mockFetchColumns.mockResolvedValue([
-      { name: "id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: true, default_value: undefined, extra: "", comment: "" },
-      { name: "user_id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: false, default_value: undefined, extra: "", comment: "" },
+      {
+        name: "id",
+        data_type: "int",
+        column_type: "INT",
+        nullable: false,
+        is_primary_key: true,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
+      {
+        name: "user_id",
+        data_type: "int",
+        column_type: "INT",
+        nullable: false,
+        is_primary_key: false,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
     ]);
     await user.click(screen.getAllByText("orders")[0]);
 
@@ -428,13 +464,13 @@ describe("QueryBuilder (browser)", () => {
     });
 
     // Click column on users (start join)
-    const joinBtns = document.querySelectorAll('[title*="click to join"]');
+    const joinBtns = document.querySelectorAll("[title*=\"click to join\"]");
     await user.click(joinBtns[0]);
 
     // Click column on orders (complete join)
     // Need to wait for the pending join state to update
     await waitFor(() => {
-      const updatedBtns = document.querySelectorAll('[title*="click to join"]');
+      const updatedBtns = document.querySelectorAll("[title*=\"click to join\"]");
       if (updatedBtns.length >= 6) {
         // Click the first column on the second table (index 3 = orders.id)
         expect(true).toBe(true);
@@ -509,7 +545,7 @@ describe("QueryBuilder (browser)", () => {
     await user.click(screen.getByText("WHERE"));
 
     expect(screen.getByText("WHERE Conditions")).toBeInTheDocument();
-    expect(screen.getByText('No conditions. Click "Add" to create one.')).toBeInTheDocument();
+    expect(screen.getByText("No conditions. Click \"Add\" to create one.")).toBeInTheDocument();
   });
 
   it("switches to ORDER BY tab and shows empty state", async () => {
@@ -518,7 +554,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getByText("ORDER BY"));
 
-    expect(screen.getByText('No ordering. Click "Add" to create one.')).toBeInTheDocument();
+    expect(screen.getByText("No ordering. Click \"Add\" to create one.")).toBeInTheDocument();
   });
 
   it("switches to GROUP BY tab and shows empty state", async () => {
@@ -527,7 +563,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getByText("GROUP BY"));
 
-    expect(screen.getByText('No grouping. Click "Add" to create one.')).toBeInTheDocument();
+    expect(screen.getByText("No grouping. Click \"Add\" to create one.")).toBeInTheDocument();
   });
 
   it("switches to HAVING tab", async () => {
@@ -548,7 +584,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getByText("ORDER BY"));
     expect(screen.queryByText("WHERE Conditions")).not.toBeInTheDocument();
-    expect(screen.getByText('No ordering. Click "Add" to create one.')).toBeInTheDocument();
+    expect(screen.getByText("No ordering. Click \"Add\" to create one.")).toBeInTheDocument();
   });
 
   // ─── WHERE conditions ────────────────────────────────────
@@ -560,7 +596,7 @@ describe("QueryBuilder (browser)", () => {
     // Add a table first so columnRefs are available
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("WHERE"));
@@ -571,7 +607,7 @@ describe("QueryBuilder (browser)", () => {
 
     // Now the empty state message should be gone
     await waitFor(() => {
-      expect(screen.queryByText('No conditions. Click "Add" to create one.')).not.toBeInTheDocument();
+      expect(screen.queryByText("No conditions. Click \"Add\" to create one.")).not.toBeInTheDocument();
     });
   });
 
@@ -582,7 +618,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("WHERE"));
@@ -607,7 +643,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("WHERE"));
@@ -631,7 +667,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("ORDER BY"));
@@ -648,7 +684,7 @@ describe("QueryBuilder (browser)", () => {
     }
 
     await waitFor(() => {
-      expect(screen.queryByText('No ordering. Click "Add" to create one.')).not.toBeInTheDocument();
+      expect(screen.queryByText("No ordering. Click \"Add\" to create one.")).not.toBeInTheDocument();
     });
   });
 
@@ -659,7 +695,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("ORDER BY"));
@@ -688,7 +724,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("GROUP BY"));
@@ -698,7 +734,7 @@ describe("QueryBuilder (browser)", () => {
     await user.click(addBtns[addBtns.length - 1]);
 
     await waitFor(() => {
-      expect(screen.queryByText('No grouping. Click "Add" to create one.')).not.toBeInTheDocument();
+      expect(screen.queryByText("No grouping. Click \"Add\" to create one.")).not.toBeInTheDocument();
     });
   });
 
@@ -709,7 +745,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("GROUP BY"));
@@ -741,7 +777,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("HAVING"));
@@ -808,11 +844,11 @@ describe("QueryBuilder (browser)", () => {
 
     // Wait for table card with checkboxes
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     // Select "id" column
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]);
 
     // SQL Preview should update from the placeholder
@@ -832,10 +868,10 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]); // Select id
 
     // Add WHERE condition
@@ -874,11 +910,11 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     // Select columns to generate SQL
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]);
 
     // Wait for SQL to be generated
@@ -897,10 +933,10 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]);
 
     // Wait for Copy to Editor to be enabled
@@ -939,10 +975,10 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]);
 
     await waitFor(() => {
@@ -972,10 +1008,10 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]);
 
     // Wait for Execute to be enabled
@@ -1012,10 +1048,10 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]);
 
     await waitFor(() => {
@@ -1046,10 +1082,10 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
-    const checkboxes = document.querySelectorAll('input[type="checkbox"]') as NodeListOf<HTMLInputElement>;
+    const checkboxes = document.querySelectorAll("input[type=\"checkbox\"]") as NodeListOf<HTMLInputElement>;
     await user.click(checkboxes[0]);
 
     await waitFor(() => {
@@ -1085,8 +1121,26 @@ describe("QueryBuilder (browser)", () => {
 
     // Add orders
     mockFetchColumns.mockResolvedValue([
-      { name: "id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: true, default_value: undefined, extra: "", comment: "" },
-      { name: "user_id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: false, default_value: undefined, extra: "", comment: "" },
+      {
+        name: "id",
+        data_type: "int",
+        column_type: "INT",
+        nullable: false,
+        is_primary_key: true,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
+      {
+        name: "user_id",
+        data_type: "int",
+        column_type: "INT",
+        nullable: false,
+        is_primary_key: false,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
     ]);
     const orderBtns = screen.getAllByText("orders");
     await user.click(orderBtns[0]);
@@ -1110,7 +1164,7 @@ describe("QueryBuilder (browser)", () => {
     });
 
     // Click the X button to remove the table
-    const removeBtn = document.querySelector('[data-no-drag].rounded.p-0\\.5');
+    const removeBtn = document.querySelector("[data-no-drag].rounded.p-0\\.5");
     if (removeBtn) {
       await user.click(removeBtn as HTMLElement);
 
@@ -1174,7 +1228,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     // Navigate to GROUP BY tab by clicking the tab button
@@ -1189,7 +1243,7 @@ describe("QueryBuilder (browser)", () => {
     await user.click(allAdds[allAdds.length - 1]);
 
     await waitFor(() => {
-      expect(screen.queryByText('No grouping. Click "Add" to create one.')).not.toBeInTheDocument();
+      expect(screen.queryByText("No grouping. Click \"Add\" to create one.")).not.toBeInTheDocument();
       const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
       expect(selects.length).toBeGreaterThanOrEqual(1);
     });
@@ -1202,7 +1256,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     const groupByTab = screen.getAllByText("GROUP BY").find(
@@ -1228,7 +1282,7 @@ describe("QueryBuilder (browser)", () => {
     }
 
     await waitFor(() => {
-      expect(screen.getByText('No grouping. Click "Add" to create one.')).toBeInTheDocument();
+      expect(screen.getByText("No grouping. Click \"Add\" to create one.")).toBeInTheDocument();
     });
   });
 
@@ -1239,7 +1293,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     const groupByTab = screen.getAllByText("GROUP BY").find(
@@ -1290,7 +1344,7 @@ describe("QueryBuilder (browser)", () => {
     );
     await user.click(groupByTab!);
 
-    expect(screen.getByText('No grouping. Click "Add" to create one.')).toBeInTheDocument();
+    expect(screen.getByText("No grouping. Click \"Add\" to create one.")).toBeInTheDocument();
   });
 
   it("multiple GROUP BY columns with individual removes", async () => {
@@ -1300,7 +1354,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     // Navigate to GROUP BY tab: click the tab button
@@ -1331,7 +1385,7 @@ describe("QueryBuilder (browser)", () => {
     // Remove first column via its trash icon
     const trashBtns = document.querySelectorAll(".flex.flex-col.gap-1 button svg.lucide-trash2");
     expect(trashBtns.length).toBe(2);
-    await user.click((trashBtns[0].parentElement as HTMLElement));
+    await user.click(trashBtns[0].parentElement as HTMLElement);
 
     await waitFor(() => {
       const selects = document.querySelectorAll(".flex.flex-col.gap-1 select");
@@ -1347,7 +1401,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("HAVING"));
@@ -1356,7 +1410,7 @@ describe("QueryBuilder (browser)", () => {
     await user.click(screen.getByText("Add"));
 
     await waitFor(() => {
-      expect(screen.queryByText('No conditions. Click "Add" to create one.')).not.toBeInTheDocument();
+      expect(screen.queryByText("No conditions. Click \"Add\" to create one.")).not.toBeInTheDocument();
     });
   });
 
@@ -1367,7 +1421,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("HAVING"));
@@ -1385,7 +1439,7 @@ describe("QueryBuilder (browser)", () => {
     }
 
     await waitFor(() => {
-      expect(screen.getByText('No conditions. Click "Add" to create one.')).toBeInTheDocument();
+      expect(screen.getByText("No conditions. Click \"Add\" to create one.")).toBeInTheDocument();
     });
   });
 
@@ -1396,7 +1450,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("HAVING"));
@@ -1428,7 +1482,7 @@ describe("QueryBuilder (browser)", () => {
 
     await user.click(screen.getAllByText("users")[0]);
     await waitFor(() => {
-      expect(document.querySelectorAll('input[type="checkbox"]').length).toBe(3);
+      expect(document.querySelectorAll("input[type=\"checkbox\"]").length).toBe(3);
     });
 
     await user.click(screen.getByText("HAVING"));

@@ -1,13 +1,27 @@
-import { useState, useRef, useEffect } from "react";
-import { Play, Square, Database, Search, Replace, Wand2, RefreshCw, ListTree, ChevronDown, Star, MessageSquare, Zap, Settings2 } from "lucide-react";
+import {
+  ChevronDown,
+  Database,
+  ListTree,
+  MessageSquare,
+  Play,
+  RefreshCw,
+  Replace,
+  Search,
+  Settings2,
+  Square,
+  Star,
+  Wand2,
+  Zap,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { format } from "sql-formatter";
-import { postProcessSQL } from "../../lib/sql-post-process";
-import { useEditorStore } from "../../stores/editorStore";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { useResultStore } from "../../stores/resultStore";
-import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
+import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { postProcessSQL } from "../../lib/sql-post-process";
 import { useAiStore } from "../../stores/aiStore";
+import { useConnectionStore } from "../../stores/connectionStore";
+import { useEditorStore } from "../../stores/editorStore";
+import { useResultStore } from "../../stores/resultStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
@@ -134,8 +148,7 @@ export function QueryToolbar() {
     }
   };
 
-  const canExecute =
-    !!activeTab?.content?.trim() && hookCanExecute;
+  const canExecute = !!activeTab?.content?.trim() && hookCanExecute;
 
   const toolbarBtnClass =
     "flex items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
@@ -152,17 +165,19 @@ export function QueryToolbar() {
             : "bg-green-600 text-white hover:bg-green-500 disabled:hover:bg-green-600"
         }`}
       >
-        {isExecuting ? (
-          <>
-            <Square className="h-3 w-3 fill-current" />
-            Cancel
-          </>
-        ) : (
-          <>
-            <Play className="h-3 w-3 fill-current" />
-            Run
-          </>
-        )}
+        {isExecuting
+          ? (
+            <>
+              <Square className="h-3 w-3 fill-current" />
+              Cancel
+            </>
+          )
+          : (
+            <>
+              <Play className="h-3 w-3 fill-current" />
+              Run
+            </>
+          )}
       </button>
 
       <span className="text-[10px] text-[var(--color-text-muted)]">
@@ -280,45 +295,47 @@ export function QueryToolbar() {
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 
       {useAiStore((s) => s.aiEnabled) && (
-      <>
-      <button
-        onClick={() => {
-          const sql = getCurrentSql();
-          if (!sql.trim()) return;
-          const store = useAiStore.getState();
-          store.sendMessage(
-            `Explain this SQL query:\n\`\`\`sql\n${sql}\n\`\`\``,
-            selectedConnectionId ?? undefined,
-            activeTab?.database,
-          );
-        }}
-        disabled={!activeTab?.content?.trim()}
-        title="Explain Query with AI"
-        className={toolbarBtnClass}
-      >
-        <MessageSquare className="h-3 w-3" />
-        AI Explain
-      </button>
+        <>
+          <button
+            onClick={() => {
+              const sql = getCurrentSql();
+              if (!sql.trim()) return;
+              const store = useAiStore.getState();
+              store.sendMessage(
+                `Explain this SQL query:\n\`\`\`sql\n${sql}\n\`\`\``,
+                selectedConnectionId ?? undefined,
+                activeTab?.database,
+              );
+            }}
+            disabled={!activeTab?.content?.trim()}
+            title="Explain Query with AI"
+            className={toolbarBtnClass}
+          >
+            <MessageSquare className="h-3 w-3" />
+            AI Explain
+          </button>
 
-      <button
-        onClick={() => {
-          const sql = getCurrentSql();
-          if (!sql.trim() || !selectedConnectionId) return;
-          const store = useAiStore.getState();
-          store.sendMessage(
-            `Optimize this SQL query for better performance:\n\`\`\`sql\n${sql}\n\`\`\``,
-            selectedConnectionId,
-            activeTab?.database,
-          );
-        }}
-        disabled={!activeTab?.content?.trim() || !selectedConnectionId}
-        title="Optimize Query with AI"
-        className={toolbarBtnClass}
-      >
-        <Zap className="h-3 w-3" />
-        AI Optimize
-      </button>
-      </>
+          <button
+            onClick={() => {
+              const sql = getCurrentSql();
+              if (!sql.trim() || !selectedConnectionId) {
+                return;
+              }
+              const store = useAiStore.getState();
+              store.sendMessage(
+                `Optimize this SQL query for better performance:\n\`\`\`sql\n${sql}\n\`\`\``,
+                selectedConnectionId,
+                activeTab?.database,
+              );
+            }}
+            disabled={!activeTab?.content?.trim() || !selectedConnectionId}
+            title="Optimize Query with AI"
+            className={toolbarBtnClass}
+          >
+            <Zap className="h-3 w-3" />
+            AI Optimize
+          </button>
+        </>
       )}
 
       <div className="flex-1" />
@@ -360,8 +377,7 @@ function RowLimit() {
           setQuerySettings({
             ...useSettingsStore.getState().querySettings,
             limitEnabled: !limitEnabled,
-          })
-        }
+          })}
         title={limitEnabled ? "Disable row limit" : "Enable row limit"}
         className={`flex items-center rounded px-1.5 py-1 text-xs transition-colors ${
           limitEnabled

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { HelpDialog } from "../ShortcutsDialog";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -66,9 +66,9 @@ describe("ShortcutsDialog (HelpDialog)", () => {
     const buttons = screen.getAllByRole("button");
     // The X button is near the top
     const xButton = buttons.find((btn) =>
-      btn.querySelector("svg") !== null &&
-      !btn.textContent?.includes("Keyboard") &&
-      !btn.textContent?.includes("About"),
+      btn.querySelector("svg") !== null
+      && !btn.textContent?.includes("Keyboard")
+      && !btn.textContent?.includes("About")
     );
     fireEvent.click(xButton!);
     expect(onClose).toHaveBeenCalledTimes(1);

@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mock API ──
 vi.mock("../../../lib/tauri-api", () => ({
@@ -23,10 +23,10 @@ vi.mock("../../../lib/sql-import", () => ({
   generateBatchInsert: vi.fn().mockReturnValue(["INSERT INTO t VALUES (1)"]),
 }));
 
-import { ImportDialog } from "../ImportDialog";
-import { api } from "../../../lib/tauri-api";
 import { parseCSV } from "../../../lib/csv-parser";
 import { splitSqlStatements } from "../../../lib/sql-import";
+import { api } from "../../../lib/tauri-api";
+import { ImportDialog } from "../ImportDialog";
 
 const defaultProps = {
   isOpen: true,
@@ -93,9 +93,7 @@ describe("ImportDialog (browser)", () => {
     render(<ImportDialog {...defaultProps} />);
     // X button is in the header
     const buttons = screen.getAllByRole("button");
-    const xBtn = buttons.find((b) =>
-      b.querySelector(".lucide-x, svg"),
-    );
+    const xBtn = buttons.find((b) => b.querySelector(".lucide-x, svg"));
     if (xBtn) await user.click(xBtn);
     expect(defaultProps.onClose).toHaveBeenCalled();
   });
@@ -333,7 +331,9 @@ describe("ImportDialog (browser)", () => {
     await user.click(screen.getByText("Select file..."));
 
     await waitFor(() => screen.getByText("Has header row"));
-    const checkbox = screen.getByText("Has header row").parentElement?.querySelector("input[type='checkbox']") as HTMLInputElement;
+    const checkbox = screen.getByText("Has header row").parentElement?.querySelector(
+      "input[type='checkbox']",
+    ) as HTMLInputElement;
     expect(checkbox?.checked).toBe(true);
     await user.click(checkbox!);
     expect(checkbox?.checked).toBe(false);
@@ -422,7 +422,13 @@ describe("ImportDialog (browser)", () => {
       { name: "people", table_type: "BASE TABLE", row_count: 50 },
     ]);
     vi.mocked(api.getColumns).mockResolvedValue([
-      { name: "full_name", data_type: "varchar(100)", column_type: "varchar(100)", nullable: true, is_primary_key: false },
+      {
+        name: "full_name",
+        data_type: "varchar(100)",
+        column_type: "varchar(100)",
+        nullable: true,
+        is_primary_key: false,
+      },
       { name: "AGE", data_type: "int", column_type: "int", nullable: true, is_primary_key: false },
     ]);
 
@@ -696,7 +702,9 @@ describe("ImportDialog (browser)", () => {
   it("disables file pick button during import", async () => {
     // Use a promise that never resolves to keep importing=true
     let resolveQuery: (v: unknown) => void;
-    const queryPromise = new Promise((r) => { resolveQuery = r; });
+    const queryPromise = new Promise((r) => {
+      resolveQuery = r;
+    });
     vi.mocked(api.pickFile).mockResolvedValue("/tmp/dump.sql");
     vi.mocked(api.readFileContents).mockResolvedValue("SELECT 1;");
     vi.mocked(splitSqlStatements).mockReturnValue(["SELECT 1"]);

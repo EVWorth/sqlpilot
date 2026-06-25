@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryHistory } from "../QueryHistory";
 
 vi.mock("../../../stores/historyStore", () => ({
@@ -12,8 +12,8 @@ vi.mock("../../../stores/editorStore", () => ({
   },
 }));
 
-import { useHistoryStore } from "../../../stores/historyStore";
 import { useEditorStore } from "../../../stores/editorStore";
+import { useHistoryStore } from "../../../stores/historyStore";
 
 const mockEntries = [
   {
@@ -58,7 +58,12 @@ describe("QueryHistory", () => {
     vi.clearAllMocks();
     vi.mocked(useHistoryStore).mockImplementation((selector) => {
       if (typeof selector === "function") {
-        return selector({ entries: mockEntries, clearHistory: mockClearHistory, addEntry: vi.fn(), removeEntry: vi.fn() });
+        return selector({
+          entries: mockEntries,
+          clearHistory: mockClearHistory,
+          addEntry: vi.fn(),
+          removeEntry: vi.fn(),
+        });
       }
       return mockEntries;
     });

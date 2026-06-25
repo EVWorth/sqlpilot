@@ -1,13 +1,7 @@
-import { useState, useMemo } from "react";
-import {
-  Search,
-  Trash2,
-  CheckCircle,
-  XCircle,
-  Clock,
-} from "lucide-react";
-import { useHistoryStore, type HistoryEntry } from "../../stores/historyStore";
+import { CheckCircle, Clock, Search, Trash2, XCircle } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useEditorStore } from "../../stores/editorStore";
+import { type HistoryEntry, useHistoryStore } from "../../stores/historyStore";
 
 function formatRelativeTime(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();
@@ -74,45 +68,41 @@ export function QueryHistory() {
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
-        {confirmClear && (
-          <span className="text-[10px] text-red-400">Confirm?</span>
-        )}
+        {confirmClear && <span className="text-[10px] text-red-400">Confirm?</span>}
       </div>
 
       <div className="flex-1 overflow-y-auto">
-        {filtered.length === 0 ? (
-          <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
-            {entries.length === 0 ? "No history yet" : "No matches"}
-          </p>
-        ) : (
-          filtered.map((entry) => (
-            <button
-              key={entry.id}
-              onClick={() => handleClick(entry)}
-              className="group flex w-full flex-col gap-0.5 border-b border-[var(--color-border)] px-2.5 py-2 text-left hover:bg-[var(--color-bg-tertiary)]"
-            >
-              <pre className="line-clamp-2 whitespace-pre-wrap break-all font-mono text-[11px] leading-tight text-[var(--color-text-primary)]">
+        {filtered.length === 0
+          ? (
+            <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
+              {entries.length === 0 ? "No history yet" : "No matches"}
+            </p>
+          )
+          : (
+            filtered.map((entry) => (
+              <button
+                key={entry.id}
+                onClick={() => handleClick(entry)}
+                className="group flex w-full flex-col gap-0.5 border-b border-[var(--color-border)] px-2.5 py-2 text-left hover:bg-[var(--color-bg-tertiary)]"
+              >
+                <pre className="line-clamp-2 whitespace-pre-wrap break-all font-mono text-[11px] leading-tight text-[var(--color-text-primary)]">
                 {entry.sql}
-              </pre>
-              <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
-                {entry.status === "success" ? (
-                  <CheckCircle className="h-3 w-3 text-green-400" />
-                ) : (
-                  <XCircle className="h-3 w-3 text-red-400" />
-                )}
-                <span className="truncate">{entry.connectionName}</span>
-                <span className="flex items-center gap-0.5">
-                  <Clock className="h-2.5 w-2.5" />
-                  {formatRelativeTime(entry.executedAt)}
-                </span>
-                <span>{entry.executionTimeMs}ms</span>
-                {entry.status === "success" && (
-                  <span>{entry.rowCount} rows</span>
-                )}
-              </div>
-            </button>
-          ))
-        )}
+                </pre>
+                <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
+                  {entry.status === "success"
+                    ? <CheckCircle className="h-3 w-3 text-green-400" />
+                    : <XCircle className="h-3 w-3 text-red-400" />}
+                  <span className="truncate">{entry.connectionName}</span>
+                  <span className="flex items-center gap-0.5">
+                    <Clock className="h-2.5 w-2.5" />
+                    {formatRelativeTime(entry.executedAt)}
+                  </span>
+                  <span>{entry.executionTimeMs}ms</span>
+                  {entry.status === "success" && <span>{entry.rowCount} rows</span>}
+                </div>
+              </button>
+            ))
+          )}
       </div>
     </div>
   );

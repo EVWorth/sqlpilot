@@ -1,5 +1,5 @@
-import { useState, useMemo } from "react";
-import { Table2, GitBranch } from "lucide-react";
+import { GitBranch, Table2 } from "lucide-react";
+import { useMemo, useState } from "react";
 import { useResultStore } from "../../stores/resultStore";
 import type { QueryResult, SqlValue } from "../../types";
 
@@ -82,36 +82,41 @@ function ExtraHighlight({ text }: { text: string }) {
   return (
     <span>
       {parts.map((part, i) => {
-        if (part === "Using filesort")
+        if (part === "Using filesort") {
           return (
             <span key={i} className="rounded px-1 bg-orange-600/30 text-orange-300">
               {part}
             </span>
           );
-        if (part === "Using temporary")
+        }
+        if (part === "Using temporary") {
           return (
             <span key={i} className="rounded px-1 bg-red-600/30 text-red-300">
               {part}
             </span>
           );
-        if (part === "Using index")
+        }
+        if (part === "Using index") {
           return (
             <span key={i} className="rounded px-1 bg-green-600/30 text-green-300">
               {part}
             </span>
           );
-        if (part === "Using where")
+        }
+        if (part === "Using where") {
           return (
             <span key={i} className="rounded px-1 bg-blue-600/30 text-blue-300">
               {part}
             </span>
           );
-        if (part === "Using join buffer")
+        }
+        if (part === "Using join buffer") {
           return (
             <span key={i} className="rounded px-1 bg-yellow-600/30 text-yellow-300">
               {part}
             </span>
           );
+        }
         return <span key={i}>{part}</span>;
       })}
     </span>
@@ -138,11 +143,9 @@ function KeyHighlight({
           <span key={i}>
             {i > 0 && ", "}
             <span
-              className={
-                k.trim() === usedKey
-                  ? "rounded bg-green-600/30 px-1 text-green-300"
-                  : ""
-              }
+              className={k.trim() === usedKey
+                ? "rounded bg-green-600/30 px-1 text-green-300"
+                : ""}
             >
               {k.trim()}
             </span>
@@ -181,7 +184,19 @@ function ExplainTable({ result }: { result: QueryResult }) {
       <table className="w-full border-collapse text-xs">
         <thead className="sticky top-0 z-10">
           <tr>
-            {["id", "select_type", "table", "type", "possible_keys", "key", "key_len", "ref", "rows", "filtered", "Extra"].map(
+            {[
+              "id",
+              "select_type",
+              "table",
+              "type",
+              "possible_keys",
+              "key",
+              "key_len",
+              "ref",
+              "rows",
+              "filtered",
+              "Extra",
+            ].map(
               (col) => (
                 <th
                   key={col}
@@ -206,15 +221,17 @@ function ExplainTable({ result }: { result: QueryResult }) {
                 {row.table || <span className="text-[var(--color-text-muted)]">—</span>}
               </td>
               <td className="border-b border-r border-[var(--color-border)] px-2 py-1.5">
-                {row.type ? (
-                  <span
-                    className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${getTypeColor(row.type)}`}
-                  >
-                    {row.type}
-                  </span>
-                ) : (
-                  <span className="text-[var(--color-text-muted)]">—</span>
-                )}
+                {row.type
+                  ? (
+                    <span
+                      className={`inline-block rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                        getTypeColor(row.type)
+                      }`}
+                    >
+                      {row.type}
+                    </span>
+                  )
+                  : <span className="text-[var(--color-text-muted)]">—</span>}
               </td>
               <td className="border-b border-r border-[var(--color-border)] px-2 py-1.5 text-[var(--color-text-primary)]">
                 <KeyHighlight possibleKeys={row.possible_keys} usedKey={row.key} field="possible" />
@@ -341,12 +358,18 @@ function TreeNodeView({
             )}
           </div>
           <div className="flex items-center gap-3 text-[10px] text-[var(--color-text-muted)]">
-            <span>rows: <span className="text-[var(--color-text-secondary)]">{node.rows.toLocaleString()}</span></span>
+            <span>
+              rows: <span className="text-[var(--color-text-secondary)]">{node.rows.toLocaleString()}</span>
+            </span>
             {node.filtered > 0 && (
-              <span>filtered: <span className="text-[var(--color-text-secondary)]">{node.filtered}%</span></span>
+              <span>
+                filtered: <span className="text-[var(--color-text-secondary)]">{node.filtered}%</span>
+              </span>
             )}
             {node.key && (
-              <span>key: <span className="text-green-400">{node.key}</span></span>
+              <span>
+                key: <span className="text-green-400">{node.key}</span>
+              </span>
             )}
           </div>
           {node.extra && (
@@ -412,30 +435,34 @@ function AnalyzeView({ result }: { result: QueryResult }) {
       return (
         <div key={i} className="whitespace-pre">
           {parts.map((part, j) => {
-            if (part.startsWith("actual time="))
+            if (part.startsWith("actual time=")) {
               return (
                 <span key={j} className="text-yellow-300">
                   {part}
                 </span>
               );
-            if (part.startsWith("rows="))
+            }
+            if (part.startsWith("rows=")) {
               return (
                 <span key={j} className="text-blue-300">
                   {part}
                 </span>
               );
-            if (part.startsWith("loops="))
+            }
+            if (part.startsWith("loops=")) {
               return (
                 <span key={j} className="text-purple-300">
                   {part}
                 </span>
               );
-            if (part.startsWith("cost="))
+            }
+            if (part.startsWith("cost=")) {
               return (
                 <span key={j} className="text-orange-300">
                   {part}
                 </span>
               );
+            }
             return <span key={j}>{part}</span>;
           })}
         </div>
@@ -525,11 +552,7 @@ export function ExplainPanel() {
         </div>
       </div>
 
-      {viewMode === "table" ? (
-        <ExplainTable result={explainResult} />
-      ) : (
-        <ExplainTreeView result={explainResult} />
-      )}
+      {viewMode === "table" ? <ExplainTable result={explainResult} /> : <ExplainTreeView result={explainResult} />}
     </div>
   );
 }

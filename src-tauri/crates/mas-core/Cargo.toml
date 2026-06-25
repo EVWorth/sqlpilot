@@ -4,24 +4,24 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-serde = { workspace = true }
-serde_json = { workspace = true }
-thiserror = { workspace = true }
 anyhow = { workspace = true }
-tokio = { workspace = true }
-sqlx = { workspace = true }
-tracing = { workspace = true }
-uuid = { workspace = true }
 chrono = { workspace = true }
-rusqlite = { workspace = true }
 dashmap = "6"
 futures = "0.3"
-sysinfo = "0.39.2"
 keyring-core = "1"
+rusqlite = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+sysinfo = "0.39.2"
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
 
 [dev-dependencies]
-tokio = { workspace = true, features = ["test-util"] }
-tempfile = "3"
-mas-export = { path = "../mas-export" }
-mas-admin = { path = "../mas-admin" }
 db-keystore = "0.4"
+mas-admin = { path = "../mas-admin" }
+mas-export = { path = "../mas-export" }
+tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }

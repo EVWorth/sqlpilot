@@ -1,5 +1,5 @@
-import { Component, type ReactNode } from "react";
 import { AlertTriangle, RefreshCw } from "lucide-react";
+import { Component, type ReactNode } from "react";
 
 interface Props {
   children: ReactNode;
@@ -37,8 +37,8 @@ export class ErrorBoundary extends Component<Props, State> {
               Something went wrong
             </h1>
             <p className="text-sm text-[var(--color-text-muted)] mb-4">
-              An unexpected error occurred while rendering the application.
-              Your editor content and connection state have been preserved.
+              An unexpected error occurred while rendering the application. Your editor content and connection state
+              have been preserved.
             </p>
             {this.state.error && (
               <pre className="mb-4 max-h-32 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2 text-left text-xs text-red-400">

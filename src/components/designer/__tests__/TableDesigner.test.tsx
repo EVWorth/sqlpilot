@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TableDesigner } from "../TableDesigner";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -24,8 +24,26 @@ vi.mock("../SQLPreviewDialog", () => ({
 import { api } from "../../../lib/tauri-api";
 
 const mockColumns = [
-  { name: "id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: true, default_value: undefined, extra: "auto_increment", comment: "primary key" },
-  { name: "name", data_type: "varchar", column_type: "VARCHAR(255)", nullable: false, is_primary_key: false, default_value: undefined, extra: "", comment: "" },
+  {
+    name: "id",
+    data_type: "int",
+    column_type: "INT",
+    nullable: false,
+    is_primary_key: true,
+    default_value: undefined,
+    extra: "auto_increment",
+    comment: "primary key",
+  },
+  {
+    name: "name",
+    data_type: "varchar",
+    column_type: "VARCHAR(255)",
+    nullable: false,
+    is_primary_key: false,
+    default_value: undefined,
+    extra: "",
+    comment: "",
+  },
 ];
 
 const mockIndexes = [

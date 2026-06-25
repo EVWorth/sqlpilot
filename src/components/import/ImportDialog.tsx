@@ -1,17 +1,9 @@
-import { useState, useCallback } from "react";
-import {
-  X,
-  Upload,
-  FileText,
-  Table2,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-} from "lucide-react";
+import { AlertCircle, CheckCircle2, FileText, Loader2, Table2, Upload, X } from "lucide-react";
+import { useCallback, useState } from "react";
+import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
+import { generateBatchInsert, splitSqlStatements } from "../../lib/sql-import";
 import { api } from "../../lib/tauri-api";
-import { parseCSV, type CsvParseOptions } from "../../lib/csv-parser";
-import { splitSqlStatements, generateBatchInsert } from "../../lib/sql-import";
-import type { TableInfo, ColumnInfo } from "../../types";
+import type { ColumnInfo, TableInfo } from "../../types";
 
 interface ImportDialogProps {
   isOpen: boolean;
@@ -51,7 +43,7 @@ export function ImportDialog({
   const [csvOptions, setCsvOptions] = useState<CsvParseOptions>({
     delimiter: ",",
     hasHeader: true,
-    quoteChar: '"',
+    quoteChar: "\"",
   });
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<string[][]>([]);
@@ -80,10 +72,9 @@ export function ImportDialog({
 
   const handlePickFile = useCallback(async () => {
     try {
-      const filters: [string, string[]][] =
-        mode === "sql"
-          ? [["SQL Files", ["sql"]]]
-          : [["CSV Files", ["csv", "tsv", "txt"]]];
+      const filters: [string, string[]][] = mode === "sql"
+        ? [["SQL Files", ["sql"]]]
+        : [["CSV Files", ["csv", "tsv", "txt"]]];
 
       const path = await api.pickFile(
         mode === "sql" ? "Select SQL File" : "Select CSV File",
@@ -214,9 +205,7 @@ export function ImportDialog({
     const mappedCsvCols = csvHeaders.filter((h) => columnMapping[h]);
     const dbCols = mappedCsvCols.map((h) => columnMapping[h]);
     const colIndices = mappedCsvCols.map((h) => csvHeaders.indexOf(h));
-    const mappedRows = csvRows.map((row) =>
-      colIndices.map((idx) => row[idx] ?? ""),
-    );
+    const mappedRows = csvRows.map((row) => colIndices.map((idx) => row[idx] ?? ""));
 
     const batchSize = 100;
     const statements = generateBatchInsert(
@@ -350,8 +339,7 @@ export function ImportDialog({
           {mode === "sql" && fileContent && (
             <div className="space-y-3">
               <div className="text-xs text-[var(--color-text-muted)]">
-                {statementCount} statement{statementCount !== 1 ? "s" : ""}{" "}
-                detected
+                {statementCount} statement{statementCount !== 1 ? "s" : ""} detected
               </div>
               <div className="max-h-48 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2">
                 <pre className="text-[11px] text-[var(--color-text-secondary)] whitespace-pre-wrap font-mono">
@@ -373,9 +361,7 @@ export function ImportDialog({
                       Delimiter:
                       <select
                         value={csvOptions.delimiter}
-                        onChange={(e) =>
-                          handleCsvOptionChange("delimiter", e.target.value)
-                        }
+                        onChange={(e) => handleCsvOptionChange("delimiter", e.target.value)}
                         disabled={importing}
                         className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs"
                       >
@@ -389,13 +375,11 @@ export function ImportDialog({
                       Quote:
                       <select
                         value={csvOptions.quoteChar}
-                        onChange={(e) =>
-                          handleCsvOptionChange("quoteChar", e.target.value)
-                        }
+                        onChange={(e) => handleCsvOptionChange("quoteChar", e.target.value)}
                         disabled={importing}
                         className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs"
                       >
-                        <option value={'"'}>Double quote (&quot;)</option>
+                        <option value={"\""}>Double quote (&quot;)</option>
                         <option value="'">Single quote (&apos;)</option>
                       </select>
                     </label>
@@ -403,9 +387,7 @@ export function ImportDialog({
                       <input
                         type="checkbox"
                         checked={csvOptions.hasHeader}
-                        onChange={(e) =>
-                          handleCsvOptionChange("hasHeader", e.target.checked)
-                        }
+                        onChange={(e) => handleCsvOptionChange("hasHeader", e.target.checked)}
                         disabled={importing}
                         className="rounded"
                       />
@@ -458,9 +440,7 @@ export function ImportDialog({
                       Target table:
                       <select
                         value={targetTable}
-                        onChange={(e) =>
-                          handleTargetTableChange(e.target.value)
-                        }
+                        onChange={(e) => handleTargetTableChange(e.target.value)}
                         disabled={importing}
                         className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs"
                       >
@@ -497,8 +477,7 @@ export function ImportDialog({
                                   setColumnMapping((prev) => ({
                                     ...prev,
                                     [csvCol]: e.target.value,
-                                  }))
-                                }
+                                  }))}
                                 disabled={importing}
                                 className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-0.5 text-xs"
                               >
@@ -528,12 +507,10 @@ export function ImportDialog({
                   {progress.done
                     ? "Import complete"
                     : mode === "sql"
-                      ? `Executing statement ${progress.current} of ${progress.total}...`
-                      : `Importing row ${progress.current} of ${progress.total}...`}
+                    ? `Executing statement ${progress.current} of ${progress.total}...`
+                    : `Importing row ${progress.current} of ${progress.total}...`}
                 </span>
-                {importing && (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-400" />
-                )}
+                {importing && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-400" />}
               </div>
 
               {/* Progress bar */}
@@ -550,8 +527,7 @@ export function ImportDialog({
               <div className="flex items-center gap-4 text-xs">
                 <span className="flex items-center gap-1 text-green-400">
                   <CheckCircle2 className="h-3 w-3" />
-                  {progress.successCount}{" "}
-                  {mode === "sql" ? "succeeded" : "rows imported"}
+                  {progress.successCount} {mode === "sql" ? "succeeded" : "rows imported"}
                 </span>
                 {progress.errorCount > 0 && (
                   <span className="flex items-center gap-1 text-red-400">
@@ -599,13 +575,11 @@ export function ImportDialog({
           {mode === "csv" && (
             <button
               onClick={handleImportCsv}
-              disabled={
-                !targetTable ||
-                csvRows.length === 0 ||
-                Object.values(columnMapping).filter(Boolean).length === 0 ||
-                importing ||
-                progress?.done === true
-              }
+              disabled={!targetTable
+                || csvRows.length === 0
+                || Object.values(columnMapping).filter(Boolean).length === 0
+                || importing
+                || progress?.done === true}
               className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {importing ? "Importing..." : "Import CSV"}

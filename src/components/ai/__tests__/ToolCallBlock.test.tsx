@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { ToolCallBlock } from "../ToolCallBlock";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it } from "vitest";
 import type { ToolExecution } from "../../../types";
+import { ToolCallBlock } from "../ToolCallBlock";
 
 const makeTool = (overrides: Partial<ToolExecution> = {}): ToolExecution => ({
   id: "tool-1",

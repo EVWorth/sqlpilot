@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { FolderNode } from "../FolderNode";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { Table2 } from "lucide-react";
+import { describe, expect, it, vi } from "vitest";
+import { FolderNode } from "../FolderNode";
 
 describe("FolderNode", () => {
   it("renders the label", () => {

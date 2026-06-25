@@ -1,22 +1,8 @@
-import { useState, useEffect } from "react";
-import {
-  X,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Shield,
-  Terminal,
-  Settings,
-  Database,
-} from "lucide-react";
-import type {
-  ConnectionProfile,
-  SSLConfig,
-  SSHConfig,
-  TestConnectionResult,
-} from "../../types";
+import { CheckCircle2, Database, Loader2, Settings, Shield, Terminal, X, XCircle } from "lucide-react";
+import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
+import type { ConnectionProfile, SSHConfig, SSLConfig, TestConnectionResult } from "../../types";
 
 const PRESET_COLORS = [
   "#3B82F6",
@@ -73,8 +59,8 @@ const sslModes: { value: SSLConfig["mode"]; label: string; description: string }
 export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const [form, setForm] = useState(
-    editProfile ??
-      ({
+    editProfile
+      ?? ({
         ...defaultProfile,
         id: crypto.randomUUID(),
         created_at: new Date().toISOString(),
@@ -96,8 +82,8 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
     if (isOpen) {
       setActiveTab("general");
       setForm(
-        editProfile ??
-          ({
+        editProfile
+          ?? ({
             ...defaultProfile,
             id: crypto.randomUUID(),
             created_at: new Date().toISOString(),
@@ -323,8 +309,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                     handleChange(
                       "environment",
                       e.target.value || undefined,
-                    )
-                  }
+                    )}
                   className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-brand-500"
                 >
                   <option value="">None</option>
@@ -345,9 +330,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                 </label>
                 <select
                   value={sslMode}
-                  onChange={(e) =>
-                    handleSSLChange({ mode: e.target.value as SSLConfig["mode"] })
-                  }
+                  onChange={(e) => handleSSLChange({ mode: e.target.value as SSLConfig["mode"] })}
                   className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-brand-500"
                 >
                   {sslModes.map((m) => (
@@ -381,12 +364,12 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                     onChange={(v) => handleSSLChange({ client_key_path: v || undefined })}
                     placeholder="/path/to/client-key.pem"
                   />
-                  {(sslMode === "VerifyCA" || sslMode === "VerifyIdentity") &&
-                    !form.ssl_config?.ca_cert_path && (
-                      <p className="text-[10px] text-yellow-400">
-                        ⚠ CA certificate is required for {sslMode === "VerifyCA" ? "Verify CA" : "Verify Identity"} mode
-                      </p>
-                    )}
+                  {(sslMode === "VerifyCA" || sslMode === "VerifyIdentity")
+                    && !form.ssl_config?.ca_cert_path && (
+                    <p className="text-[10px] text-yellow-400">
+                      ⚠ CA certificate is required for {sslMode === "VerifyCA" ? "Verify CA" : "Verify Identity"} mode
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -427,9 +410,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                     <Field
                       label="SSH Port"
                       value={String(form.ssh_config?.port ?? 22)}
-                      onChange={(v) =>
-                        handleSSHChange({ port: parseInt(v) || 22 })
-                      }
+                      onChange={(v) => handleSSHChange({ port: parseInt(v) || 22 })}
                       type="number"
                     />
                   </div>
@@ -468,34 +449,32 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                     </div>
                   </div>
 
-                  {sshAuthMethod === "password" ? (
-                    <Field
-                      label="SSH Password"
-                      value={form.ssh_config?.password || ""}
-                      onChange={(v) => handleSSHChange({ password: v || undefined })}
-                      type="password"
-                    />
-                  ) : (
-                    <div className="space-y-3">
+                  {sshAuthMethod === "password"
+                    ? (
                       <Field
-                        label="Private Key File"
-                        value={form.ssh_config?.private_key_path || ""}
-                        onChange={(v) =>
-                          handleSSHChange({ private_key_path: v || undefined })
-                        }
-                        placeholder="~/.ssh/id_rsa"
-                      />
-                      <Field
-                        label="Passphrase"
-                        value={form.ssh_config?.passphrase || ""}
-                        onChange={(v) =>
-                          handleSSHChange({ passphrase: v || undefined })
-                        }
+                        label="SSH Password"
+                        value={form.ssh_config?.password || ""}
+                        onChange={(v) => handleSSHChange({ password: v || undefined })}
                         type="password"
-                        placeholder="(optional)"
                       />
-                    </div>
-                  )}
+                    )
+                    : (
+                      <div className="space-y-3">
+                        <Field
+                          label="Private Key File"
+                          value={form.ssh_config?.private_key_path || ""}
+                          onChange={(v) => handleSSHChange({ private_key_path: v || undefined })}
+                          placeholder="~/.ssh/id_rsa"
+                        />
+                        <Field
+                          label="Passphrase"
+                          value={form.ssh_config?.passphrase || ""}
+                          onChange={(v) => handleSSHChange({ passphrase: v || undefined })}
+                          type="password"
+                          placeholder="(optional)"
+                        />
+                      </div>
+                    )}
                 </>
               )}
             </div>
@@ -559,13 +538,13 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
         {testResult && (
           <div className="px-4 pb-2">
             <div
-              className={`flex items-center gap-2 rounded p-2 text-xs ${testResult.success ? "bg-green-900/30 text-green-400" : "bg-red-900/30 text-red-400"}`}
+              className={`flex items-center gap-2 rounded p-2 text-xs ${
+                testResult.success ? "bg-green-900/30 text-green-400" : "bg-red-900/30 text-red-400"
+              }`}
             >
-              {testResult.success ? (
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-              ) : (
-                <XCircle className="h-4 w-4 shrink-0" />
-              )}
+              {testResult.success
+                ? <CheckCircle2 className="h-4 w-4 shrink-0" />
+                : <XCircle className="h-4 w-4 shrink-0" />}
               <span className="truncate">{testResult.message}</span>
               {testResult.latency_ms > 0 && (
                 <span className="ml-auto shrink-0 text-[var(--color-text-muted)]">

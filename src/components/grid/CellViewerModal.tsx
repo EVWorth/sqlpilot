@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
 import Editor, { type OnMount } from "@monaco-editor/react";
+import { Check, Copy, Download, Lock, Pencil, X } from "lucide-react";
 import type { editor } from "monaco-editor";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "sql-formatter";
-import { Copy, Check, X, Download, Pencil, Lock } from "lucide-react";
 import { useThemeStore } from "../../stores/themeStore";
 
 interface Props {
@@ -24,8 +24,8 @@ function detectContentType(content: string, dataType?: string): ContentType {
   const trimmed = content.trim();
 
   if (
-    (trimmed.startsWith("{") || trimmed.startsWith("[")) &&
-    (trimmed.endsWith("}") || trimmed.endsWith("]"))
+    (trimmed.startsWith("{") || trimmed.startsWith("["))
+    && (trimmed.endsWith("}") || trimmed.endsWith("]"))
   ) {
     try {
       JSON.parse(trimmed);
@@ -200,17 +200,19 @@ export function CellViewerModal({
               className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
               title={isEditable ? "Switch to read-only" : "Edit content locally"}
             >
-              {isEditable ? (
-                <>
-                  <Lock className="h-3.5 w-3.5" />
-                  Read-only
-                </>
-              ) : (
-                <>
-                  <Pencil className="h-3.5 w-3.5" />
-                  Edit
-                </>
-              )}
+              {isEditable
+                ? (
+                  <>
+                    <Lock className="h-3.5 w-3.5" />
+                    Read-only
+                  </>
+                )
+                : (
+                  <>
+                    <Pencil className="h-3.5 w-3.5" />
+                    Edit
+                  </>
+                )}
             </button>
             <button
               onClick={onClose}
@@ -235,39 +237,41 @@ export function CellViewerModal({
 
         <div className="min-h-0 flex-1 p-4">
           <div className="h-full overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)]">
-            {isNullValue ? (
-              <div className="p-3 text-xs font-mono italic text-[var(--color-text-muted)]">
-                NULL
-              </div>
-            ) : (
-              <Editor
-                height="100%"
-                language={language}
-                value={viewerContent}
-                onChange={(value) => {
-                  if (isEditable) {
-                    setDraftContent(value ?? "");
-                  }
-                }}
-                onMount={onMount}
-                theme={theme === "dark" ? "vs-dark" : "vs"}
-                options={{
-                  readOnly: !isEditable,
-                  domReadOnly: !isEditable,
-                  minimap: { enabled: false },
-                  lineNumbers: "on",
-                  scrollBeyondLastLine: false,
-                  wordWrap: "on",
-                  renderWhitespace: "selection",
-                  folding: true,
-                  fontSize: 12,
-                  automaticLayout: true,
-                  padding: { top: 8, bottom: 8 },
-                  smoothScrolling: true,
-                  renderLineHighlightOnlyWhenFocus: true,
-                }}
-              />
-            )}
+            {isNullValue
+              ? (
+                <div className="p-3 text-xs font-mono italic text-[var(--color-text-muted)]">
+                  NULL
+                </div>
+              )
+              : (
+                <Editor
+                  height="100%"
+                  language={language}
+                  value={viewerContent}
+                  onChange={(value) => {
+                    if (isEditable) {
+                      setDraftContent(value ?? "");
+                    }
+                  }}
+                  onMount={onMount}
+                  theme={theme === "dark" ? "vs-dark" : "vs"}
+                  options={{
+                    readOnly: !isEditable,
+                    domReadOnly: !isEditable,
+                    minimap: { enabled: false },
+                    lineNumbers: "on",
+                    scrollBeyondLastLine: false,
+                    wordWrap: "on",
+                    renderWhitespace: "selection",
+                    folding: true,
+                    fontSize: 12,
+                    automaticLayout: true,
+                    padding: { top: 8, bottom: 8 },
+                    smoothScrolling: true,
+                    renderLineHighlightOnlyWhenFocus: true,
+                  }}
+                />
+              )}
           </div>
         </div>
 
@@ -284,17 +288,19 @@ export function CellViewerModal({
             onClick={handleCopy}
             className="inline-flex items-center gap-2 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-700"
           >
-            {copied ? (
-              <>
-                <Check className="h-3.5 w-3.5" />
-                Copied!
-              </>
-            ) : (
-              <>
-                <Copy className="h-3.5 w-3.5" />
-                Copy
-              </>
-            )}
+            {copied
+              ? (
+                <>
+                  <Check className="h-3.5 w-3.5" />
+                  Copied!
+                </>
+              )
+              : (
+                <>
+                  <Copy className="h-3.5 w-3.5" />
+                  Copy
+                </>
+              )}
           </button>
           <button
             onClick={onClose}

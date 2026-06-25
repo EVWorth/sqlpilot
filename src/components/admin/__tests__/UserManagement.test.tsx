@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UserManagement } from "../UserManagement";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -32,7 +32,9 @@ const mockUserResults = (users: Array<Record<string, string | null>>) => [
       { name: "password_expired", data_type: "STRING", nullable: true, is_primary_key: false },
       { name: "password_last_changed", data_type: "STRING", nullable: true, is_primary_key: false },
     ],
-    rows: users.map((u) => [u.User, u.Host, u.account_locked ?? null, u.password_expired ?? null, u.password_last_changed ?? null]),
+    rows: users.map((
+      u,
+    ) => [u.User, u.Host, u.account_locked ?? null, u.password_expired ?? null, u.password_last_changed ?? null]),
     rows_affected: 0,
     execution_time_ms: 5,
     warnings: [],
@@ -135,7 +137,13 @@ describe("UserManagement", () => {
   it("shows locked badge for locked users", async () => {
     vi.mocked(api.executeQuery).mockResolvedValue(
       mockUserResults([
-        { User: "locked_user", Host: "localhost", account_locked: "Y", password_expired: null, password_last_changed: null },
+        {
+          User: "locked_user",
+          Host: "localhost",
+          account_locked: "Y",
+          password_expired: null,
+          password_last_changed: null,
+        },
       ]),
     );
 
@@ -146,7 +154,13 @@ describe("UserManagement", () => {
   it("shows expired badge for expired password users", async () => {
     vi.mocked(api.executeQuery).mockResolvedValue(
       mockUserResults([
-        { User: "expired_user", Host: "localhost", account_locked: null, password_expired: "Y", password_last_changed: null },
+        {
+          User: "expired_user",
+          Host: "localhost",
+          account_locked: null,
+          password_expired: "Y",
+          password_last_changed: null,
+        },
       ]),
     );
 

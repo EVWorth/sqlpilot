@@ -1,12 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { act } from "react";
 import userEvent from "@testing-library/user-event";
-import { StatusBar } from "../StatusBar";
+import { act } from "react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useConnectionStore } from "../../../stores/connectionStore";
-import { useResultStore } from "../../../stores/resultStore";
 import { useEditorStore } from "../../../stores/editorStore";
+import { useResultStore } from "../../../stores/resultStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { StatusBar } from "../StatusBar";
 
 vi.mock("../../../lib/tauri-api", () => ({
   api: {

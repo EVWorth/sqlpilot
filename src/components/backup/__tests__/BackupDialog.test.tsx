@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { useConnectionStoreFn, generateBackupFn, apiMocks } = vi.hoisted(() => {
   return {
@@ -63,9 +63,7 @@ const defaultConnState = {
 
 describe("BackupDialog", () => {
   beforeEach(() => {
-    useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
-      s(defaultConnState),
-    );
+    useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) => s(defaultConnState));
     apiMocks.pickSaveFile.mockResolvedValue("/tmp/backup.sql");
     apiMocks.writeFileContents.mockResolvedValue(undefined);
     apiMocks.getDatabases.mockResolvedValue([{ name: "testdb" }, { name: "proddb" }]);
@@ -273,7 +271,7 @@ describe("BackupDialog", () => {
 
     it("clears databases when no connection is present", () => {
       useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
-        s({ ...defaultConnState, selectedConnectionId: "" }),
+        s({ ...defaultConnState, selectedConnectionId: "" })
       );
       render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
       // No databases loaded
@@ -284,9 +282,7 @@ describe("BackupDialog", () => {
 
   describe("preselected connection/database", () => {
     it("uses preselected connectionId and database", () => {
-      useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
-        s(defaultConnState),
-      );
+      useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) => s(defaultConnState));
       render(
         <BackupDialog
           isOpen={true}

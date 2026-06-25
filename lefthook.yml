@@ -1,5 +1,12 @@
 pre-commit:
   commands:
+    dprint:
+      glob: "*.{ts,tsx,js,jsx,json,yml,yaml,md,toml}"
+      run: npx dprint check --list-different
+    cargo-fmt:
+      root: "src-tauri/"
+      glob: "*.rs"
+      run: cargo fmt --check
     lockfile-check:
       glob: "package.json"
       run: |
@@ -23,10 +30,3 @@ pre-commit:
           echo "Run: make bump"
           exit 1
         fi
-    tsc-check:
-      glob: "*.{ts,tsx}"
-      run: npx tsc --noEmit --pretty
-    cargo-fmt:
-      root: "src-tauri/"
-      glob: "*.rs"
-      run: cargo fmt --check

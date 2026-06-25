@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { renderHook } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useKeyboardShortcuts } from "../useKeyboardShortcuts";
 
 const mockExecuteQuery = vi.fn().mockResolvedValue(undefined);
@@ -25,9 +25,9 @@ vi.mock("../../stores/connectionStore", () => ({
   },
 }));
 
+import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
-import { useConnectionStore } from "../../stores/connectionStore";
 
 const getEditorState = useEditorStore.getState as unknown as ReturnType<
   typeof vi.fn
@@ -226,9 +226,7 @@ describe("useKeyboardShortcuts", () => {
 
     it("calls onSaveFavorite when Ctrl+S is pressed with Monaco focused", () => {
       const onSaveFavorite = vi.fn();
-      renderHook(() =>
-        useKeyboardShortcuts(undefined, undefined, onSaveFavorite),
-      );
+      renderHook(() => useKeyboardShortcuts(undefined, undefined, onSaveFavorite));
 
       const event = createKeyboardEvent("s", { ctrlKey: true });
       const preventDefaultSpy = vi.spyOn(event, "preventDefault");
@@ -241,9 +239,7 @@ describe("useKeyboardShortcuts", () => {
 
     it("calls onSaveFavorite when Cmd+S is pressed with Monaco focused", () => {
       const onSaveFavorite = vi.fn();
-      renderHook(() =>
-        useKeyboardShortcuts(undefined, undefined, onSaveFavorite),
-      );
+      renderHook(() => useKeyboardShortcuts(undefined, undefined, onSaveFavorite));
 
       const event = createKeyboardEvent("s", { metaKey: true });
       Object.defineProperty(event, "target", { value: monacoTextarea, writable: false });
@@ -254,9 +250,7 @@ describe("useKeyboardShortcuts", () => {
 
     it("does not call onSaveFavorite when Ctrl+Shift+S is pressed", () => {
       const onSaveFavorite = vi.fn();
-      renderHook(() =>
-        useKeyboardShortcuts(undefined, undefined, onSaveFavorite),
-      );
+      renderHook(() => useKeyboardShortcuts(undefined, undefined, onSaveFavorite));
 
       const event = createKeyboardEvent("s", { ctrlKey: true, shiftKey: true });
       window.dispatchEvent(event);
@@ -266,9 +260,7 @@ describe("useKeyboardShortcuts", () => {
 
     it("does not call onSaveFavorite when regular 's' is pressed", () => {
       const onSaveFavorite = vi.fn();
-      renderHook(() =>
-        useKeyboardShortcuts(undefined, undefined, onSaveFavorite),
-      );
+      renderHook(() => useKeyboardShortcuts(undefined, undefined, onSaveFavorite));
 
       const event = createKeyboardEvent("s");
       window.dispatchEvent(event);

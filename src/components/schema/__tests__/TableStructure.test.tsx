@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TableStructure } from "../TableStructure";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -11,17 +11,42 @@ vi.mock("../../../lib/tauri-api", () => ({
 }));
 
 vi.mock("@monaco-editor/react", () => ({
-  default: ({ value }: { value: string }) => (
-    <div data-testid="monaco-editor">{value}</div>
-  ),
+  default: ({ value }: { value: string }) => <div data-testid="monaco-editor">{value}</div>,
 }));
 
 import { api } from "../../../lib/tauri-api";
 
 const mockColumns = [
-  { name: "id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: true, default_value: undefined, extra: "auto_increment", comment: "primary key" },
-  { name: "name", data_type: "varchar", column_type: "VARCHAR(255)", nullable: false, is_primary_key: false, default_value: undefined, extra: "", comment: "" },
-  { name: "email", data_type: "varchar", column_type: "VARCHAR(255)", nullable: true, is_primary_key: false, default_value: "NULL", extra: "", comment: "" },
+  {
+    name: "id",
+    data_type: "int",
+    column_type: "INT",
+    nullable: false,
+    is_primary_key: true,
+    default_value: undefined,
+    extra: "auto_increment",
+    comment: "primary key",
+  },
+  {
+    name: "name",
+    data_type: "varchar",
+    column_type: "VARCHAR(255)",
+    nullable: false,
+    is_primary_key: false,
+    default_value: undefined,
+    extra: "",
+    comment: "",
+  },
+  {
+    name: "email",
+    data_type: "varchar",
+    column_type: "VARCHAR(255)",
+    nullable: true,
+    is_primary_key: false,
+    default_value: "NULL",
+    extra: "",
+    comment: "",
+  },
 ];
 
 const mockIndexes = [

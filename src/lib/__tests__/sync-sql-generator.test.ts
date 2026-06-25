@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { generateSyncSQL } from "../sync-sql-generator";
-import type { SchemaComparison, SchemaSnapshot, TableDiff } from "../schema-diff";
+import { describe, expect, it } from "vitest";
 import type { ColumnInfo, IndexInfo } from "../../types";
+import type { SchemaComparison, SchemaSnapshot, TableDiff } from "../schema-diff";
+import { generateSyncSQL } from "../sync-sql-generator";
 
 function makeColumn(overrides: Partial<ColumnInfo> & { name: string }): ColumnInfo {
   return {
@@ -151,7 +151,10 @@ describe("sync-sql-generator", () => {
 
     const snapshot = emptySnapshot();
     snapshot.routines = [
-      { info: { name: "get_user", routine_type: "FUNCTION", data_type: "varchar" }, ddl: "CREATE FUNCTION get_user() RETURNS varchar(255) BEGIN RETURN 'x'; END" },
+      {
+        info: { name: "get_user", routine_type: "FUNCTION", data_type: "varchar" },
+        ddl: "CREATE FUNCTION get_user() RETURNS varchar(255) BEGIN RETURN 'x'; END",
+      },
     ];
 
     const stmts = generateSyncSQL(comparison, snapshot);

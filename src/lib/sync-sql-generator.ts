@@ -1,5 +1,5 @@
-import type { SchemaComparison, SchemaSnapshot } from "./schema-diff";
 import type { ColumnInfo, IndexInfo } from "../types";
+import type { SchemaComparison, SchemaSnapshot } from "./schema-diff";
 
 function escapeId(name: string): string {
   return `\`${name.replace(/`/g, "``")}\``;

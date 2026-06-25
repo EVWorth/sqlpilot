@@ -55,8 +55,7 @@ export function generateDelete(
   return `DELETE FROM \`${tableName}\` WHERE ${where} LIMIT 1;`;
 }
 
-const TABLE_NAME_RE =
-  /\bFROM\s+(?:`([^`]+)`|(\w+))(?:\s|;|$)/i;
+const TABLE_NAME_RE = /\bFROM\s+(?:`([^`]+)`|(\w+))(?:\s|;|$)/i;
 
 export function extractTableName(sql: string): string | null {
   const match = TABLE_NAME_RE.exec(sql);

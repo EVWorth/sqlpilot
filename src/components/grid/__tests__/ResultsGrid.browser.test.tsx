@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
-import { ResultsGrid } from "../ResultsGrid";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { QueryResult, SqlValue } from "../../../types";
+import { ResultsGrid } from "../ResultsGrid";
 
 // ─── Module-level mutable state for resultStore ──────────────
 const resultState = {
@@ -119,9 +119,7 @@ vi.mock("../../../lib/sql-generator", () => ({
 
 // ─── Sub-component mocks with real callbacks ──────────────────
 vi.mock("../EditableCell", () => ({
-  EditableCell: vi.fn(({ value }: { value: unknown }) => (
-    <div data-testid="editable-cell">{String(value)}</div>
-  )),
+  EditableCell: vi.fn(({ value }: { value: unknown }) => <div data-testid="editable-cell">{String(value)}</div>),
 }));
 
 vi.mock("../EditToolbar", () => ({
@@ -364,8 +362,18 @@ describe("ResultsGrid (browser)", () => {
 
   it("clicking Result 2 tab selects the second result", async () => {
     resultState.results = [
-      makeResult({ query_id: "q1", statement_index: 0, rows: [[1, "Alice"]], columns: [{ name: "a", data_type: "int", nullable: true, is_primary_key: false }] }),
-      makeResult({ query_id: "q2", statement_index: 1, rows: [[2, "Bob"]], columns: [{ name: "b", data_type: "int", nullable: true, is_primary_key: false }] }),
+      makeResult({
+        query_id: "q1",
+        statement_index: 0,
+        rows: [[1, "Alice"]],
+        columns: [{ name: "a", data_type: "int", nullable: true, is_primary_key: false }],
+      }),
+      makeResult({
+        query_id: "q2",
+        statement_index: 1,
+        rows: [[2, "Bob"]],
+        columns: [{ name: "b", data_type: "int", nullable: true, is_primary_key: false }],
+      }),
     ];
     resultState.activeResultIndex = 0;
 
@@ -476,7 +484,7 @@ describe("ResultsGrid (browser)", () => {
 
   it("clicking JSON export calls api.exportResults with json format", async () => {
     resultState.results = [makeResult()];
-    mockExportResults.mockResolvedValue('[{"id":1}]');
+    mockExportResults.mockResolvedValue("[{\"id\":1}]");
 
     const user = userEvent.setup();
     render(<ResultsGrid />);
@@ -600,7 +608,7 @@ describe("ResultsGrid (browser)", () => {
     render(<ResultsGrid />);
 
     // The "#" header in the first column
-    const hashHeader = document.querySelector('th');
+    const hashHeader = document.querySelector("th");
     expect(hashHeader?.textContent).toBe("#");
   });
 

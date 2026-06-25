@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // ── Mutable store state ──
 const sidebarState = {
@@ -109,13 +109,11 @@ vi.mock("../../../hooks/useClickHandler", () => ({
 }));
 
 vi.mock("../../../lib/utils", () => ({
-  cn: vi.fn((...args: (string | false | null | undefined)[]) =>
-    args.filter(Boolean).join(" "),
-  ),
+  cn: vi.fn((...args: (string | false | null | undefined)[]) => args.filter(Boolean).join(" ")),
 }));
 
-import { Sidebar } from "../Sidebar";
 import { api } from "../../../lib/tauri-api";
+import { Sidebar } from "../Sidebar";
 
 describe("Sidebar (browser)", () => {
   beforeEach(() => {
@@ -214,7 +212,7 @@ describe("Sidebar (browser)", () => {
 
     it("shows profile color indicator", () => {
       render(<Sidebar />);
-      const dot = document.querySelector('span[style*="background-color"]');
+      const dot = document.querySelector("span[style*=\"background-color\"]");
       expect(dot).toBeTruthy();
     });
 
@@ -646,7 +644,7 @@ describe("Sidebar (browser)", () => {
 
     it("hides color indicator when no profile color", () => {
       render(<Sidebar />);
-      const colorDot = document.querySelector('span[style*="background-color"]');
+      const colorDot = document.querySelector("span[style*=\"background-color\"]");
       expect(colorDot).toBeFalsy();
     });
   });
@@ -679,7 +677,7 @@ describe("Sidebar (browser)", () => {
       await waitFor(() => screen.getByText("users"));
 
       // Find the structure button (Columns3 icon) next to the table name
-      const structBtn = document.querySelector('[title="View Structure"]') as HTMLButtonElement;
+      const structBtn = document.querySelector("[title=\"View Structure\"]") as HTMLButtonElement;
       expect(structBtn).toBeInTheDocument();
       await user.click(structBtn);
       expect(editorState.addStructureTab).toHaveBeenCalledWith("conn1", "testdb", "users");
@@ -935,8 +933,22 @@ describe("Sidebar (browser)", () => {
       Object.assign(sidebarState, {
         profiles: [{ id: "p1", username: "admin" }],
         activeConnections: [
-          { id: "conn1", profile_id: "p1", host: "localhost", port: 3306, server_version: "8.0.35", connected_at: new Date().toISOString() },
-          { id: "conn2", profile_id: "p1", host: "other", port: 3306, server_version: "8.0.35", connected_at: new Date().toISOString() },
+          {
+            id: "conn1",
+            profile_id: "p1",
+            host: "localhost",
+            port: 3306,
+            server_version: "8.0.35",
+            connected_at: new Date().toISOString(),
+          },
+          {
+            id: "conn2",
+            profile_id: "p1",
+            host: "other",
+            port: 3306,
+            server_version: "8.0.35",
+            connected_at: new Date().toISOString(),
+          },
         ],
         selectedConnectionId: "conn1",
       });

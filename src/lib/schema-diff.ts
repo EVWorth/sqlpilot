@@ -1,4 +1,4 @@
-import type { ColumnInfo, IndexInfo, ViewInfo, RoutineInfo, TriggerInfo } from "../types";
+import type { ColumnInfo, IndexInfo, RoutineInfo, TriggerInfo, ViewInfo } from "../types";
 
 export interface ColumnModification {
   name: string;
@@ -117,9 +117,9 @@ export function compareIndexes(
     if (!tgtIdx) {
       added.push(idx);
     } else if (
-      idx.columns.join(",") !== tgtIdx.columns.join(",") ||
-      idx.is_unique !== tgtIdx.is_unique ||
-      idx.index_type !== tgtIdx.index_type
+      idx.columns.join(",") !== tgtIdx.columns.join(",")
+      || idx.is_unique !== tgtIdx.is_unique
+      || idx.index_type !== tgtIdx.index_type
     ) {
       // Index changed — treat as remove old + add new
       removed.push(tgtIdx);
@@ -170,12 +170,11 @@ export function compareSchemas(source: SchemaSnapshot, target: SchemaSnapshot): 
     const colDiff = compareColumns(srcTable.columns, tgtTable.columns);
     const idxDiff = compareIndexes(srcTable.indexes, tgtTable.indexes);
 
-    const hasDifferences =
-      colDiff.added.length > 0 ||
-      colDiff.removed.length > 0 ||
-      colDiff.modified.length > 0 ||
-      idxDiff.added.length > 0 ||
-      idxDiff.removed.length > 0;
+    const hasDifferences = colDiff.added.length > 0
+      || colDiff.removed.length > 0
+      || colDiff.modified.length > 0
+      || idxDiff.added.length > 0
+      || idxDiff.removed.length > 0;
 
     if (hasDifferences) {
       different.push({ name, columns: colDiff, indexes: idxDiff });
@@ -192,12 +191,20 @@ export function compareSchemas(source: SchemaSnapshot, target: SchemaSnapshot): 
   // Compare routines
   const sourceRoutineMap = new Map(source.routines.map((r) => [r.info.name, r]));
   const targetRoutineMap = new Map(target.routines.map((r) => [r.info.name, r]));
-  const routineDiff = compareObjects(sourceRoutineMap, targetRoutineMap, (s, t) => normalizeDdl(s.ddl) === normalizeDdl(t.ddl));
+  const routineDiff = compareObjects(
+    sourceRoutineMap,
+    targetRoutineMap,
+    (s, t) => normalizeDdl(s.ddl) === normalizeDdl(t.ddl),
+  );
 
   // Compare triggers
   const sourceTriggerMap = new Map(source.triggers.map((t) => [t.info.name, t]));
   const targetTriggerMap = new Map(target.triggers.map((t) => [t.info.name, t]));
-  const triggerDiff = compareObjects(sourceTriggerMap, targetTriggerMap, (s, t) => normalizeDdl(s.ddl) === normalizeDdl(t.ddl));
+  const triggerDiff = compareObjects(
+    sourceTriggerMap,
+    targetTriggerMap,
+    (s, t) => normalizeDdl(s.ddl) === normalizeDdl(t.ddl),
+  );
 
   return {
     tables: { onlyInSource, onlyInTarget, different, identical },

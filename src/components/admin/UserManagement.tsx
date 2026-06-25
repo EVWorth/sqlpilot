@@ -1,32 +1,32 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
 import {
-  Search,
-  RefreshCw,
-  UserPlus,
-  Trash2,
-  KeyRound,
-  Shield,
-  ShieldCheck,
-  Lock,
   AlertTriangle,
-  Loader2,
+  Check,
   ChevronRight,
   Database,
-  Check,
+  KeyRound,
+  Loader2,
+  Lock,
+  RefreshCw,
+  Search,
+  Shield,
+  ShieldCheck,
+  Trash2,
+  UserPlus,
   X,
 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
-import {
-  GLOBAL_PRIVILEGES,
-  DATABASE_PRIVILEGES,
-  parseGrantStatements,
-  categorizeGrants,
-  escapeIdentifier,
-  type ParsedGrant,
-} from "./userPrivileges";
-import { CreateUserDialog } from "./CreateUserDialog";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
+import { CreateUserDialog } from "./CreateUserDialog";
+import {
+  categorizeGrants,
+  DATABASE_PRIVILEGES,
+  escapeIdentifier,
+  GLOBAL_PRIVILEGES,
+  type ParsedGrant,
+  parseGrantStatements,
+} from "./userPrivileges";
 
 interface UserRow {
   user: string;
@@ -129,8 +129,8 @@ export function UserManagement({ connectionId }: UserManagementProps) {
     const lc = filter.toLowerCase();
     return users.filter(
       (u) =>
-        u.user.toLowerCase().includes(lc) ||
-        u.host.toLowerCase().includes(lc),
+        u.user.toLowerCase().includes(lc)
+        || u.host.toLowerCase().includes(lc),
     );
   }, [users, filter]);
 
@@ -197,9 +197,8 @@ export function UserManagement({ connectionId }: UserManagementProps) {
             <tbody>
               {filteredUsers.map((u) => {
                 const key = `${u.user}@${u.host}`;
-                const isSelected =
-                  selectedUser?.user === u.user &&
-                  selectedUser?.host === u.host;
+                const isSelected = selectedUser?.user === u.user
+                  && selectedUser?.host === u.host;
                 return (
                   <tr
                     key={key}
@@ -258,21 +257,23 @@ export function UserManagement({ connectionId }: UserManagementProps) {
 
       {/* Right side: User detail */}
       <div className="flex flex-1 flex-col overflow-hidden">
-        {selectedUser ? (
-          <UserDetail
-            connectionId={connectionId}
-            user={selectedUser.user}
-            host={selectedUser.host}
-            confirmDrop={confirmDrop}
-            setConfirmDrop={setConfirmDrop}
-            onDropUser={handleDropUser}
-            onChangePassword={() => setShowChangePassword(true)}
-          />
-        ) : (
-          <div className="flex h-full items-center justify-center text-sm text-[var(--color-text-muted)]">
-            Select a user to view details
-          </div>
-        )}
+        {selectedUser
+          ? (
+            <UserDetail
+              connectionId={connectionId}
+              user={selectedUser.user}
+              host={selectedUser.host}
+              confirmDrop={confirmDrop}
+              setConfirmDrop={setConfirmDrop}
+              onDropUser={handleDropUser}
+              onChangePassword={() => setShowChangePassword(true)}
+            />
+          )
+          : (
+            <div className="flex h-full items-center justify-center text-sm text-[var(--color-text-muted)]">
+              Select a user to view details
+            </div>
+          )}
       </div>
 
       {/* Dialogs */}
@@ -334,30 +335,32 @@ function UserDetail({
             <KeyRound className="h-3.5 w-3.5" />
             Change Password
           </button>
-          {confirmDrop ? (
-            <div className="flex items-center gap-1">
+          {confirmDrop
+            ? (
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={onDropUser}
+                  className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500"
+                >
+                  Confirm Drop
+                </button>
+                <button
+                  onClick={() => setConfirmDrop(false)}
+                  className="rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                >
+                  Cancel
+                </button>
+              </div>
+            )
+            : (
               <button
-                onClick={onDropUser}
-                className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500"
+                onClick={() => setConfirmDrop(true)}
+                className="flex items-center gap-1 rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
               >
-                Confirm Drop
+                <Trash2 className="h-3.5 w-3.5" />
+                Drop User
               </button>
-              <button
-                onClick={() => setConfirmDrop(false)}
-                className="rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-              >
-                Cancel
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() => setConfirmDrop(true)}
-              className="flex items-center gap-1 rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Drop User
-            </button>
-          )}
+            )}
         </div>
       </div>
 
@@ -390,9 +393,7 @@ function UserDetail({
       </div>
 
       <div className="flex-1 overflow-auto">
-        {detailTab === "grants" ? (
-          <GrantsView connectionId={connectionId} user={user} host={host} />
-        ) : (
+        {detailTab === "grants" ? <GrantsView connectionId={connectionId} user={user} host={host} /> : (
           <PrivilegesEditor
             connectionId={connectionId}
             user={user}
@@ -448,9 +449,7 @@ function GrantsView({
   }
 
   if (error) {
-    return (
-      <div className="p-4 text-xs text-red-400">{error}</div>
-    );
+    return <div className="p-4 text-xs text-red-400">{error}</div>;
   }
 
   return (
@@ -634,11 +633,11 @@ function PrivilegesEditor({
             .map((d) => d.name)
             .filter(
               (name) =>
-                name !== "information_schema" &&
-                name !== "performance_schema" &&
-                name !== "sys",
+                name !== "information_schema"
+                && name !== "performance_schema"
+                && name !== "sys",
             ),
-        ),
+        )
       )
       .catch((e) => console.error("Failed to load schemas", e));
   }, [connectionId]);
@@ -708,9 +707,8 @@ function PrivilegesEditor({
     setSuccessMsg(null);
   };
 
-  const hasGlobalChanges =
-    !setsEqual(currentGlobalPrivs, editedGlobalPrivs) ||
-    hasGrantOption !== editedGrantOption;
+  const hasGlobalChanges = !setsEqual(currentGlobalPrivs, editedGlobalPrivs)
+    || hasGrantOption !== editedGrantOption;
   const hasDbChanges = selectedDb && !setsEqual(currentDbPrivs, editedDbPrivs);
   const hasChanges = hasGlobalChanges || hasDbChanges;
 
@@ -829,12 +827,14 @@ function PrivilegesEditor({
                 onChange={() => toggleGlobalPriv(priv)}
                 className="rounded border-[var(--color-border)]"
               />
-              <span className={cn(
-                "font-mono text-[11px]",
-                editedGlobalPrivs.has(priv) !== currentGlobalPrivs.has(priv)
-                  ? "text-yellow-400"
-                  : "",
-              )}>
+              <span
+                className={cn(
+                  "font-mono text-[11px]",
+                  editedGlobalPrivs.has(priv) !== currentGlobalPrivs.has(priv)
+                    ? "text-yellow-400"
+                    : "",
+                )}
+              >
                 {priv}
               </span>
             </label>
@@ -849,10 +849,12 @@ function PrivilegesEditor({
               }}
               className="rounded border-[var(--color-border)]"
             />
-            <span className={cn(
-              "font-mono text-[11px]",
-              editedGrantOption !== hasGrantOption ? "text-yellow-400" : "",
-            )}>
+            <span
+              className={cn(
+                "font-mono text-[11px]",
+                editedGrantOption !== hasGrantOption ? "text-yellow-400" : "",
+              )}
+            >
               GRANT OPTION
             </span>
           </label>
@@ -879,40 +881,42 @@ function PrivilegesEditor({
                 </option>
               ))}
             </select>
-            {dbLoading && (
-              <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-text-muted)]" />
-            )}
+            {dbLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-text-muted)]" />}
           </div>
 
-          {selectedDb ? (
-            <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3 lg:grid-cols-4">
-              {DATABASE_PRIVILEGES.map((priv) => (
-                <label
-                  key={priv}
-                  className="flex items-center gap-1.5 text-xs text-[var(--color-text-primary)]"
-                >
-                  <input
-                    type="checkbox"
-                    checked={editedDbPrivs.has(priv)}
-                    onChange={() => toggleDbPriv(priv)}
-                    className="rounded border-[var(--color-border)]"
-                  />
-                  <span className={cn(
-                    "font-mono text-[11px]",
-                    editedDbPrivs.has(priv) !== currentDbPrivs.has(priv)
-                      ? "text-yellow-400"
-                      : "",
-                  )}>
-                    {priv}
-                  </span>
-                </label>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-[var(--color-text-muted)]">
-              Select a database to manage its privileges
-            </p>
-          )}
+          {selectedDb
+            ? (
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3 lg:grid-cols-4">
+                {DATABASE_PRIVILEGES.map((priv) => (
+                  <label
+                    key={priv}
+                    className="flex items-center gap-1.5 text-xs text-[var(--color-text-primary)]"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={editedDbPrivs.has(priv)}
+                      onChange={() => toggleDbPriv(priv)}
+                      className="rounded border-[var(--color-border)]"
+                    />
+                    <span
+                      className={cn(
+                        "font-mono text-[11px]",
+                        editedDbPrivs.has(priv) !== currentDbPrivs.has(priv)
+                          ? "text-yellow-400"
+                          : "",
+                      )}
+                    >
+                      {priv}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )
+            : (
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Select a database to manage its privileges
+              </p>
+            )}
         </div>
       </div>
 
@@ -923,11 +927,7 @@ function PrivilegesEditor({
           disabled={!hasChanges || applying}
           className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50 transition-colors"
         >
-          {applying ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-          ) : (
-            <Check className="h-3.5 w-3.5" />
-          )}
+          {applying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
           Apply Changes
         </button>
         {hasChanges && (

@@ -1,7 +1,18 @@
-import { Activity, Upload, Sparkles, Sun, Moon, Monitor, ArrowLeftRight, HardDriveDownload, HardDriveUpload, LayoutGrid } from "lucide-react";
-import { useEditorStore } from "../../stores/editorStore";
+import {
+  Activity,
+  ArrowLeftRight,
+  HardDriveDownload,
+  HardDriveUpload,
+  LayoutGrid,
+  Monitor,
+  Moon,
+  Sparkles,
+  Sun,
+  Upload,
+} from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { useThemeStore, type ThemeMode } from "../../stores/themeStore";
+import { useEditorStore } from "../../stores/editorStore";
+import { type ThemeMode, useThemeStore } from "../../stores/themeStore";
 
 interface ToolbarProps {
   onShowImport?: () => void;
@@ -16,7 +27,9 @@ const themeOrder: ThemeMode[] = ["dark", "light", "system"];
 const themeIcons: Record<ThemeMode, typeof Sun> = { dark: Moon, light: Sun, system: Monitor };
 const themeLabels: Record<ThemeMode, string> = { dark: "Dark", light: "Light", system: "System" };
 
-export function Toolbar({ onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen, aiEnabled }: ToolbarProps) {
+export function Toolbar(
+  { onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen, aiEnabled }: ToolbarProps,
+) {
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const theme = useThemeStore((s) => s.theme);
@@ -103,18 +116,18 @@ export function Toolbar({ onShowImport, onShowBackup, onShowRestore, onToggleAI,
         <span>Restore</span>
       </button>
       {aiEnabled && (
-      <button
-        onClick={onToggleAI}
-        title="Toggle AI Assistant"
-        className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors mr-1 ${
-          aiPanelOpen
-            ? "bg-brand-600/20 text-brand-400"
-            : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-        }`}
-      >
-        <Sparkles className="h-3.5 w-3.5" />
-        <span>AI</span>
-      </button>
+        <button
+          onClick={onToggleAI}
+          title="Toggle AI Assistant"
+          className={`flex items-center gap-1 rounded px-2 py-1 text-xs transition-colors mr-1 ${
+            aiPanelOpen
+              ? "bg-brand-600/20 text-brand-400"
+              : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+          }`}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          <span>AI</span>
+        </button>
       )}
       <button
         onClick={cycleTheme}

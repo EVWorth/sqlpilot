@@ -3,6 +3,7 @@ description: Scan the codebase for bugs/improvements and create GitHub issues
 agent: build
 subtask: true
 ---
+
 Your task is to scan this codebase for bugs, code quality issues, and missing features, then create well-structured GitHub issues for each finding.
 
 **Phase 1 — Scan for problems:**
@@ -35,11 +36,13 @@ Systematically inspect the codebase in `src/` and `src-tauri/src/`. Look for:
 
 **Phase 2 — Create GitHub issues:**
 For each finding, create an issue using:
+
 ```
 gh issue create --title "<title>" --body "<body>" --label "<label>"
 ```
 
 Each issue should have:
+
 - A descriptive title prefixed with type: `[Bug]`, `[Improvement]`, or `[Feature]`
 - A body with:
   - **Location:** exact file path and line number
@@ -51,6 +54,7 @@ Each issue should have:
 
 **Phase 3 — Report:**
 After creating issues, output a summary:
+
 - Total issues created
 - Bugs: X | Improvements: X | Features: X
 - Good first issues: X

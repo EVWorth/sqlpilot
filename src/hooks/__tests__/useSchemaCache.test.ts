@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSchemaCache } from "../useSchemaCache";
 
 vi.mock("../../lib/tauri-api", () => ({
@@ -12,8 +12,8 @@ vi.mock("../../lib/tauri-api", () => ({
   },
 }));
 
-import type { ColumnInfo } from "../../types";
 import { api } from "../../lib/tauri-api";
+import type { ColumnInfo } from "../../types";
 
 const mockGetDatabases = api.getDatabases as ReturnType<typeof vi.fn>;
 const mockGetTables = api.getTables as ReturnType<typeof vi.fn>;

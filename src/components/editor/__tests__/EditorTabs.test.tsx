@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { EditorTabs } from "../EditorTabs";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -111,9 +111,7 @@ describe("EditorTabs", () => {
     const { container } = render(<EditorTabs />);
 
     const buttons = container.querySelectorAll("button");
-    const addBtn = Array.from(buttons).find((btn) =>
-      btn.querySelector("svg") !== null && !btn.textContent,
-    );
+    const addBtn = Array.from(buttons).find((btn) => btn.querySelector("svg") !== null && !btn.textContent);
     if (addBtn) {
       fireEvent.click(addBtn);
       expect(mockAddTab).toHaveBeenCalledTimes(1);
@@ -262,7 +260,7 @@ describe("EditorTabs", () => {
     const { container } = render(<EditorTabs />);
 
     // Production indicator should show a red dot; check for the span with title="Production"
-    const prodDot = container.querySelector('[title="Production"]');
+    const prodDot = container.querySelector("[title=\"Production\"]");
     expect(prodDot).toBeTruthy();
   });
 

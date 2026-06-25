@@ -1,5 +1,5 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { useHistoryStore, type HistoryEntry } from "../historyStore";
+import { beforeEach, describe, expect, it } from "vitest";
+import { type HistoryEntry, useHistoryStore } from "../historyStore";
 
 function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
   return {

@@ -1,5 +1,5 @@
+import { Star, X } from "lucide-react";
 import { useState } from "react";
-import { X, Star } from "lucide-react";
 import { useFavoritesStore } from "../../stores/favoritesStore";
 
 interface SaveFavoriteDialogProps {
@@ -111,43 +111,45 @@ export function SaveFavoriteDialog({
             <label className="mb-1 block text-[11px] font-medium text-[var(--color-text-secondary)]">
               Category
             </label>
-            {showNewCategory ? (
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={newCategory}
-                  onChange={(e) => setNewCategory(e.target.value)}
-                  placeholder="New category name"
-                  className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-brand-500"
-                />
-                <button
-                  onClick={() => setShowNewCategory(false)}
-                  className="rounded px-2 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                >
-                  Cancel
-                </button>
-              </div>
-            ) : (
-              <div className="flex gap-2">
-                <select
-                  value={category}
-                  onChange={(e) => setCategory(e.target.value)}
-                  className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500"
-                >
-                  {categories.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={() => setShowNewCategory(true)}
-                  className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-                >
-                  + New
-                </button>
-              </div>
-            )}
+            {showNewCategory
+              ? (
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newCategory}
+                    onChange={(e) => setNewCategory(e.target.value)}
+                    placeholder="New category name"
+                    className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-brand-500"
+                  />
+                  <button
+                    onClick={() => setShowNewCategory(false)}
+                    className="rounded px-2 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              )
+              : (
+                <div className="flex gap-2">
+                  <select
+                    value={category}
+                    onChange={(e) => setCategory(e.target.value)}
+                    className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500"
+                  >
+                    {categories.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setShowNewCategory(true)}
+                    className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+                  >
+                    + New
+                  </button>
+                </div>
+              )}
           </div>
 
           {/* Description */}

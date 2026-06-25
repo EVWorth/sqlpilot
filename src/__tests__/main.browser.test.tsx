@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 // ── ALL state referenced inside vi.mock factories in vi.hoisted() ──
 const mk = vi.hoisted(() => {
-  const MockEditorWorker = vi.fn(function (this: Record<string, unknown>) {
+  const MockEditorWorker = vi.fn(function(this: Record<string, unknown>) {
     this.postMessage = vi.fn();
     this.terminate = vi.fn();
   });

@@ -1,11 +1,11 @@
-import { useState, useRef, useEffect } from "react";
-import { Plus, X, Database, Plug, Pencil, Trash2 } from "lucide-react";
+import { Database, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { useContextMenu } from "../../hooks/useContextMenu";
+import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
-import { ConnectionDialog } from "../connection/ConnectionDialog";
-import { cn } from "../../lib/utils";
-import { useContextMenu } from "../../hooks/useContextMenu";
 import type { ConnectionProfile } from "../../types";
+import { ConnectionDialog } from "../connection/ConnectionDialog";
 
 export function ConnectionTabs() {
   const profiles = useConnectionStore((s) => s.profiles);
@@ -43,9 +43,11 @@ export function ConnectionTabs() {
 
       // Auto-reconnect profiles that were active in the previous session
       const { tabs, setTabConnection: setTabConn } = useEditorStore.getState();
-      const profileIds = [...new Set(
-        tabs.filter((t) => t.profileId).map((t) => t.profileId!)
-      )];
+      const profileIds = [
+        ...new Set(
+          tabs.filter((t) => t.profileId).map((t) => t.profileId!),
+        ),
+      ];
 
       for (const profileId of profileIds) {
         try {
@@ -80,10 +82,10 @@ export function ConnectionTabs() {
     if (!popoverOpen) return;
     const handler = (e: MouseEvent) => {
       if (
-        popoverRef.current &&
-        !popoverRef.current.contains(e.target as Node) &&
-        addButtonRef.current &&
-        !addButtonRef.current.contains(e.target as Node)
+        popoverRef.current
+        && !popoverRef.current.contains(e.target as Node)
+        && addButtonRef.current
+        && !addButtonRef.current.contains(e.target as Node)
       ) {
         setPopoverOpen(false);
       }
@@ -142,7 +144,9 @@ export function ConnectionTabs() {
                   {
                     label: "Edit Connection",
                     icon: <Pencil className="h-3.5 w-3.5" />,
-                    onClick: () => { if (profile) openEdit(profile); },
+                    onClick: () => {
+                      if (profile) openEdit(profile);
+                    },
                     disabled: !profile,
                   },
                   {
@@ -162,46 +166,45 @@ export function ConnectionTabs() {
                   },
                 ]);
               }}
-          >
-            {/* Active indicator bar */}
-            {isSelected && (
-              <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />
-            )}
-
-            <Database
-              className={cn(
-                "h-3 w-3 shrink-0",
-                "text-green-400",
-              )}
-            />
-
-            {profile?.color && (
-              <span
-                className="h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ backgroundColor: profile.color }}
-              />
-            )}
-
-            <span className="truncate">{label}</span>
-
-            <button
-              className={cn(
-                "ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
-                isSelected && "opacity-60",
-                "hover:bg-[var(--color-bg-secondary)] hover:opacity-100",
-              )}
-              onClick={(e) => {
-                e.stopPropagation();
-                disconnect(conn.id);
-              }}
-              title="Disconnect"
             >
-              <X className="h-2.5 w-2.5" />
-            </button>
-          </div>
-        );
-      })}
-      </div>{/* end scrollable tabs */}
+              {/* Active indicator bar */}
+              {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}
+
+              <Database
+                className={cn(
+                  "h-3 w-3 shrink-0",
+                  "text-green-400",
+                )}
+              />
+
+              {profile?.color && (
+                <span
+                  className="h-1.5 w-1.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: profile.color }}
+                />
+              )}
+
+              <span className="truncate">{label}</span>
+
+              <button
+                className={cn(
+                  "ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+                  isSelected && "opacity-60",
+                  "hover:bg-[var(--color-bg-secondary)] hover:opacity-100",
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  disconnect(conn.id);
+                }}
+                title="Disconnect"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          );
+        })}
+      </div>
+      {/* end scrollable tabs */}
 
       {/* Add / connect button — outside overflow container so popover isn't clipped */}
       <div className="relative ml-1 shrink-0">
@@ -228,7 +231,8 @@ export function ConnectionTabs() {
                 {inactiveProfiles.map((profile) => (
                   <div key={profile.id} className="group flex items-center hover:bg-[var(--color-bg-tertiary)]">
                     <button
-                      onClick={() => handleConnectProfile(profile.id)}
+                      onClick={() =>
+                        handleConnectProfile(profile.id)}
                       className="flex flex-1 min-w-0 items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                     >
                       <Plug className="h-3 w-3 shrink-0 text-[var(--color-text-muted)]" />
@@ -241,7 +245,8 @@ export function ConnectionTabs() {
                       <span className="truncate">{profile.name || profile.host}</span>
                     </button>
                     <button
-                      onClick={() => openEdit(profile)}
+                      onClick={() =>
+                        openEdit(profile)}
                       className="mr-1 shrink-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-text-primary)]"
                       title="Edit connection"
                     >
@@ -263,7 +268,14 @@ export function ConnectionTabs() {
         )}
       </div>
 
-      <ConnectionDialog isOpen={showDialog} editProfile={editingProfile} onClose={() => { setShowDialog(false); setEditingProfile(undefined); }} />
+      <ConnectionDialog
+        isOpen={showDialog}
+        editProfile={editingProfile}
+        onClose={() => {
+          setShowDialog(false);
+          setEditingProfile(undefined);
+        }}
+      />
       {contextMenu}
     </div>
   );

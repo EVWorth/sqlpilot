@@ -38,9 +38,11 @@ test-all: db-up test
 lint:
 	cd src-tauri && cargo clippy -p mas-core -p mas-export -p mas-admin -- -D warnings
 	npx tsc --noEmit
+	npx dprint check
 
 fmt:
 	cd src-tauri && cargo fmt --all
+	npx dprint fmt
 
 # Database Management (works with or without docker compose)
 db-up:
