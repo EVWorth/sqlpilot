@@ -1,20 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { StatusBar } from "../StatusBar";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useResultStore } from "../../../stores/resultStore";
 import { useEditorStore } from "../../../stores/editorStore";
+import { useSettingsStore } from "../../../stores/settingsStore";
 
 vi.mock("../../../lib/tauri-api", () => ({
   api: {
     getAppVersion: vi.fn().mockResolvedValue("2.1.0"),
   },
 }));
-
-Object.defineProperty(navigator, "clipboard", {
-  value: { writeText: vi.fn().mockResolvedValue(undefined) },
-  writable: true,
-});
 
 describe("StatusBar", () => {
   beforeEach(() => {
@@ -170,5 +167,47 @@ describe("StatusBar", () => {
   it("shows app version after mount", async () => {
     render(<StatusBar />);
     expect(await screen.findByText("v2.1.0")).toBeInTheDocument();
+  });
+
+  describe("update indicators", () => {
+    beforeEach(() => {
+      useSettingsStore.setState({ updateStatus: "idle", updateVersion: null });
+    });
+
+    it("shows update available button with version", () => {
+      useSettingsStore.setState({ updateStatus: "available", updateVersion: "1.5.0" });
+      render(<StatusBar />);
+      expect(screen.getByText("Update to v1.5.0")).toBeInTheDocument();
+    });
+
+    it("shows downloading status", () => {
+      useSettingsStore.setState({ updateStatus: "downloading" });
+      render(<StatusBar />);
+      expect(screen.getByText("Downloading update...")).toBeInTheDocument();
+    });
+
+    it("shows retry button when update check fails", () => {
+      useSettingsStore.setState({ updateStatus: "error" });
+      render(<StatusBar />);
+      expect(screen.getByText("Update failed")).toBeInTheDocument();
+    });
+
+    it("calls installUpdate when update button is clicked", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({ updateStatus: "available", updateVersion: "2.0.0" });
+      render(<StatusBar />);
+      const spy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
+      await user.click(screen.getByText("Update to v2.0.0"));
+      expect(spy).toHaveBeenCalledOnce();
+    });
+
+    it("calls checkForUpdates when retry button is clicked", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({ updateStatus: "error" });
+      render(<StatusBar />);
+      const spy = vi.spyOn(useSettingsStore.getState(), "checkForUpdates");
+      await user.click(screen.getByText("Update failed"));
+      expect(spy).toHaveBeenCalledOnce();
+    });
   });
 });

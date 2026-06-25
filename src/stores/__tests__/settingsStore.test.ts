@@ -170,4 +170,77 @@ describe("settingsStore", () => {
       expect(state.newlineBeforeSemicolon).toBe(true);
     });
   });
+
+  describe("checkForUpdates", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("sets status to up-to-date when no update available", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockResolvedValue(null);
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().checkForUpdates();
+      expect(useSettingsStore.getState().updateStatus).toBe("up-to-date");
+      expect(useSettingsStore.getState().updateVersion).toBeNull();
+    });
+
+    it("sets status to available with version when update found", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockResolvedValue({ version: "1.0.0", downloadAndInstall: vi.fn() } as any);
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().checkForUpdates();
+      expect(useSettingsStore.getState().updateStatus).toBe("available");
+      expect(useSettingsStore.getState().updateVersion).toBe("1.0.0");
+    });
+
+    it("sets status to error when check throws", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockRejectedValue(new Error("network error"));
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().checkForUpdates();
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+    });
+  });
+
+  describe("installUpdate", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("downloads, installs, and relaunches", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      const process = await import("@tauri-apps/plugin-process");
+      const downloadAndInstall = vi.fn();
+      vi.mocked(updater.check).mockResolvedValue({ version: "1.0.0", downloadAndInstall } as any);
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().installUpdate();
+      expect(useSettingsStore.getState().updateStatus).toBe("downloaded");
+      expect(downloadAndInstall).toHaveBeenCalledOnce();
+      expect(process.relaunch).toHaveBeenCalledOnce();
+    });
+
+    it("does nothing when no update is available", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      const process = await import("@tauri-apps/plugin-process");
+      vi.mocked(updater.check).mockResolvedValue(null);
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().installUpdate();
+      expect(process.relaunch).not.toHaveBeenCalled();
+    });
+
+    it("sets status to error on failure", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockRejectedValue(new Error("fail"));
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().installUpdate();
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+    });
+  });
 });

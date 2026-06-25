@@ -50,8 +50,8 @@ export function StatusBar() {
   }, []);
 
   useEffect(() => {
-    checkForUpdates();
-  }, [checkForUpdates]);
+    if (updateStatus === "idle") checkForUpdates();
+  }, [checkForUpdates, updateStatus]);
 
   const activeConn = activeConnections.find(
     (c) => c.id === selectedConnectionId,

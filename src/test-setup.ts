@@ -1,4 +1,13 @@
 import "@testing-library/jest-dom";
+import { vi } from "vitest";
+
+vi.mock("@tauri-apps/plugin-updater", () => ({
+  check: vi.fn().mockResolvedValue(null),
+}));
+
+vi.mock("@tauri-apps/plugin-process", () => ({
+  relaunch: vi.fn(),
+}));
 
 // Polyfill localStorage for jsdom
 const localStorageMock = (() => {
