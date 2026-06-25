@@ -202,6 +202,25 @@ npx tauri build
 #     └── appimage/   (Linux .AppImage)
 ```
 
+### Release & Auto-Update
+
+Tagging a commit with `v*` triggers the release workflow in CI, which builds binaries and generates a signed update manifest.
+
+**To set up update signing (one-time):**
+```bash
+# Generate a signing key pair (keep the private key secret!)
+npx tauri signer generate -w ~/.tauri/sqlpilot-updater.key
+
+# Add the private key as a GitHub secret:
+#   Name: TAURI_SIGNING_PRIVATE_KEY
+#   Value: contents of ~/.tauri/sqlpilot-updater.key
+
+# Store the public key securely — it's already in tauri.conf.json
+cat ~/.tauri/sqlpilot-updater.key.pub
+```
+
+The `TAURI_SIGNING_PRIVATE_KEY` secret must exist for the `generate-update-manifest` job to succeed. Without it, releases will build but the update manifest won't be signed.
+
 ### Make Commands
 
 | Command | Description |
