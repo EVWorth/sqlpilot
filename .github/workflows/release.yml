@@ -134,12 +134,93 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release download ${{ github.ref_name }}
-      - name: Generate update manifest
+      - name: Sign artifacts and generate manifest
         env:
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          npx tauri updater --sign -u "https://github.com/EVWorth/sqlpilot/releases/latest/download/latest.json"
-          mv latest.json update-manifest.json
+          TAG="${{ github.ref_name }}"
+          VERSION="${TAG#v}"
+
+          # Generate signatures for each platform binary
+          for file in *.AppImage *.deb *.rpm *.msi *.exe *.dmg *.tar.gz; do
+            [ -f "$file" ] || continue
+            echo "Signing $file..."
+            echo "$TAURI_SIGNING_PRIVATE_KEY" > /tmp/sign-key
+            npx tauri signer sign --private-key /tmp/sign-key "$file"
+            rm -f /tmp/sign-key
+          done
+
+          # Build the manifest JSON
+          cat > update-manifest.json << 'MANIFEST_JSON'
+          {
+            "version": "$VERSION",
+            "notes": "See https://github.com/EVWorth/sqlpilot/releases/tag/$TAG",
+            "pub_date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "platforms": {
+          MANIFEST_JSON
+
+          first=true
+          if [ -f "SQLPilot_${VERSION}_amd64.AppImage" ]; then
+            $first || echo "," >> update-manifest.json
+            echo "    \"linux-x86_64\": {" >> update-manifest.json
+            echo '      "url": "https://github.com/EVWorth/sqlpilot/releases/download/'"$TAG"'/SQLPilot_'"$VERSION"'_amd64.AppImage",' >> update-manifest.json
+            echo '      "signature": "'"$(cat SQLPilot_${VERSION}_amd64.AppImage.sig)"'"' >> update-manifest.json
+            echo "    }" >> update-manifest.json
+            first=false
+          fi
+
+          if [ -f "SQLPilot_${VERSION}_amd64.deb" ]; then
+            $first || echo "," >> update-manifest.json
+            echo "    \"linux-deb\": {" >> update-manifest.json
+            echo '      "url": "https://github.com/EVWorth/sqlpilot/releases/download/'"$TAG"'/SQLPilot_'"$VERSION"'_amd64.deb",' >> update-manifest.json
+            echo '      "signature": "'"$(cat SQLPilot_${VERSION}_amd64.deb.sig)"'"' >> update-manifest.json
+            echo "    }" >> update-manifest.json
+            first=false
+          fi
+
+          if [ -f "SQLPilot_${VERSION}_x64_en-US.msi" ]; then
+            $first || echo "," >> update-manifest.json
+            echo "    \"windows-x86_64\": {" >> update-manifest.json
+            echo '      "url": "https://github.com/EVWorth/sqlpilot/releases/download/'"$TAG"'/SQLPilot_'"$VERSION"'_x64_en-US.msi",' >> update-manifest.json
+            echo '      "signature": "'"$(cat SQLPilot_${VERSION}_x64_en-US.msi.sig)"'"' >> update-manifest.json
+            echo "    }" >> update-manifest.json
+            first=false
+          fi
+
+          if [ -f "SQLPilot_${VERSION}_x64-setup.exe" ]; then
+            $first || echo "," >> update-manifest.json
+            echo "    \"windows-x86_64-nsis\": {" >> update-manifest.json
+            echo '      "url": "https://github.com/EVWorth/sqlpilot/releases/download/'"$TAG"'/SQLPilot_'"$VERSION"'_x64-setup.exe",' >> update-manifest.json
+            echo '      "signature": "'"$(cat SQLPilot_${VERSION}_x64-setup.exe.sig)"'"' >> update-manifest.json
+            echo "    }" >> update-manifest.json
+            first=false
+          fi
+
+          if [ -f "SQLPilot_${VERSION}_x64.dmg" ]; then
+            $first || echo "," >> update-manifest.json
+            echo "    \"darwin-x86_64\": {" >> update-manifest.json
+            echo '      "url": "https://github.com/EVWorth/sqlpilot/releases/download/'"$TAG"'/SQLPilot_'"$VERSION"'_x64.dmg",' >> update-manifest.json
+            echo '      "signature": "'"$(cat SQLPilot_${VERSION}_x64.dmg.sig)"'"' >> update-manifest.json
+            echo "    }" >> update-manifest.json
+            first=false
+          fi
+
+          if [ -f "SQLPilot_${VERSION}_aarch64.dmg" ]; then
+            $first || echo "," >> update-manifest.json
+            echo "    \"darwin-aarch64\": {" >> update-manifest.json
+            echo '      "url": "https://github.com/EVWorth/sqlpilot/releases/download/'"$TAG"'/SQLPilot_'"$VERSION"'_aarch64.dmg",' >> update-manifest.json
+            echo '      "signature": "'"$(cat SQLPilot_${VERSION}_aarch64.dmg.sig)"'"' >> update-manifest.json
+            echo "    }" >> update-manifest.json
+            first=false
+          fi
+
+          echo "  }" >> update-manifest.json
+          echo "}" >> update-manifest.json
+
+          echo "Generated manifest:"
+          cat update-manifest.json
+
       - name: Upload update manifest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
