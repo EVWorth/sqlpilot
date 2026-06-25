@@ -168,6 +168,9 @@ make dev-web
 # Then open http://localhost:1420
 ```
 
+**Desktop shortcut:** Double-click "SQLPilot (Dev)" on your desktop. It shows a progress
+dialog while compiling, then opens the app window automatically.
+
 ### Testing
 
 ```bash
