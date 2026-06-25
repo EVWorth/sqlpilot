@@ -2,8 +2,9 @@ import { useState, useEffect } from "react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { api } from "../../lib/tauri-api";
-import { Loader2, AlertCircle, AlertTriangle, Copy, Check } from "lucide-react";
+import { Loader2, AlertCircle, AlertTriangle, Copy, Check, RefreshCw, Download } from "lucide-react";
 import type { ConnectionEnvironment } from "../../types";
 
 const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
@@ -39,10 +40,18 @@ export function StatusBar() {
   const [showFullError, setShowFullError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [appVersion, setAppVersion] = useState("");
+  const updateStatus = useSettingsStore((s) => s.updateStatus);
+  const updateVersion = useSettingsStore((s) => s.updateVersion);
+  const checkForUpdates = useSettingsStore((s) => s.checkForUpdates);
+  const installUpdate = useSettingsStore((s) => s.installUpdate);
 
   useEffect(() => {
     api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
   }, []);
+
+  useEffect(() => {
+    checkForUpdates();
+  }, [checkForUpdates]);
 
   const activeConn = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -148,8 +157,40 @@ export function StatusBar() {
             {formatRows(activeResult.rows.length)} · {formatTime(activeResult.execution_time_ms)}
           </span>
         )}
+        {updateStatus === "available" && (
+          <button
+            onClick={installUpdate}
+            className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
+            title={`Update v${updateVersion} available — click to install`}
+          >
+            <Download className="h-3 w-3" />
+            Update to v{updateVersion}
+          </button>
+        )}
+        {updateStatus === "checking" && (
+          <span className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)]">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Checking updates...
+          </span>
+        )}
+        {updateStatus === "downloading" && (
+          <span className="flex items-center gap-1 text-[10px] text-brand-400">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Downloading update...
+          </span>
+        )}
+        {updateStatus === "error" && (
+          <button
+            onClick={checkForUpdates}
+            className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
+            title="Update check failed — click to retry"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Update failed
+          </button>
+        )}
         <span className="text-[10px] text-[var(--color-text-muted)]">
-          {appVersion && `SQLPilot v${appVersion}`}
+          {appVersion && `v${appVersion}`}
         </span>
       </div>
     </div>

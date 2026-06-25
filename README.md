@@ -5,7 +5,7 @@
 <h1 align="center">SQLPilot</h1>
 
 <p align="center">
-  <strong>A blazing-fast, AI-powered MySQL GUI — built with Rust &amp; React.</strong><br />
+  <strong>A blazing-fast MySQL GUI — built with Rust &amp; React.</strong><br />
   <em>Think MySQL Workbench, but actually good.</em>
 </p>
 
@@ -28,19 +28,18 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/node-20%2B-brightgreen" alt="Node.js" />
-  <img src="https://img.shields.io/badge/tests-191%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1465%20passing-brightgreen" alt="Tests" />
 </p>
 
 ---
 
-SQLPilot is a modern, open-source, cross-platform MySQL database management tool. It combines a Rust backend (via [Tauri 2](https://v2.tauri.app/)) with a React frontend to deliver native desktop performance in a **~16 MB binary** — no Electron bloat, no JVM overhead. AI features (natural language to SQL, query optimization, error fixing) are powered by GitHub Copilot.
+SQLPilot is a modern, open-source, cross-platform MySQL database management tool. It combines a Rust backend (via [Tauri 2](https://v2.tauri.app/)) with a React frontend to deliver native desktop performance in a **~22 MB binary** — no Electron bloat, no JVM overhead.
 
 **Why this over MySQL Workbench, DBeaver, or SQLyog?**
 
 - ⚡ **Instant startup** — native binary, not Java
-- 🤖 **AI built in** — ask questions in plain English, get SQL
-- 🪶 **Tiny footprint** — 16 MB vs 300+ MB for Workbench
-- 🎯 **100% SQLyog feature parity** — everything you need, nothing you don't
+- 🪶 **Tiny footprint** — ~22 MB vs 300+ MB for Workbench
+- 🎯 **Covers the most-used SQLyog features** — everything you need, nothing you don't
 - 🔓 **Fully open source** — MIT licensed, no telemetry, no paywalls
 
 ## ✨ Features
@@ -67,7 +66,6 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 
 ### Visual Tools
 - **Table Designer** — create and alter tables with a visual form: column editor, index editor, foreign key editor, table options, DDL preview
-- **Visual Query Builder** — drag tables onto a canvas, check columns, draw JOIN lines between fields, build WHERE/ORDER BY/GROUP BY clauses graphically
 - **EXPLAIN Visualizer** — color-coded execution plan with cost bars, access type legend, and tree view for `EXPLAIN ANALYZE`
 
 ### Database Administration
@@ -98,14 +96,6 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 - **Environment labels** — tag connections as Development, Staging, or Production
 - **Production safety** — confirmation dialogs before running `DROP`/`DELETE`/`TRUNCATE` on production
 
-### AI Integration
-- **Natural language to SQL** — describe what you want in English, get a query
-- **AI chat panel** — conversational assistant with schema context awareness
-- **Query explanation** — ask the AI to explain complex queries
-- **Query optimization** — get AI suggestions for improving performance
-- **Error fixing** — paste an error, get a fix
-- **Providers** — GitHub Copilot
-
 ### Query Management
 - **Query history** — every execution recorded with timestamp, duration, row count, status; searchable and click-to-reload
 - **Query favorites** — save queries with name, category, and description; organized in folders
@@ -121,10 +111,10 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 
 ### Download
 
-Pre-built binaries will be available on the [Releases](https://github.com/EVWorth/sqlpilot/releases) page for:
+Pre-built binaries are available on the [Releases](https://github.com/EVWorth/sqlpilot/releases) page for:
 
 - **Windows** — `.msi` installer, NSIS setup `.exe`, or portable `.exe`
-- **macOS** — `.dmg` (universal binary: Intel + Apple Silicon)
+- **macOS** — `.dmg` (Intel + Apple Silicon)
 - **Linux** — `.deb`, `.AppImage`, `.rpm`
 
 ### First Launch
@@ -184,11 +174,11 @@ make dev-web
 # Run everything
 make test
 
-# Frontend unit tests (154 tests — stores, parsers, generators, diff engine)
+# Frontend unit tests (1465 tests — stores, parsers, generators, diff engine)
 make test-frontend
 # or: npx vitest run
 
-# Rust integration tests against Docker MySQL 8 (37 tests)
+# Rust integration tests against Docker MySQL 8 (36 tests)
 make db-up          # Start MySQL 8 on port 13306
 make test-rust
 # or: cd src-tauri && cargo test -p mas-core -p mas-export -p mas-admin
@@ -264,18 +254,12 @@ RUST_LOG=debug
 | [DashMap](https://docs.rs/dashmap/) | Thread-safe concurrent connection registry |
 | [rfd](https://docs.rs/rfd/) | Native file dialogs |
 
-### AI
-
-| Technology | Purpose |
-|------------|---------|
-| [GitHub Copilot](https://github.com/features/copilot) | AI-powered features (NL-to-SQL, optimization, explanation, error fixing) |
-
 ### Testing
 
 | Technology | Purpose |
 |------------|---------|
-| [Vitest](https://vitest.dev/) | Frontend unit tests (154 tests) |
-| [cargo test](https://doc.rust-lang.org/cargo/) | Rust integration tests against Docker MySQL (37 tests) |
+| [Vitest](https://vitest.dev/) | Frontend unit tests (1465 tests) |
+| [cargo test](https://doc.rust-lang.org/cargo/) | Rust integration tests against Docker MySQL (36 tests) |
 | [Docker](https://www.docker.com/) | MySQL 8, MySQL 5.7, MariaDB 11 test containers |
 
 ## 📁 Project Structure
@@ -285,7 +269,6 @@ sqlpilot/
 ├── src/                           # React frontend
 │   ├── components/                #   36 UI components
 │   │   ├── admin/                 #     AdminPanel, UserManagement, CreateUser, ChangePassword
-│   │   ├── ai/                    #     AIChatPanel, ChatMessage, NLToSQLInput
 │   │   ├── backup/                #     BackupDialog, RestoreDialog
 │   │   ├── common/                #     ContextMenu, ConfirmDialog, ShortcutsDialog
 │   │   ├── compare/               #     SchemaCompare, SyncPreview
@@ -298,24 +281,23 @@ sqlpilot/
 │   │   ├── history/               #     QueryHistory
 │   │   ├── import/                #     ImportDialog (CSV + SQL modes)
 │   │   ├── layout/                #     AppLayout, Sidebar, MainPanel, Toolbar, StatusBar
-│   │   ├── querybuilder/          #     QueryBuilder (visual canvas + SQL generation)
 │   │   ├── routine/               #     RoutineViewer (procedure/function executor)
 │   │   └── schema/                #     TableStructure (columns, indexes, DDL)
-│   ├── hooks/                     #   5 custom hooks (context menu, keyboard, theme, schema cache, grid editing)
+│   ├── hooks/                     #   7 custom hooks (context menu, keyboard, theme, schema cache, grid editing, query execution, click handler)
 │   ├── lib/                       #   Tauri IPC bridge, SQL generators, parsers, diff engine
-│   ├── stores/                    #   7 Zustand stores (connection, editor, result, history, favorites, ai, theme)
+│   ├── stores/                    #   8 Zustand stores (connection, editor, result, history, favorites, ai, theme, settings)
 │   ├── types/                     #   TypeScript type definitions
 │   └── styles/                    #   Dark + light theme CSS variables
 ├── src-tauri/                     # Rust backend
 │   ├── src/
-│   │   ├── commands/              #   27 Tauri IPC command handlers
+│   │   ├── commands/              #   Tauri IPC command handlers
 │   │   └── lib.rs                 #   App state, tracing init, command registration
 │   ├── crates/
 │   │   ├── mas-core/              #   Connection manager, query executor, schema inspector
+│   │   ├── mas-sqlite/            #   SQLite wrapper for connection profile storage
 │   │   │   └── tests/             #     32 integration tests against Docker MySQL 8
 │   │   ├── mas-export/            #   CSV, JSON, SQL, Markdown exporters
-│   │   ├── mas-admin/             #   Process list, server variables, kill process
-│   │   └── mas-ai/               #   AI service, Copilot provider, conversation manager
+│   │   └── mas-admin/             #   Process list, server variables, kill process
 │   ├── Cargo.toml                 #   Workspace with shared dependencies
 │   └── tauri.conf.json            #   Tauri app configuration
 ├── tests/fixtures/sql/            # Test seed data (tables, views, procedures, triggers)

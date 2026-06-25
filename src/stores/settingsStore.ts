@@ -1,4 +1,6 @@
 import { create } from "zustand";
+import { check } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 
 export interface QuerySettings {
   maxResultRows: number;
@@ -70,6 +72,10 @@ function loadSettings(): FormatterSettings {
 interface SettingsState {
   querySettings: QuerySettings;
   formatterSettings: FormatterSettings;
+  updateStatus: "idle" | "checking" | "available" | "downloading" | "downloaded" | "up-to-date" | "error";
+  updateVersion: string | null;
+  checkForUpdates: () => Promise<void>;
+  installUpdate: () => Promise<void>;
   setQuerySettings: (settings: QuerySettings) => void;
   setFormatterSettings: (settings: FormatterSettings) => void;
 }
@@ -77,6 +83,35 @@ interface SettingsState {
 export const useSettingsStore = create<SettingsState>((set) => ({
   querySettings: loadQuerySettings(),
   formatterSettings: loadSettings(),
+  updateStatus: "idle",
+  updateVersion: null,
+
+  checkForUpdates: async () => {
+    set({ updateStatus: "checking" });
+    try {
+      const update = await check();
+      if (update) {
+        set({ updateStatus: "available", updateVersion: update.version });
+      } else {
+        set({ updateStatus: "up-to-date", updateVersion: null });
+      }
+    } catch {
+      set({ updateStatus: "error", updateVersion: null });
+    }
+  },
+
+  installUpdate: async () => {
+    set({ updateStatus: "downloading" });
+    try {
+      const update = await check();
+      if (!update) return;
+      await update.downloadAndInstall();
+      set({ updateStatus: "downloaded" });
+      await relaunch();
+    } catch {
+      set({ updateStatus: "error" });
+    }
+  },
 
   setQuerySettings: (settings) => {
     try {

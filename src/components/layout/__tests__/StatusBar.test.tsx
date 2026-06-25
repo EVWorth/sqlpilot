@@ -169,6 +169,6 @@ describe("StatusBar", () => {
 
   it("shows app version after mount", async () => {
     render(<StatusBar />);
-    expect(await screen.findByText("SQLPilot v2.1.0")).toBeInTheDocument();
+    expect(await screen.findByText("v2.1.0")).toBeInTheDocument();
   });
 });

@@ -115,3 +115,25 @@ jobs:
           $dest = "SQLPilot.exe"
           Copy-Item $exe $dest
           gh release upload ${{ github.ref_name }} $dest --clobber
+
+  generate-update-manifest:
+    name: Generate update manifest
+    needs: [build]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Download release artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release download ${{ github.ref_name }}
+      - name: Generate update manifest
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+        run: |
+          npx tauri updater --sign -u "https://github.com/EVWorth/sqlpilot/releases/latest/download/latest.json"
+          mv latest.json update-manifest.json
+      - name: Upload update manifest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload ${{ github.ref_name }} update-manifest.json --clobber
