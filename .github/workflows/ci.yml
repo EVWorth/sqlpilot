@@ -9,6 +9,25 @@ env:
   RUST_BACKTRACE: 1
 
 jobs:
+  check-versions:
+    name: Version Consistency
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Check versions match across package.json, Cargo.toml, tauri.conf.json
+        run: |
+          jsver=$(node -p "require('./package.json').version")
+          rsver=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          taver=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$jsver" != "$rsver" ] || [ "$jsver" != "$taver" ]; then
+            echo "Version mismatch!"
+            echo "  package.json:       $jsver"
+            echo "  Cargo.toml:         $rsver"
+            echo "  tauri.conf.json:    $taver"
+            exit 1
+          fi
+          echo "All versions match: $jsver"
+
   deps-age:
     name: Dependency Age Gate
     runs-on: ubuntu-latest
