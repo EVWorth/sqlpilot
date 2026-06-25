@@ -236,8 +236,11 @@ impl QueryExecutor {
 }
 
 fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> SqlValue {
-    // Try to get value, return Null if column is null
-    match type_name {
+    // Normalise type name for comparison
+    let t = type_name.to_uppercase();
+    let t = t.trim();
+
+    match t {
         "BOOLEAN" | "TINYINT(1)" | "BOOL" => row
             .try_get::<Option<bool>, _>(index)
             .ok()
@@ -257,42 +260,69 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
             .flatten()
             .map(SqlValue::UInt)
             .unwrap_or(SqlValue::Null),
-        "FLOAT" | "DOUBLE" | "DECIMAL" => row
+        "FLOAT" | "DOUBLE" | "DECIMAL" | "REAL" => row
             .try_get::<Option<f64>, _>(index)
             .ok()
             .flatten()
             .map(SqlValue::Float)
             .unwrap_or(SqlValue::Null),
-        "JSON" => {
-            // JSON columns must be decoded as serde_json::Value, then serialized to string
-            row.try_get::<Option<serde_json::Value>, _>(index)
-                .ok()
-                .flatten()
-                .map(|v| SqlValue::String(v.to_string()))
-                .unwrap_or(SqlValue::Null)
-        }
+        "JSON" => row
+            .try_get::<Option<serde_json::Value>, _>(index)
+            .ok()
+            .flatten()
+            .map(|v| SqlValue::String(v.to_string()))
+            .unwrap_or(SqlValue::Null),
         "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => row
             .try_get::<Option<Vec<u8>>, _>(index)
             .ok()
             .flatten()
             .map(SqlValue::Bytes)
             .unwrap_or(SqlValue::Null),
-        "BIT" => {
-            // BIT columns: try reading as bytes and convert to integer
-            row.try_get::<Option<u64>, _>(index)
+        "BIT" => row
+            .try_get::<Option<u64>, _>(index)
+            .ok()
+            .flatten()
+            .map(SqlValue::UInt)
+            .unwrap_or(SqlValue::Null),
+        "DATE" | "DATETIME" | "TIMESTAMP" | "TIME" | "YEAR" => {
+            // Try chrono types first (sqlx may prefer typed extraction for these)
+            let val = row
+                .try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(index)
                 .ok()
                 .flatten()
-                .map(SqlValue::UInt)
-                .unwrap_or(SqlValue::Null)
-        }
-        _ => {
-            // Default: try as string (covers VARCHAR, TEXT, DATE, DATETIME, TIMESTAMP, ENUM, SET, etc.)
+                .map(|dt| SqlValue::String(dt.to_string()));
+            if val.is_some() {
+                return val.unwrap();
+            }
+            let val = row
+                .try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(index)
+                .ok()
+                .flatten()
+                .map(|d| SqlValue::String(d.to_string()));
+            if val.is_some() {
+                return val.unwrap();
+            }
+            let val = row
+                .try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(index)
+                .ok()
+                .flatten()
+                .map(|t| SqlValue::String(t.to_string()));
+            if val.is_some() {
+                return val.unwrap();
+            }
+            // Fallback: try as plain string
             row.try_get::<Option<String>, _>(index)
                 .ok()
                 .flatten()
                 .map(SqlValue::String)
                 .unwrap_or(SqlValue::Null)
         }
+        _ => row
+            .try_get::<Option<String>, _>(index)
+            .ok()
+            .flatten()
+            .map(SqlValue::String)
+            .unwrap_or(SqlValue::Null),
     }
 }
 

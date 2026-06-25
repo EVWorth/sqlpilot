@@ -41,11 +41,12 @@ describe("editorStore", () => {
       expect(useEditorStore.getState().tabs).toHaveLength(1);
     });
 
-    it("should not close the last query tab", () => {
+    it("should replace the last query tab with an empty one", () => {
       const id = useEditorStore.getState().addTab();
       useEditorStore.getState().closeTab(id);
       expect(useEditorStore.getState().tabs).toHaveLength(1);
-      expect(useEditorStore.getState().activeTabId).toBe(id);
+      expect(useEditorStore.getState().activeTabId).not.toBe(id);
+      expect(useEditorStore.getState().tabs[0].content).toBe("");
     });
 
     it("should allow closing non-query tabs", () => {

@@ -284,10 +284,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   closeTab: (id) => {
     set((state) => {
       const tabToClose = state.tabs.find((t) => t.id === id);
-      // Don't close the last query tab
+      // If it's the last query tab, replace it with an empty one instead
       if (tabToClose?.type === "query") {
         const queryTabs = state.tabs.filter((t) => t.type === "query");
-        if (queryTabs.length <= 1) return state;
+        if (queryTabs.length <= 1) {
+          const newTab = {
+            id: crypto.randomUUID(),
+            title: `Query ${queryTabs.length + 1}`,
+            content: "",
+            type: "query" as const,
+            isDirty: false,
+          };
+          return {
+            tabs: state.tabs.map((t) => (t.id === id ? newTab : t)),
+            activeTabId: newTab.id,
+          };
+        }
       }
       const newTabs = state.tabs.filter((t) => t.id !== id);
       const newActiveId = state.activeTabId === id
