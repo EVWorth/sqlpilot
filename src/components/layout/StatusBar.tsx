@@ -191,9 +191,14 @@ export function StatusBar() {
             Update failed
           </button>
         )}
-        <span className="text-[10px] text-[var(--color-text-muted)]">
+        <button
+          onClick={checkForUpdates}
+          className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+          title="Check for updates"
+        >
           {appVersion && `v${appVersion}`}
-        </span>
+          {updateStatus === "up-to-date" && <Check className="h-2.5 w-2.5 text-green-400" />}
+        </button>
       </div>
     </div>
   );
