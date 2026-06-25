@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, act } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Hoisted: mutable navigator.platform override (runs before all imports)
 const { platformStore } = vi.hoisted(() => {
@@ -112,12 +112,8 @@ vi.mock("../../ai/AIChatPanel", () => ({
 
 // ── Mock react-resizable-panels ──
 vi.mock("react-resizable-panels", () => ({
-  Group: vi.fn(({ children }: { children: React.ReactNode }) => (
-    <div data-testid="panel-group">{children}</div>
-  )),
-  Panel: vi.fn(({ children }: { children: React.ReactNode }) => (
-    <div data-testid="panel">{children}</div>
-  )),
+  Group: vi.fn(({ children }: { children: React.ReactNode }) => <div data-testid="panel-group">{children}</div>),
+  Panel: vi.fn(({ children }: { children: React.ReactNode }) => <div data-testid="panel">{children}</div>),
   Separator: vi.fn(() => <div data-testid="panel-separator" />),
 }));
 

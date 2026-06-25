@@ -1,36 +1,26 @@
-import { useState, useMemo, useCallback, useRef } from "react";
-import {
-  Search,
-  X,
-  Play,
-  Copy,
-  Plus,
-  Trash2,
-  ChevronDown,
-  ChevronUp,
-  Key,
-} from "lucide-react";
+import { ChevronDown, ChevronUp, Copy, Key, Play, Plus, Search, Trash2, X } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
-import { useEditorStore } from "../../stores/editorStore";
-import { api } from "../../lib/tauri-api";
 import {
-  generateSQL,
-  generateAlias,
-  getAllColumnRefs,
-  WHERE_OPERATORS,
   AGGREGATE_FUNCTIONS,
-  CARD_WIDTH,
-  HEADER_HEIGHT,
-  ROW_HEIGHT,
+  type AggregateFunction,
   type CanvasTable,
+  CARD_WIDTH,
+  generateAlias,
+  generateSQL,
+  getAllColumnRefs,
+  HEADER_HEIGHT,
   type JoinConfig,
   type JoinType,
+  type OrderByClause,
+  type QueryBuilderState,
+  ROW_HEIGHT,
+  WHERE_OPERATORS,
   type WhereCondition,
   type WhereOperator,
-  type OrderByClause,
-  type AggregateFunction,
-  type QueryBuilderState,
 } from "../../lib/query-builder-engine";
+import { api } from "../../lib/tauri-api";
+import { useEditorStore } from "../../stores/editorStore";
 import type { QueryResult } from "../../types";
 
 interface QueryBuilderProps {
@@ -63,10 +53,12 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
   // Canvas state
   const [canvasTables, setCanvasTables] = useState<CanvasTable[]>([]);
   const [joins, setJoins] = useState<JoinConfig[]>([]);
-  const [pendingJoin, setPendingJoin] = useState<{
-    tableId: string;
-    column: string;
-  } | null>(null);
+  const [pendingJoin, setPendingJoin] = useState<
+    {
+      tableId: string;
+      column: string;
+    } | null
+  >(null);
 
   // Query clauses
   const [whereConditions, setWhereConditions] = useState<WhereCondition[]>([]);
@@ -105,10 +97,7 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
   }
 
   const filteredTables = useMemo(
-    () =>
-      tableNames.filter((t) =>
-        t.toLowerCase().includes(searchFilter.toLowerCase()),
-      ),
+    () => tableNames.filter((t) => t.toLowerCase().includes(searchFilter.toLowerCase())),
     [tableNames, searchFilter],
   );
 
@@ -168,7 +157,7 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
       setJoins((prev) =>
         prev.filter(
           (j) => j.leftTableId !== tableId && j.rightTableId !== tableId,
-        ),
+        )
       );
       setPendingJoin(null);
     },
@@ -183,7 +172,7 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
           ? t.selectedColumns.filter((c) => c !== columnName)
           : [...t.selectedColumns, columnName];
         return { ...t, selectedColumns: selected };
-      }),
+      })
     );
   }, []);
 
@@ -199,7 +188,7 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
             delete aggregates[columnName];
           }
           return { ...t, aggregates };
-        }),
+        })
       );
     },
     [],
@@ -233,7 +222,7 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
         if (j.id !== joinId) return j;
         const idx = JOIN_TYPES.indexOf(j.joinType);
         return { ...j, joinType: JOIN_TYPES[(idx + 1) % JOIN_TYPES.length] };
-      }),
+      })
     );
   }, []);
 
@@ -267,8 +256,8 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
         prev.map((t) =>
           t.id === draggingTableId
             ? { ...t, position: { x: newX, y: newY } }
-            : t,
-        ),
+            : t
+        )
       );
     },
     [draggingTableId, dragOffset],
@@ -317,17 +306,15 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
       );
 
       const leftX = leftTable.position.x + CARD_WIDTH;
-      const leftY =
-        leftTable.position.y +
-        HEADER_HEIGHT +
-        leftColIdx * ROW_HEIGHT +
-        ROW_HEIGHT / 2;
+      const leftY = leftTable.position.y
+        + HEADER_HEIGHT
+        + leftColIdx * ROW_HEIGHT
+        + ROW_HEIGHT / 2;
       const rightX = rightTable.position.x;
-      const rightY =
-        rightTable.position.y +
-        HEADER_HEIGHT +
-        rightColIdx * ROW_HEIGHT +
-        ROW_HEIGHT / 2;
+      const rightY = rightTable.position.y
+        + HEADER_HEIGHT
+        + rightColIdx * ROW_HEIGHT
+        + ROW_HEIGHT / 2;
 
       const midX = (leftX + rightX) / 2;
 
@@ -472,15 +459,16 @@ export function QueryBuilder({ connectionId, database }: QueryBuilderProps) {
                 onRemove={() => removeTable(table.id)}
                 onToggleColumn={(col) => toggleColumn(table.id, col)}
                 onColumnClick={(col) => handleColumnClick(table.id, col)}
-                onSetAggregate={(col, agg) =>
-                  setAggregate(table.id, col, agg)
-                }
+                onSetAggregate={(col, agg) => setAggregate(table.id, col, agg)}
               />
             ))}
           </div>
 
           {/* Bottom panel */}
-          <div className="flex shrink-0 flex-col border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]" style={{ height: 280 }}>
+          <div
+            className="flex shrink-0 flex-col border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)]"
+            style={{ height: 280 }}
+          >
             {/* Section tabs */}
             <div className="flex items-center border-b border-[var(--color-border)] px-2">
               {(
@@ -608,10 +596,8 @@ function TableCard({
   onColumnClick,
   onSetAggregate,
 }: TableCardProps) {
-  const isPendingSource =
-    pendingJoin !== null && pendingJoin.tableId === table.id;
-  const isPendingTarget =
-    pendingJoin !== null && pendingJoin.tableId !== table.id;
+  const isPendingSource = pendingJoin !== null && pendingJoin.tableId === table.id;
+  const isPendingTarget = pendingJoin !== null && pendingJoin.tableId !== table.id;
 
   return (
     <div
@@ -648,8 +634,7 @@ function TableCard({
       <div className="border-t border-[var(--color-border)]">
         {table.columns.map((col) => {
           const isSelected = table.selectedColumns.includes(col.name);
-          const isPendingCol =
-            isPendingSource && pendingJoin?.column === col.name;
+          const isPendingCol = isPendingSource && pendingJoin?.column === col.name;
           const aggregate = table.aggregates[col.name];
 
           return (
@@ -659,8 +644,8 @@ function TableCard({
                 isPendingCol
                   ? "bg-brand-600/20"
                   : isPendingTarget
-                    ? "hover:bg-brand-600/10 cursor-crosshair"
-                    : "hover:bg-[var(--color-bg-tertiary)]"
+                  ? "hover:bg-brand-600/10 cursor-crosshair"
+                  : "hover:bg-[var(--color-bg-tertiary)]"
               }`}
               style={{ height: ROW_HEIGHT }}
             >
@@ -675,13 +660,15 @@ function TableCard({
                 data-no-drag
                 onClick={() => onColumnClick(col.name)}
                 className="flex flex-1 items-center gap-1 truncate text-left"
-                title={`${col.name} (${col.column_type})${col.is_primary_key ? " PK" : ""}${col.nullable ? " NULL" : ""} — click to join`}
+                title={`${col.name} (${col.column_type})${col.is_primary_key ? " PK" : ""}${
+                  col.nullable ? " NULL" : ""
+                } — click to join`}
               >
-                {col.is_primary_key && (
-                  <Key className="h-2.5 w-2.5 shrink-0 text-yellow-500" />
-                )}
+                {col.is_primary_key && <Key className="h-2.5 w-2.5 shrink-0 text-yellow-500" />}
                 <span
-                  className={`truncate ${isSelected ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-secondary)]"}`}
+                  className={`truncate ${
+                    isSelected ? "text-[var(--color-text-primary)]" : "text-[var(--color-text-secondary)]"
+                  }`}
                 >
                   {col.name}
                 </span>
@@ -699,8 +686,7 @@ function TableCard({
                       e.target.value
                         ? (e.target.value as AggregateFunction)
                         : null,
-                    )
-                  }
+                    )}
                   className="h-5 w-14 shrink-0 rounded bg-[var(--color-bg-primary)] text-[9px] text-[var(--color-text-muted)] outline-none"
                   title="Aggregate function"
                 >
@@ -767,13 +753,15 @@ function SqlPreviewSection({
                       key={j}
                       className="px-2 py-1 text-[var(--color-text-primary)]"
                     >
-                      {cell === null ? (
-                        <span className="text-[var(--color-text-muted)]">
-                          NULL
-                        </span>
-                      ) : (
-                        String(cell)
-                      )}
+                      {cell === null
+                        ? (
+                          <span className="text-[var(--color-text-muted)]">
+                            NULL
+                          </span>
+                        )
+                        : (
+                          String(cell)
+                        )}
                     </td>
                   ))}
                 </tr>
@@ -827,8 +815,7 @@ function WhereSection({
     onChange(conditions.filter((c) => c.id !== id));
   };
 
-  const needsValue = (op: WhereOperator) =>
-    op !== "IS NULL" && op !== "IS NOT NULL";
+  const needsValue = (op: WhereOperator) => op !== "IS NULL" && op !== "IS NOT NULL";
 
   return (
     <div className="flex flex-col gap-1">
@@ -847,25 +834,22 @@ function WhereSection({
       </div>
       {conditions.map((cond, idx) => (
         <div key={cond.id} className="flex items-center gap-1">
-          {idx > 0 ? (
-            <button
-              onClick={() =>
-                updateCondition(cond.id, {
-                  logic: cond.logic === "AND" ? "OR" : "AND",
-                })
-              }
-              className="w-10 shrink-0 rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-center text-[10px] font-bold text-brand-400 ring-1 ring-[var(--color-border)]"
-            >
-              {cond.logic}
-            </button>
-          ) : (
-            <span className="w-10 shrink-0" />
-          )}
+          {idx > 0
+            ? (
+              <button
+                onClick={() =>
+                  updateCondition(cond.id, {
+                    logic: cond.logic === "AND" ? "OR" : "AND",
+                  })}
+                className="w-10 shrink-0 rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-center text-[10px] font-bold text-brand-400 ring-1 ring-[var(--color-border)]"
+              >
+                {cond.logic}
+              </button>
+            )
+            : <span className="w-10 shrink-0" />}
           <select
             value={cond.column}
-            onChange={(e) =>
-              updateCondition(cond.id, { column: e.target.value })
-            }
+            onChange={(e) => updateCondition(cond.id, { column: e.target.value })}
             className="h-6 w-40 shrink-0 rounded bg-[var(--color-bg-primary)] px-1 text-xs text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
           >
             {columnRefs.map((cr) => (
@@ -879,8 +863,7 @@ function WhereSection({
             onChange={(e) =>
               updateCondition(cond.id, {
                 operator: e.target.value as WhereOperator,
-              })
-            }
+              })}
             className="h-6 w-24 shrink-0 rounded bg-[var(--color-bg-primary)] px-1 text-xs text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
           >
             {WHERE_OPERATORS.map((op) => (
@@ -893,9 +876,7 @@ function WhereSection({
             <input
               type="text"
               value={cond.value}
-              onChange={(e) =>
-                updateCondition(cond.id, { value: e.target.value })
-              }
+              onChange={(e) => updateCondition(cond.id, { value: e.target.value })}
               placeholder="value"
               className="h-6 flex-1 rounded bg-[var(--color-bg-primary)] px-1.5 text-xs text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
             />
@@ -973,9 +954,7 @@ function OrderBySection({
         <div key={clause.id} className="flex items-center gap-1">
           <select
             value={clause.column}
-            onChange={(e) =>
-              updateClause(clause.id, { column: e.target.value })
-            }
+            onChange={(e) => updateClause(clause.id, { column: e.target.value })}
             className="h-6 w-48 shrink-0 rounded bg-[var(--color-bg-primary)] px-1 text-xs text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
           >
             {columnRefs.map((cr) => (
@@ -988,15 +967,10 @@ function OrderBySection({
             onClick={() =>
               updateClause(clause.id, {
                 direction: clause.direction === "ASC" ? "DESC" : "ASC",
-              })
-            }
+              })}
             className="flex h-6 items-center gap-0.5 rounded bg-[var(--color-bg-primary)] px-1.5 text-[10px] font-bold text-brand-400 ring-1 ring-[var(--color-border)]"
           >
-            {clause.direction === "ASC" ? (
-              <ChevronUp className="h-3 w-3" />
-            ) : (
-              <ChevronDown className="h-3 w-3" />
-            )}
+            {clause.direction === "ASC" ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             {clause.direction}
           </button>
           <button

@@ -1,5 +1,5 @@
+import { Code, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useState } from "react";
-import { X, Loader2, Eye, EyeOff, Code } from "lucide-react";
 import { api } from "../../lib/tauri-api";
 import { escapeIdentifier } from "./userPrivileges";
 
@@ -51,11 +51,10 @@ export function CreateUserDialog({
     return parts.join("\n  ") + ";";
   }
 
-  const isValid =
-    username.trim() !== "" &&
-    effectiveHost.trim() !== "" &&
-    password !== "" &&
-    password === confirmPassword;
+  const isValid = username.trim() !== ""
+    && effectiveHost.trim() !== ""
+    && password !== ""
+    && password === confirmPassword;
 
   const handleCreate = async () => {
     if (!isValid) return;
@@ -157,11 +156,7 @@ export function CreateUserDialog({
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
               >
-                {showPassword ? (
-                  <EyeOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5" />
-                )}
+                {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
             </div>
           </div>
@@ -209,8 +204,7 @@ export function CreateUserDialog({
           {/* Max Connections */}
           <div>
             <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-              Max Connections{" "}
-              <span className="text-[var(--color-text-muted)]">(0 = unlimited)</span>
+              Max Connections <span className="text-[var(--color-text-muted)]">(0 = unlimited)</span>
             </label>
             <input
               type="number"

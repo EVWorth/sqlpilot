@@ -1,6 +1,6 @@
+import { useMonaco } from "@monaco-editor/react";
 import { useEffect } from "react";
 import { useThemeStore } from "../stores/themeStore";
-import { useMonaco } from "@monaco-editor/react";
 
 export function useTheme() {
   const effectiveTheme = useThemeStore((s) => s.effectiveTheme);

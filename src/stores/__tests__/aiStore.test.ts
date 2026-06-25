@@ -1,13 +1,12 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { aiChatMock, aiGetStatusMock, aiSetConfigMock, aiCancelMock, aiApprovePermissionMock } =
-  vi.hoisted(() => ({
-    aiChatMock: vi.fn().mockResolvedValue("response"),
-    aiGetStatusMock: vi.fn().mockResolvedValue({ provider: "test", available: true }),
-    aiSetConfigMock: vi.fn().mockResolvedValue(undefined),
-    aiCancelMock: vi.fn().mockResolvedValue(undefined),
-    aiApprovePermissionMock: vi.fn().mockResolvedValue(undefined),
-  }));
+const { aiChatMock, aiGetStatusMock, aiSetConfigMock, aiCancelMock, aiApprovePermissionMock } = vi.hoisted(() => ({
+  aiChatMock: vi.fn().mockResolvedValue("response"),
+  aiGetStatusMock: vi.fn().mockResolvedValue({ provider: "test", available: true }),
+  aiSetConfigMock: vi.fn().mockResolvedValue(undefined),
+  aiCancelMock: vi.fn().mockResolvedValue(undefined),
+  aiApprovePermissionMock: vi.fn().mockResolvedValue(undefined),
+}));
 
 vi.mock("../../lib/tauri-api", () => ({
   api: {

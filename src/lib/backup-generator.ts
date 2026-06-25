@@ -1,5 +1,5 @@
-import { api } from "./tauri-api";
 import type { SqlValue } from "../types";
+import { api } from "./tauri-api";
 
 export interface BackupOptions {
   includeStructure: boolean;
@@ -48,16 +48,16 @@ export function escapeValue(val: SqlValue): string {
     return `X'${hex}'`;
   }
   return (
-    "'" +
-    String(val)
+    "'"
+    + String(val)
       .replace(/\\/g, "\\\\")
       .replace(/'/g, "\\'")
       .replace(/\n/g, "\\n")
       .replace(/\r/g, "\\r")
       .replace(/\0/g, "\\0")
       // eslint-disable-next-line no-control-regex
-      .replace(/\x1a/g, "\\Z") +
-    "'"
+      .replace(/\x1a/g, "\\Z")
+    + "'"
   );
 }
 
@@ -146,7 +146,9 @@ export async function generateBackup(
       while (true) {
         if (cancelRef.current) break;
 
-        const sql = `SELECT * FROM ${escapeIdentifier(database)}.${escapeIdentifier(tableName)} LIMIT ${batchFetch} OFFSET ${offset}`;
+        const sql = `SELECT * FROM ${escapeIdentifier(database)}.${
+          escapeIdentifier(tableName)
+        } LIMIT ${batchFetch} OFFSET ${offset}`;
         const results = await api.executeQuery(connectionId, sql);
         const result = results[0];
         if (!result || result.rows.length === 0) break;

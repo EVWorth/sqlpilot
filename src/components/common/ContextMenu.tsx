@@ -61,34 +61,36 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
       style={{ left: x, top: y }}
     >
       {items.map((item, idx) =>
-        item.separator ? (
-          <div
-            key={idx}
-            className="mx-2 my-1 border-t border-[var(--color-border)]"
-          />
-        ) : (
-          <button
-            key={idx}
-            disabled={item.disabled}
-            onClick={() => {
-              if (!item.disabled) {
-                item.onClick();
-                onClose();
-              }
-            }}
-            className={cn(
-              "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs",
-              item.disabled
-                ? "cursor-default text-[var(--color-text-muted)] opacity-50"
-                : item.danger
+        item.separator
+          ? (
+            <div
+              key={idx}
+              className="mx-2 my-1 border-t border-[var(--color-border)]"
+            />
+          )
+          : (
+            <button
+              key={idx}
+              disabled={item.disabled}
+              onClick={() => {
+                if (!item.disabled) {
+                  item.onClick();
+                  onClose();
+                }
+              }}
+              className={cn(
+                "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs",
+                item.disabled
+                  ? "cursor-default text-[var(--color-text-muted)] opacity-50"
+                  : item.danger
                   ? "text-red-400 hover:bg-red-500/10"
                   : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)]",
-            )}
-          >
-            {item.icon && <span className="h-3.5 w-3.5">{item.icon}</span>}
-            {item.label}
-          </button>
-        ),
+              )}
+            >
+              {item.icon && <span className="h-3.5 w-3.5">{item.icon}</span>}
+              {item.label}
+            </button>
+          )
       )}
     </div>,
     document.body,

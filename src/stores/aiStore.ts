@@ -1,13 +1,13 @@
-import { create } from "zustand";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { create } from "zustand";
 import { api } from "../lib/tauri-api";
 import type {
-  ChatMessage,
-  Conversation,
-  AiStatus,
   AiConfig,
   AiMode,
+  AiStatus,
   AiStreamEvent,
+  ChatMessage,
+  Conversation,
   MessageSegment,
   PendingPermission,
 } from "../types";
@@ -122,10 +122,9 @@ export const useAiStore = create<AiState>((set, get) => ({
   clearConversation: (id) => {
     set((state) => ({
       conversations: state.conversations.filter((c) => c.id !== id),
-      activeConversationId:
-        state.activeConversationId === id
-          ? null
-          : state.activeConversationId,
+      activeConversationId: state.activeConversationId === id
+        ? null
+        : state.activeConversationId,
     }));
   },
 
@@ -144,14 +143,13 @@ export const useAiStore = create<AiState>((set, get) => ({
       conversations: state.conversations.map((c) =>
         c.id === conversationId
           ? {
-              ...c,
-              messages: [...c.messages, userMessage],
-              title:
-                c.messages.length === 0
-                  ? message.slice(0, 40) + (message.length > 40 ? "…" : "")
-                  : c.title,
-            }
-          : c,
+            ...c,
+            messages: [...c.messages, userMessage],
+            title: c.messages.length === 0
+              ? message.slice(0, 40) + (message.length > 40 ? "…" : "")
+              : c.title,
+          }
+          : c
       ),
       isStreaming: true,
       streamSegments: [],
@@ -253,17 +251,17 @@ export const useAiStore = create<AiState>((set, get) => ({
               conversations: state.conversations.map((c) =>
                 c.id === conversationId
                   ? {
-                      ...c,
-                      messages: [
-                        ...c.messages,
-                        {
-                          role: "assistant" as const,
-                          content: fullContent,
-                          segments: segments.length > 0 ? segments : undefined,
-                        },
-                      ],
-                    }
-                  : c,
+                    ...c,
+                    messages: [
+                      ...c.messages,
+                      {
+                        role: "assistant" as const,
+                        content: fullContent,
+                        segments: segments.length > 0 ? segments : undefined,
+                      },
+                    ],
+                  }
+                  : c
               ),
               isStreaming: false,
               streamSegments: [],
@@ -278,16 +276,16 @@ export const useAiStore = create<AiState>((set, get) => ({
               conversations: state.conversations.map((c) =>
                 c.id === conversationId
                   ? {
-                      ...c,
-                      messages: [
-                        ...c.messages,
-                        {
-                          role: "assistant" as const,
-                          content: `Error: ${ev.message}`,
-                        },
-                      ],
-                    }
-                  : c,
+                    ...c,
+                    messages: [
+                      ...c.messages,
+                      {
+                        role: "assistant" as const,
+                        content: `Error: ${ev.message}`,
+                      },
+                    ],
+                  }
+                  : c
               ),
               isStreaming: false,
               streamSegments: [],
@@ -322,17 +320,17 @@ export const useAiStore = create<AiState>((set, get) => ({
           conversations: s.conversations.map((c) =>
             c.id === conversationId
               ? {
-                  ...c,
-                  messages: [
-                    ...c.messages,
-                    {
-                      role: "assistant" as const,
-                      content,
-                      segments: segments.length > 0 ? segments : undefined,
-                    },
-                  ],
-                }
-              : c,
+                ...c,
+                messages: [
+                  ...c.messages,
+                  {
+                    role: "assistant" as const,
+                    content,
+                    segments: segments.length > 0 ? segments : undefined,
+                  },
+                ],
+              }
+              : c
           ),
           isStreaming: false,
           streamSegments: [],
@@ -345,16 +343,16 @@ export const useAiStore = create<AiState>((set, get) => ({
         conversations: state.conversations.map((c) =>
           c.id === conversationId
             ? {
-                ...c,
-                messages: [
-                  ...c.messages,
-                  {
-                    role: "assistant" as const,
-                    content: `Error: ${String(e)}`,
-                  },
-                ],
-              }
-            : c,
+              ...c,
+              messages: [
+                ...c.messages,
+                {
+                  role: "assistant" as const,
+                  content: `Error: ${String(e)}`,
+                },
+              ],
+            }
+            : c
         ),
         isStreaming: false,
         streamSegments: [],
@@ -400,13 +398,13 @@ export const useAiStore = create<AiState>((set, get) => ({
       conversations: state.conversations.map((c) =>
         c.id === conversationId
           ? {
-              ...c,
-              messages: [
-                ...c.messages,
-                { role: "assistant" as const, content },
-              ],
-            }
-          : c,
+            ...c,
+            messages: [
+              ...c.messages,
+              { role: "assistant" as const, content },
+            ],
+          }
+          : c
       ),
     }));
   },

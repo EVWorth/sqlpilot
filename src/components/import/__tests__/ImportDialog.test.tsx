@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ImportDialog } from "../ImportDialog";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -21,9 +21,9 @@ vi.mock("../../../lib/sql-import", () => ({
   generateBatchInsert: vi.fn().mockReturnValue(["INSERT INTO ..."]),
 }));
 
-import { api } from "../../../lib/tauri-api";
 import { parseCSV } from "../../../lib/csv-parser";
 import { splitSqlStatements } from "../../../lib/sql-import";
+import { api } from "../../../lib/tauri-api";
 
 const mockProps = {
   isOpen: true,

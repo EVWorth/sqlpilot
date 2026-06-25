@@ -7,8 +7,8 @@
 
 ## ADR-001: Tauri 2 over Electron
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** Application Framework
 
 ### Context
@@ -28,15 +28,15 @@ The application is data-heavy (large result sets, real-time metrics) and must fe
 
 ### Rationale
 
-| Factor | Tauri 2 | Electron |
-|--------|---------|----------|
-| Bundle size | ~10 MB | ~100+ MB |
-| Idle memory | ~80 MB | ~300+ MB |
-| Startup time | Sub-second | 1–2 seconds |
-| Backend language | Rust (native performance) | Node.js (JIT) |
-| Security | Sandbox by default, fine-grained permissions | Full Node.js access by default |
-| Future mobile | Tauri 2 supports iOS/Android | Not applicable |
-| Ecosystem size | Growing (smaller) | Mature (larger) |
+| Factor           | Tauri 2                                      | Electron                       |
+| ---------------- | -------------------------------------------- | ------------------------------ |
+| Bundle size      | ~10 MB                                       | ~100+ MB                       |
+| Idle memory      | ~80 MB                                       | ~300+ MB                       |
+| Startup time     | Sub-second                                   | 1–2 seconds                    |
+| Backend language | Rust (native performance)                    | Node.js (JIT)                  |
+| Security         | Sandbox by default, fine-grained permissions | Full Node.js access by default |
+| Future mobile    | Tauri 2 supports iOS/Android                 | Not applicable                 |
+| Ecosystem size   | Growing (smaller)                            | Mature (larger)                |
 
 Key advantages for our use case:
 
@@ -48,12 +48,12 @@ Key advantages for our use case:
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| Smaller ecosystem than Electron | High | Medium |
-| WebView rendering differences across platforms | Medium | Medium |
-| Tauri 2 API stability (newer project) | Medium | Medium |
-| Fewer community examples and Stack Overflow answers | High | Low |
+| Risk                                                | Likelihood | Impact |
+| --------------------------------------------------- | ---------- | ------ |
+| Smaller ecosystem than Electron                     | High       | Medium |
+| WebView rendering differences across platforms      | Medium     | Medium |
+| Tauri 2 API stability (newer project)               | Medium     | Medium |
+| Fewer community examples and Stack Overflow answers | High       | Low    |
 
 ### Mitigations
 
@@ -66,8 +66,8 @@ Key advantages for our use case:
 
 ## ADR-002: React over Svelte/Vue/Leptos
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** Frontend Framework
 
 ### Context
@@ -101,7 +101,7 @@ Candidates evaluated:
    - Charts → Recharts
    - Command palette → cmdk
    - Resizable panels → react-resizable-panels
-   
+
    For Svelte or Leptos, many of these would need to be built from scratch or use less-maintained wrappers.
 
 2. **Developer familiarity** — React is the most widely known frontend framework. This maximizes the contributor pool for an open-source project.
@@ -114,11 +114,11 @@ Candidates evaluated:
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| React bundle size larger than Svelte | High | Low |
-| Virtual DOM overhead for very frequent updates | Medium | Medium |
-| Boilerplate for state management | Medium | Low |
+| Risk                                           | Likelihood | Impact |
+| ---------------------------------------------- | ---------- | ------ |
+| React bundle size larger than Svelte           | High       | Low    |
+| Virtual DOM overhead for very frequent updates | Medium     | Medium |
+| Boilerplate for state management               | Medium     | Low    |
 
 ### Mitigations
 
@@ -130,8 +130,8 @@ Candidates evaluated:
 
 ## ADR-003: sqlx over Diesel/mysql_async
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** Rust MySQL Driver
 
 ### Context
@@ -184,11 +184,11 @@ Candidates:
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| Compile-time checks require database at build time | High | Medium |
-| sqlx may not support MySQL-specific features (e.g., `LOAD DATA INFILE`) | Medium | Low |
-| Connection pool behavior differences across MySQL versions | Low | Medium |
+| Risk                                                                    | Likelihood | Impact |
+| ----------------------------------------------------------------------- | ---------- | ------ |
+| Compile-time checks require database at build time                      | High       | Medium |
+| sqlx may not support MySQL-specific features (e.g., `LOAD DATA INFILE`) | Medium     | Low    |
+| Connection pool behavior differences across MySQL versions              | Low        | Medium |
 
 ### Mitigations
 
@@ -200,8 +200,8 @@ Candidates:
 
 ## ADR-004: Monaco Editor over CodeMirror
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** Code Editor Component
 
 ### Context
@@ -236,7 +236,7 @@ Candidates:
    - Parameter hints
    - Hover information
    - Go to definition (we can implement this for tables/columns)
-   
+
    CodeMirror's autocomplete is functional but requires more custom work to achieve the same polish.
 
 3. **Large file handling** — Monaco virtualizes rendering and handles files with 100K+ lines smoothly. This matters for viewing large SQL dumps or stored procedures.
@@ -247,11 +247,11 @@ Candidates:
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| Monaco is ~2 MB (heavier than CodeMirror) | High | Low |
-| Web workers required (CSP configuration) | High | Medium |
-| Harder to customize appearance deeply | Medium | Low |
+| Risk                                      | Likelihood | Impact |
+| ----------------------------------------- | ---------- | ------ |
+| Monaco is ~2 MB (heavier than CodeMirror) | High       | Low    |
+| Web workers required (CSP configuration)  | High       | Medium |
+| Harder to customize appearance deeply     | Medium     | Low    |
 
 ### Mitigations
 
@@ -263,8 +263,8 @@ Candidates:
 
 ## ADR-005: TanStack Table over AG Grid/DataTables
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** Data Grid Component
 
 ### Context
@@ -308,11 +308,11 @@ Candidates:
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| More custom code needed than AG Grid | High | Medium |
-| Need to build features AG Grid provides out-of-box (clipboard, export) | High | Medium |
-| Performance tuning is our responsibility | Medium | Medium |
+| Risk                                                                   | Likelihood | Impact |
+| ---------------------------------------------------------------------- | ---------- | ------ |
+| More custom code needed than AG Grid                                   | High       | Medium |
+| Need to build features AG Grid provides out-of-box (clipboard, export) | High       | Medium |
+| Performance tuning is our responsibility                               | Medium     | Medium |
 
 ### Mitigations
 
@@ -324,8 +324,8 @@ Candidates:
 
 ## ADR-006: Zustand over Redux/MobX/Jotai
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** State Management
 
 ### Context
@@ -367,7 +367,9 @@ Candidates:
    const useConnectionStore = create<ConnectionState>((set) => ({
      connections: [],
      activeId: null,
-     connect: async (id) => { /* ... */ set({ activeId: id }); },
+     connect: async (id) => {
+       /* ... */ set({ activeId: id });
+     },
      disconnect: () => set({ activeId: null }),
    }));
    ```
@@ -390,11 +392,11 @@ Candidates:
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| Less structured than Redux for very large apps | Medium | Low |
-| No built-in middleware ecosystem | Medium | Low |
-| Less familiar to developers from Redux backgrounds | Medium | Low |
+| Risk                                               | Likelihood | Impact |
+| -------------------------------------------------- | ---------- | ------ |
+| Less structured than Redux for very large apps     | Medium     | Low    |
+| No built-in middleware ecosystem                   | Medium     | Low    |
+| Less familiar to developers from Redux backgrounds | Medium     | Low    |
 
 ### Mitigations
 
@@ -406,8 +408,8 @@ Candidates:
 
 ## ADR-007: GitHub Copilot SDK for AI Features
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** AI Integration
 
 ### Context
@@ -449,7 +451,6 @@ Candidates:
    - Models like CodeLlama and SQLCoder are decent at SQL generation
    - No data leaves the user's machine (privacy-sensitive environments)
 
-
 ### Architecture
 
 ```
@@ -467,18 +468,19 @@ Candidates:
 ```
 
 The Provider Router selects the best available provider:
+
 1. If Copilot SDK is authenticated → use Copilot
-3. Otherwise → disable AI features
+2. Otherwise → disable AI features
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| Copilot SDK requires active subscription | High | Medium |
-| AI generates incorrect/dangerous SQL | Medium | High |
-| Copilot terms of service may restrict usage | Medium | High |
-| Schema context exceeds token limits | Medium | Medium |
-| AI latency disrupts UX | Medium | Medium |
+| Risk                                        | Likelihood | Impact |
+| ------------------------------------------- | ---------- | ------ |
+| Copilot SDK requires active subscription    | High       | Medium |
+| AI generates incorrect/dangerous SQL        | Medium     | High   |
+| Copilot terms of service may restrict usage | Medium     | High   |
+| Schema context exceeds token limits         | Medium     | Medium |
+| AI latency disrupts UX                      | Medium     | Medium |
 
 ### Mitigations
 
@@ -491,8 +493,8 @@ The Provider Router selects the best available provider:
 
 ## ADR-008: SQLite for Local Storage over JSON Files
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** Local Persistence
 
 ### Context
@@ -633,11 +635,11 @@ CREATE TABLE ai_messages (
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| Additional dependency (SQLite C library) | Low | Low |
-| Database file corruption (extremely rare) | Very Low | High |
-| Migration complexity as schema evolves | Medium | Medium |
+| Risk                                      | Likelihood | Impact |
+| ----------------------------------------- | ---------- | ------ |
+| Additional dependency (SQLite C library)  | Low        | Low    |
+| Database file corruption (extremely rare) | Very Low   | High   |
+| Migration complexity as schema evolves    | Medium     | Medium |
 
 ### Mitigations
 
@@ -649,8 +651,8 @@ CREATE TABLE ai_messages (
 
 ## ADR-009: Docker-based E2E Testing
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** Testing Infrastructure
 
 ### Context
@@ -684,22 +686,22 @@ Testing a database GUI requires a real database. Options:
 
 ### Container Matrix
 
-| Container | Port | Purpose |
-|-----------|------|---------|
-| `mysql-8` | 3307 | Primary test target (MySQL 8.0) |
-| `mysql-5.7` | 3308 | Legacy version compatibility |
-| `mariadb` | 3309 | MariaDB compatibility |
-| `mysql-ssl` | 3310 | SSL/TLS connection testing |
-| `ssh-tunnel` | 2222 | SSH tunnel connection testing |
+| Container    | Port | Purpose                         |
+| ------------ | ---- | ------------------------------- |
+| `mysql-8`    | 3307 | Primary test target (MySQL 8.0) |
+| `mysql-5.7`  | 3308 | Legacy version compatibility    |
+| `mariadb`    | 3309 | MariaDB compatibility           |
+| `mysql-ssl`  | 3310 | SSL/TLS connection testing      |
+| `ssh-tunnel` | 2222 | SSH tunnel connection testing   |
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| Docker required on developer machines | High | Medium |
-| Container startup time (30–60s) | High | Low |
-| Docker not available on all CI runners natively | Medium | Medium |
-| Flaky tests due to container health timing | Medium | Medium |
+| Risk                                            | Likelihood | Impact |
+| ----------------------------------------------- | ---------- | ------ |
+| Docker required on developer machines           | High       | Medium |
+| Container startup time (30–60s)                 | High       | Low    |
+| Docker not available on all CI runners natively | Medium     | Medium |
+| Flaky tests due to container health timing      | Medium     | Medium |
 
 ### Mitigations
 
@@ -712,8 +714,8 @@ Testing a database GUI requires a real database. Options:
 
 ## ADR-010: Monorepo with Cargo Workspaces
 
-**Status:** Accepted  
-**Date:** 2024-01  
+**Status:** Accepted\
+**Date:** 2024-01\
 **Category:** Code Organization
 
 ### Context
@@ -818,11 +820,11 @@ sqlpilot (Tauri app)
 
 ### Risks
 
-| Risk | Likelihood | Impact |
-|------|------------|--------|
-| Inter-crate API design overhead | Medium | Low |
-| Shared type duplication across crates | Medium | Medium |
-| Workspace configuration complexity | Low | Low |
+| Risk                                  | Likelihood | Impact |
+| ------------------------------------- | ---------- | ------ |
+| Inter-crate API design overhead       | Medium     | Low    |
+| Shared type duplication across crates | Medium     | Medium |
+| Workspace configuration complexity    | Low        | Low    |
 
 ### Mitigations
 
@@ -833,11 +835,11 @@ sqlpilot (Tauri app)
   ```toml
   [workspace]
   members = [
-      "sqlpilot",
-      "mas-core",
-      "mas-ai",
-      "mas-export",
-      "mas-admin",
+    "sqlpilot",
+    "mas-core",
+    "mas-ai",
+    "mas-export",
+    "mas-admin",
   ]
 
   [workspace.dependencies]

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockToggleMaximize,
@@ -31,7 +31,9 @@ vi.mock("@tauri-apps/api/window", () => ({
     startDragging: mockStartDragging,
     onResized: vi.fn((cb: () => void) => {
       onResizedCallback = cb;
-      return Promise.resolve(() => { onResizedCallback = null; });
+      return Promise.resolve(() => {
+        onResizedCallback = null;
+      });
     }),
     isMaximized: mockIsMaximized,
   })),

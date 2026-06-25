@@ -1,10 +1,10 @@
-import { useState, useCallback } from "react";
-import { Copy, Check, Play, FileInput, Sparkles } from "lucide-react";
+import { Check, Copy, FileInput, Play, Sparkles } from "lucide-react";
+import { useCallback, useState } from "react";
+import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
-import { useConnectionStore } from "../../stores/connectionStore";
+import type { MessageSegment, ToolExecution } from "../../types";
 import { ToolCallBlock } from "./ToolCallBlock";
-import type { ToolExecution, MessageSegment } from "../../types";
 
 interface ChatMessageProps {
   role: "system" | "user" | "assistant";
@@ -91,8 +91,7 @@ function SqlCodeBlock({ code }: { code: string }) {
   }, [code]);
 
   const handleRun = useCallback(() => {
-    const connectionId =
-      useConnectionStore.getState().selectedConnectionId;
+    const connectionId = useConnectionStore.getState().selectedConnectionId;
     if (!connectionId || !code.trim()) return;
     useResultStore.getState().executeQuery(connectionId, code);
   }, [code]);
@@ -118,11 +117,7 @@ function SqlCodeBlock({ code }: { code: string }) {
             title="Copy"
             className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
           >
-            {copied ? (
-              <Check className="h-3 w-3 text-green-400" />
-            ) : (
-              <Copy className="h-3 w-3" />
-            )}
+            {copied ? <Check className="h-3 w-3 text-green-400" /> : <Copy className="h-3 w-3" />}
           </button>
           {connectionId && (
             <button
@@ -179,7 +174,10 @@ export function ChatMessageComponent({ role, content, toolCalls, segments }: Cha
                       }
                       if (block.type === "code") {
                         return (
-                          <pre key={j} className="my-1 overflow-x-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2 text-xs">
+                          <pre
+                            key={j}
+                            className="my-1 overflow-x-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2 text-xs"
+                          >
                             <code>{block.content}</code>
                           </pre>
                         );
@@ -205,9 +203,7 @@ export function ChatMessageComponent({ role, content, toolCalls, segments }: Cha
         {/* Tool calls rendered before text */}
         {toolCalls && toolCalls.length > 0 && (
           <div className="mb-2">
-            {toolCalls.map((tool) => (
-              <ToolCallBlock key={tool.id} tool={tool} />
-            ))}
+            {toolCalls.map((tool) => <ToolCallBlock key={tool.id} tool={tool} />)}
           </div>
         )}
         {blocks.map((block, i) => {

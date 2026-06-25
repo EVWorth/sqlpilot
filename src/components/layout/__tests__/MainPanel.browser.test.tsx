@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../editor/SQLEditor", () => ({
   SQLEditor: () => <div data-testid="sql-editor" />,
@@ -32,12 +32,8 @@ vi.mock("../../routine/RoutineViewer", () => ({
   RoutineViewer: () => <div data-testid="routine-viewer" />,
 }));
 vi.mock("react-resizable-panels", () => ({
-  Group: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="panel-group">{children}</div>
-  ),
-  Panel: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="panel">{children}</div>
-  ),
+  Group: ({ children }: { children: React.ReactNode }) => <div data-testid="panel-group">{children}</div>,
+  Panel: ({ children }: { children: React.ReactNode }) => <div data-testid="panel">{children}</div>,
   Separator: () => <div data-testid="panel-separator" />,
 }));
 
@@ -48,12 +44,23 @@ vi.mock("../../../stores/resultStore", () => ({
   useResultStore: vi.fn(),
 }));
 
-import { MainPanel } from "../MainPanel";
 import { useEditorStore } from "../../../stores/editorStore";
 import { useResultStore } from "../../../stores/resultStore";
+import { MainPanel } from "../MainPanel";
 
 function mockEditorState(state: {
-  tabs: { id: string; type?: string; title?: string; content?: string; connectionId?: string; database?: string; tableName?: string; routineName?: string; routineType?: string; isDirty?: boolean }[];
+  tabs: {
+    id: string;
+    type?: string;
+    title?: string;
+    content?: string;
+    connectionId?: string;
+    database?: string;
+    tableName?: string;
+    routineName?: string;
+    routineType?: string;
+    isDirty?: boolean;
+  }[];
   activeTabId: string | null;
 }) {
   vi.mocked(useEditorStore).mockImplementation((s: (v: unknown) => unknown) => s(state));
@@ -128,7 +135,15 @@ describe("MainPanel", () => {
 
   it("renders TableDesigner when active tab type is designer", () => {
     mockEditorState({
-      tabs: [{ id: "tab-1", title: "Designer", content: "", type: "designer", connectionId: "conn-1", database: "testdb", isDirty: false }],
+      tabs: [{
+        id: "tab-1",
+        title: "Designer",
+        content: "",
+        type: "designer",
+        connectionId: "conn-1",
+        database: "testdb",
+        isDirty: false,
+      }],
       activeTabId: "tab-1",
     });
     render(<MainPanel />);
@@ -147,7 +162,15 @@ describe("MainPanel", () => {
 
   it("renders QueryBuilder when active tab type is querybuilder", () => {
     mockEditorState({
-      tabs: [{ id: "tab-1", title: "QB", content: "", type: "querybuilder", connectionId: "conn-1", database: "testdb", isDirty: false }],
+      tabs: [{
+        id: "tab-1",
+        title: "QB",
+        content: "",
+        type: "querybuilder",
+        connectionId: "conn-1",
+        database: "testdb",
+        isDirty: false,
+      }],
       activeTabId: "tab-1",
     });
     render(<MainPanel />);
@@ -156,7 +179,17 @@ describe("MainPanel", () => {
 
   it("renders RoutineViewer when active tab type is routine", () => {
     mockEditorState({
-      tabs: [{ id: "tab-1", title: "Routine", content: "", type: "routine", connectionId: "conn-1", database: "testdb", routineName: "my_proc", routineType: "PROCEDURE", isDirty: false }],
+      tabs: [{
+        id: "tab-1",
+        title: "Routine",
+        content: "",
+        type: "routine",
+        connectionId: "conn-1",
+        database: "testdb",
+        routineName: "my_proc",
+        routineType: "PROCEDURE",
+        isDirty: false,
+      }],
       activeTabId: "tab-1",
     });
     render(<MainPanel />);

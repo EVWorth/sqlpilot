@@ -31,9 +31,7 @@ export function parseRoutineMetadata(ddl: string): RoutineMetadata {
   // Match the first balanced parentheses after the routine name.
   const paramStr = extractParamString(ddl);
   if (paramStr !== null && paramStr.trim().length > 0) {
-    meta.parameters = splitParams(paramStr).map((p) =>
-      parseSingleParam(p.trim(), isFunction),
-    );
+    meta.parameters = splitParams(paramStr).map((p) => parseSingleParam(p.trim(), isFunction));
   }
 
   // RETURNS clause (functions only)

@@ -1,26 +1,23 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
 import Editor from "@monaco-editor/react";
 import {
-  Play,
-  RefreshCw,
+  AlertCircle,
   ChevronDown,
   ChevronRight,
-  Pencil,
-  Trash2,
-  Loader2,
-  AlertCircle,
   Clock,
-  Rows3,
   Cog,
   FunctionSquare,
+  Loader2,
+  Pencil,
+  Play,
+  RefreshCw,
+  Rows3,
+  Trash2,
 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { parseRoutineMetadata, type RoutineParameter } from "../../lib/routine-parser";
 import { api } from "../../lib/tauri-api";
-import {
-  parseRoutineMetadata,
-  type RoutineParameter,
-} from "../../lib/routine-parser";
-import { useEditorStore } from "../../stores/editorStore";
 import { cn } from "../../lib/utils";
+import { useEditorStore } from "../../stores/editorStore";
 import type { QueryResult } from "../../types";
 
 interface RoutineViewerProps {
@@ -79,8 +76,7 @@ export function RoutineViewer({
     [params],
   );
   const outParams = useMemo(
-    () =>
-      params.filter((p) => p.direction === "OUT" || p.direction === "INOUT"),
+    () => params.filter((p) => p.direction === "OUT" || p.direction === "INOUT"),
     [params],
   );
 
@@ -185,8 +181,9 @@ export function RoutineViewer({
       !window.confirm(
         `Are you sure you want to drop ${routineType.toLowerCase()} \`${database}\`.\`${routineName}\`?`,
       )
-    )
+    ) {
       return;
+    }
     api
       .executeQuery(
         connectionId,
@@ -197,9 +194,9 @@ export function RoutineViewer({
           .getState()
           .tabs.find(
             (t) =>
-              t.type === "routine" &&
-              t.routineName === routineName &&
-              t.database === database,
+              t.type === "routine"
+              && t.routineName === routineName
+              && t.database === database,
           )?.id;
         if (tabId) useEditorStore.getState().closeTab(tabId);
       })
@@ -207,11 +204,7 @@ export function RoutineViewer({
   };
 
   const isProcedure = routineType === "PROCEDURE";
-  const typeIcon = isProcedure ? (
-    <Cog className="h-4 w-4" />
-  ) : (
-    <FunctionSquare className="h-4 w-4" />
-  );
+  const typeIcon = isProcedure ? <Cog className="h-4 w-4" /> : <FunctionSquare className="h-4 w-4" />;
 
   if (loading) {
     return (
@@ -260,11 +253,7 @@ export function RoutineViewer({
             disabled={executing}
             className="flex items-center gap-1 rounded bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50"
           >
-            {executing ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              <Play className="h-3 w-3" />
-            )}
+            {executing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
             Execute
           </button>
           <button
@@ -300,11 +289,7 @@ export function RoutineViewer({
             onClick={() => setShowDdl(!showDdl)}
             className="flex w-full items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
           >
-            {showDdl ? (
-              <ChevronDown className="h-3 w-3" />
-            ) : (
-              <ChevronRight className="h-3 w-3" />
-            )}
+            {showDdl ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
             DDL Definition
             {metadata.isDeterministic !== undefined && (
               <span className="ml-2 rounded bg-[var(--color-bg-tertiary)] px-1 py-0.5 text-[9px] text-[var(--color-text-muted)]">
@@ -397,9 +382,7 @@ export function RoutineViewer({
                 </span>
               )}
             </div>
-            {results.map((result, idx) => (
-              <ResultTable key={idx} result={result} index={idx} />
-            ))}
+            {results.map((result, idx) => <ResultTable key={idx} result={result} index={idx} />)}
           </div>
         )}
       </div>
@@ -454,9 +437,9 @@ function ParameterRow({
         className={cn(
           "flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-brand-500 focus:outline-none",
           isReadOnly && "cursor-default opacity-70",
-          outValue !== undefined &&
-            isReadOnly &&
-            "border-amber-500/30 bg-amber-500/5 text-amber-300",
+          outValue !== undefined
+            && isReadOnly
+            && "border-amber-500/30 bg-amber-500/5 text-amber-300",
         )}
       />
     </div>

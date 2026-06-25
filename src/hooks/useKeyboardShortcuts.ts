@@ -1,7 +1,7 @@
 import { useEffect } from "react";
+import { useConnectionStore } from "../stores/connectionStore";
 import { useEditorStore } from "../stores/editorStore";
 import { useResultStore } from "../stores/resultStore";
-import { useConnectionStore } from "../stores/connectionStore";
 
 export function useKeyboardShortcuts(
   onToggleSidebar?: () => void,
@@ -13,9 +13,8 @@ export function useKeyboardShortcuts(
       const ctrl = e.ctrlKey || e.metaKey;
       const shift = e.shiftKey;
       const target = e.target as HTMLElement;
-      const isMonacoFocused =
-        target.closest(".monaco-editor") != null &&
-        target.tagName === "TEXTAREA";
+      const isMonacoFocused = target.closest(".monaco-editor") != null
+        && target.tagName === "TEXTAREA";
 
       // F1 — shortcuts help (only when Monaco doesn't have focus)
       if (e.key === "F1" && !isMonacoFocused) {
@@ -27,8 +26,7 @@ export function useKeyboardShortcuts(
       // F5 — execute query
       if (e.key === "F5") {
         e.preventDefault();
-        const connectionId =
-          useConnectionStore.getState().selectedConnectionId;
+        const connectionId = useConnectionStore.getState().selectedConnectionId;
         const { tabs, activeTabId } = useEditorStore.getState();
         const activeTab = tabs.find((t) => t.id === activeTabId);
         if (activeTab?.content?.trim() && connectionId) {

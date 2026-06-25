@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, beforeAll } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { invokeMock, getVersionMock } = vi.hoisted(() => ({
   invokeMock: vi.fn(),

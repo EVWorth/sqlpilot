@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, waitFor, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => {
   const capturedActions: Array<{ id: string; run: Function }> = [];
@@ -21,8 +21,12 @@ const m = vi.hoisted(() => {
   return {
     capturedActions,
     capturedEditor,
-    get editorMounted() { return editorMounted; },
-    set editorMounted(v: boolean) { editorMounted = v; },
+    get editorMounted() {
+      return editorMounted;
+    },
+    set editorMounted(v: boolean) {
+      editorMounted = v;
+    },
     mockSetValue,
     mockUpdateTabContent,
     mockSetEditorInstance,
@@ -83,9 +87,7 @@ vi.mock("@monaco-editor/react", () => ({
         data-language={language}
         data-theme={theme}
         defaultValue={value}
-        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-          onChange?.(e.target.value)
-        }
+        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => onChange?.(e.target.value)}
       />
     );
   },
@@ -96,7 +98,14 @@ vi.mock("../../stores/editorStore", () => ({
     vi.fn((selector?: (s: object) => unknown) => {
       const state = {
         activeTabId: "tab-1",
-        tabs: [{ id: "tab-1", title: "Query 1", content: "SELECT 1", connectionId: "conn-1", type: "query", isDirty: false }],
+        tabs: [{
+          id: "tab-1",
+          title: "Query 1",
+          content: "SELECT 1",
+          connectionId: "conn-1",
+          type: "query",
+          isDirty: false,
+        }],
         updateTabContent: m.mockUpdateTabContent,
         setEditorInstance: m.mockSetEditorInstance,
       };
@@ -105,7 +114,14 @@ vi.mock("../../stores/editorStore", () => ({
     {
       getState: vi.fn(() => ({
         activeTabId: "tab-1",
-        tabs: [{ id: "tab-1", title: "Query 1", content: "SELECT 1", connectionId: "conn-1", type: "query", isDirty: false }],
+        tabs: [{
+          id: "tab-1",
+          title: "Query 1",
+          content: "SELECT 1",
+          connectionId: "conn-1",
+          type: "query",
+          isDirty: false,
+        }],
         updateTabContent: m.mockUpdateTabContent,
         setEditorInstance: m.mockSetEditorInstance,
       })),

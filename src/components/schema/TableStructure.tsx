@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
 import Editor from "@monaco-editor/react";
-import { Columns3, ListTree, Code2, Key, Loader2 } from "lucide-react";
+import { Code2, Columns3, Key, ListTree, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import type { ColumnInfo, IndexInfo } from "../../types";
@@ -78,28 +78,28 @@ export function TableStructure({
 
       {/* Content */}
       <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="flex h-full items-center justify-center">
-            <Loader2 className="h-5 w-5 animate-spin text-[var(--color-text-muted)]" />
-            <span className="ml-2 text-sm text-[var(--color-text-muted)]">
-              Loading structure…
-            </span>
-          </div>
-        ) : error ? (
-          <div className="flex h-full items-center justify-center">
-            <span className="text-sm text-red-400">{error}</span>
-          </div>
-        ) : (
-          <>
-            {activeSubTab === "columns" && (
-              <ColumnsTable columns={columns} />
-            )}
-            {activeSubTab === "indexes" && (
-              <IndexesTable indexes={indexes} />
-            )}
-            {activeSubTab === "ddl" && <DdlView ddl={ddl} />}
-          </>
-        )}
+        {loading
+          ? (
+            <div className="flex h-full items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-[var(--color-text-muted)]" />
+              <span className="ml-2 text-sm text-[var(--color-text-muted)]">
+                Loading structure…
+              </span>
+            </div>
+          )
+          : error
+          ? (
+            <div className="flex h-full items-center justify-center">
+              <span className="text-sm text-red-400">{error}</span>
+            </div>
+          )
+          : (
+            <>
+              {activeSubTab === "columns" && <ColumnsTable columns={columns} />}
+              {activeSubTab === "indexes" && <IndexesTable indexes={indexes} />}
+              {activeSubTab === "ddl" && <DdlView ddl={ddl} />}
+            </>
+          )}
       </div>
     </div>
   );
@@ -144,21 +144,13 @@ function ColumnsTable({ columns }: { columns: ColumnInfo[] }) {
               {col.column_type}
             </td>
             <td className="px-3 py-1.5 text-center">
-              {col.nullable ? (
-                <span className="text-green-400">✓</span>
-              ) : (
-                <span className="text-red-400">✗</span>
-              )}
+              {col.nullable ? <span className="text-green-400">✓</span> : <span className="text-red-400">✗</span>}
             </td>
             <td className="px-3 py-1.5 font-mono text-[var(--color-text-muted)]">
-              {col.default_value ?? (
-                <span className="italic opacity-50">NULL</span>
-              )}
+              {col.default_value ?? <span className="italic opacity-50">NULL</span>}
             </td>
             <td className="px-3 py-1.5 text-center">
-              {col.is_primary_key && (
-                <Key className="mx-auto h-3.5 w-3.5 text-yellow-400" />
-              )}
+              {col.is_primary_key && <Key className="mx-auto h-3.5 w-3.5 text-yellow-400" />}
             </td>
             <td className="px-3 py-1.5 text-[var(--color-text-muted)]">
               {col.extra}
@@ -229,8 +221,7 @@ function DdlView({ ddl }: { ddl: string }) {
       options={{
         readOnly: true,
         fontSize: 13,
-        fontFamily:
-          "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
         minimap: { enabled: false },
         lineNumbers: "on",
         renderLineHighlight: "none",

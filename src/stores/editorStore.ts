@@ -1,5 +1,5 @@
-import { create } from "zustand";
 import type { editor } from "monaco-editor";
+import { create } from "zustand";
 import type { EditorTab } from "../types";
 
 interface EditorState {
@@ -97,7 +97,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       content: "",
       connectionId,
       database,
-      type: 'query',
+      type: "query",
       isDirty: false,
     };
     set((state) => ({
@@ -110,10 +110,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addStructureTab: (connectionId, database, tableName) => {
     const existing = get().tabs.find(
       (t) =>
-        t.type === 'structure' &&
-        t.connectionId === connectionId &&
-        t.database === database &&
-        t.tableName === tableName,
+        t.type === "structure"
+        && t.connectionId === connectionId
+        && t.database === database
+        && t.tableName === tableName,
     );
     if (existing) {
       set({ activeTabId: existing.id });
@@ -128,7 +128,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       connectionId,
       database,
       tableName,
-      type: 'structure',
+      type: "structure",
       isDirty: false,
     };
     set((state) => ({
@@ -141,11 +141,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addRoutineTab: (connectionId, database, routineName, routineType) => {
     const existing = get().tabs.find(
       (t) =>
-        t.type === 'routine' &&
-        t.connectionId === connectionId &&
-        t.database === database &&
-        t.routineName === routineName &&
-        t.routineType === routineType,
+        t.type === "routine"
+        && t.connectionId === connectionId
+        && t.database === database
+        && t.routineName === routineName
+        && t.routineType === routineType,
     );
     if (existing) {
       set({ activeTabId: existing.id });
@@ -153,7 +153,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     tabCounter++;
     const id = `tab-${tabCounter}`;
-    const icon = routineType === 'PROCEDURE' ? '⚙' : 'ƒ';
+    const icon = routineType === "PROCEDURE" ? "⚙" : "ƒ";
     const tab: EditorTab = {
       id,
       title: `${icon} ${routineName}`,
@@ -162,7 +162,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       database,
       routineName,
       routineType,
-      type: 'routine',
+      type: "routine",
       isDirty: false,
     };
     set((state) => ({
@@ -174,7 +174,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   addAdminTab: (connectionId) => {
     const existing = get().tabs.find(
-      (t) => t.type === 'admin' && t.connectionId === connectionId,
+      (t) => t.type === "admin" && t.connectionId === connectionId,
     );
     if (existing) {
       set({ activeTabId: existing.id });
@@ -187,7 +187,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       title: "🔧 Admin",
       content: "",
       connectionId,
-      type: 'admin',
+      type: "admin",
       isDirty: false,
     };
     set((state) => ({
@@ -198,7 +198,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   addCompareTab: () => {
-    const existing = get().tabs.find((t) => t.type === 'compare');
+    const existing = get().tabs.find((t) => t.type === "compare");
     if (existing) {
       set({ activeTabId: existing.id });
       return existing.id;
@@ -209,7 +209,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       id,
       title: "⇄ Compare",
       content: "",
-      type: 'compare',
+      type: "compare",
       isDirty: false,
     };
     set((state) => ({
@@ -222,10 +222,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addDesignerTab: (connectionId, database, tableName?) => {
     const existing = get().tabs.find(
       (t) =>
-        t.type === 'designer' &&
-        t.connectionId === connectionId &&
-        t.database === database &&
-        t.tableName === (tableName || undefined),
+        t.type === "designer"
+        && t.connectionId === connectionId
+        && t.database === database
+        && t.tableName === (tableName || undefined),
     );
     if (existing) {
       set({ activeTabId: existing.id });
@@ -241,7 +241,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       connectionId,
       database,
       tableName: tableName || undefined,
-      type: 'designer',
+      type: "designer",
       isDirty: false,
     };
     set((state) => ({
@@ -254,9 +254,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addQueryBuilderTab: (connectionId, database) => {
     const { tabs: existingTabs } = get();
     const existing = existingTabs.find(
-      (t) => t.type === "querybuilder" &&
-        t.connectionId === connectionId &&
-        t.database === database,
+      (t) =>
+        t.type === "querybuilder"
+        && t.connectionId === connectionId
+        && t.database === database,
     );
     if (existing) {
       set({ activeTabId: existing.id });
@@ -284,17 +285,16 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => {
       const tabToClose = state.tabs.find((t) => t.id === id);
       // Don't close the last query tab
-      if (tabToClose?.type === 'query') {
-        const queryTabs = state.tabs.filter((t) => t.type === 'query');
+      if (tabToClose?.type === "query") {
+        const queryTabs = state.tabs.filter((t) => t.type === "query");
         if (queryTabs.length <= 1) return state;
       }
       const newTabs = state.tabs.filter((t) => t.id !== id);
-      const newActiveId =
-        state.activeTabId === id
-          ? newTabs.length > 0
-            ? newTabs[newTabs.length - 1].id
-            : null
-          : state.activeTabId;
+      const newActiveId = state.activeTabId === id
+        ? newTabs.length > 0
+          ? newTabs[newTabs.length - 1].id
+          : null
+        : state.activeTabId;
       return { tabs: newTabs, activeTabId: newActiveId };
     });
   },
@@ -319,9 +319,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // Close all tabs of same type to the right
       const newTabs = state.tabs.filter(
         (t, i) =>
-          i <= idx ||
-          t.type !== tab.type ||
-          t.type === "query" && state.tabs.filter((x) => x.type === "query").length <= 2,
+          i <= idx
+          || t.type !== tab.type
+          || t.type === "query" && state.tabs.filter((x) => x.type === "query").length <= 2,
       );
       return { tabs: newTabs, activeTabId: id };
     });
@@ -331,9 +331,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   updateTabContent: (id, content) => {
     set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === id ? { ...t, content, isDirty: true } : t,
-      ),
+      tabs: state.tabs.map((t) => t.id === id ? { ...t, content, isDirty: true } : t),
     }));
   },
 
@@ -342,7 +340,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       tabs: state.tabs.map((t) =>
         t.id === id
           ? { ...t, connectionId, database, ...(profileId !== undefined ? { profileId } : {}) }
-          : t,
+          : t
       ),
     }));
   },
@@ -351,16 +349,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTabDirty: (tabId, dirty) =>
     set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === tabId ? { ...t, isDirty: dirty } : t,
-      ),
+      tabs: state.tabs.map((t) => t.id === tabId ? { ...t, isDirty: dirty } : t),
     })),
 
   renameTab: (tabId, newTitle) =>
     set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === tabId ? { ...t, title: newTitle } : t,
-      ),
+      tabs: state.tabs.map((t) => t.id === tabId ? { ...t, title: newTitle } : t),
     })),
 
   reorderTabs: (fromIndex, toIndex) =>

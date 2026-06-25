@@ -1,5 +1,5 @@
+import { Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useState } from "react";
-import { X, Loader2, Eye, EyeOff } from "lucide-react";
 import { api } from "../../lib/tauri-api";
 import { escapeIdentifier } from "./userPrivileges";
 
@@ -33,7 +33,9 @@ export function ChangePasswordDialog({
     setSaving(true);
     setError(null);
     try {
-      const sql = `ALTER USER ${escapeIdentifier(user)}@${escapeIdentifier(host)} IDENTIFIED BY ${escapeIdentifier(password)}`;
+      const sql = `ALTER USER ${escapeIdentifier(user)}@${escapeIdentifier(host)} IDENTIFIED BY ${
+        escapeIdentifier(password)
+      }`;
       await api.executeQuery(connectionId, sql);
       onClose();
     } catch (e) {
@@ -83,11 +85,7 @@ export function ChangePasswordDialog({
                 onClick={() => setShowPassword(!showPassword)}
                 className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
               >
-                {showPassword ? (
-                  <EyeOff className="h-3.5 w-3.5" />
-                ) : (
-                  <Eye className="h-3.5 w-3.5" />
-                )}
+                {showPassword ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
               </button>
             </div>
           </div>

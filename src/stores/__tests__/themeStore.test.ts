@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("themeStore", () => {
   let useThemeStore: typeof import("../themeStore").useThemeStore;
@@ -142,24 +142,26 @@ describe("themeStore", () => {
     const mod = await import("../themeStore");
     expect(() => mod.useThemeStore.getState().setTheme("light")).not.toThrow();
     expect(mod.useThemeStore.getState().theme).toBe("light");
-});
+  });
 
-it("cleanupThemeListener removes the matchMedia change listener", async () => {
+  it("cleanupThemeListener removes the matchMedia change listener", async () => {
     const removeEventListener = vi.fn();
     let registeredHandler: (() => void) | null = null;
 
-    vi.spyOn(window, "matchMedia").mockImplementation((query) => ({
-      matches: true,
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: (_event: string, handler: () => void) => {
-        registeredHandler = handler;
-      },
-      removeEventListener,
-      dispatchEvent: vi.fn(),
-    }) as unknown as MediaQueryList);
+    vi.spyOn(window, "matchMedia").mockImplementation((query) =>
+      ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: (_event: string, handler: () => void) => {
+          registeredHandler = handler;
+        },
+        removeEventListener,
+        dispatchEvent: vi.fn(),
+      }) as unknown as MediaQueryList
+    );
 
     vi.resetModules();
     const mod = await import("../themeStore");

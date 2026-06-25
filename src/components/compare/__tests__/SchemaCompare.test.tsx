@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SchemaCompare } from "../SchemaCompare";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -40,10 +40,10 @@ vi.mock("../SyncPreview", () => ({
   ),
 }));
 
-import { api } from "../../../lib/tauri-api";
-import { useConnectionStore } from "../../../stores/connectionStore";
 import { compareSchemas } from "../../../lib/schema-diff";
 import { generateSyncSQL } from "../../../lib/sync-sql-generator";
+import { api } from "../../../lib/tauri-api";
+import { useConnectionStore } from "../../../stores/connectionStore";
 
 describe("SchemaCompare", () => {
   beforeEach(() => {
@@ -52,8 +52,24 @@ describe("SchemaCompare", () => {
     vi.mocked(useConnectionStore).mockImplementation((selector) => {
       const state = {
         activeConnections: [
-          { id: "conn-1", name: "Production DB", host: "prod", port: 3306, server_version: "8.0", connected_at: "2024-01-01", profile_id: "p1" },
-          { id: "conn-2", name: "Staging DB", host: "staging", port: 3306, server_version: "8.0", connected_at: "2024-01-01", profile_id: "p2" },
+          {
+            id: "conn-1",
+            name: "Production DB",
+            host: "prod",
+            port: 3306,
+            server_version: "8.0",
+            connected_at: "2024-01-01",
+            profile_id: "p1",
+          },
+          {
+            id: "conn-2",
+            name: "Staging DB",
+            host: "staging",
+            port: 3306,
+            server_version: "8.0",
+            connected_at: "2024-01-01",
+            profile_id: "p2",
+          },
         ],
       };
       if (typeof selector === "function") return selector(state);
@@ -108,7 +124,16 @@ describe("SchemaCompare", () => {
       { name: "users", table_type: "BASE TABLE", engine: "InnoDB", row_count: 100, data_size: 1024, comment: "" },
     ]);
     vi.mocked(api.getColumns).mockResolvedValue([
-      { name: "id", data_type: "int", column_type: "INT", nullable: false, is_primary_key: true, default_value: undefined, extra: "", comment: "" },
+      {
+        name: "id",
+        data_type: "int",
+        column_type: "INT",
+        nullable: false,
+        is_primary_key: true,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
     ]);
     vi.mocked(api.getIndexes).mockResolvedValue([
       { name: "PRIMARY", columns: ["id"], is_unique: true, index_type: "BTREE" },

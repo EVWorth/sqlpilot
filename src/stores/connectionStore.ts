@@ -1,10 +1,6 @@
 import { create } from "zustand";
-import type {
-  ConnectionProfile,
-  ConnectionProfileSummary,
-  ConnectionInfo,
-} from "../types";
 import { api } from "../lib/tauri-api";
+import type { ConnectionInfo, ConnectionProfile, ConnectionProfileSummary } from "../types";
 
 interface ConnectionState {
   profiles: ConnectionProfileSummary[];
@@ -83,10 +79,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         activeConnections: state.activeConnections.filter(
           (c) => c.id !== connectionId,
         ),
-        selectedConnectionId:
-          state.selectedConnectionId === connectionId
-            ? null
-            : state.selectedConnectionId,
+        selectedConnectionId: state.selectedConnectionId === connectionId
+          ? null
+          : state.selectedConnectionId,
         loading: false,
       }));
     } catch (e) {

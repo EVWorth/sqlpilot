@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useRef } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { SqlValue } from "../types";
 
 export interface CellChange {
@@ -155,7 +155,12 @@ export function useGridEditing() {
               else next.set(action.rowIndex, rowChanges);
             }
           } else {
-            const change: CellChange = { rowIndex: action.rowIndex, column: action.column, originalValue: action.oldValue, newValue: action.newValue };
+            const change: CellChange = {
+              rowIndex: action.rowIndex,
+              column: action.column,
+              originalValue: action.oldValue,
+              newValue: action.newValue,
+            };
             if (existing >= 0) rowChanges[existing] = change;
             else rowChanges.push(change);
             next.set(action.rowIndex, rowChanges);

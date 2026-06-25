@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ErrorBoundary } from "../ErrorBoundary";
 
 function BuggyComponent({ shouldThrow }: { shouldThrow: boolean }) {

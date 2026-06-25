@@ -46,9 +46,20 @@ export interface TableDesignerConfig {
 }
 
 const TYPES_WITH_LENGTH = new Set([
-  "VARCHAR", "CHAR", "DECIMAL", "FLOAT", "DOUBLE",
-  "INT", "BIGINT", "TINYINT", "SMALLINT", "MEDIUMINT",
-  "BINARY", "VARBINARY", "ENUM", "SET",
+  "VARCHAR",
+  "CHAR",
+  "DECIMAL",
+  "FLOAT",
+  "DOUBLE",
+  "INT",
+  "BIGINT",
+  "TINYINT",
+  "SMALLINT",
+  "MEDIUMINT",
+  "BINARY",
+  "VARBINARY",
+  "ENUM",
+  "SET",
 ]);
 
 function escId(name: string): string {
@@ -80,10 +91,10 @@ function buildColumnDef(col: DesignerColumn): string {
   } else if (col.defaultValue !== "") {
     const upper = col.defaultValue.toUpperCase();
     if (
-      upper === "NULL" ||
-      upper === "CURRENT_TIMESTAMP" ||
-      upper === "CURRENT_TIMESTAMP()" ||
-      upper.startsWith("CURRENT_TIMESTAMP ON")
+      upper === "NULL"
+      || upper === "CURRENT_TIMESTAMP"
+      || upper === "CURRENT_TIMESTAMP()"
+      || upper.startsWith("CURRENT_TIMESTAMP ON")
     ) {
       parts.push(`DEFAULT ${col.defaultValue}`);
     } else {
@@ -111,9 +122,9 @@ function buildForeignKeyDef(fk: DesignerForeignKey): string {
   const cols = fk.columns.map(escId).join(", ");
   const refCols = fk.referenceColumns.map(escId).join(", ");
   return (
-    `CONSTRAINT ${escId(fk.name)} FOREIGN KEY (${cols}) ` +
-    `REFERENCES ${escId(fk.referenceTable)} (${refCols}) ` +
-    `ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
+    `CONSTRAINT ${escId(fk.name)} FOREIGN KEY (${cols}) `
+    + `REFERENCES ${escId(fk.referenceTable)} (${refCols}) `
+    + `ON DELETE ${fk.onDelete} ON UPDATE ${fk.onUpdate}`
   );
 }
 
@@ -303,31 +314,31 @@ export function generateAlterTable(
 
 function isColumnChanged(a: DesignerColumn, b: DesignerColumn): boolean {
   return (
-    a.name !== b.name ||
-    a.type !== b.type ||
-    a.length !== b.length ||
-    a.nullable !== b.nullable ||
-    a.defaultValue !== b.defaultValue ||
-    a.autoIncrement !== b.autoIncrement ||
-    a.comment !== b.comment
+    a.name !== b.name
+    || a.type !== b.type
+    || a.length !== b.length
+    || a.nullable !== b.nullable
+    || a.defaultValue !== b.defaultValue
+    || a.autoIncrement !== b.autoIncrement
+    || a.comment !== b.comment
   );
 }
 
 function isIndexChanged(a: DesignerIndex, b: DesignerIndex): boolean {
   return (
-    a.name !== b.name ||
-    a.type !== b.type ||
-    a.columns.join(",") !== b.columns.join(",")
+    a.name !== b.name
+    || a.type !== b.type
+    || a.columns.join(",") !== b.columns.join(",")
   );
 }
 
 function isFkChanged(a: DesignerForeignKey, b: DesignerForeignKey): boolean {
   return (
-    a.name !== b.name ||
-    a.columns.join(",") !== b.columns.join(",") ||
-    a.referenceTable !== b.referenceTable ||
-    a.referenceColumns.join(",") !== b.referenceColumns.join(",") ||
-    a.onDelete !== b.onDelete ||
-    a.onUpdate !== b.onUpdate
+    a.name !== b.name
+    || a.columns.join(",") !== b.columns.join(",")
+    || a.referenceTable !== b.referenceTable
+    || a.referenceColumns.join(",") !== b.referenceColumns.join(",")
+    || a.onDelete !== b.onDelete
+    || a.onUpdate !== b.onUpdate
   );
 }

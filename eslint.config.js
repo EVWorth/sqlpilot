@@ -1,6 +1,6 @@
 import js from "@eslint/js";
-import tseslint from "typescript-eslint";
 import reactHooks from "eslint-plugin-react-hooks";
+import tseslint from "typescript-eslint";
 
 export default tseslint.config(
   { ignores: ["dist", "node_modules", "src-tauri"] },
@@ -17,5 +17,5 @@ export default tseslint.config(
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "warn",
     },
-  }
+  },
 );

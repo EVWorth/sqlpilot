@@ -1,26 +1,26 @@
-import { useState, useCallback, useEffect } from "react";
-import { Group, Panel, Separator } from "react-resizable-panels";
-import { Sidebar } from "./Sidebar";
-import { StatusBar } from "./StatusBar";
-import { MainPanel } from "./MainPanel";
-import { Toolbar } from "./Toolbar";
-import { TitleBar } from "./TitleBar";
-import { ConnectionTabs } from "./ConnectionTabs";
-import { ShortcutsDialog } from "../common/ShortcutsDialog";
-import { ConfirmDialog } from "../common/ConfirmDialog";
-import { ImportDialog } from "../import/ImportDialog";
-import { BackupDialog } from "../backup/BackupDialog";
-import { RestoreDialog } from "../backup/RestoreDialog";
-import { AIChatPanel } from "../ai/AIChatPanel";
-import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import { useTheme } from "../../hooks/useTheme";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { useResultStore } from "../../stores/resultStore";
-import { useEditorStore } from "../../stores/editorStore";
-import { useAiStore } from "../../stores/aiStore";
-import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { useCallback, useEffect, useState } from "react";
+import { Group, Panel, Separator } from "react-resizable-panels";
+import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { useTheme } from "../../hooks/useTheme";
+import { useAiStore } from "../../stores/aiStore";
+import { useConnectionStore } from "../../stores/connectionStore";
+import { useEditorStore } from "../../stores/editorStore";
+import { useResultStore } from "../../stores/resultStore";
+import { AIChatPanel } from "../ai/AIChatPanel";
+import { BackupDialog } from "../backup/BackupDialog";
+import { RestoreDialog } from "../backup/RestoreDialog";
+import { ConfirmDialog } from "../common/ConfirmDialog";
+import { ShortcutsDialog } from "../common/ShortcutsDialog";
+import { ImportDialog } from "../import/ImportDialog";
+import { ConnectionTabs } from "./ConnectionTabs";
+import { MainPanel } from "./MainPanel";
+import { Sidebar } from "./Sidebar";
+import { StatusBar } from "./StatusBar";
+import { TitleBar } from "./TitleBar";
+import { Toolbar } from "./Toolbar";
 
 const isMac = navigator.platform.toLowerCase().includes("mac");
 
@@ -58,7 +58,10 @@ export function AppLayout() {
     () => setAiPanelOpen((prev) => !prev),
     [],
   );
-  const openShortcuts = useCallback(() => { setHelpTab("shortcuts"); setShowShortcuts(true); }, []);
+  const openShortcuts = useCallback(() => {
+    setHelpTab("shortcuts");
+    setShowShortcuts(true);
+  }, []);
   const openImport = useCallback(() => setShowImport(true), []);
   const openBackup = useCallback(() => {
     setBackupPreselect({});
@@ -242,7 +245,16 @@ export function AppLayout() {
               <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
             </>
           )}
-          <Panel defaultSize={sidebarCollapsed && !(aiPanelOpen && aiEnabled) ? "100%" : sidebarCollapsed ? "75%" : aiPanelOpen && aiEnabled ? "55%" : "80%"} minSize="30%">
+          <Panel
+            defaultSize={sidebarCollapsed && !(aiPanelOpen && aiEnabled)
+              ? "100%"
+              : sidebarCollapsed
+              ? "75%"
+              : aiPanelOpen && aiEnabled
+              ? "55%"
+              : "80%"}
+            minSize="30%"
+          >
             <MainPanel />
           </Panel>
           {aiEnabled && aiPanelOpen && (

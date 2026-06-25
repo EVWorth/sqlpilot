@@ -1,15 +1,8 @@
-import { useState, useCallback } from "react";
-import {
-  Copy,
-  Check,
-  ChevronLeft,
-  AlertTriangle,
-  Loader2,
-  Play,
-} from "lucide-react";
+import { AlertTriangle, Check, ChevronLeft, Copy, Loader2, Play } from "lucide-react";
+import { useCallback, useState } from "react";
+import type { SyncStatement } from "../../lib/sync-sql-generator";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
-import type { SyncStatement } from "../../lib/sync-sql-generator";
 
 interface SyncPreviewProps {
   statements: SyncStatement[];
@@ -181,12 +174,8 @@ export function SyncPreview({ statements, targetConnectionId, targetDatabase, on
                     <span className="text-[11px] text-[var(--color-text-secondary)]">
                       {stmt.objectType} {stmt.objectName}
                     </span>
-                    {stmt.destructive && (
-                      <AlertTriangle className="h-3 w-3 text-red-400" />
-                    )}
-                    {result?.success === true && (
-                      <Check className="h-3 w-3 text-green-400" />
-                    )}
+                    {stmt.destructive && <AlertTriangle className="h-3 w-3 text-red-400" />}
+                    {result?.success === true && <Check className="h-3 w-3 text-green-400" />}
                   </div>
                   <pre className="overflow-x-auto whitespace-pre-wrap text-[11px] text-[var(--color-text-primary)] font-mono leading-relaxed">
                     {stmt.sql}

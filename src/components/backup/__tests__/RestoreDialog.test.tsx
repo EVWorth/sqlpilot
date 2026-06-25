@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeAll } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { RestoreDialog } from "../RestoreDialog";
 
 const { useConnectionStoreFn } = vi.hoisted(() => {
@@ -28,9 +28,17 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 beforeAll(() => {
   useConnectionStoreFn.mockImplementation((s: (v: any) => unknown) =>
     s({
-      activeConnections: [{ id: "conn1", profile_id: "p1", name: "My DB", host: "localhost", port: 3306, server_version: "8.0", connected_at: new Date().toISOString() }],
+      activeConnections: [{
+        id: "conn1",
+        profile_id: "p1",
+        name: "My DB",
+        host: "localhost",
+        port: 3306,
+        server_version: "8.0",
+        connected_at: new Date().toISOString(),
+      }],
       selectedConnectionId: "conn1",
-    }),
+    })
   );
 });
 

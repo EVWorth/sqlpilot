@@ -1,0 +1,32 @@
+pre-commit:
+  commands:
+    dprint:
+      glob: "*.{ts,tsx,js,jsx,json,yml,yaml,md,toml}"
+      run: npx dprint check --list-different
+    cargo-fmt:
+      root: "src-tauri/"
+      glob: "*.rs"
+      run: cargo fmt --check
+    lockfile-check:
+      glob: "package.json"
+      run: |
+        if ! git diff --cached --name-only | grep -q "package.json"; then exit 0; fi
+        if ! git diff --cached --name-only | grep -q "package-lock.json"; then
+          echo "package.json changed but package-lock.json is not updated!"
+          echo "Run: npm install"
+          exit 1
+        fi
+    version-check:
+      glob: "{package.json,src-tauri/tauri.conf.json,src-tauri/Cargo.toml}"
+      run: |
+        jsver=$(node -p "require('./package.json').version")
+        rsver=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        taver=$(node -p "require('./src-tauri/tauri.conf.json').version")
+        if [ "$jsver" != "$rsver" ] || [ "$jsver" != "$taver" ]; then
+          echo "Version mismatch!"
+          echo "  package.json:       $jsver"
+          echo "  Cargo.toml:         $rsver"
+          echo "  tauri.conf.json:    $taver"
+          echo "Run: make bump"
+          exit 1
+        fi

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ChangePasswordDialog } from "../ChangePasswordDialog";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -83,7 +83,7 @@ describe("ChangePasswordDialog", () => {
     const newPasswordInput = screen.getAllByDisplayValue("")[0];
     expect(newPasswordInput.getAttribute("type")).toBe("password");
 
-    const eyeButton = document.querySelector('button.absolute') as HTMLButtonElement;
+    const eyeButton = document.querySelector("button.absolute") as HTMLButtonElement;
     if (eyeButton) fireEvent.click(eyeButton);
 
     expect(newPasswordInput.getAttribute("type")).toBe("text");

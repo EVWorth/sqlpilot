@@ -1,15 +1,15 @@
-import { useCallback, useEffect, useRef } from "react";
 import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
 import type { editor, IDisposable } from "monaco-editor";
+import { useCallback, useEffect, useRef } from "react";
 import { format } from "sql-formatter";
-import { postProcessSQL } from "../../lib/sql-post-process";
-import { useEditorStore } from "../../stores/editorStore";
-import { useResultStore } from "../../stores/resultStore";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { useThemeStore } from "../../stores/themeStore";
-import { useSettingsStore } from "../../stores/settingsStore";
 import { useSchemaCache } from "../../hooks/useSchemaCache";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
+import { postProcessSQL } from "../../lib/sql-post-process";
+import { useConnectionStore } from "../../stores/connectionStore";
+import { useEditorStore } from "../../stores/editorStore";
+import { useResultStore } from "../../stores/resultStore";
+import { useSettingsStore } from "../../stores/settingsStore";
+import { useThemeStore } from "../../stores/themeStore";
 
 export function SQLEditor() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -24,7 +24,7 @@ export function SQLEditor() {
 
   // Debounce store updates on keystroke to avoid excessive re-renders
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingRef = useRef<string>('');
+  const pendingRef = useRef<string>("");
   useEffect(() => {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -110,10 +110,8 @@ export function SQLEditor() {
             sql = model?.getValue() ?? "";
           }
           // Read current state directly to avoid stale closure
-          const connectionId =
-            useConnectionStore.getState().selectedConnectionId;
-          const { tabs: editorTabs, activeTabId: editorActiveTabId } =
-            useEditorStore.getState();
+          const connectionId = useConnectionStore.getState().selectedConnectionId;
+          const { tabs: editorTabs, activeTabId: editorActiveTabId } = useEditorStore.getState();
           const editorActiveTab = editorTabs.find((t) => t.id === editorActiveTabId);
           if (sql.trim() && connectionId) {
             useResultStore.getState().executeQuery(connectionId, sql, editorActiveTab?.database);
@@ -173,8 +171,7 @@ export function SQLEditor() {
           } else {
             sql = model?.getValue() ?? "";
           }
-          const connectionId =
-            useConnectionStore.getState().selectedConnectionId;
+          const connectionId = useConnectionStore.getState().selectedConnectionId;
           if (sql.trim() && connectionId) {
             useResultStore.getState().executeExplain(connectionId, sql);
           }
@@ -218,8 +215,7 @@ export function SQLEditor() {
       onMount={handleMount}
       options={{
         fontSize: 13,
-        fontFamily:
-          "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
+        fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
         minimap: { enabled: false },
         lineNumbers: "on",
         renderLineHighlight: "line",

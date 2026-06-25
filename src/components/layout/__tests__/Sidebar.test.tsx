@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const sidebarState = {
   profiles: [] as any[],
@@ -93,8 +93,8 @@ vi.mock("../../../lib/utils", () => ({
   cn: vi.fn((...args: (string | false | null | undefined)[]) => args.filter(Boolean).join(" ")),
 }));
 
-import { Sidebar } from "../Sidebar";
 import { api } from "../../../lib/tauri-api";
+import { Sidebar } from "../Sidebar";
 
 describe("Sidebar", () => {
   beforeEach(() => {
@@ -215,7 +215,7 @@ describe("Sidebar", () => {
 
     it("shows profile color indicator when available", () => {
       render(<Sidebar />);
-      const colorDot = document.querySelector('span[style*="background-color"]');
+      const colorDot = document.querySelector("span[style*=\"background-color\"]");
       expect(colorDot).toBeTruthy();
     });
 

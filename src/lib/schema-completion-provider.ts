@@ -162,8 +162,7 @@ type Context = "table" | "column" | "database" | "general";
 
 const TABLE_CONTEXTS =
   /\b(?:FROM|JOIN|INNER\s+JOIN|LEFT\s+JOIN|RIGHT\s+JOIN|CROSS\s+JOIN|LEFT\s+OUTER\s+JOIN|RIGHT\s+OUTER\s+JOIN|INTO|UPDATE|TABLE|TRUNCATE|DESCRIBE|DESC|EXPLAIN)\s+$/i;
-const COLUMN_CONTEXTS =
-  /\b(?:SELECT|WHERE|ON|SET|ORDER\s+BY|GROUP\s+BY|HAVING|AND|OR)\s+$/i;
+const COLUMN_CONTEXTS = /\b(?:SELECT|WHERE|ON|SET|ORDER\s+BY|GROUP\s+BY|HAVING|AND|OR)\s+$/i;
 const DATABASE_CONTEXTS = /\b(?:USE|DATABASE)\s+$/i;
 
 function detectContext(textBeforeCursor: string): Context {
@@ -180,8 +179,7 @@ function parseFromTables(sql: string): string[] {
   const found: string[] = [];
   // Match FROM/JOIN followed by an optional db. prefix then the table name.
   // Handles back-tick quoting and aliases.
-  const re =
-    /\b(?:FROM|JOIN)\s+(?:`?\w+`?\.)?`?(\w+)`?(?:\s+(?:AS\s+)?`?\w+`?)?/gi;
+  const re = /\b(?:FROM|JOIN)\s+(?:`?\w+`?\.)?`?(\w+)`?(?:\s+(?:AS\s+)?`?\w+`?)?/gi;
   let m: RegExpExecArray | null;
   while ((m = re.exec(sql)) !== null) {
     const name = m[1];
@@ -252,10 +250,9 @@ export function createCompletionProvider(
               .map((t) => t.toLowerCase())
               .includes(dotPrefix.toLowerCase())
           ) {
-            const tableName =
-              dbTables.find(
-                (t) => t.toLowerCase() === dotPrefix.toLowerCase(),
-              ) ?? dotPrefix;
+            const tableName = dbTables.find(
+              (t) => t.toLowerCase() === dotPrefix.toLowerCase(),
+            ) ?? dotPrefix;
             const cols = await schemaData.fetchColumns(
               connectionId,
               db,
@@ -347,8 +344,8 @@ export function createCompletionProvider(
 
       // Table suggestions for general/column contexts (lower priority)
       if (
-        connectionId &&
-        (context === "column" || context === "general")
+        connectionId
+        && (context === "column" || context === "general")
       ) {
         const tablePriority = context === "general" ? "2" : "3";
         for (const [db, dbTables] of tables.entries()) {
@@ -435,8 +432,7 @@ export function createCompletionProvider(
             label: fn.name,
             kind: monaco.languages.CompletionItemKind.Function,
             insertText: fn.name + "(${1})",
-            insertTextRules:
-              monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
             range,
             detail: fn.detail,
             sortText: String(priority) + fn.name,
@@ -459,5 +455,5 @@ function buildColumnDoc(col: ColumnInfo): string {
   return parts.join(" | ");
 }
 
-export { MYSQL_KEYWORDS, MYSQL_FUNCTIONS, detectContext, findDotPrefix, parseFromTables };
+export { detectContext, findDotPrefix, MYSQL_FUNCTIONS, MYSQL_KEYWORDS, parseFromTables };
 export type { Context };

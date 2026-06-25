@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { escapeValue, escapeIdentifier } from "../backup-generator";
+import { describe, expect, it } from "vitest";
+import { escapeIdentifier, escapeValue } from "../backup-generator";
 
 describe("escapeValue", () => {
   it("returns NULL for null", () => {

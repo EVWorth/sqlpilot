@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CreateUserDialog } from "../CreateUserDialog";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -58,14 +58,14 @@ describe("CreateUserDialog", () => {
   it("renders password inputs", () => {
     render(<CreateUserDialog {...mockProps} />);
     // The username uses type="text" and there are password inputs
-    const textInputs = document.querySelectorAll('input[type="text"]');
-    const passwordInputs = document.querySelectorAll('input[type="password"]');
+    const textInputs = document.querySelectorAll("input[type=\"text\"]");
+    const passwordInputs = document.querySelectorAll("input[type=\"password\"]");
     expect(textInputs.length + passwordInputs.length).toBeGreaterThanOrEqual(2);
   });
 
   it("shows password mismatch error", () => {
     render(<CreateUserDialog {...mockProps} />);
-    const passwordInputs = document.querySelectorAll('input[type="password"]') as NodeListOf<HTMLInputElement>;
+    const passwordInputs = document.querySelectorAll("input[type=\"password\"]") as NodeListOf<HTMLInputElement>;
     if (passwordInputs.length >= 2) {
       fireEvent.change(passwordInputs[0], { target: { value: "pass1" } });
       fireEvent.change(passwordInputs[1], { target: { value: "pass2" } });
@@ -93,7 +93,7 @@ describe("CreateUserDialog", () => {
     fireEvent.change(screen.getByPlaceholderText("e.g. app_user"), {
       target: { value: "newuser" },
     });
-    const passwordInputs = document.querySelectorAll('input[type="password"]') as NodeListOf<HTMLInputElement>;
+    const passwordInputs = document.querySelectorAll("input[type=\"password\"]") as NodeListOf<HTMLInputElement>;
     if (passwordInputs.length >= 2) {
       fireEvent.change(passwordInputs[0], { target: { value: "pass123" } });
       fireEvent.change(passwordInputs[1], { target: { value: "pass123" } });
@@ -110,7 +110,7 @@ describe("CreateUserDialog", () => {
     fireEvent.change(screen.getByPlaceholderText("e.g. app_user"), {
       target: { value: "newuser" },
     });
-    const passwordInputs = document.querySelectorAll('input[type="password"]') as NodeListOf<HTMLInputElement>;
+    const passwordInputs = document.querySelectorAll("input[type=\"password\"]") as NodeListOf<HTMLInputElement>;
     if (passwordInputs.length >= 2) {
       fireEvent.change(passwordInputs[0], { target: { value: "pass123" } });
       fireEvent.change(passwordInputs[1], { target: { value: "pass123" } });
@@ -136,7 +136,7 @@ describe("CreateUserDialog", () => {
     fireEvent.change(screen.getByPlaceholderText("e.g. app_user"), {
       target: { value: "existing" },
     });
-    const passwordInputs = document.querySelectorAll('input[type="password"]') as NodeListOf<HTMLInputElement>;
+    const passwordInputs = document.querySelectorAll("input[type=\"password\"]") as NodeListOf<HTMLInputElement>;
     if (passwordInputs.length >= 2) {
       fireEvent.change(passwordInputs[0], { target: { value: "pass123" } });
       fireEvent.change(passwordInputs[1], { target: { value: "pass123" } });
@@ -157,7 +157,7 @@ describe("CreateUserDialog", () => {
     fireEvent.change(screen.getByPlaceholderText("e.g. app_user"), {
       target: { value: "newuser" },
     });
-    const passwordInputs = document.querySelectorAll('input[type="password"]') as NodeListOf<HTMLInputElement>;
+    const passwordInputs = document.querySelectorAll("input[type=\"password\"]") as NodeListOf<HTMLInputElement>;
     if (passwordInputs.length >= 2) {
       fireEvent.change(passwordInputs[0], { target: { value: "pass123" } });
       fireEvent.change(passwordInputs[1], { target: { value: "pass123" } });
@@ -184,12 +184,12 @@ describe("CreateUserDialog", () => {
     fireEvent.change(screen.getByPlaceholderText("e.g. app_user"), {
       target: { value: "newuser" },
     });
-    const passwordInputs = document.querySelectorAll('input[type="password"]') as NodeListOf<HTMLInputElement>;
+    const passwordInputs = document.querySelectorAll("input[type=\"password\"]") as NodeListOf<HTMLInputElement>;
     if (passwordInputs.length >= 2) {
       fireEvent.change(passwordInputs[0], { target: { value: "pass123" } });
       fireEvent.change(passwordInputs[1], { target: { value: "pass123" } });
     }
-    const checkbox = document.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    const checkbox = document.querySelector("input[type=\"checkbox\"]") as HTMLInputElement;
     if (checkbox) fireEvent.click(checkbox);
 
     const buttons = screen.getAllByText("Create User");

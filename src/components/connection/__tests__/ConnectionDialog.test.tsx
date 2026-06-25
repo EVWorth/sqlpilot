@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionDialog } from "../ConnectionDialog";
 
 vi.mock("../../stores/connectionStore", () => ({
@@ -37,8 +37,16 @@ describe("ConnectionDialog", () => {
         isOpen={true}
         onClose={vi.fn()}
         editProfile={{
-          id: "p1", name: "Existing DB", host: "db.example.com", port: 3306, username: "admin",
-          pool_min: 1, pool_max: 5, read_only: false, created_at: "2023-01-01", updated_at: "2023-01-01",
+          id: "p1",
+          name: "Existing DB",
+          host: "db.example.com",
+          port: 3306,
+          username: "admin",
+          pool_min: 1,
+          pool_max: 5,
+          read_only: false,
+          created_at: "2023-01-01",
+          updated_at: "2023-01-01",
         }}
       />,
     );
@@ -160,10 +168,18 @@ describe("ConnectionDialog", () => {
           isOpen={true}
           onClose={vi.fn()}
           editProfile={{
-            id: "p1", name: "Existing DB", host: "db.example.com", port: 5432, username: "dbadmin",
-            password: "secret", default_database: "mydb",
-            pool_min: 3, pool_max: 10, read_only: true,
-            created_at: "2023-01-01", updated_at: "2023-01-01",
+            id: "p1",
+            name: "Existing DB",
+            host: "db.example.com",
+            port: 5432,
+            username: "dbadmin",
+            password: "secret",
+            default_database: "mydb",
+            pool_min: 3,
+            pool_max: 10,
+            read_only: true,
+            created_at: "2023-01-01",
+            updated_at: "2023-01-01",
           }}
         />,
       );
@@ -242,13 +258,13 @@ describe("ConnectionDialog", () => {
   describe("color picker", () => {
     it("renders color buttons for preset colors", () => {
       render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
-      const colorBtns = document.querySelectorAll('[title="#3B82F6"]');
+      const colorBtns = document.querySelectorAll("[title=\"#3B82F6\"]");
       expect(colorBtns.length).toBeGreaterThan(0);
     });
 
     it("shows Clear button when color is selected", () => {
       render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
-      const colorBtn = document.querySelector('[title="#F97316"]');
+      const colorBtn = document.querySelector("[title=\"#F97316\"]");
       if (colorBtn) fireEvent.click(colorBtn);
       expect(screen.getByText("Clear")).toBeInTheDocument();
     });

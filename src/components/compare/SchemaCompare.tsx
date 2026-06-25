@@ -1,21 +1,14 @@
-import { useState, useCallback } from "react";
-import {
-  ArrowLeftRight,
-  Loader2,
-  ChevronDown,
-  ChevronRight,
-  AlertTriangle,
-  Play,
-} from "lucide-react";
-import { api } from "../../lib/tauri-api";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { cn } from "../../lib/utils";
+import { AlertTriangle, ArrowLeftRight, ChevronDown, ChevronRight, Loader2, Play } from "lucide-react";
+import { useCallback, useState } from "react";
 import { compareSchemas } from "../../lib/schema-diff";
+import type { ColumnModification, SchemaComparison, SchemaSnapshot, TableDiff } from "../../lib/schema-diff";
 import { generateSyncSQL } from "../../lib/sync-sql-generator";
-import { SyncPreview } from "./SyncPreview";
-import type { SchemaComparison, SchemaSnapshot, TableDiff, ColumnModification } from "../../lib/schema-diff";
 import type { SyncStatement } from "../../lib/sync-sql-generator";
-import type { DatabaseInfo, ColumnInfo } from "../../types";
+import { api } from "../../lib/tauri-api";
+import { cn } from "../../lib/utils";
+import { useConnectionStore } from "../../stores/connectionStore";
+import type { ColumnInfo, DatabaseInfo } from "../../types";
+import { SyncPreview } from "./SyncPreview";
 
 interface EndpointState {
   connectionId: string;
@@ -233,9 +226,7 @@ function EndpointSelector({
           className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500"
         >
           <option value="">Select connection...</option>
-          {connections.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
+          {connections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <select
           value={state.database}
@@ -244,9 +235,7 @@ function EndpointSelector({
           className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500 disabled:opacity-40"
         >
           <option value="">Select database...</option>
-          {state.databases.map((db) => (
-            <option key={db.name} value={db.name}>{db.name}</option>
-          ))}
+          {state.databases.map((db) => <option key={db.name} value={db.name}>{db.name}</option>)}
         </select>
       </div>
     </div>
@@ -290,24 +279,16 @@ function ComparisonResults({
       {/* Tables Section */}
       {totalChanges > 0 && (
         <DiffSection title="Tables">
-          {t.onlyInSource.map((name) => (
-            <DiffItem key={`src-${name}`} name={name} status="source-only" />
-          ))}
-          {t.onlyInTarget.map((name) => (
-            <DiffItem key={`tgt-${name}`} name={name} status="target-only" />
-          ))}
-          {t.different.map((diff) => (
-            <DiffTableItem key={`diff-${diff.name}`} diff={diff} />
-          ))}
+          {t.onlyInSource.map((name) => <DiffItem key={`src-${name}`} name={name} status="source-only" />)}
+          {t.onlyInTarget.map((name) => <DiffItem key={`tgt-${name}`} name={name} status="target-only" />)}
+          {t.different.map((diff) => <DiffTableItem key={`diff-${diff.name}`} diff={diff} />)}
         </DiffSection>
       )}
 
       {/* Identical tables */}
       {t.identical.length > 0 && (
         <CollapsibleSection title={`Identical Tables (${t.identical.length})`} defaultOpen={false}>
-          {t.identical.map((name) => (
-            <DiffItem key={`id-${name}`} name={name} status="identical" />
-          ))}
+          {t.identical.map((name) => <DiffItem key={`id-${name}`} name={name} status="identical" />)}
         </CollapsibleSection>
       )}
 
@@ -380,25 +361,19 @@ function DiffTableItem({ diff }: { diff: TableDiff }) {
           {diff.columns.added.length > 0 && (
             <div className="mb-2">
               <h4 className="mb-1 text-[10px] font-semibold uppercase text-green-400">Added Columns</h4>
-              {diff.columns.added.map((col) => (
-                <ColumnRow key={col.name} col={col} variant="added" />
-              ))}
+              {diff.columns.added.map((col) => <ColumnRow key={col.name} col={col} variant="added" />)}
             </div>
           )}
           {diff.columns.removed.length > 0 && (
             <div className="mb-2">
               <h4 className="mb-1 text-[10px] font-semibold uppercase text-red-400">Removed Columns</h4>
-              {diff.columns.removed.map((col) => (
-                <ColumnRow key={col.name} col={col} variant="removed" />
-              ))}
+              {diff.columns.removed.map((col) => <ColumnRow key={col.name} col={col} variant="removed" />)}
             </div>
           )}
           {diff.columns.modified.length > 0 && (
             <div className="mb-2">
               <h4 className="mb-1 text-[10px] font-semibold uppercase text-yellow-400">Modified Columns</h4>
-              {diff.columns.modified.map((mod) => (
-                <ModifiedColumnRow key={mod.name} mod={mod} />
-              ))}
+              {diff.columns.modified.map((mod) => <ModifiedColumnRow key={mod.name} mod={mod} />)}
             </div>
           )}
           {/* Index diffs */}
@@ -470,12 +445,8 @@ function ObjectDiffSection<T extends { name: string }>({
     <div>
       {totalChanges > 0 && (
         <DiffSection title={title}>
-          {diff.onlyInSource.map((item) => (
-            <DiffItem key={`src-${item.name}`} name={item.name} status="source-only" />
-          ))}
-          {diff.onlyInTarget.map((item) => (
-            <DiffItem key={`tgt-${item.name}`} name={item.name} status="target-only" />
-          ))}
+          {diff.onlyInSource.map((item) => <DiffItem key={`src-${item.name}`} name={item.name} status="source-only" />)}
+          {diff.onlyInTarget.map((item) => <DiffItem key={`tgt-${item.name}`} name={item.name} status="target-only" />)}
           {diff.different.map((name) => (
             <div key={`diff-${name}`} className="flex items-center justify-between bg-yellow-500/5 px-3 py-1.5 text-xs">
               <span className="text-[var(--color-text-primary)]">{name}</span>
@@ -486,9 +457,7 @@ function ObjectDiffSection<T extends { name: string }>({
       )}
       {diff.identical.length > 0 && (
         <CollapsibleSection title={`Identical ${title} (${diff.identical.length})`} defaultOpen={false}>
-          {diff.identical.map((name) => (
-            <DiffItem key={`id-${name}`} name={name} status="identical" />
-          ))}
+          {diff.identical.map((name) => <DiffItem key={`id-${name}`} name={name} status="identical" />)}
         </CollapsibleSection>
       )}
     </div>

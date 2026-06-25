@@ -1,22 +1,19 @@
-import { useState, useMemo } from "react";
 import {
-  Search,
-  ChevronRight,
   ChevronDown,
+  ChevronRight,
+  Database,
+  FileText,
+  FolderInput,
   FolderPlus,
+  Pencil,
+  Search,
   Star,
   Trash2,
-  Pencil,
-  FolderInput,
-  FileText,
-  Database,
 } from "lucide-react";
-import {
-  useFavoritesStore,
-  type Favorite,
-} from "../../stores/favoritesStore";
-import { useEditorStore } from "../../stores/editorStore";
+import { useMemo, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { useEditorStore } from "../../stores/editorStore";
+import { type Favorite, useFavoritesStore } from "../../stores/favoritesStore";
 
 export function QueryFavorites() {
   const favorites = useFavoritesStore((s) => s.favorites);
@@ -46,9 +43,9 @@ export function QueryFavorites() {
     const q = search.toLowerCase();
     return favorites.filter(
       (f) =>
-        f.name.toLowerCase().includes(q) ||
-        f.sql.toLowerCase().includes(q) ||
-        (f.description?.toLowerCase().includes(q) ?? false),
+        f.name.toLowerCase().includes(q)
+        || f.sql.toLowerCase().includes(q)
+        || (f.description?.toLowerCase().includes(q) ?? false),
     );
   }, [favorites, search]);
 
@@ -189,77 +186,79 @@ export function QueryFavorites() {
 
       {/* Favorites List */}
       <div className="flex-1 overflow-y-auto">
-        {favorites.length === 0 ? (
-          <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
-            No favorites yet. Use ⭐ to save queries.
-          </p>
-        ) : filtered.length === 0 ? (
-          <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
-            No matches
-          </p>
-        ) : (
-          catOrder.map((cat) => {
-            const items = groupedByCategory[cat] ?? [];
-            return (
-              <div key={cat}>
-                <button
-                  onClick={() => toggleCategory(cat)}
-                  onContextMenu={(e) => {
-                    if (cat !== "Uncategorized") {
-                      showContextMenu(e, [
-                        {
-                          label: "Delete Category",
-                          icon: <Trash2 className="h-3.5 w-3.5" />,
-                          danger: true,
-                          onClick: () => deleteCategory(cat),
-                        },
-                      ]);
-                    }
-                  }}
-                  className="flex w-full items-center gap-1 px-2 py-1 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
-                >
-                  {expanded[cat] ? (
-                    <ChevronDown className="h-3 w-3 shrink-0" />
-                  ) : (
-                    <ChevronRight className="h-3 w-3 shrink-0" />
-                  )}
-                  <span className="truncate">{cat}</span>
-                  <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
-                    {items.length}
-                  </span>
-                </button>
-                {expanded[cat] && (
-                  <div className="ml-1">
-                    {items.map((fav) => (
-                      <div
-                        key={fav.id}
-                        onClick={() => handleClick(fav)}
-                        onDoubleClick={(e) => {
-                          e.stopPropagation();
-                          handleDoubleClick(fav);
-                        }}
-                        onContextMenu={(e) => {
-                          const otherCategories = categories.filter(
-                            (c) => c !== fav.category,
-                          );
-                          showContextMenu(e, [
-                            {
-                              label: "Open in New Tab",
-                              icon: <FileText className="h-3.5 w-3.5" />,
-                              onClick: () => handleDoubleClick(fav),
-                            },
-                            {
-                              label: "Rename",
-                              icon: <Pencil className="h-3.5 w-3.5" />,
-                              onClick: () => handleRenameStart(fav),
-                            },
-                            {
-                              label: "Edit Description",
-                              icon: <Pencil className="h-3.5 w-3.5" />,
-                              onClick: () => handleEditDescStart(fav),
-                            },
-                            ...(otherCategories.length > 0
-                              ? [
+        {favorites.length === 0
+          ? (
+            <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
+              No favorites yet. Use ⭐ to save queries.
+            </p>
+          )
+          : filtered.length === 0
+          ? (
+            <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
+              No matches
+            </p>
+          )
+          : (
+            catOrder.map((cat) => {
+              const items = groupedByCategory[cat] ?? [];
+              return (
+                <div key={cat}>
+                  <button
+                    onClick={() => toggleCategory(cat)}
+                    onContextMenu={(e) => {
+                      if (cat !== "Uncategorized") {
+                        showContextMenu(e, [
+                          {
+                            label: "Delete Category",
+                            icon: <Trash2 className="h-3.5 w-3.5" />,
+                            danger: true,
+                            onClick: () => deleteCategory(cat),
+                          },
+                        ]);
+                      }
+                    }}
+                    className="flex w-full items-center gap-1 px-2 py-1 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                  >
+                    {expanded[cat]
+                      ? <ChevronDown className="h-3 w-3 shrink-0" />
+                      : <ChevronRight className="h-3 w-3 shrink-0" />}
+                    <span className="truncate">{cat}</span>
+                    <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
+                      {items.length}
+                    </span>
+                  </button>
+                  {expanded[cat] && (
+                    <div className="ml-1">
+                      {items.map((fav) => (
+                        <div
+                          key={fav.id}
+                          onClick={() => handleClick(fav)}
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            handleDoubleClick(fav);
+                          }}
+                          onContextMenu={(e) => {
+                            const otherCategories = categories.filter(
+                              (c) => c !== fav.category,
+                            );
+                            showContextMenu(e, [
+                              {
+                                label: "Open in New Tab",
+                                icon: <FileText className="h-3.5 w-3.5" />,
+                                onClick: () => handleDoubleClick(fav),
+                              },
+                              {
+                                label: "Rename",
+                                icon: <Pencil className="h-3.5 w-3.5" />,
+                                onClick: () => handleRenameStart(fav),
+                              },
+                              {
+                                label: "Edit Description",
+                                icon: <Pencil className="h-3.5 w-3.5" />,
+                                onClick: () => handleEditDescStart(fav),
+                              },
+                              ...(otherCategories.length > 0
+                                ? [
                                   {
                                     label: "",
                                     separator: true as const,
@@ -267,102 +266,103 @@ export function QueryFavorites() {
                                   },
                                   ...otherCategories.map((c) => ({
                                     label: `Move to "${c}"`,
-                                    icon: (
-                                      <FolderInput className="h-3.5 w-3.5" />
-                                    ),
+                                    icon: <FolderInput className="h-3.5 w-3.5" />,
                                     onClick: () => moveToCategory(fav.id, c),
                                   })),
                                 ]
-                              : []),
-                            {
-                              label: "",
-                              separator: true as const,
-                              onClick: () => {},
-                            },
-                            {
-                              label: "Delete",
-                              icon: <Trash2 className="h-3.5 w-3.5" />,
-                              danger: true,
-                              onClick: () => deleteFavorite(fav.id),
-                            },
-                          ]);
-                        }}
-                        className="group cursor-pointer rounded px-2 py-1.5 hover:bg-[var(--color-bg-tertiary)]"
-                      >
-                        {editingId === fav.id ? (
-                          <input
-                            type="text"
-                            value={editValue}
-                            onChange={(e) => setEditValue(e.target.value)}
-                            onBlur={handleRenameConfirm}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") handleRenameConfirm();
-                              if (e.key === "Escape") {
-                                setEditingId(null);
-                                setEditValue("");
-                              }
-                            }}
-                            autoFocus
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[11px] text-[var(--color-text-primary)] outline-none ring-1 ring-brand-500"
-                          />
-                        ) : (
-                          <>
-                            <div className="flex items-center gap-1.5">
-                              <Star className="h-3 w-3 shrink-0 text-yellow-400/70" />
-                              <span className="truncate text-[11px] text-[var(--color-text-primary)]">
-                                {fav.name}
-                              </span>
-                            </div>
-                            {editDescId === fav.id ? (
+                                : []),
+                              {
+                                label: "",
+                                separator: true as const,
+                                onClick: () => {},
+                              },
+                              {
+                                label: "Delete",
+                                icon: <Trash2 className="h-3.5 w-3.5" />,
+                                danger: true,
+                                onClick: () => deleteFavorite(fav.id),
+                              },
+                            ]);
+                          }}
+                          className="group cursor-pointer rounded px-2 py-1.5 hover:bg-[var(--color-bg-tertiary)]"
+                        >
+                          {editingId === fav.id
+                            ? (
                               <input
                                 type="text"
-                                value={editDescValue}
-                                onChange={(e) =>
-                                  setEditDescValue(e.target.value)
-                                }
-                                onBlur={handleEditDescConfirm}
+                                value={editValue}
+                                onChange={(e) => setEditValue(e.target.value)}
+                                onBlur={handleRenameConfirm}
                                 onKeyDown={(e) => {
-                                  if (e.key === "Enter")
-                                    handleEditDescConfirm();
+                                  if (e.key === "Enter") handleRenameConfirm();
                                   if (e.key === "Escape") {
-                                    setEditDescId(null);
-                                    setEditDescValue("");
+                                    setEditingId(null);
+                                    setEditValue("");
                                   }
                                 }}
                                 autoFocus
                                 onClick={(e) => e.stopPropagation()}
-                                placeholder="Add description..."
-                                className="mt-0.5 w-full rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[10px] text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none ring-1 ring-brand-500"
+                                className="w-full rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[11px] text-[var(--color-text-primary)] outline-none ring-1 ring-brand-500"
                               />
-                            ) : (
-                              fav.description && (
-                                <p className="mt-0.5 truncate pl-[18px] text-[10px] text-[var(--color-text-muted)]">
-                                  {fav.description}
-                                </p>
-                              )
-                            )}
-                            <pre className="mt-0.5 line-clamp-1 whitespace-pre-wrap break-all pl-[18px] font-mono text-[10px] leading-tight text-[var(--color-text-muted)]">
+                            )
+                            : (
+                              <>
+                                <div className="flex items-center gap-1.5">
+                                  <Star className="h-3 w-3 shrink-0 text-yellow-400/70" />
+                                  <span className="truncate text-[11px] text-[var(--color-text-primary)]">
+                                    {fav.name}
+                                  </span>
+                                </div>
+                                {editDescId === fav.id
+                                  ? (
+                                    <input
+                                      type="text"
+                                      value={editDescValue}
+                                      onChange={(e) => setEditDescValue(e.target.value)}
+                                      onBlur={handleEditDescConfirm}
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Enter") {
+                                          handleEditDescConfirm();
+                                        }
+                                        if (e.key === "Escape") {
+                                          setEditDescId(null);
+                                          setEditDescValue("");
+                                        }
+                                      }}
+                                      autoFocus
+                                      onClick={(e) => e.stopPropagation()}
+                                      placeholder="Add description..."
+                                      className="mt-0.5 w-full rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[10px] text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none ring-1 ring-brand-500"
+                                    />
+                                  )
+                                  : (
+                                    fav.description && (
+                                      <p className="mt-0.5 truncate pl-[18px] text-[10px] text-[var(--color-text-muted)]">
+                                        {fav.description}
+                                      </p>
+                                    )
+                                  )}
+                                <pre className="mt-0.5 line-clamp-1 whitespace-pre-wrap break-all pl-[18px] font-mono text-[10px] leading-tight text-[var(--color-text-muted)]">
                               {fav.sql}
-                            </pre>
-                            {fav.connectionName && (
-                              <div className="mt-0.5 flex items-center gap-1 pl-[18px]">
-                                <Database className="h-2.5 w-2.5 text-[var(--color-text-muted)]" />
-                                <span className="text-[10px] text-[var(--color-text-muted)]">
-                                  {fav.connectionName}
-                                </span>
-                              </div>
+                                </pre>
+                                {fav.connectionName && (
+                                  <div className="mt-0.5 flex items-center gap-1 pl-[18px]">
+                                    <Database className="h-2.5 w-2.5 text-[var(--color-text-muted)]" />
+                                    <span className="text-[10px] text-[var(--color-text-muted)]">
+                                      {fav.connectionName}
+                                    </span>
+                                  </div>
+                                )}
+                              </>
                             )}
-                          </>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })
-        )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })
+          )}
       </div>
       {contextMenu}
     </div>

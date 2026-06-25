@@ -1,11 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  generateBackup,
-  defaultBackupOptions,
-  escapeValue,
-  escapeIdentifier,
   type BackupOptions,
   type BackupProgress,
+  defaultBackupOptions,
+  escapeIdentifier,
+  escapeValue,
+  generateBackup,
 } from "../backup-generator";
 
 const mockGetTableDdl = vi.fn();
@@ -70,8 +70,16 @@ describe("generateBackup", () => {
 
     const cancelRef = { current: false };
     const sql = await generateBackup(
-      connectionId, database, tableNames,
-      { ...defaultBackupOptions, includeData: false, includeViews: false, includeRoutines: false, includeTriggers: false },
+      connectionId,
+      database,
+      tableNames,
+      {
+        ...defaultBackupOptions,
+        includeData: false,
+        includeViews: false,
+        includeRoutines: false,
+        includeTriggers: false,
+      },
       vi.fn(),
       cancelRef,
     );
@@ -97,7 +105,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("CREATE DATABASE IF NOT EXISTS `testdb`");
@@ -118,7 +131,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("DROP TABLE IF EXISTS `users`");
@@ -138,7 +156,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).not.toContain("DROP TABLE IF EXISTS");
@@ -158,7 +181,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).not.toContain("AUTO_INCREMENT=42");
@@ -185,7 +213,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("INSERT INTO `users` (`name`, `email`) VALUES ('alice', 'alice@test.com');");
@@ -214,7 +247,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("INSERT INTO `users` (`name`, `email`) VALUES");
@@ -245,7 +283,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     // Should have 2 INSERT statements: one with 2 rows, one with 1
@@ -269,7 +312,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("LOCK TABLES `users` WRITE;");
@@ -290,7 +338,12 @@ describe("generateBackup", () => {
     };
 
     await generateBackup(
-      connectionId, database, tableNames, options, onProgress, { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      onProgress,
+      { current: false },
     );
 
     expect(onProgress).toHaveBeenCalled();
@@ -307,7 +360,12 @@ describe("generateBackup", () => {
 
     const cancelRef = { current: true };
     const sql = await generateBackup(
-      connectionId, database, ["users", "orders"], defaultBackupOptions, vi.fn(), cancelRef,
+      connectionId,
+      database,
+      ["users", "orders"],
+      defaultBackupOptions,
+      vi.fn(),
+      cancelRef,
     );
 
     // Should only have header, no table data
@@ -330,7 +388,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("-- Views");
@@ -351,7 +414,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).not.toContain("-- Views");
@@ -372,7 +440,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("-- Error getting view broken_view");
@@ -398,7 +471,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("-- Routines");
@@ -412,7 +490,9 @@ describe("generateBackup", () => {
     mockGetTableDdl.mockResolvedValue("CREATE TABLE `users` (\n  `id` int\n)");
     mockExecuteQuery.mockResolvedValue([makeResult([], ["id"])]);
     mockGetTriggers.mockResolvedValue([{ name: "trg_before_insert", timing: "BEFORE", event: "INSERT" }]);
-    mockGetTriggerDdl.mockResolvedValue("CREATE TRIGGER `trg_before_insert` BEFORE INSERT ON `users` FOR EACH ROW BEGIN END");
+    mockGetTriggerDdl.mockResolvedValue(
+      "CREATE TRIGGER `trg_before_insert` BEFORE INSERT ON `users` FOR EACH ROW BEGIN END",
+    );
 
     const options: BackupOptions = {
       ...defaultBackupOptions,
@@ -423,7 +503,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).toContain("-- Triggers");
@@ -443,7 +528,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).not.toContain("-- Routines");
@@ -463,7 +553,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(mockGetTriggers).not.toHaveBeenCalled();
@@ -478,8 +573,16 @@ describe("generateBackup", () => {
       .mockResolvedValueOnce([makeResult([], ["id"])]);
 
     const sql = await generateBackup(
-      connectionId, database, ["users", "orders"],
-      { ...defaultBackupOptions, includeData: false, includeViews: false, includeRoutines: false, includeTriggers: false },
+      connectionId,
+      database,
+      ["users", "orders"],
+      {
+        ...defaultBackupOptions,
+        includeData: false,
+        includeViews: false,
+        includeRoutines: false,
+        includeTriggers: false,
+      },
       vi.fn(),
       { current: false },
     );
@@ -510,7 +613,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, onProgress, { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      onProgress,
+      { current: false },
     );
 
     // Should have INSERT statements
@@ -537,7 +645,12 @@ describe("generateBackup", () => {
     };
 
     const sql = await generateBackup(
-      connectionId, database, tableNames, options, vi.fn(), { current: false },
+      connectionId,
+      database,
+      tableNames,
+      options,
+      vi.fn(),
+      { current: false },
     );
 
     expect(sql).not.toContain("-- Views");

@@ -1,7 +1,7 @@
-import { describe, it, expect, vi } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
-import { ExplainPanel } from "../ExplainPanel";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 import type { QueryResult } from "../../types";
+import { ExplainPanel } from "../ExplainPanel";
 
 const { useResultStoreFn } = vi.hoisted(() => {
   return { useResultStoreFn: vi.fn() };
@@ -56,7 +56,7 @@ describe("ExplainPanel", () => {
   describe("empty state", () => {
     it("shows empty state when no explain result", () => {
       useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
-        s({ explainResult: null, explainAnalyze: false }),
+        s({ explainResult: null, explainAnalyze: false })
       );
       render(<ExplainPanel />);
       expect(screen.getByText("Run EXPLAIN to see the execution plan")).toBeInTheDocument();
@@ -69,7 +69,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       expect(screen.getByText("EXPLAIN")).toBeInTheDocument();
@@ -82,7 +82,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       expect(screen.getByText("Access type:")).toBeInTheDocument();
@@ -94,7 +94,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       expect(screen.getByText("id")).toBeInTheDocument();
@@ -113,7 +113,7 @@ describe("ExplainPanel", () => {
             [1, "SIMPLE", "users", null, "ALL", null, null, null, null, 1000, 100.0],
           ]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       expect(screen.getByText("SIMPLE")).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]], []),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       const allBadges = screen.getAllByText("ALL");
@@ -141,7 +141,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([row]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       const refBadges = screen.getAllByText("ref");
@@ -157,7 +157,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       fireEvent.click(screen.getByText("Tree"));
@@ -170,7 +170,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       fireEvent.click(screen.getByText("Tree"));
@@ -185,9 +185,11 @@ describe("ExplainPanel", () => {
     it("shows EXPLAIN ANALYZE header when explainAnalyze is true", () => {
       useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
         s({
-          explainResult: makeExplainResult([["-> Nested loop inner join  (cost=2.50 rows=100) (actual time=0.125..1.234 rows=100 loops=1)"]]),
+          explainResult: makeExplainResult([[
+            "-> Nested loop inner join  (cost=2.50 rows=100) (actual time=0.125..1.234 rows=100 loops=1)",
+          ]]),
           explainAnalyze: true,
-        }),
+        })
       );
       render(<ExplainPanel />);
       expect(screen.getByText("EXPLAIN ANALYZE")).toBeInTheDocument();
@@ -198,7 +200,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([["-> Table scan on users  (cost=2.50 rows=100)"]]),
           explainAnalyze: true,
-        }),
+        })
       );
       render(<ExplainPanel />);
       expect(screen.getByText(/Table scan on users/)).toBeInTheDocument();
@@ -209,7 +211,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([["-> Nested loop (actual time=0.500..2.100 rows=50 loops=1) cost=1.50"]]),
           explainAnalyze: true,
-        }),
+        })
       );
       render(<ExplainPanel />);
       const timeSpan = screen.getByText(/actual time=0.500..2.100/);
@@ -223,7 +225,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]], ["Using filesort"]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       const filesort = screen.getByText("Using filesort");
@@ -235,7 +237,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]], ["Using temporary"]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       const temp = screen.getByText("Using temporary");
@@ -247,7 +249,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]], ["Using index"]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       const idx = screen.getByText("Using index");
@@ -259,7 +261,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]], ["Using where"]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       const where = screen.getByText("Using where");
@@ -271,7 +273,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]], [""]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       // Empty Extra renders an em dash
@@ -286,13 +288,13 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([row]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       // PRIMARY appears in both possible_keys and key columns - find the green-highlighted one
       const primaryElements = screen.getAllByText("PRIMARY");
       const highlighted = primaryElements.find((el) =>
-        el.className.includes("text-green") || el.className.includes("font-medium"),
+        el.className.includes("text-green") || el.className.includes("font-medium")
       );
       expect(highlighted).toBeTruthy();
     });
@@ -303,7 +305,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([row]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       // The key column should have idx_email in green
@@ -318,7 +320,7 @@ describe("ExplainPanel", () => {
         s({
           explainResult: makeExplainResult([[...baseExplainRow]]),
           explainAnalyze: false,
-        }),
+        })
       );
       render(<ExplainPanel />);
       expect(screen.getByText("1,000")).toBeInTheDocument();

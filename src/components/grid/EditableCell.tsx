@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { SqlValue } from "../../types";
 import { SqlValueGuard } from "../../types";
 
@@ -139,14 +139,14 @@ export function EditableCell({
   if (!editing) {
     return (
       <div
-        className={`group flex min-h-[20px] cursor-text items-center ${isEdited ? "border-l-2 border-amber-400 pl-1" : ""}`}
+        className={`group flex min-h-[20px] cursor-text items-center ${
+          isEdited ? "border-l-2 border-amber-400 pl-1" : ""
+        }`}
         onDoubleClick={startEdit}
       >
-        {value === null ? (
-          <span className="italic text-[var(--color-text-muted)]">NULL</span>
-        ) : (
-          <span className="truncate">{SqlValueGuard.toString(value)}</span>
-        )}
+        {value === null
+          ? <span className="italic text-[var(--color-text-muted)]">NULL</span>
+          : <span className="truncate">{SqlValueGuard.toString(value)}</span>}
       </div>
     );
   }

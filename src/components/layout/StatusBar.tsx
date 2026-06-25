@@ -1,9 +1,10 @@
-import { useState, useEffect } from "react";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { useResultStore } from "../../stores/resultStore";
-import { useEditorStore } from "../../stores/editorStore";
+import { AlertCircle, AlertTriangle, Check, Copy, Download, Loader2, RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri-api";
-import { Loader2, AlertCircle, AlertTriangle, Copy, Check } from "lucide-react";
+import { useConnectionStore } from "../../stores/connectionStore";
+import { useEditorStore } from "../../stores/editorStore";
+import { useResultStore } from "../../stores/resultStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import type { ConnectionEnvironment } from "../../types";
 
 const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
@@ -39,10 +40,18 @@ export function StatusBar() {
   const [showFullError, setShowFullError] = useState(false);
   const [copied, setCopied] = useState(false);
   const [appVersion, setAppVersion] = useState("");
+  const updateStatus = useSettingsStore((s) => s.updateStatus);
+  const updateVersion = useSettingsStore((s) => s.updateVersion);
+  const checkForUpdates = useSettingsStore((s) => s.checkForUpdates);
+  const installUpdate = useSettingsStore((s) => s.installUpdate);
 
   useEffect(() => {
     api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
   }, []);
+
+  useEffect(() => {
+    if (updateStatus === "idle") checkForUpdates();
+  }, [checkForUpdates, updateStatus]);
 
   const activeConn = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -61,7 +70,9 @@ export function StatusBar() {
 
   const handleCopyConnection = () => {
     if (!activeConn) return;
-    const connStr = `mysql://${activeConn.host}:${activeConn.port}${activeConn.database ? "/" + activeConn.database : ""}`;
+    const connStr = `mysql://${activeConn.host}:${activeConn.port}${
+      activeConn.database ? "/" + activeConn.database : ""
+    }`;
     navigator.clipboard.writeText(connStr).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
@@ -71,42 +82,42 @@ export function StatusBar() {
   return (
     <div className="flex h-6 items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3">
       <div className="flex items-center gap-3">
-        {activeConn ? (
-          <>
-            <button
-              onClick={handleCopyConnection}
-              className="flex items-center gap-1.5 hover:text-[var(--color-text-primary)] transition-colors"
-              title="Click to copy connection string"
-            >
-              <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
-              <span className="text-[10px] text-[var(--color-text-secondary)]">
-                {activeConn.name} — {activeConn.host}:{activeConn.port}
-              </span>
-              {copied ? (
-                <Check className="h-2.5 w-2.5 text-green-400" />
-              ) : (
-                <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100" />
+        {activeConn
+          ? (
+            <>
+              <button
+                onClick={handleCopyConnection}
+                className="flex items-center gap-1.5 hover:text-[var(--color-text-primary)] transition-colors"
+                title="Click to copy connection string"
+              >
+                <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                <span className="text-[10px] text-[var(--color-text-secondary)]">
+                  {activeConn.name} — {activeConn.host}:{activeConn.port}
+                </span>
+                {copied
+                  ? <Check className="h-2.5 w-2.5 text-green-400" />
+                  : <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100" />}
+              </button>
+              {envBadge && (
+                <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${envBadge.className}`}>
+                  {envBadge.label}
+                </span>
               )}
-            </button>
-            {envBadge && (
-              <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${envBadge.className}`}>
-                {envBadge.label}
+              {selectedDatabase && (
+                <span className="text-[10px] text-brand-400 font-medium">
+                  {selectedDatabase}
+                </span>
+              )}
+              <span className="text-[10px] text-[var(--color-text-muted)]">
+                MySQL {activeConn.server_version}
               </span>
-            )}
-            {selectedDatabase && (
-              <span className="text-[10px] text-brand-400 font-medium">
-                {selectedDatabase}
-              </span>
-            )}
+            </>
+          )
+          : (
             <span className="text-[10px] text-[var(--color-text-muted)]">
-              MySQL {activeConn.server_version}
+              Disconnected
             </span>
-          </>
-        ) : (
-          <span className="text-[10px] text-[var(--color-text-muted)]">
-            Disconnected
-          </span>
-        )}
+          )}
       </div>
       <div className="flex items-center gap-3">
         {connectionError && (
@@ -148,8 +159,40 @@ export function StatusBar() {
             {formatRows(activeResult.rows.length)} · {formatTime(activeResult.execution_time_ms)}
           </span>
         )}
+        {updateStatus === "available" && (
+          <button
+            onClick={installUpdate}
+            className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
+            title={`Update v${updateVersion} available — click to install`}
+          >
+            <Download className="h-3 w-3" />
+            Update to v{updateVersion}
+          </button>
+        )}
+        {updateStatus === "checking" && (
+          <span className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)]">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            Checking updates...
+          </span>
+        )}
+        {updateStatus === "downloading" && (
+          <span className="flex items-center gap-1 text-[10px] text-brand-400">
+            <Loader2 className="h-3 w-3 animate-spin" />
+            Downloading update...
+          </span>
+        )}
+        {updateStatus === "error" && (
+          <button
+            onClick={checkForUpdates}
+            className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
+            title="Update check failed — click to retry"
+          >
+            <RefreshCw className="h-3 w-3" />
+            Update failed
+          </button>
+        )}
         <span className="text-[10px] text-[var(--color-text-muted)]">
-          {appVersion && `SQLPilot v${appVersion}`}
+          {appVersion && `v${appVersion}`}
         </span>
       </div>
     </div>

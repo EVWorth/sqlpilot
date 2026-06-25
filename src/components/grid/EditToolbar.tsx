@@ -1,4 +1,4 @@
-import { Pencil, Plus, Save, Undo2, Redo2, AlertTriangle } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, Redo2, Save, Undo2 } from "lucide-react";
 
 interface EditToolbarProps {
   editMode: boolean;

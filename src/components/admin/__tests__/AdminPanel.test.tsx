@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPanel } from "../AdminPanel";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -68,9 +68,27 @@ describe("ProcessListTab", () => {
   const mockConnectionId = "conn-test-1";
 
   const mockProcesses = [
-    { id: 1, user: "root", host: "localhost", db: "test", command: "Query", time: 1, state: "executing", info: "SELECT 1" },
+    {
+      id: 1,
+      user: "root",
+      host: "localhost",
+      db: "test",
+      command: "Query",
+      time: 1,
+      state: "executing",
+      info: "SELECT 1",
+    },
     { id: 2, user: "app", host: "10.0.0.1", db: null, command: "Sleep", time: 60, state: null, info: null },
-    { id: 3, user: "admin", host: "localhost", db: "mydb", command: "Query", time: 120, state: "Sending data", info: "SELECT * FROM big_table" },
+    {
+      id: 3,
+      user: "admin",
+      host: "localhost",
+      db: "mydb",
+      command: "Query",
+      time: 120,
+      state: "Sending data",
+      info: "SELECT * FROM big_table",
+    },
   ];
 
   beforeEach(() => {
@@ -192,7 +210,12 @@ describe("ServerStatusTab", () => {
     {
       query_id: "q1",
       statement_index: 0,
-      columns: [{ name: "Variable_name", data_type: "VARCHAR", nullable: false, is_primary_key: false }, { name: "Value", data_type: "VARCHAR", nullable: false, is_primary_key: false }],
+      columns: [{ name: "Variable_name", data_type: "VARCHAR", nullable: false, is_primary_key: false }, {
+        name: "Value",
+        data_type: "VARCHAR",
+        nullable: false,
+        is_primary_key: false,
+      }],
       rows: [
         ["Uptime", "3600"],
         ["Queries", "1000"],

@@ -38,9 +38,11 @@ test-all: db-up test
 lint:
 	cd src-tauri && cargo clippy -p mas-core -p mas-export -p mas-admin -- -D warnings
 	npx tsc --noEmit
+	npx dprint check
 
 fmt:
 	cd src-tauri && cargo fmt --all
+	npx dprint fmt
 
 # Database Management (works with or without docker compose)
 db-up:
@@ -80,6 +82,35 @@ db-reset: db-down db-up
 # SSL Certificates (for testing)
 ssl-certs:
 	cd tests/fixtures/ssl && bash generate-certs.sh
+
+# Version bumping
+BUMP_TYPE ?= patch
+
+bump:
+	@current=$$(node -p "require('./package.json').version"); \
+	echo "Current version: $$current"; \
+	new=$$(node -e "const v='$$current'.split('.').map(Number); \
+		if ('$(BUMP_TYPE)' == 'major') { v[0]+=1; v[1]=0; v[2]=0; } \
+		else if ('$(BUMP_TYPE)' == 'minor') { v[1]+=1; v[2]=0; } \
+		else { v[2]+=1; } \
+		console.log(v.join('.'));"); \
+	echo "New version: $$new"; \
+	read -p "Proceed? [Y/n] " -n 1 -r; echo; \
+	if [[ $$REPLY =~ ^[Yy]$$ ]] || [[ -z $$REPLY ]]; then \
+		node -e "const fs=require('fs'); \
+			const p=JSON.parse(fs.readFileSync('package.json','utf8')); \
+			p.version='$$new'; \
+			fs.writeFileSync('package.json', JSON.stringify(p,null,2)+'\n');"; \
+		node -e "const fs=require('fs'); \
+			const t=JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8')); \
+			t.version='$$new'; \
+			fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(t,null,2)+'\n');"; \
+		sed -i "s/^version = \".*\"/version = \"$$new\"/" src-tauri/Cargo.toml; \
+		echo "Version bumped to $$new in all files."; \
+		echo "Run: git add -A && git commit -m \"chore: bump version to $$new\" && git tag v$$new"; \
+	else \
+		echo "Cancelled."; \
+	fi
 
 # Cleanup
 clean:

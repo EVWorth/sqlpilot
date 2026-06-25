@@ -1,19 +1,19 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
-  RefreshCw,
-  Search,
-  Skull,
-  Copy,
+  Activity,
+  ArrowUpDown,
+  Check,
   ChevronDown,
   ChevronRight,
-  ArrowUpDown,
-  Activity,
-  Server,
+  Copy,
   List,
   Loader2,
-  Check,
+  RefreshCw,
+  Search,
+  Server,
+  Skull,
   Users,
 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import type { ProcessInfo, ServerVariable } from "../../types";
@@ -120,13 +120,13 @@ function ProcessListTab({ connectionId }: { connectionId: string }) {
     const lc = filter.toLowerCase();
     return processes.filter(
       (p) =>
-        String(p.id).includes(lc) ||
-        p.user.toLowerCase().includes(lc) ||
-        p.host.toLowerCase().includes(lc) ||
-        (p.db ?? "").toLowerCase().includes(lc) ||
-        p.command.toLowerCase().includes(lc) ||
-        (p.state ?? "").toLowerCase().includes(lc) ||
-        (p.info ?? "").toLowerCase().includes(lc),
+        String(p.id).includes(lc)
+        || p.user.toLowerCase().includes(lc)
+        || p.host.toLowerCase().includes(lc)
+        || (p.db ?? "").toLowerCase().includes(lc)
+        || p.command.toLowerCase().includes(lc)
+        || (p.state ?? "").toLowerCase().includes(lc)
+        || (p.info ?? "").toLowerCase().includes(lc),
     );
   }, [processes, filter]);
 
@@ -178,9 +178,8 @@ function ProcessListTab({ connectionId }: { connectionId: string }) {
         </button>
       </div>
 
-      {error && (
-        <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}</div>
-      )}
+      {error && <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}
+      </div>}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
@@ -207,54 +206,56 @@ function ProcessListTab({ connectionId }: { connectionId: string }) {
                 <td className="px-3 py-1.5 font-mono">{p.id}</td>
                 <td className="px-3 py-1.5">{p.user}</td>
                 <td className="px-3 py-1.5 text-[var(--color-text-muted)]">{p.host}</td>
-                <td className="px-3 py-1.5">{p.db ?? <span className="italic text-[var(--color-text-muted)]">NULL</span>}</td>
+                <td className="px-3 py-1.5">
+                  {p.db ?? <span className="italic text-[var(--color-text-muted)]">NULL</span>}
+                </td>
                 <td className="px-3 py-1.5">{p.command}</td>
                 <td className={cn("px-3 py-1.5 font-mono", timeColor(p.time))}>{p.time}s</td>
                 <td className="px-3 py-1.5 text-[var(--color-text-muted)]">{p.state ?? ""}</td>
                 <td className="max-w-[300px] px-3 py-1.5">
-                  {p.info ? (
-                    <button
-                      onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
-                      className="flex items-center gap-1 text-left font-mono text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      {expandedId === p.id ? (
-                        <ChevronDown className="h-3 w-3 shrink-0" />
-                      ) : (
-                        <ChevronRight className="h-3 w-3 shrink-0" />
-                      )}
-                      <span className={expandedId === p.id ? "whitespace-pre-wrap" : "truncate block max-w-[280px]"}>
-                        {p.info}
-                      </span>
-                    </button>
-                  ) : (
-                    <span className="italic text-[var(--color-text-muted)]">—</span>
-                  )}
+                  {p.info
+                    ? (
+                      <button
+                        onClick={() => setExpandedId(expandedId === p.id ? null : p.id)}
+                        className="flex items-center gap-1 text-left font-mono text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                      >
+                        {expandedId === p.id
+                          ? <ChevronDown className="h-3 w-3 shrink-0" />
+                          : <ChevronRight className="h-3 w-3 shrink-0" />}
+                        <span className={expandedId === p.id ? "whitespace-pre-wrap" : "truncate block max-w-[280px]"}>
+                          {p.info}
+                        </span>
+                      </button>
+                    )
+                    : <span className="italic text-[var(--color-text-muted)]">—</span>}
                 </td>
                 <td className="px-3 py-1.5">
-                  {confirmKillId === p.id ? (
-                    <div className="flex items-center gap-1">
+                  {confirmKillId === p.id
+                    ? (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleKill(p.id)}
+                          className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-500"
+                        >
+                          Kill?
+                        </button>
+                        <button
+                          onClick={() => setConfirmKillId(null)}
+                          className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    )
+                    : (
                       <button
-                        onClick={() => handleKill(p.id)}
-                        className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-500"
+                        onClick={() => setConfirmKillId(p.id)}
+                        title={`Kill process ${p.id}`}
+                        className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/20 hover:text-red-400 transition-colors"
                       >
-                        Kill?
+                        <Skull className="h-3.5 w-3.5" />
                       </button>
-                      <button
-                        onClick={() => setConfirmKillId(null)}
-                        className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setConfirmKillId(p.id)}
-                      title={`Kill process ${p.id}`}
-                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/20 hover:text-red-400 transition-colors"
-                    >
-                      <Skull className="h-3.5 w-3.5" />
-                    </button>
-                  )}
+                    )}
                 </td>
               </tr>
             ))}
@@ -376,9 +377,8 @@ function ServerVariablesTab({ connectionId }: { connectionId: string }) {
         </span>
       </div>
 
-      {error && (
-        <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}</div>
-      )}
+      {error && <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}
+      </div>}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
@@ -453,8 +453,8 @@ function GroupRows({
           </span>
         </td>
       </tr>
-      {!collapsed &&
-        variables.map((v) => (
+      {!collapsed
+        && variables.map((v) => (
           <tr
             key={v.name}
             className="border-b border-[var(--color-border)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)]"
@@ -466,11 +466,9 @@ function GroupRows({
                 title="Copy variable name"
               >
                 {v.name}
-                {copiedKey === `name:${v.name}` ? (
-                  <Check className="h-3 w-3 text-green-400" />
-                ) : (
-                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />
-                )}
+                {copiedKey === `name:${v.name}`
+                  ? <Check className="h-3 w-3 text-green-400" />
+                  : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />}
               </button>
             </td>
             <td className="px-3 py-1.5">
@@ -480,11 +478,9 @@ function GroupRows({
                 title="Copy value"
               >
                 <span className="max-w-[600px] truncate">{v.value}</span>
-                {copiedKey === `value:${v.name}` ? (
-                  <Check className="h-3 w-3 text-green-400" />
-                ) : (
-                  <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />
-                )}
+                {copiedKey === `value:${v.name}`
+                  ? <Check className="h-3 w-3 text-green-400" />
+                  : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />}
               </button>
             </td>
           </tr>
@@ -539,7 +535,9 @@ function computeMetrics(vars: StatusVar[]): MetricCard[] {
 
   const qps = uptime > 0 ? (queries / uptime).toFixed(1) : "0";
   const poolUsagePct = poolSize > 0 ? (((poolSize - poolFree) / poolSize) * 100).toFixed(1) : "0";
-  const poolHitRate = poolReadRequests > 0 ? (((poolReadRequests - poolReads) / poolReadRequests) * 100).toFixed(2) : "100";
+  const poolHitRate = poolReadRequests > 0
+    ? (((poolReadRequests - poolReads) / poolReadRequests) * 100).toFixed(2)
+    : "100";
   const cacheHitRate = openedTables > 0 ? ((openTables / openedTables) * 100).toFixed(1) : "100";
 
   return [
@@ -547,7 +545,11 @@ function computeMetrics(vars: StatusVar[]): MetricCard[] {
     { label: "Connections", value: String(threadsConnected), sub: `${connections} total` },
     { label: "QPS", value: qps, sub: `${queries.toLocaleString()} total` },
     { label: "Slow Queries", value: slowQueries.toLocaleString() },
-    { label: "Threads", value: `${threadsRunning} running`, sub: `${threadsConnected} connected / ${threadsCached} cached` },
+    {
+      label: "Threads",
+      value: `${threadsRunning} running`,
+      sub: `${threadsConnected} connected / ${threadsCached} cached`,
+    },
     { label: "Buffer Pool Usage", value: `${poolUsagePct}%`, sub: `Hit rate: ${poolHitRate}%` },
     { label: "Table Cache", value: `${openTables} open`, sub: `Hit rate: ${cacheHitRate}%` },
   ];
@@ -613,9 +615,8 @@ function ServerStatusTab({ connectionId }: { connectionId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      {error && (
-        <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}</div>
-      )}
+      {error && <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}
+      </div>}
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 sm:grid-cols-4 lg:grid-cols-7">

@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   mockToggleMaximize,
@@ -29,7 +29,9 @@ vi.mock("@tauri-apps/api/window", () => ({
     startDragging: mockStartDragging,
     onResized: vi.fn((cb: () => void) => {
       onResizedCb = cb;
-      return Promise.resolve(() => { onResizedCb = null; });
+      return Promise.resolve(() => {
+        onResizedCb = null;
+      });
     }),
     isMaximized: vi.fn(() => Promise.resolve(false)),
     setTitle: vi.fn(),
@@ -54,10 +56,10 @@ vi.mock("../../../stores/themeStore", () => ({
   useThemeStore: vi.fn(),
 }));
 
-import { TitleBar } from "../TitleBar";
-import { useEditorStore } from "../../../stores/editorStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
+import { useEditorStore } from "../../../stores/editorStore";
 import { useThemeStore } from "../../../stores/themeStore";
+import { TitleBar } from "../TitleBar";
 
 const mockAddAdminTab = vi.fn();
 const mockAddCompareTab = vi.fn();
@@ -75,7 +77,15 @@ function mockEditorStore() {
 
 function mockConnectionStore(connState: {
   selectedConnectionId: string | null;
-  activeConnections: { id: string; name: string; host: string; port: number; database?: string; server_version: string; connected_at: string }[];
+  activeConnections: {
+    id: string;
+    name: string;
+    host: string;
+    port: number;
+    database?: string;
+    server_version: string;
+    connected_at: string;
+  }[];
 }) {
   vi.mocked(useConnectionStore).mockImplementation((s: (v: unknown) => unknown) => s(connState));
   (useConnectionStore as any).getState = vi.fn(() => connState);
@@ -85,7 +95,9 @@ type ThemeMode = "dark" | "light" | "system";
 
 function mockThemeStore(theme: ThemeMode) {
   const setThemeMock = vi.fn();
-  const state = theme === "system" ? { theme: "system" as const, effectiveTheme: "dark" as const } : { theme, effectiveTheme: theme as "dark" | "light" };
+  const state = theme === "system"
+    ? { theme: "system" as const, effectiveTheme: "dark" as const }
+    : { theme, effectiveTheme: theme as "dark" | "light" };
   vi.mocked(useThemeStore).mockImplementation((s: (v: unknown) => unknown) =>
     s({
       ...state,

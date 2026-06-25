@@ -1,11 +1,25 @@
-import { useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { Minus, Square, X, Activity, Upload, Sparkles, Sun, Moon, Monitor, ArrowLeftRight, HardDriveDownload, HardDriveUpload, LayoutGrid } from "lucide-react";
 import { clsx } from "clsx";
-import { MenuBar } from "./MenuBar";
-import { useEditorStore } from "../../stores/editorStore";
+import {
+  Activity,
+  ArrowLeftRight,
+  HardDriveDownload,
+  HardDriveUpload,
+  LayoutGrid,
+  Minus,
+  Monitor,
+  Moon,
+  Sparkles,
+  Square,
+  Sun,
+  Upload,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { useThemeStore, type ThemeMode } from "../../stores/themeStore";
+import { useEditorStore } from "../../stores/editorStore";
+import { type ThemeMode, useThemeStore } from "../../stores/themeStore";
+import { MenuBar } from "./MenuBar";
 
 const appWindow = getCurrentWindow();
 
@@ -33,7 +47,9 @@ interface TitleBarProps {
   aiEnabled?: boolean;
 }
 
-export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen, aiEnabled }: TitleBarProps) {
+export function TitleBar(
+  { onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen, aiEnabled }: TitleBarProps,
+) {
   const [isMaximized, setIsMaximized] = useState(false);
   const [systemMenu, setSystemMenu] = useState<{ x: number; y: number } | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -65,8 +81,12 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
     appWindow.isMaximized().then(setIsMaximized);
     appWindow.onResized(() => {
       appWindow.isMaximized().then(setIsMaximized);
-    }).then((fn) => { unlisten = fn; });
-    return () => { unlisten?.(); };
+    }).then((fn) => {
+      unlisten = fn;
+    });
+    return () => {
+      unlisten?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -74,7 +94,9 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
     const onMouseDown = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setSystemMenu(null);
     };
-    const onKeyDown = (e: KeyboardEvent) => { if (e.key === "Escape") setSystemMenu(null); };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSystemMenu(null);
+    };
     window.addEventListener("mousedown", onMouseDown);
     window.addEventListener("keydown", onKeyDown);
     return () => {
@@ -110,22 +132,23 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
   }
 
   const sysMenuItems = [
-    { id: "restore",  label: "Restore",  disabled: !isMaximized, action: () => appWindow.unmaximize() },
-    { id: "move",     label: "Move",     disabled: true,        action: null },
-    { id: "size",     label: "Size",     disabled: true,        action: null },
-    { id: "minimize", label: "Minimize", disabled: false,        action: () => appWindow.minimize() },
-    { id: "maximize", label: "Maximize", disabled: isMaximized,  action: () => appWindow.maximize() },
+    { id: "restore", label: "Restore", disabled: !isMaximized, action: () => appWindow.unmaximize() },
+    { id: "move", label: "Move", disabled: true, action: null },
+    { id: "size", label: "Size", disabled: true, action: null },
+    { id: "minimize", label: "Minimize", disabled: false, action: () => appWindow.minimize() },
+    { id: "maximize", label: "Maximize", disabled: isMaximized, action: () => appWindow.maximize() },
     null,
     { id: "close", label: "Close", shortcut: "Alt+F4", disabled: false, action: () => appWindow.close() },
   ] as const;
 
-  const winBtn = "flex h-full w-11 items-center justify-center text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] transition-colors";
+  const winBtn =
+    "flex h-full w-11 items-center justify-center text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] transition-colors";
   const toolBtn = (disabled = false) =>
     clsx(
       "flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
       disabled
         ? "text-[var(--color-text-muted)] opacity-40 cursor-not-allowed"
-        : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+        : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]",
     );
 
   return (
@@ -146,37 +169,69 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
 
       {/* Toolbar buttons */}
       <div className="flex items-center gap-0.5 px-1" onContextMenu={(e) => e.stopPropagation()}>
-        <button onClick={handleOpenQueryBuilder} disabled={!selectedConnectionId} title="Visual Query Builder" className={toolBtn(!selectedConnectionId)}>
-          <LayoutGrid className="h-3.5 w-3.5" /><span>Visual Builder</span>
+        <button
+          onClick={handleOpenQueryBuilder}
+          disabled={!selectedConnectionId}
+          title="Visual Query Builder"
+          className={toolBtn(!selectedConnectionId)}
+        >
+          <LayoutGrid className="h-3.5 w-3.5" />
+          <span>Visual Builder</span>
         </button>
         <button onClick={handleOpenCompare} title="Compare Schemas" className={toolBtn()}>
-          <ArrowLeftRight className="h-3.5 w-3.5" /><span>Compare</span>
+          <ArrowLeftRight className="h-3.5 w-3.5" />
+          <span>Compare</span>
         </button>
-        <button onClick={handleOpenAdmin} disabled={!selectedConnectionId} title="Admin Tools" className={toolBtn(!selectedConnectionId)}>
-          <Activity className="h-3.5 w-3.5" /><span>Admin</span>
+        <button
+          onClick={handleOpenAdmin}
+          disabled={!selectedConnectionId}
+          title="Admin Tools"
+          className={toolBtn(!selectedConnectionId)}
+        >
+          <Activity className="h-3.5 w-3.5" />
+          <span>Admin</span>
         </button>
-        <button onClick={onShowImport} disabled={!selectedConnectionId} title="Import Data" className={toolBtn(!selectedConnectionId)}>
-          <Upload className="h-3.5 w-3.5" /><span>Import</span>
+        <button
+          onClick={onShowImport}
+          disabled={!selectedConnectionId}
+          title="Import Data"
+          className={toolBtn(!selectedConnectionId)}
+        >
+          <Upload className="h-3.5 w-3.5" />
+          <span>Import</span>
         </button>
-        <button onClick={onShowBackup} disabled={!selectedConnectionId} title="Backup Database" className={toolBtn(!selectedConnectionId)}>
-          <HardDriveDownload className="h-3.5 w-3.5" /><span>Backup</span>
+        <button
+          onClick={onShowBackup}
+          disabled={!selectedConnectionId}
+          title="Backup Database"
+          className={toolBtn(!selectedConnectionId)}
+        >
+          <HardDriveDownload className="h-3.5 w-3.5" />
+          <span>Backup</span>
         </button>
-        <button onClick={onShowRestore} disabled={!selectedConnectionId} title="Restore Database" className={toolBtn(!selectedConnectionId)}>
-          <HardDriveUpload className="h-3.5 w-3.5" /><span>Restore</span>
+        <button
+          onClick={onShowRestore}
+          disabled={!selectedConnectionId}
+          title="Restore Database"
+          className={toolBtn(!selectedConnectionId)}
+        >
+          <HardDriveUpload className="h-3.5 w-3.5" />
+          <span>Restore</span>
         </button>
         {aiEnabled && (
-        <button
-          onClick={onToggleAI}
-          title="Toggle AI Assistant"
-          className={clsx(
-            "flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
-            aiPanelOpen
-              ? "bg-brand-600/20 text-brand-400"
-              : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-          )}
-        >
-          <Sparkles className="h-3.5 w-3.5" /><span>AI</span>
-        </button>
+          <button
+            onClick={onToggleAI}
+            title="Toggle AI Assistant"
+            className={clsx(
+              "flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
+              aiPanelOpen
+                ? "bg-brand-600/20 text-brand-400"
+                : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]",
+            )}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            <span>AI</span>
+          </button>
         )}
         <button onClick={cycleTheme} title={`Theme: ${themeLabels[theme]} (click to cycle)`} className={toolBtn()}>
           <ThemeIcon className="h-3.5 w-3.5" />
@@ -191,7 +246,11 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
         <button onClick={() => appWindow.minimize()} className={winBtn} title="Minimize">
           <Minus className="h-3.5 w-3.5" />
         </button>
-        <button onClick={() => appWindow.toggleMaximize()} className={winBtn} title={isMaximized ? "Restore" : "Maximize"}>
+        <button
+          onClick={() => appWindow.toggleMaximize()}
+          className={winBtn}
+          title={isMaximized ? "Restore" : "Maximize"}
+        >
           {isMaximized ? <RestoreIcon /> : <Square className="h-3 w-3" />}
         </button>
         <button
@@ -211,9 +270,7 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
           className="z-[9999] min-w-[180px] rounded-sm border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-1 shadow-xl text-sm"
         >
           {sysMenuItems.map((item, i) =>
-            item === null ? (
-              <div key={i} className="my-1 border-t border-[var(--color-border)]" />
-            ) : (
+            item === null ? <div key={i} className="my-1 border-t border-[var(--color-border)]" /> : (
               <button
                 key={item.id}
                 disabled={item.disabled}
@@ -222,7 +279,7 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
                   "flex w-full items-center justify-between px-4 py-[3px] text-left",
                   item.disabled
                     ? "text-[var(--color-text-muted)] opacity-50 cursor-default"
-                    : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] cursor-default"
+                    : "text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] cursor-default",
                 )}
               >
                 <span>{item.label}</span>
@@ -237,4 +294,3 @@ export function TitleBar({ onShowImport, onShowBackup, onShowRestore, onToggleAI
     </div>
   );
 }
-

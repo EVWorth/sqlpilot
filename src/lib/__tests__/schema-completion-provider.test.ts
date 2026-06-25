@@ -1,14 +1,14 @@
-import { describe, it, expect, vi } from "vitest";
+import type * as monacoNs from "monaco-editor";
+import { describe, expect, it, vi } from "vitest";
 import {
-  detectContext,
-  parseFromTables,
-  findDotPrefix,
-  MYSQL_KEYWORDS,
-  MYSQL_FUNCTIONS,
   createCompletionProvider,
+  detectContext,
+  findDotPrefix,
+  MYSQL_FUNCTIONS,
+  MYSQL_KEYWORDS,
+  parseFromTables,
 } from "../schema-completion-provider";
 import type { SchemaData } from "../schema-completion-provider";
-import type * as monacoNs from "monaco-editor";
 
 function makeMockModel(lineContent: string, fullContent?: string, lineNumber = 1, column = lineContent.length + 1) {
   return {
@@ -352,7 +352,16 @@ describe("createCompletionProvider", () => {
     databases: ["mydb", "testdb"],
     tables: new Map([["mydb", ["users", "orders"]], ["testdb", ["logs"]]]),
     views: new Map([["mydb", ["user_view"]]]),
-    columns: new Map([["mydb.users", [{ name: "id", data_type: "int", column_type: "int", nullable: false, is_primary_key: true, default_value: undefined, extra: "", comment: ""}]]]),
+    columns: new Map([["mydb.users", [{
+      name: "id",
+      data_type: "int",
+      column_type: "int",
+      nullable: false,
+      is_primary_key: true,
+      default_value: undefined,
+      extra: "",
+      comment: "",
+    }]]]),
     fetchTables: vi.fn().mockResolvedValue([]),
     fetchViews: vi.fn().mockResolvedValue([]),
     fetchColumns: vi.fn().mockResolvedValue([]),
@@ -464,8 +473,26 @@ describe("createCompletionProvider", () => {
 
   it("handles dot prefix for table → suggests columns", async () => {
     const fetchColumns = vi.fn().mockResolvedValue([
-      { name: "id", data_type: "int", column_type: "int", nullable: false, is_primary_key: true, default_value: undefined, extra: "", comment: "" },
-      { name: "name", data_type: "varchar", column_type: "varchar(255)", nullable: true, is_primary_key: false, default_value: undefined, extra: "", comment: "" },
+      {
+        name: "id",
+        data_type: "int",
+        column_type: "int",
+        nullable: false,
+        is_primary_key: true,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
+      {
+        name: "name",
+        data_type: "varchar",
+        column_type: "varchar(255)",
+        nullable: true,
+        is_primary_key: false,
+        default_value: undefined,
+        extra: "",
+        comment: "",
+      },
     ]);
     const schemaData: SchemaData = {
       ...mockSchemaData,

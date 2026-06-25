@@ -18,16 +18,16 @@ export function postProcessSQL(sql: string): string {
       if (i % 2 === 1) return token; // inside a string literal — leave untouched
 
       // Rule 1: lowercase content inside backticks
-      let result = token.replace(/`([^`]+)`/g, (_, inner) => '`' + inner.toLowerCase() + '`');
+      let result = token.replace(/`([^`]+)`/g, (_, inner) => "`" + inner.toLowerCase() + "`");
 
       // Rule 2: dot-qualified all-uppercase identifiers → lowercase
       // Matches: identifier.UPPERCASE_WORD  (right side must be all caps to be keyword-like)
       result = result.replace(
         /(\w+)\.([A-Z][A-Z0-9_]*)\b/g,
-        (_, qualifier, ident) => qualifier + '.' + ident.toLowerCase(),
+        (_, qualifier, ident) => qualifier + "." + ident.toLowerCase(),
       );
 
       return result;
     })
-    .join('');
+    .join("");
 }

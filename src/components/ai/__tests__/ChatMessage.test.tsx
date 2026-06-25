@@ -1,7 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { MessageSegment, ToolExecution } from "../../../types";
 import { ChatMessageComponent } from "../ChatMessage";
-import type { ToolExecution, MessageSegment } from "../../../types";
 
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
@@ -96,10 +96,10 @@ describe("ChatMessageComponent", () => {
   });
 
   it("parses and renders non-SQL code blocks", () => {
-    const content = '```json\n{"key": "value"}\n```';
+    const content = "```json\n{\"key\": \"value\"}\n```";
     render(<ChatMessageComponent role="assistant" content={content} />);
 
-    expect(screen.getByText('{"key": "value"}')).toBeInTheDocument();
+    expect(screen.getByText("{\"key\": \"value\"}")).toBeInTheDocument();
   });
 
   it("treats mysql language as SQL code block", () => {
@@ -214,7 +214,7 @@ describe("ChatMessageComponent", () => {
       <ChatMessageComponent role="assistant" content="" segments={segments} />,
     );
 
-    expect(screen.getByText('{"a":1}')).toBeInTheDocument();
+    expect(screen.getByText("{\"a\":1}")).toBeInTheDocument();
   });
 
   it("renders multiple segments with mixed content", () => {

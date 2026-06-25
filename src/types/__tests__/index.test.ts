@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { SqlValueGuard } from "../index";
 
 describe("SqlValueGuard.isNull", () => {
@@ -408,15 +408,15 @@ describe("SqlValueGuard.assert", () => {
 });
 
 describe("SqlValueGuard.toString", () => {
-  it('converts null to "NULL"', () => {
+  it("converts null to \"NULL\"", () => {
     expect(SqlValueGuard.toString(null)).toBe("NULL");
   });
 
-  it('converts true to "TRUE"', () => {
+  it("converts true to \"TRUE\"", () => {
     expect(SqlValueGuard.toString(true)).toBe("TRUE");
   });
 
-  it('converts false to "FALSE"', () => {
+  it("converts false to \"FALSE\"", () => {
     expect(SqlValueGuard.toString(false)).toBe("FALSE");
   });
 
@@ -467,15 +467,15 @@ describe("SqlValueGuard.toString", () => {
 });
 
 describe("SqlValueGuard.toSqlLiteral", () => {
-  it('converts null to "NULL"', () => {
+  it("converts null to \"NULL\"", () => {
     expect(SqlValueGuard.toSqlLiteral(null)).toBe("NULL");
   });
 
-  it('converts true to "1"', () => {
+  it("converts true to \"1\"", () => {
     expect(SqlValueGuard.toSqlLiteral(true)).toBe("1");
   });
 
-  it('converts false to "0"', () => {
+  it("converts false to \"0\"", () => {
     expect(SqlValueGuard.toSqlLiteral(false)).toBe("0");
   });
 

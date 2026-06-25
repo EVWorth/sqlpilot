@@ -1,6 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import type { ConnectionProfileSummary, ConnectionInfo, ConnectionProfile } from "../../types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../lib/tauri-api";
+import type { ConnectionInfo, ConnectionProfile, ConnectionProfileSummary } from "../../types";
 import { useConnectionStore } from "../connectionStore";
 
 vi.mock("../../lib/tauri-api", () => ({

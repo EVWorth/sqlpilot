@@ -1,43 +1,61 @@
-import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Save,
-  Eye,
-  Plus,
-  Trash2,
-  GripVertical,
+  AlertCircle,
+  Check,
   Columns3,
+  Eye,
+  GripVertical,
   Key,
   Link2,
-  Settings,
-  AlertCircle,
   Loader2,
-  Check,
+  Plus,
+  Save,
+  Settings,
+  Trash2,
 } from "lucide-react";
-import { api } from "../../lib/tauri-api";
-import { cn } from "../../lib/utils";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  generateCreateTable,
-  generateAlterTable,
-  type TableDesignerConfig,
   type DesignerColumn,
-  type DesignerIndex,
   type DesignerForeignKey,
+  type DesignerIndex,
+  generateAlterTable,
+  generateCreateTable,
+  type TableDesignerConfig,
   type TableOptions,
 } from "../../lib/ddl-generator";
-import { SQLPreviewDialog } from "./SQLPreviewDialog";
+import { api } from "../../lib/tauri-api";
+import { cn } from "../../lib/utils";
 import type { ColumnInfo, IndexInfo, TableInfo } from "../../types";
+import { SQLPreviewDialog } from "./SQLPreviewDialog";
 
 // --- Constants ---
 
 const COLUMN_TYPES = [
-  "INT", "BIGINT", "TINYINT", "SMALLINT", "MEDIUMINT",
-  "VARCHAR", "CHAR", "TEXT", "TINYTEXT", "MEDIUMTEXT", "LONGTEXT",
-  "DECIMAL", "FLOAT", "DOUBLE",
-  "DATE", "DATETIME", "TIMESTAMP", "TIME", "YEAR",
+  "INT",
+  "BIGINT",
+  "TINYINT",
+  "SMALLINT",
+  "MEDIUMINT",
+  "VARCHAR",
+  "CHAR",
+  "TEXT",
+  "TINYTEXT",
+  "MEDIUMTEXT",
+  "LONGTEXT",
+  "DECIMAL",
+  "FLOAT",
+  "DOUBLE",
+  "DATE",
+  "DATETIME",
+  "TIMESTAMP",
+  "TIME",
+  "YEAR",
   "BOOLEAN",
-  "ENUM", "SET",
-  "BLOB", "JSON",
-  "BINARY", "VARBINARY",
+  "ENUM",
+  "SET",
+  "BLOB",
+  "JSON",
+  "BINARY",
+  "VARBINARY",
 ] as const;
 
 const INDEX_TYPES = ["PRIMARY KEY", "UNIQUE", "INDEX", "FULLTEXT"] as const;
@@ -45,9 +63,13 @@ const FK_ACTIONS = ["RESTRICT", "CASCADE", "SET NULL", "NO ACTION"] as const;
 const ENGINES = ["InnoDB", "MyISAM", "MEMORY", "CSV", "ARCHIVE"] as const;
 const CHARSETS = ["utf8mb4", "utf8", "latin1", "ascii", "binary"] as const;
 const COLLATIONS = [
-  "utf8mb4_general_ci", "utf8mb4_unicode_ci", "utf8mb4_bin",
-  "utf8_general_ci", "utf8_unicode_ci",
-  "latin1_swedish_ci", "latin1_general_ci",
+  "utf8mb4_general_ci",
+  "utf8mb4_unicode_ci",
+  "utf8mb4_bin",
+  "utf8_general_ci",
+  "utf8_unicode_ci",
+  "latin1_swedish_ci",
+  "latin1_general_ci",
 ] as const;
 
 type SubTab = "columns" | "indexes" | "foreignKeys" | "options";
@@ -127,7 +149,9 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
 
   // Load reference tables for FK tab
   useEffect(() => {
-    api.getTables(connectionId, database).then(setRefTables).catch((e) => console.error("Failed to load reference tables", e));
+    api.getTables(connectionId, database).then(setRefTables).catch((e) =>
+      console.error("Failed to load reference tables", e)
+    );
   }, [connectionId, database]);
 
   // Load columns for reference tables as needed
@@ -176,10 +200,10 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           type: i.name === "PRIMARY"
             ? "PRIMARY KEY" as const
             : i.is_unique
-              ? "UNIQUE" as const
-              : i.index_type === "FULLTEXT"
-                ? "FULLTEXT" as const
-                : "INDEX" as const,
+            ? "UNIQUE" as const
+            : i.index_type === "FULLTEXT"
+            ? "FULLTEXT" as const
+            : "INDEX" as const,
           columns: i.columns,
         }));
 
@@ -246,14 +270,11 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
 
   // --- Column operations ---
   const updateColumn = (id: string, field: keyof DesignerColumn, value: string | boolean) => {
-    setColumns((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)),
-    );
+    setColumns((prev) => prev.map((c) => (c.id === id ? { ...c, [field]: value } : c)));
   };
 
   const addColumn = () => setColumns((prev) => [...prev, newColumn()]);
-  const removeColumn = (id: string) =>
-    setColumns((prev) => prev.filter((c) => c.id !== id));
+  const removeColumn = (id: string) => setColumns((prev) => prev.filter((c) => c.id !== id));
 
   // --- Drag reorder ---
   const dragItem = useRef<number | null>(null);
@@ -283,23 +304,17 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
 
   // --- Index operations ---
   const updateIndex = (id: string, field: keyof DesignerIndex, value: unknown) => {
-    setIndexes((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, [field]: value } : i)),
-    );
+    setIndexes((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: value } : i)));
   };
   const addIndex = () => setIndexes((prev) => [...prev, newIndex()]);
-  const removeIndex = (id: string) =>
-    setIndexes((prev) => prev.filter((i) => i.id !== id));
+  const removeIndex = (id: string) => setIndexes((prev) => prev.filter((i) => i.id !== id));
 
   // --- FK operations ---
   const updateFK = (id: string, field: keyof DesignerForeignKey, value: unknown) => {
-    setForeignKeys((prev) =>
-      prev.map((f) => (f.id === id ? { ...f, [field]: value } : f)),
-    );
+    setForeignKeys((prev) => prev.map((f) => (f.id === id ? { ...f, [field]: value } : f)));
   };
   const addFK = () => setForeignKeys((prev) => [...prev, newForeignKey()]);
-  const removeFK = (id: string) =>
-    setForeignKeys((prev) => prev.filter((f) => f.id !== id));
+  const removeFK = (id: string) => setForeignKeys((prev) => prev.filter((f) => f.id !== id));
 
   const subTabs: { key: SubTab; label: string; icon: typeof Columns3 }[] = [
     { key: "columns", label: "Columns", icon: Columns3 },
@@ -416,9 +431,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
             onRemove={removeFK}
           />
         )}
-        {activeSubTab === "options" && (
-          <OptionsTab options={options} onChange={setOptions} />
-        )}
+        {activeSubTab === "options" && <OptionsTab options={options} onChange={setOptions} />}
       </div>
 
       {showPreview && (
@@ -459,13 +472,13 @@ function ColumnsTab({
     const orig = origMap.get(col.id);
     if (!orig) return true;
     return (
-      orig.name !== col.name ||
-      orig.type !== col.type ||
-      orig.length !== col.length ||
-      orig.nullable !== col.nullable ||
-      orig.defaultValue !== col.defaultValue ||
-      orig.autoIncrement !== col.autoIncrement ||
-      orig.comment !== col.comment
+      orig.name !== col.name
+      || orig.type !== col.type
+      || orig.length !== col.length
+      || orig.nullable !== col.nullable
+      || orig.defaultValue !== col.defaultValue
+      || orig.autoIncrement !== col.autoIncrement
+      || orig.comment !== col.comment
     );
   };
 
@@ -524,9 +537,7 @@ function ColumnsTab({
                       onChange={(e) => onUpdate(col.id, "type", e.target.value)}
                       className={selectClass}
                     >
-                      {COLUMN_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
+                      {COLUMN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
                     </select>
                   </td>
                   <td className="px-1 py-1">
@@ -621,75 +632,73 @@ function IndexesTab({
 
   return (
     <div>
-      {indexes.length === 0 ? (
-        <p className="text-xs text-[var(--color-text-muted)]">No indexes defined.</p>
-      ) : (
-        <div className="space-y-3">
-          {indexes.map((idx) => (
-            <div
-              key={idx.id}
-              className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
-            >
-              <div className="mb-2 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div>
-                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Name</label>
-                    <input
-                      value={idx.name}
-                      onChange={(e) => onUpdate(idx.id, "name", e.target.value)}
-                      placeholder="index_name"
-                      disabled={idx.type === "PRIMARY KEY"}
-                      className={cn(inputClass, "w-48")}
-                    />
+      {indexes.length === 0
+        ? <p className="text-xs text-[var(--color-text-muted)]">No indexes defined.</p>
+        : (
+          <div className="space-y-3">
+            {indexes.map((idx) => (
+              <div
+                key={idx.id}
+                className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Name</label>
+                      <input
+                        value={idx.name}
+                        onChange={(e) => onUpdate(idx.id, "name", e.target.value)}
+                        placeholder="index_name"
+                        disabled={idx.type === "PRIMARY KEY"}
+                        className={cn(inputClass, "w-48")}
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Type</label>
+                      <select
+                        value={idx.type}
+                        onChange={(e) => onUpdate(idx.id, "type", e.target.value)}
+                        className={cn(selectClass, "w-36")}
+                      >
+                        {INDEX_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
                   </div>
-                  <div>
-                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Type</label>
-                    <select
-                      value={idx.type}
-                      onChange={(e) => onUpdate(idx.id, "type", e.target.value)}
-                      className={cn(selectClass, "w-36")}
-                    >
-                      {INDEX_TYPES.map((t) => (
-                        <option key={t} value={t}>{t}</option>
-                      ))}
-                    </select>
+                  <button
+                    onClick={() => onRemove(idx.id)}
+                    className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                <div>
+                  <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Columns</label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {columnNames.map((colName) => (
+                      <button
+                        key={colName}
+                        onClick={() => toggleColumn(idx, colName)}
+                        className={cn(
+                          "rounded border px-2 py-0.5 text-[10px] transition-colors",
+                          idx.columns.includes(colName)
+                            ? "border-brand-500 bg-brand-600/20 text-brand-300"
+                            : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]",
+                        )}
+                      >
+                        {colName}
+                      </button>
+                    ))}
+                    {columnNames.length === 0 && (
+                      <span className="text-[10px] text-[var(--color-text-muted)]">
+                        Add columns in the Columns tab first
+                      </span>
+                    )}
                   </div>
                 </div>
-                <button
-                  onClick={() => onRemove(idx.id)}
-                  className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
               </div>
-              <div>
-                <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Columns</label>
-                <div className="flex flex-wrap gap-1.5">
-                  {columnNames.map((colName) => (
-                    <button
-                      key={colName}
-                      onClick={() => toggleColumn(idx, colName)}
-                      className={cn(
-                        "rounded border px-2 py-0.5 text-[10px] transition-colors",
-                        idx.columns.includes(colName)
-                          ? "border-brand-500 bg-brand-600/20 text-brand-300"
-                          : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]",
-                      )}
-                    >
-                      {colName}
-                    </button>
-                  ))}
-                  {columnNames.length === 0 && (
-                    <span className="text-[10px] text-[var(--color-text-muted)]">
-                      Add columns in the Columns tab first
-                    </span>
-                  )}
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
       <button
         onClick={onAdd}
         className="mt-3 flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
@@ -735,78 +744,43 @@ function ForeignKeysTab({
 
   return (
     <div>
-      {foreignKeys.length === 0 ? (
-        <p className="text-xs text-[var(--color-text-muted)]">No foreign keys defined.</p>
-      ) : (
-        <div className="space-y-3">
-          {foreignKeys.map((fk) => (
-            <div
-              key={fk.id}
-              className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
-            >
-              <div className="mb-2 flex items-center justify-between">
-                <div>
-                  <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Constraint Name</label>
-                  <input
-                    value={fk.name}
-                    onChange={(e) => onUpdate(fk.id, "name", e.target.value)}
-                    placeholder="fk_name"
-                    className={cn(inputClass, "w-48")}
-                  />
-                </div>
-                <button
-                  onClick={() => onRemove(fk.id)}
-                  className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-
-              <div className="mb-2 grid grid-cols-2 gap-4">
-                <div>
-                  <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Column(s)</label>
-                  <div className="flex flex-wrap gap-1">
-                    {columnNames.map((cn) => (
-                      <button
-                        key={cn}
-                        onClick={() => toggleColumn(fk, "columns", cn)}
-                        className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
-                          fk.columns.includes(cn)
-                            ? "border-brand-500 bg-brand-600/20 text-brand-300"
-                            : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]"
-                        }`}
-                      >
-                        {cn}
-                      </button>
-                    ))}
+      {foreignKeys.length === 0
+        ? <p className="text-xs text-[var(--color-text-muted)]">No foreign keys defined.</p>
+        : (
+          <div className="space-y-3">
+            {foreignKeys.map((fk) => (
+              <div
+                key={fk.id}
+                className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
+              >
+                <div className="mb-2 flex items-center justify-between">
+                  <div>
+                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Constraint Name</label>
+                    <input
+                      value={fk.name}
+                      onChange={(e) => onUpdate(fk.id, "name", e.target.value)}
+                      placeholder="fk_name"
+                      className={cn(inputClass, "w-48")}
+                    />
                   </div>
-                </div>
-                <div>
-                  <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Reference Table</label>
-                  <select
-                    value={fk.referenceTable}
-                    onChange={(e) => {
-                      const table = e.target.value;
-                      onUpdate(fk.id, "referenceTable", table);
-                      onUpdate(fk.id, "referenceColumns", []);
-                      if (table) onLoadRefColumns(table);
-                    }}
-                    className={selectClass}
+                  <button
+                    onClick={() => onRemove(fk.id)}
+                    className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
                   >
-                    <option value="">Select table…</option>
-                    {refTables.map((t) => (
-                      <option key={t.name} value={t.name}>{t.name}</option>
-                    ))}
-                  </select>
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
 
-                  {fk.referenceTable && refTableColumns[fk.referenceTable] && (
-                    <div className="mt-1.5 flex flex-wrap gap-1">
-                      {refTableColumns[fk.referenceTable].map((cn) => (
+                <div className="mb-2 grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Column(s)</label>
+                    <div className="flex flex-wrap gap-1">
+                      {columnNames.map((cn) => (
                         <button
                           key={cn}
-                          onClick={() => toggleColumn(fk, "referenceColumns", cn)}
+                          onClick={() => toggleColumn(fk, "columns", cn)}
                           className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
-                            fk.referenceColumns.includes(cn)
+                            fk.columns.includes(cn)
                               ? "border-brand-500 bg-brand-600/20 text-brand-300"
                               : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]"
                           }`}
@@ -815,40 +789,69 @@ function ForeignKeysTab({
                         </button>
                       ))}
                     </div>
-                  )}
-                </div>
-              </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Reference Table</label>
+                    <select
+                      value={fk.referenceTable}
+                      onChange={(e) => {
+                        const table = e.target.value;
+                        onUpdate(fk.id, "referenceTable", table);
+                        onUpdate(fk.id, "referenceColumns", []);
+                        if (table) onLoadRefColumns(table);
+                      }}
+                      className={selectClass}
+                    >
+                      <option value="">Select table…</option>
+                      {refTables.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                    </select>
 
-              <div className="flex gap-3">
-                <div>
-                  <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">ON DELETE</label>
-                  <select
-                    value={fk.onDelete}
-                    onChange={(e) => onUpdate(fk.id, "onDelete", e.target.value)}
-                    className={cn(selectClass, "w-32")}
-                  >
-                    {FK_ACTIONS.map((a) => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
-                  </select>
+                    {fk.referenceTable && refTableColumns[fk.referenceTable] && (
+                      <div className="mt-1.5 flex flex-wrap gap-1">
+                        {refTableColumns[fk.referenceTable].map((cn) => (
+                          <button
+                            key={cn}
+                            onClick={() => toggleColumn(fk, "referenceColumns", cn)}
+                            className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                              fk.referenceColumns.includes(cn)
+                                ? "border-brand-500 bg-brand-600/20 text-brand-300"
+                                : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]"
+                            }`}
+                          >
+                            {cn}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
-                <div>
-                  <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">ON UPDATE</label>
-                  <select
-                    value={fk.onUpdate}
-                    onChange={(e) => onUpdate(fk.id, "onUpdate", e.target.value)}
-                    className={cn(selectClass, "w-32")}
-                  >
-                    {FK_ACTIONS.map((a) => (
-                      <option key={a} value={a}>{a}</option>
-                    ))}
-                  </select>
+
+                <div className="flex gap-3">
+                  <div>
+                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">ON DELETE</label>
+                    <select
+                      value={fk.onDelete}
+                      onChange={(e) => onUpdate(fk.id, "onDelete", e.target.value)}
+                      className={cn(selectClass, "w-32")}
+                    >
+                      {FK_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">ON UPDATE</label>
+                    <select
+                      value={fk.onUpdate}
+                      onChange={(e) => onUpdate(fk.id, "onUpdate", e.target.value)}
+                      className={cn(selectClass, "w-32")}
+                    >
+                      {FK_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+                    </select>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
       <button
         onClick={onAdd}
         className="mt-3 flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
@@ -885,9 +888,7 @@ function OptionsTab({
           onChange={(e) => update("engine", e.target.value)}
           className={cn(selectClass, "w-full")}
         >
-          {ENGINES.map((e) => (
-            <option key={e} value={e}>{e}</option>
-          ))}
+          {ENGINES.map((e) => <option key={e} value={e}>{e}</option>)}
         </select>
       </div>
       <div>
@@ -897,9 +898,7 @@ function OptionsTab({
           onChange={(e) => update("charset", e.target.value)}
           className={cn(selectClass, "w-full")}
         >
-          {CHARSETS.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
+          {CHARSETS.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div>
@@ -909,9 +908,7 @@ function OptionsTab({
           onChange={(e) => update("collation", e.target.value)}
           className={cn(selectClass, "w-full")}
         >
-          {COLLATIONS.map((c) => (
-            <option key={c} value={c}>{c}</option>
-          ))}
+          {COLLATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div>

@@ -1,8 +1,5 @@
-import { describe, it, expect } from "vitest";
-import {
-  parseRoutineParameters,
-  parseRoutineMetadata,
-} from "../routine-parser";
+import { describe, expect, it } from "vitest";
+import { parseRoutineMetadata, parseRoutineParameters } from "../routine-parser";
 
 describe("parseRoutineParameters", () => {
   it("parses simple IN parameters", () => {
@@ -127,7 +124,8 @@ END`;
   });
 
   it("handles mixed direction parameters", () => {
-    const ddl = `CREATE PROCEDURE transfer(IN from_id INT, IN to_id INT, IN amount DECIMAL(10,2), OUT success BOOLEAN, INOUT log_msg VARCHAR(255))
+    const ddl =
+      `CREATE PROCEDURE transfer(IN from_id INT, IN to_id INT, IN amount DECIMAL(10,2), OUT success BOOLEAN, INOUT log_msg VARCHAR(255))
 BEGIN
   SELECT 1;
 END`;

@@ -1,9 +1,9 @@
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  generateSQL,
-  generateAlias,
-  getAllColumnRefs,
   type CanvasTable,
+  generateAlias,
+  generateSQL,
+  getAllColumnRefs,
   type QueryBuilderState,
 } from "../query-builder-engine";
 

@@ -1,5 +1,5 @@
-import { describe, it, expect } from "vitest";
-import { splitSqlStatements, generateBatchInsert } from "../sql-import";
+import { describe, expect, it } from "vitest";
+import { generateBatchInsert, splitSqlStatements } from "../sql-import";
 
 describe("splitSqlStatements", () => {
   it("should split simple statements", () => {
@@ -18,8 +18,8 @@ describe("splitSqlStatements", () => {
   });
 
   it("should handle double-quoted strings", () => {
-    const result = splitSqlStatements('SELECT "a;b"; SELECT 2;');
-    expect(result).toEqual(['SELECT "a;b"', "SELECT 2"]);
+    const result = splitSqlStatements("SELECT \"a;b\"; SELECT 2;");
+    expect(result).toEqual(["SELECT \"a;b\"", "SELECT 2"]);
   });
 
   it("should handle line comments", () => {

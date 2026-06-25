@@ -1,7 +1,7 @@
-import { describe, it, expect, beforeEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
-import { useGridEditing } from "../useGridEditing";
+import { act, renderHook } from "@testing-library/react";
+import { beforeEach, describe, expect, it } from "vitest";
 import type { SqlValue } from "../../types";
+import { useGridEditing } from "../useGridEditing";
 
 beforeEach(() => {
   // No special setup needed for this pure hook

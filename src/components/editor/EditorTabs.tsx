@@ -1,9 +1,9 @@
-import { useState, useRef, useEffect, useCallback } from "react";
-import { Plus, X, ChevronLeft } from "lucide-react";
-import { useEditorStore } from "../../stores/editorStore";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { cn } from "../../lib/utils";
+import { ChevronLeft, Plus, X } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { cn } from "../../lib/utils";
+import { useConnectionStore } from "../../stores/connectionStore";
+import { useEditorStore } from "../../stores/editorStore";
 
 export function EditorTabs() {
   const tabs = useEditorStore((s) => s.tabs);
@@ -124,86 +124,82 @@ export function EditorTabs() {
           const isProduction = profile?.environment === "production";
 
           return (
-          <button
-            key={tab.id}
-            data-tab-id={tab.id}
-            draggable
-            onDragStart={(e) => handleDragStart(e, index)}
-            onDragOver={(e) => handleDragOver(e, index)}
-            onDrop={(e) => handleDrop(e, index)}
-            onDragEnd={handleDragEnd}
-            onClick={() => setActiveTab(tab.id)}
-            onMouseDown={(e) => {
-              if (e.button === 1) {
-                e.preventDefault();
-                closeTab(tab.id);
-              }
-            }}
-            onDoubleClick={() => handleDoubleClick(tab.id, tab.title)}
-            onContextMenu={(e) => {
-              showContextMenu(e, [
-                { label: "Close", onClick: () => closeTab(tab.id) },
-                { label: "Close Others", onClick: () => closeOtherTabs(tab.id) },
-                { label: "Close to the Right", onClick: () => closeTabsToRight(tab.id) },
-              ]);
-            }}
-            className={cn(
-              "group relative flex h-9 items-center gap-1.5 border-r border-[var(--color-border)] px-3 text-xs transition-colors",
-              activeTabId === tab.id
-                ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)]"
-                : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]",
-              dragIndex === index && "opacity-50",
-            )}
-          >
-            {/* Color indicator border */}
-            {tabColor && (
-              <span
-                className="absolute bottom-0 left-0 right-0 h-[3px] rounded-t"
-                style={{ backgroundColor: tabColor }}
-              />
-            )}
-            {/* Drop indicator line */}
-            {dropIndex === index && dragIndex !== null && dragIndex !== index && (
-              <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-brand-500" />
-            )}
-            {isProduction && (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" title="Production" />
-            )}
-            {tab.isDirty && (
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" />
-            )}
-            {editingTabId === tab.id ? (
-              <input
-                type="text"
-                value={editValue}
-                onChange={(e) => setEditValue(e.target.value)}
-                onBlur={handleRenameConfirm}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") handleRenameConfirm();
-                  if (e.key === "Escape") {
-                    setEditingTabId(null);
-                    setEditValue("");
-                  }
-                }}
-                onClick={(e) => e.stopPropagation()}
-                autoFocus
-                className="w-20 rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-xs text-[var(--color-text-primary)] outline-none ring-1 ring-brand-500"
-              />
-            ) : (
-              <span className="max-w-[120px] truncate">{tab.title}</span>
-            )}
-            {!(tab.type === "query" && queryTabCount <= 1) && (
-            <span
-              onClick={(e) => {
-                e.stopPropagation();
-                closeTab(tab.id);
+            <button
+              key={tab.id}
+              data-tab-id={tab.id}
+              draggable
+              onDragStart={(e) => handleDragStart(e, index)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDrop={(e) => handleDrop(e, index)}
+              onDragEnd={handleDragEnd}
+              onClick={() => setActiveTab(tab.id)}
+              onMouseDown={(e) => {
+                if (e.button === 1) {
+                  e.preventDefault();
+                  closeTab(tab.id);
+                }
               }}
-              className="ml-1 rounded p-0.5 opacity-0 hover:bg-[var(--color-bg-tertiary)] group-hover:opacity-100"
+              onDoubleClick={() => handleDoubleClick(tab.id, tab.title)}
+              onContextMenu={(e) => {
+                showContextMenu(e, [
+                  { label: "Close", onClick: () => closeTab(tab.id) },
+                  { label: "Close Others", onClick: () => closeOtherTabs(tab.id) },
+                  { label: "Close to the Right", onClick: () => closeTabsToRight(tab.id) },
+                ]);
+              }}
+              className={cn(
+                "group relative flex h-9 items-center gap-1.5 border-r border-[var(--color-border)] px-3 text-xs transition-colors",
+                activeTabId === tab.id
+                  ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)]"
+                  : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]",
+                dragIndex === index && "opacity-50",
+              )}
             >
-              <X className="h-3 w-3" />
-            </span>
-            )}
-          </button>
+              {/* Color indicator border */}
+              {tabColor && (
+                <span
+                  className="absolute bottom-0 left-0 right-0 h-[3px] rounded-t"
+                  style={{ backgroundColor: tabColor }}
+                />
+              )}
+              {/* Drop indicator line */}
+              {dropIndex === index && dragIndex !== null && dragIndex !== index && (
+                <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-brand-500" />
+              )}
+              {isProduction && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" title="Production" />}
+              {tab.isDirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" />}
+              {editingTabId === tab.id
+                ? (
+                  <input
+                    type="text"
+                    value={editValue}
+                    onChange={(e) => setEditValue(e.target.value)}
+                    onBlur={handleRenameConfirm}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleRenameConfirm();
+                      if (e.key === "Escape") {
+                        setEditingTabId(null);
+                        setEditValue("");
+                      }
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                    autoFocus
+                    className="w-20 rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-xs text-[var(--color-text-primary)] outline-none ring-1 ring-brand-500"
+                  />
+                )
+                : <span className="max-w-[120px] truncate">{tab.title}</span>}
+              {!(tab.type === "query" && queryTabCount <= 1) && (
+                <span
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    closeTab(tab.id);
+                  }}
+                  className="ml-1 rounded p-0.5 opacity-0 hover:bg-[var(--color-bg-tertiary)] group-hover:opacity-100"
+                >
+                  <X className="h-3 w-3" />
+                </span>
+              )}
+            </button>
           );
         })}
         <button

@@ -101,7 +101,7 @@ export function splitSqlStatements(sql: string): string[] {
 
     if (inDoubleQuote) {
       current += ch;
-      if (ch === '"') {
+      if (ch === "\"") {
         inDoubleQuote = false;
       }
       continue;
@@ -142,7 +142,7 @@ export function splitSqlStatements(sql: string): string[] {
       current += ch;
       continue;
     }
-    if (ch === '"') {
+    if (ch === "\"") {
       inDoubleQuote = true;
       current += ch;
       continue;

@@ -1,11 +1,7 @@
-import { describe, it, expect } from "vitest";
-import {
-  compareColumns,
-  compareIndexes,
-  compareSchemas,
-} from "../schema-diff";
-import type { SchemaSnapshot } from "../schema-diff";
+import { describe, expect, it } from "vitest";
 import type { ColumnInfo, IndexInfo } from "../../types";
+import { compareColumns, compareIndexes, compareSchemas } from "../schema-diff";
+import type { SchemaSnapshot } from "../schema-diff";
 
 function makeColumn(overrides: Partial<ColumnInfo> & { name: string }): ColumnInfo {
   return {
@@ -85,7 +81,7 @@ describe("schema-diff", () => {
       const target = [makeColumn({ name: "id", comment: "" })];
       const result = compareColumns(source, target);
       expect(result.modified).toHaveLength(1);
-      expect(result.modified[0].changes).toContain('comment: "" → "Primary key"');
+      expect(result.modified[0].changes).toContain("comment: \"\" → \"Primary key\"");
     });
 
     it("reports identical columns as no changes", () => {
@@ -218,7 +214,10 @@ describe("schema-diff", () => {
     it("detects different views by DDL", () => {
       const source: SchemaSnapshot = {
         tables: [],
-        views: [{ info: { name: "v_users", is_updatable: false }, ddl: "CREATE VIEW v_users AS SELECT id, name FROM users" }],
+        views: [{
+          info: { name: "v_users", is_updatable: false },
+          ddl: "CREATE VIEW v_users AS SELECT id, name FROM users",
+        }],
         routines: [],
         triggers: [],
       };
@@ -236,7 +235,10 @@ describe("schema-diff", () => {
       const source: SchemaSnapshot = {
         tables: [],
         views: [],
-        routines: [{ info: { name: "get_user", routine_type: "FUNCTION", data_type: "varchar" }, ddl: "CREATE FUNCTION get_user() RETURNS varchar(255) BEGIN RETURN 'hello'; END" }],
+        routines: [{
+          info: { name: "get_user", routine_type: "FUNCTION", data_type: "varchar" },
+          ddl: "CREATE FUNCTION get_user() RETURNS varchar(255) BEGIN RETURN 'hello'; END",
+        }],
         triggers: [],
       };
       const target: SchemaSnapshot = {
@@ -259,7 +261,10 @@ describe("schema-diff", () => {
       const target: SchemaSnapshot = {
         tables: [],
         views: [],
-        routines: [{ info: { name: "update_user", routine_type: "PROCEDURE", data_type: "" }, ddl: "CREATE PROCEDURE update_user(IN uid INT) BEGIN UPDATE users SET name = 'x' WHERE id = uid; END" }],
+        routines: [{
+          info: { name: "update_user", routine_type: "PROCEDURE", data_type: "" },
+          ddl: "CREATE PROCEDURE update_user(IN uid INT) BEGIN UPDATE users SET name = 'x' WHERE id = uid; END",
+        }],
         triggers: [],
       };
       const result = compareSchemas(source, target);
@@ -267,11 +272,15 @@ describe("schema-diff", () => {
       expect(result.routines.onlyInTarget[0].name).toBe("update_user");
     });
 
-    it("compares triggers", () => {      const source: SchemaSnapshot = {
+    it("compares triggers", () => {
+      const source: SchemaSnapshot = {
         tables: [],
         views: [],
         routines: [],
-        triggers: [{ info: { name: "trg_users", event: "INSERT", table: "users", timing: "BEFORE" }, ddl: "CREATE TRIGGER trg_users BEFORE INSERT ON users FOR EACH ROW BEGIN END" }],
+        triggers: [{
+          info: { name: "trg_users", event: "INSERT", table: "users", timing: "BEFORE" },
+          ddl: "CREATE TRIGGER trg_users BEFORE INSERT ON users FOR EACH ROW BEGIN END",
+        }],
       };
       const target: SchemaSnapshot = {
         tables: [],
@@ -294,7 +303,10 @@ describe("schema-diff", () => {
         tables: [],
         views: [],
         routines: [],
-        triggers: [{ info: { name: "trg_log", event: "INSERT", table: "orders", timing: "AFTER" }, ddl: "CREATE TRIGGER trg_log AFTER INSERT ON orders FOR EACH ROW BEGIN END" }],
+        triggers: [{
+          info: { name: "trg_log", event: "INSERT", table: "orders", timing: "AFTER" },
+          ddl: "CREATE TRIGGER trg_log AFTER INSERT ON orders FOR EACH ROW BEGIN END",
+        }],
       };
       const result = compareSchemas(source, target);
       expect(result.triggers.onlyInTarget).toHaveLength(1);
@@ -365,7 +377,10 @@ describe("schema-diff", () => {
       };
       const target: SchemaSnapshot = {
         tables: [],
-        views: [{ info: { name: "v_orders", is_updatable: false }, ddl: "CREATE VIEW v_orders AS SELECT * FROM orders" }],
+        views: [{
+          info: { name: "v_orders", is_updatable: false },
+          ddl: "CREATE VIEW v_orders AS SELECT * FROM orders",
+        }],
         routines: [],
         triggers: [],
       };
