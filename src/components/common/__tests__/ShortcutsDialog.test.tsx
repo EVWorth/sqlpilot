@@ -25,9 +25,8 @@ describe("ShortcutsDialog (HelpDialog)", () => {
 
     expect(screen.getByText("Keyboard Shortcuts")).toBeInTheDocument();
     expect(screen.getByText("About")).toBeInTheDocument();
-    // Check that actual shortcut descriptions appear (Execute query appears twice: Ctrl+Enter and F5)
-    const executeTexts = screen.getAllByText("Execute query");
-    expect(executeTexts.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Run statement at cursor")).toBeInTheDocument();
+    expect(screen.getAllByText("Run all statements").length).toBe(2);
     expect(screen.getByText("Ctrl+Enter")).toBeInTheDocument();
   });
 
@@ -55,8 +54,7 @@ describe("ShortcutsDialog (HelpDialog)", () => {
     fireEvent.click(screen.getByText("About"));
     fireEvent.click(screen.getByText("Keyboard Shortcuts"));
 
-    const executeTexts2 = screen.getAllByText("Execute query");
-    expect(executeTexts2.length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText("Run statement at cursor")).toBeInTheDocument();
   });
 
   it("calls onClose when X button is clicked", () => {

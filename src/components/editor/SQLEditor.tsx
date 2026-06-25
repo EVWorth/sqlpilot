@@ -156,6 +156,25 @@ export function SQLEditor() {
       });
 
       editor.addAction({
+        id: "execute-all",
+        label: "Execute All Statements",
+        keybindings: [
+          // Monaco.KeyMod.CtrlCmd | Monaco.KeyMod.Shift | Monaco.KeyCode.Enter
+          2048 | 1024 | 3,
+        ],
+        run: () => {
+          const model = editor.getModel();
+          const sql = model?.getValue() ?? "";
+          const connectionId = useConnectionStore.getState().selectedConnectionId;
+          const { tabs: editorTabs, activeTabId: editorActiveTabId } = useEditorStore.getState();
+          const editorActiveTab = editorTabs.find((t) => t.id === editorActiveTabId);
+          if (sql.trim() && connectionId) {
+            useResultStore.getState().executeQuery(connectionId, sql, editorActiveTab?.database);
+          }
+        },
+      });
+
+      editor.addAction({
         id: "explain-query",
         label: "Explain Query",
         keybindings: [
