@@ -1,0 +1,23 @@
+pre-commit:
+  commands:
+    version-check:
+      glob: "{package.json,src-tauri/tauri.conf.json,src-tauri/Cargo.toml}"
+      run: |
+        jsver=$(node -p "require('./package.json').version")
+        rsver=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+        taver=$(node -p "require('./src-tauri/tauri.conf.json').version")
+        if [ "$jsver" != "$rsver" ] || [ "$jsver" != "$taver" ]; then
+          echo "Version mismatch!"
+          echo "  package.json:       $jsver"
+          echo "  Cargo.toml:         $rsver"
+          echo "  tauri.conf.json:    $taver"
+          echo "Run: make bump"
+          exit 1
+        fi
+    tsc-check:
+      glob: "*.{ts,tsx}"
+      run: npx tsc --noEmit --pretty
+    cargo-fmt:
+      root: "src-tauri/"
+      glob: "*.rs"
+      run: cargo fmt --check
