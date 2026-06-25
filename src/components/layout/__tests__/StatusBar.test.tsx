@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen } from "@testing-library/react";
+import { act } from "react";
 import userEvent from "@testing-library/user-event";
 import { StatusBar } from "../StatusBar";
 import { useConnectionStore } from "../../../stores/connectionStore";
@@ -13,9 +14,12 @@ vi.mock("../../../lib/tauri-api", () => ({
   },
 }));
 
+const { act: reactAct } = await import("react");
+
 describe("StatusBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
 
     useConnectionStore.setState({
       activeConnections: [
@@ -58,15 +62,23 @@ describe("StatusBar", () => {
     });
   });
 
-  it("renders connection name and host:port", () => {
-    render(<StatusBar />);
+  function renderStatusBar() {
+    let rerender: ReturnType<typeof render>["rerender"];
+    act(() => {
+      const r = render(<StatusBar />);
+      rerender = r.rerender;
+    });
+    return rerender!;
+  }
 
+  it("renders connection name and host:port", () => {
+    renderStatusBar();
     expect(screen.getByText(/Production DB/)).toBeInTheDocument();
     expect(screen.getByText(/db\.example\.com:3306/)).toBeInTheDocument();
   });
 
   it("renders MySQL version", () => {
-    render(<StatusBar />);
+    renderStatusBar();
     expect(screen.getByText("MySQL 8.0.33")).toBeInTheDocument();
   });
 
@@ -79,17 +91,17 @@ describe("StatusBar", () => {
       loading: false,
     } as any);
 
-    render(<StatusBar />);
+    renderStatusBar();
     expect(screen.getByText("Disconnected")).toBeInTheDocument();
   });
 
   it("renders environment badge for production", () => {
-    render(<StatusBar />);
+    renderStatusBar();
     expect(screen.getByText("PROD")).toBeInTheDocument();
   });
 
   it("renders database name", () => {
-    render(<StatusBar />);
+    renderStatusBar();
     expect(screen.getByText("analytics")).toBeInTheDocument();
   });
 
@@ -101,7 +113,7 @@ describe("StatusBar", () => {
       error: null,
     } as any);
 
-    render(<StatusBar />);
+    renderStatusBar();
     expect(screen.getByText("Executing...")).toBeInTheDocument();
   });
 
@@ -113,7 +125,7 @@ describe("StatusBar", () => {
       error: "Syntax error near 'SELEKT'",
     } as any);
 
-    render(<StatusBar />);
+    renderStatusBar();
     expect(screen.getByText(/Syntax error/)).toBeInTheDocument();
   });
 
@@ -136,7 +148,7 @@ describe("StatusBar", () => {
       loading: false,
     } as any);
 
-    render(<StatusBar />);
+    renderStatusBar();
     expect(screen.getByText("Connection timed out")).toBeInTheDocument();
   });
 
@@ -159,13 +171,13 @@ describe("StatusBar", () => {
       error: null,
     } as any);
 
-    render(<StatusBar />);
+    renderStatusBar();
     expect(screen.getByText(/3 rows/)).toBeInTheDocument();
     expect(screen.getByText(/150ms/)).toBeInTheDocument();
   });
 
   it("shows app version after mount", async () => {
-    render(<StatusBar />);
+    renderStatusBar();
     expect(await screen.findByText("v2.1.0")).toBeInTheDocument();
   });
 
@@ -176,26 +188,26 @@ describe("StatusBar", () => {
 
     it("shows update available button with version", () => {
       useSettingsStore.setState({ updateStatus: "available", updateVersion: "1.5.0" });
-      render(<StatusBar />);
+      renderStatusBar();
       expect(screen.getByText("Update to v1.5.0")).toBeInTheDocument();
     });
 
     it("shows downloading status", () => {
       useSettingsStore.setState({ updateStatus: "downloading" });
-      render(<StatusBar />);
+      renderStatusBar();
       expect(screen.getByText("Downloading update...")).toBeInTheDocument();
     });
 
     it("shows retry button when update check fails", () => {
       useSettingsStore.setState({ updateStatus: "error" });
-      render(<StatusBar />);
+      renderStatusBar();
       expect(screen.getByText("Update failed")).toBeInTheDocument();
     });
 
     it("calls installUpdate when update button is clicked", async () => {
       const user = userEvent.setup({ applyAccept: false });
       useSettingsStore.setState({ updateStatus: "available", updateVersion: "2.0.0" });
-      render(<StatusBar />);
+      renderStatusBar();
       const spy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
       await user.click(screen.getByText("Update to v2.0.0"));
       expect(spy).toHaveBeenCalledOnce();
@@ -204,7 +216,7 @@ describe("StatusBar", () => {
     it("calls checkForUpdates when retry button is clicked", async () => {
       const user = userEvent.setup({ applyAccept: false });
       useSettingsStore.setState({ updateStatus: "error" });
-      render(<StatusBar />);
+      renderStatusBar();
       const spy = vi.spyOn(useSettingsStore.getState(), "checkForUpdates");
       await user.click(screen.getByText("Update failed"));
       expect(spy).toHaveBeenCalledOnce();
