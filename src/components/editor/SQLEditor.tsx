@@ -93,15 +93,15 @@ export function SQLEditor() {
       editorRef.current = editor;
       setEditorInstance(editor);
 
-      // Let Ctrl+End / Cmd+End fall through to the browser so the native
-      // autocomplete suggestion list can respond to it.
+      // Unbind Ctrl+End / Cmd+End from Monaco's "cursorBottom" so the
+      // suggestion widget can use navigation instead of jumping to doc end.
       try {
         _monacoInstance.editor.addKeybindingRule({
           keybinding: 2048 | 15, // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.End
           command: null,
         });
       } catch {
-        // Non-critical; Monaco ignores the command silently.
+        // Non-critical
       }
 
       editor.addAction({
