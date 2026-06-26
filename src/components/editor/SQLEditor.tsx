@@ -118,31 +118,26 @@ export function SQLEditor() {
           if (selection && !selection.isEmpty()) {
             sql = model?.getValueInRange(selection) ?? "";
           } else if (model && selection) {
-            // No selection — find the statement at the cursor
             const fullText = model.getValue();
             const cursorLine = selection.positionLineNumber;
+            // Build char offset from line/column
             const lines = fullText.split("\n");
             let charOffset = 0;
             for (let i = 0; i < cursorLine - 1; i++) {
               charOffset += lines[i].length + 1;
             }
             charOffset += selection.positionColumn - 1;
-            // Find statement boundaries around cursor
-            let start = 0;
-            let end = fullText.length;
-            for (let i = charOffset - 1; i >= 0; i--) {
-              if (fullText[i] === ";") {
-                start = i + 1;
+            // Split by semicolons, track each statement's range
+            let stmtStart = 0;
+            for (const stmt of fullText.split(";")) {
+              const stmtLen = stmt.length;
+              if (charOffset >= stmtStart && charOffset <= stmtStart + stmtLen) {
+                sql = (stmt + ";").trim();
                 break;
               }
+              stmtStart += stmtLen + 1; // +1 for the ;
             }
-            for (let i = charOffset; i < fullText.length; i++) {
-              if (fullText[i] === ";") {
-                end = i + 1;
-                break;
-              }
-            }
-            sql = fullText.slice(start, end).trim();
+            sql = sql || model.getValue();
           } else {
             sql = model?.getValue() ?? "";
           }
