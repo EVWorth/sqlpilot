@@ -126,35 +126,37 @@ export function SQLEditor() {
               charOffset += lines[i].length + 1;
             }
             charOffset += selection.positionColumn - 1;
-            // Split into statements: boundaries are semicolons or blank lines
-            // followed by a SQL keyword (SELECT, INSERT, UPDATE, DELETE, etc.)
-            const parts: { start: number; end: number; text: string }[] = [];
-            const stmtStartRe =
-              /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|WITH|EXPLAIN|DESCRIBE|SHOW|SET|USE|CALL|BEGIN|COMMIT|ROLLBACK|SAVEPOINT|GRANT|REVOKE|LOCK|UNLOCK)\b/i;
-            let segStart = 0;
-            for (let i = 0; i < fullText.length; i++) {
+
+            // Find statement boundaries around the cursor by scanning for
+            // semicolons or blank lines (double newline).
+            let stmtStart = 0;
+            let stmtEnd = fullText.length;
+            // Scan backwards from cursor for \n\n or ;
+            for (let i = charOffset - 1; i >= 0; i--) {
               if (fullText[i] === ";") {
-                parts.push({ start: segStart, end: i + 1, text: fullText.slice(segStart, i + 1) });
-                segStart = i + 1;
-              } else if (i > 0 && fullText[i] === "\n" && fullText[i - 1] === "\n") {
-                // Blank line: check if the next non-blank line starts a new stmt
-                const rest = fullText.slice(i + 1);
-                if (stmtStartRe.test(rest)) {
-                  parts.push({ start: segStart, end: i, text: fullText.slice(segStart, i) });
-                  segStart = i + 1;
-                }
+                stmtStart = i + 1;
+                break;
               }
-            }
-            if (segStart < fullText.length) {
-              parts.push({ start: segStart, end: fullText.length, text: fullText.slice(segStart) });
-            }
-            for (const part of parts) {
-              if (part.start <= charOffset && charOffset <= part.end) {
-                sql = part.text.trim();
+              if (i > 0 && fullText[i] === "\n" && fullText[i - 1] === "\n") {
+                stmtStart = i + 1;
                 break;
               }
             }
-            sql = sql || fullText.trim();
+            // Scan forwards from cursor for \n\n or ;
+            for (let i = charOffset; i < fullText.length; i++) {
+              if (fullText[i] === ";") {
+                stmtEnd = i + 1;
+                break;
+              }
+              if (i > 0 && fullText[i] === "\n" && fullText[i - 1] === "\n") {
+                stmtEnd = i - 1;
+                break;
+              }
+            }
+            sql = fullText.slice(stmtStart, stmtEnd).trim();
+            if (!sql && charOffset >= 0) {
+              sql = fullText.trim();
+            }
           } else {
             sql = model?.getValue() ?? "";
           }
