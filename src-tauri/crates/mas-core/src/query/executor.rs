@@ -284,25 +284,26 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
             .map(SqlValue::UInt)
             .unwrap_or(SqlValue::Null),
         "DATE" | "DATETIME" | "TIMESTAMP" | "TIME" | "YEAR" => {
-            // Try chrono types first
-            let val = row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(index);
-            if let Ok(Some(dt)) = val {
-                return SqlValue::String(dt.to_string());
-            }
-            let val = row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(index);
-            if let Ok(Some(d)) = val {
-                return SqlValue::String(d.to_string());
-            }
-            let val = row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(index);
-            if let Ok(Some(t)) = val {
-                return SqlValue::String(t.to_string());
-            }
-            // Fallback: try as plain string
-            row.try_get::<Option<String>, _>(index)
+            let val = row
+                .try_get::<chrono::DateTime<chrono::Utc>, _>(index)
                 .ok()
-                .flatten()
-                .map(SqlValue::String)
-                .unwrap_or(SqlValue::Null)
+                .map(|dt| SqlValue::String(dt.format("%Y-%m-%d %H:%M:%S").to_string()))
+                .or_else(|| {
+                    row.try_get::<chrono::NaiveDateTime, _>(index)
+                        .ok()
+                        .map(|dt| SqlValue::String(dt.to_string()))
+                })
+                .or_else(|| {
+                    row.try_get::<chrono::NaiveDate, _>(index)
+                        .ok()
+                        .map(|d| SqlValue::String(d.to_string()))
+                })
+                .or_else(|| {
+                    row.try_get::<chrono::NaiveTime, _>(index)
+                        .ok()
+                        .map(|t| SqlValue::String(t.to_string()))
+                });
+            val.unwrap_or(SqlValue::Null)
         }
         _ => row
             .try_get::<Option<String>, _>(index)
