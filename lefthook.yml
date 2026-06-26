@@ -1,5 +1,8 @@
 pre-commit:
   commands:
+    unit-tests:
+      glob: "*.{ts,tsx,rs}"
+      run: npm run test:unit -- --reporter=dot
     dprint:
       glob: "*.{ts,tsx,js,jsx,json,yml,yaml,md,toml}"
       run: npx dprint check --list-different
