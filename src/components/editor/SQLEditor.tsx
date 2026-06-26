@@ -120,24 +120,41 @@ export function SQLEditor() {
           } else if (model && selection) {
             const fullText = model.getValue();
             const cursorLine = selection.positionLineNumber;
-            // Build char offset from line/column
             const lines = fullText.split("\n");
             let charOffset = 0;
             for (let i = 0; i < cursorLine - 1; i++) {
               charOffset += lines[i].length + 1;
             }
             charOffset += selection.positionColumn - 1;
-            // Split by semicolons, track each statement's range
-            let stmtStart = 0;
-            for (const stmt of fullText.split(";")) {
-              const stmtLen = stmt.length;
-              if (charOffset >= stmtStart && charOffset <= stmtStart + stmtLen) {
-                sql = (stmt + ";").trim();
+            // Split into statements: boundaries are semicolons or blank lines
+            // followed by a SQL keyword (SELECT, INSERT, UPDATE, DELETE, etc.)
+            const parts: { start: number; end: number; text: string }[] = [];
+            const stmtStartRe =
+              /^\s*(SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|TRUNCATE|WITH|EXPLAIN|DESCRIBE|SHOW|SET|USE|CALL|BEGIN|COMMIT|ROLLBACK|SAVEPOINT|GRANT|REVOKE|LOCK|UNLOCK)\b/i;
+            let segStart = 0;
+            for (let i = 0; i < fullText.length; i++) {
+              if (fullText[i] === ";") {
+                parts.push({ start: segStart, end: i + 1, text: fullText.slice(segStart, i + 1) });
+                segStart = i + 1;
+              } else if (i > 0 && fullText[i] === "\n" && fullText[i - 1] === "\n") {
+                // Blank line: check if the next non-blank line starts a new stmt
+                const rest = fullText.slice(i + 1);
+                if (stmtStartRe.test(rest)) {
+                  parts.push({ start: segStart, end: i, text: fullText.slice(segStart, i) });
+                  segStart = i + 1;
+                }
+              }
+            }
+            if (segStart < fullText.length) {
+              parts.push({ start: segStart, end: fullText.length, text: fullText.slice(segStart) });
+            }
+            for (const part of parts) {
+              if (part.start <= charOffset && charOffset <= part.end) {
+                sql = part.text.trim();
                 break;
               }
-              stmtStart += stmtLen + 1; // +1 for the ;
             }
-            sql = sql || model.getValue();
+            sql = sql || fullText.trim();
           } else {
             sql = model?.getValue() ?? "";
           }
