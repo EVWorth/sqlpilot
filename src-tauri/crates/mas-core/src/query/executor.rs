@@ -236,7 +236,6 @@ impl QueryExecutor {
 }
 
 fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> SqlValue {
-    // Normalise type name for comparison
     let t = type_name.to_uppercase();
     let t = t.trim();
 
@@ -285,30 +284,18 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
             .map(SqlValue::UInt)
             .unwrap_or(SqlValue::Null),
         "DATE" | "DATETIME" | "TIMESTAMP" | "TIME" | "YEAR" => {
-            // Try chrono types first (sqlx may prefer typed extraction for these)
-            let val = row
-                .try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(index)
-                .ok()
-                .flatten()
-                .map(|dt| SqlValue::String(dt.to_string()));
-            if val.is_some() {
-                return val.unwrap();
+            // Try chrono types first
+            let val = row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, _>(index);
+            if let Ok(Some(dt)) = val {
+                return SqlValue::String(dt.to_string());
             }
-            let val = row
-                .try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(index)
-                .ok()
-                .flatten()
-                .map(|d| SqlValue::String(d.to_string()));
-            if val.is_some() {
-                return val.unwrap();
+            let val = row.try_get::<Option<sqlx::types::chrono::NaiveDate>, _>(index);
+            if let Ok(Some(d)) = val {
+                return SqlValue::String(d.to_string());
             }
-            let val = row
-                .try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(index)
-                .ok()
-                .flatten()
-                .map(|t| SqlValue::String(t.to_string()));
-            if val.is_some() {
-                return val.unwrap();
+            let val = row.try_get::<Option<sqlx::types::chrono::NaiveTime>, _>(index);
+            if let Ok(Some(t)) = val {
+                return SqlValue::String(t.to_string());
             }
             // Fallback: try as plain string
             row.try_get::<Option<String>, _>(index)
