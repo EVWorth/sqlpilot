@@ -117,14 +117,39 @@ export function SQLEditor() {
           let sql;
           if (selection && !selection.isEmpty()) {
             sql = model?.getValueInRange(selection) ?? "";
+          } else if (model && selection) {
+            // No selection — find the statement at the cursor
+            const fullText = model.getValue();
+            const cursorLine = selection.positionLineNumber;
+            const lines = fullText.split("\n");
+            let charOffset = 0;
+            for (let i = 0; i < cursorLine - 1; i++) {
+              charOffset += lines[i].length + 1;
+            }
+            charOffset += selection.positionColumn - 1;
+            // Find statement boundaries around cursor
+            let start = 0;
+            let end = fullText.length;
+            for (let i = charOffset - 1; i >= 0; i--) {
+              if (fullText[i] === ";") {
+                start = i + 1;
+                break;
+              }
+            }
+            for (let i = charOffset; i < fullText.length; i++) {
+              if (fullText[i] === ";") {
+                end = i + 1;
+                break;
+              }
+            }
+            sql = fullText.slice(start, end).trim();
           } else {
             sql = model?.getValue() ?? "";
           }
-          // Read current state directly to avoid stale closure
           const connectionId = useConnectionStore.getState().selectedConnectionId;
           const { tabs: editorTabs, activeTabId: editorActiveTabId } = useEditorStore.getState();
           const editorActiveTab = editorTabs.find((t) => t.id === editorActiveTabId);
-          if (sql.trim() && connectionId) {
+          if (sql?.trim() && connectionId) {
             useResultStore.getState().executeQuery(connectionId, sql, editorActiveTab?.database);
           }
         },
