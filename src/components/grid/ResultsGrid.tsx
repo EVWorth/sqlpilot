@@ -367,6 +367,7 @@ export function ResultsGrid() {
             <TruncatedCell
               value={originalValue}
               columnName={col.name}
+              dataType={col.data_type}
               onViewFull={(content, colName) => {
                 setCellViewer({
                   isOpen: true,
