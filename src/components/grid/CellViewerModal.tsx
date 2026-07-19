@@ -236,43 +236,43 @@ export function CellViewerModal({
         )}
 
         <div className="min-h-0 flex-1 p-4">
-          <div className="h-full overflow-hidden rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)]">
-            {isNullValue
-              ? (
-                <div className="p-3 text-xs font-mono italic text-[var(--color-text-muted)]">
-                  NULL
-                </div>
-              )
-              : (
-                <Editor
-                  height="100%"
-                  language={language}
-                  value={viewerContent}
-                  onChange={(value) => {
-                    if (isEditable) {
-                      setDraftContent(value ?? "");
-                    }
-                  }}
-                  onMount={onMount}
-                  theme={theme === "dark" ? "vs-dark" : "vs"}
-                  options={{
-                    readOnly: !isEditable,
-                    domReadOnly: !isEditable,
-                    minimap: { enabled: false },
-                    lineNumbers: "on",
-                    scrollBeyondLastLine: false,
-                    wordWrap: "on",
-                    renderWhitespace: "selection",
-                    folding: true,
-                    fontSize: 12,
-                    automaticLayout: true,
-                    padding: { top: 8, bottom: 8 },
-                    smoothScrolling: true,
-                    renderLineHighlightOnlyWhenFocus: true,
-                  }}
-                />
-              )}
-          </div>
+          {isNullValue
+            ? (
+              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3 text-xs font-mono italic text-[var(--color-text-muted)]">
+                NULL
+              </div>
+            )
+            : (
+              <Editor
+                key={`${columnName}-${viewerContent.length}`}
+                className="h-full w-full overflow-hidden rounded border border-[var(--color-border)] [&_.monaco-editor]:bg-[var(--color-bg-primary)]"
+                height="100%"
+                language={language}
+                value={viewerContent}
+                onChange={(value) => {
+                  if (isEditable) {
+                    setDraftContent(value ?? "");
+                  }
+                }}
+                onMount={onMount}
+                theme={theme === "dark" ? "vs-dark" : "vs"}
+                options={{
+                  readOnly: !isEditable,
+                  domReadOnly: !isEditable,
+                  minimap: { enabled: false },
+                  lineNumbers: "on",
+                  scrollBeyondLastLine: false,
+                  wordWrap: "on",
+                  renderWhitespace: "selection",
+                  folding: true,
+                  fontSize: 12,
+                  automaticLayout: true,
+                  padding: { top: 8, bottom: 8 },
+                  smoothScrolling: true,
+                  renderLineHighlightOnlyWhenFocus: true,
+                }}
+              />
+            )}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-[var(--color-border)] p-3">

@@ -4,7 +4,11 @@ import { CellViewerModal } from "../CellViewerModal";
 
 vi.mock("@monaco-editor/react", () => ({
   __esModule: true,
-  default: vi.fn(() => <div data-testid="monaco-editor">Monaco Editor</div>),
+  default: vi.fn(({ className }: { className?: string }) => (
+    <div data-testid="monaco-editor" className={className}>
+      Monaco Editor
+    </div>
+  )),
 }));
 
 vi.mock("sql-formatter", () => ({
@@ -135,6 +139,41 @@ describe("CellViewerModal", () => {
   it("renders Monaco editor for non-null content", () => {
     render(<CellViewerModal {...createDefaultProps({ content: "test" })} />);
     expect(screen.getByTestId("monaco-editor")).toBeInTheDocument();
+  });
+
+  it("applies full-size layout classes to Monaco editor wrapper (#217)", () => {
+    render(<CellViewerModal {...createDefaultProps({ content: "test" })} />);
+    const editor = screen.getByTestId("monaco-editor");
+    expect(editor.className).toMatch(/\bh-full\b/);
+    expect(editor.className).toMatch(/\bw-full\b/);
+    expect(editor.className).toMatch(/\boverflow-hidden\b/);
+  });
+
+  it("does not nest Monaco inside an extra overflow-hidden wrapper (#217)", () => {
+    const { container } = render(
+      <CellViewerModal {...createDefaultProps({ content: "test" })} />,
+    );
+    const editor = screen.getByTestId("monaco-editor");
+    const contentWrapper = container.querySelector(".min-h-0.flex-1.p-4");
+    expect(contentWrapper).not.toBeNull();
+    expect(contentWrapper?.firstElementChild).toBe(editor);
+  });
+
+  it("remounts Monaco editor when content length changes (#217)", async () => {
+    const { rerender } = render(
+      <CellViewerModal {...createDefaultProps({ content: "short" })} />,
+    );
+    const { default: MockedEditor } = await import("@monaco-editor/react");
+    const firstCalls = (MockedEditor as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls.length;
+    rerender(
+      <CellViewerModal
+        {...createDefaultProps({ content: "a much longer content value" })}
+      />,
+    );
+    const secondCalls = (MockedEditor as unknown as { mock: { calls: unknown[][] } })
+      .mock.calls.length;
+    expect(secondCalls).toBeGreaterThan(firstCalls);
   });
 
   it("shows search input when content length > 500", () => {
