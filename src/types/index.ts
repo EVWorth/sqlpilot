@@ -234,7 +234,7 @@ export interface EditorTab {
   tableName?: string;
   routineName?: string;
   routineType?: string;
-  type?: "query" | "structure" | "admin" | "compare" | "designer" | "routine" | "querybuilder";
+  type?: "query" | "structure" | "admin" | "compare" | "designer" | "routine";
   isDirty: boolean;
 }
 

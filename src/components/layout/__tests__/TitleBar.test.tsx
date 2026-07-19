@@ -47,7 +47,6 @@ vi.mock("clsx", () => ({
 
 const mockAddAdminTab = vi.fn();
 const mockAddCompareTab = vi.fn();
-const mockAddQueryBuilderTab = vi.fn();
 
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
@@ -56,7 +55,6 @@ vi.mock("../../../stores/editorStore", () => ({
       getState: vi.fn(() => ({
         addAdminTab: mockAddAdminTab,
         addCompareTab: mockAddCompareTab,
-        addQueryBuilderTab: mockAddQueryBuilderTab,
       })),
     },
   ),
@@ -132,9 +130,8 @@ describe("TitleBar", () => {
     expect(buttons.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("renders toolbar buttons (Visual Builder, Compare, Admin, etc.)", () => {
+  it("renders toolbar buttons (Compare, Admin, etc.)", () => {
     render(<TitleBar />);
-    expect(screen.getByText("Visual Builder")).toBeInTheDocument();
     expect(screen.getByText("Compare")).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
   });
@@ -233,7 +230,6 @@ describe("TitleBar", () => {
 
     render(<TitleBar />);
 
-    expect(screen.getByText("Visual Builder").closest("button")).toBeDisabled();
     expect(screen.getByText("Admin").closest("button")).toBeDisabled();
     expect(screen.getByText("Import").closest("button")).toBeDisabled();
     expect(screen.getByText("Backup").closest("button")).toBeDisabled();
@@ -250,12 +246,6 @@ describe("TitleBar", () => {
     render(<TitleBar />);
     fireEvent.click(screen.getByText("Admin"));
     expect(mockAddAdminTab).toHaveBeenCalledWith("conn-1");
-  });
-
-  it("calls addQueryBuilderTab when Visual Builder is clicked", () => {
-    render(<TitleBar />);
-    fireEvent.click(screen.getByText("Visual Builder"));
-    expect(mockAddQueryBuilderTab).toHaveBeenCalledWith("conn-1", "testdb");
   });
 
   it("calls onShowImport when Import button is clicked", () => {

@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAddAdminTab = vi.fn();
 const mockAddCompareTab = vi.fn();
-const mockAddQueryBuilderTab = vi.fn();
 
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
@@ -12,7 +11,6 @@ vi.mock("../../../stores/editorStore", () => ({
       getState: vi.fn(() => ({
         addAdminTab: mockAddAdminTab,
         addCompareTab: mockAddCompareTab,
-        addQueryBuilderTab: mockAddQueryBuilderTab,
       })),
     },
   ),
@@ -77,11 +75,6 @@ describe("Toolbar", () => {
     };
     _themeState = { theme: "dark", effectiveTheme: "dark" };
     mockSetTheme.mockClear();
-  });
-
-  it("renders Visual Builder button", () => {
-    render(<Toolbar />);
-    expect(screen.getByText("Visual Builder")).toBeInTheDocument();
   });
 
   it("renders Compare button", () => {
@@ -185,19 +178,12 @@ describe("Toolbar", () => {
     expect(mockAddCompareTab).toHaveBeenCalled();
   });
 
-  it("calls addQueryBuilderTab when Visual Builder is clicked", () => {
-    render(<Toolbar />);
-    fireEvent.click(screen.getByText("Visual Builder"));
-    expect(mockAddQueryBuilderTab).toHaveBeenCalledWith("conn-1", "testdb");
-  });
-
   it("disables buttons that require connection when no connection is selected", () => {
     _connState.selectedConnectionId = null;
     _connState.activeConnections = [];
 
     render(<Toolbar />);
 
-    expect(screen.getByText("Visual Builder").closest("button")).toBeDisabled();
     expect(screen.getByText("Admin").closest("button")).toBeDisabled();
     expect(screen.getByText("Import").closest("button")).toBeDisabled();
     expect(screen.getByText("Backup").closest("button")).toBeDisabled();

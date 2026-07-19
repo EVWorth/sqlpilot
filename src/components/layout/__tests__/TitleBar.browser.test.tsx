@@ -63,13 +63,11 @@ import { TitleBar } from "../TitleBar";
 
 const mockAddAdminTab = vi.fn();
 const mockAddCompareTab = vi.fn();
-const mockAddQueryBuilderTab = vi.fn();
 
 function mockEditorStore() {
   const getStateMock = vi.fn(() => ({
     addAdminTab: mockAddAdminTab,
     addCompareTab: mockAddCompareTab,
-    addQueryBuilderTab: mockAddQueryBuilderTab,
   }));
   (useEditorStore as any).getState = getStateMock;
   vi.mocked(useEditorStore).mockReturnValue({} as any);
@@ -151,7 +149,6 @@ describe("TitleBar", () => {
 
   it("renders all toolbar buttons when connected", () => {
     render(<TitleBar aiEnabled={true} onToggleAI={vi.fn()} />);
-    expect(screen.getByText("Visual Builder")).toBeInTheDocument();
     expect(screen.getByText("Compare")).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
     expect(screen.getByText("Import")).toBeInTheDocument();
@@ -282,7 +279,6 @@ describe("TitleBar", () => {
   it("disables connection-dependent buttons when no connection", () => {
     mockConnectionStore({ selectedConnectionId: null, activeConnections: [] });
     render(<TitleBar />);
-    expect(screen.getByText("Visual Builder").closest("button")).toBeDisabled();
     expect(screen.getByText("Admin").closest("button")).toBeDisabled();
     expect(screen.getByText("Import").closest("button")).toBeDisabled();
     expect(screen.getByText("Backup").closest("button")).toBeDisabled();
@@ -312,19 +308,6 @@ describe("TitleBar", () => {
     render(<TitleBar />);
     fireEvent.click(screen.getByText("Admin"));
     expect(mockAddAdminTab).not.toHaveBeenCalled();
-  });
-
-  it("calls addQueryBuilderTab when Visual Builder is clicked", () => {
-    render(<TitleBar />);
-    fireEvent.click(screen.getByText("Visual Builder"));
-    expect(mockAddQueryBuilderTab).toHaveBeenCalledWith("conn-1", "testdb");
-  });
-
-  it("does not call addQueryBuilderTab when no connection", () => {
-    mockConnectionStore({ selectedConnectionId: null, activeConnections: [] });
-    render(<TitleBar />);
-    fireEvent.click(screen.getByText("Visual Builder"));
-    expect(mockAddQueryBuilderTab).not.toHaveBeenCalled();
   });
 
   it("calls onShowImport when Import button is clicked", () => {

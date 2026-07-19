@@ -72,14 +72,6 @@ pub fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
             true,
             Some("F5"),
         )?)
-        .separator()
-        .item(&MenuItem::with_id(
-            app,
-            "query-builder",
-            "Visual Query Builder",
-            true,
-            None::<&str>,
-        )?)
         .item(&MenuItem::with_id(
             app,
             "compare-schemas",

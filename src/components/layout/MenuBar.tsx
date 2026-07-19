@@ -47,8 +47,6 @@ const MENUS: MenuDef[] = [
     label: "Database",
     items: [
       { type: "item", id: "refresh-schema", label: "Refresh Schema", shortcut: "Ctrl+Shift+R" },
-      { type: "separator" },
-      { type: "item", id: "query-builder", label: "Visual Query Builder" },
       { type: "item", id: "compare-schemas", label: "Compare Schemas" },
       { type: "separator" },
       { type: "item", id: "admin-tools", label: "Admin Tools" },

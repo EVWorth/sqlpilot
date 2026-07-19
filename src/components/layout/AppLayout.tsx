@@ -86,9 +86,8 @@ export function AppLayout() {
   // inline custom menu (Windows/Linux via DOM CustomEvent)
   useEffect(() => {
     const handleAction = (action: string) => {
-      const { selectedConnectionId, activeConnections, disconnect } = useConnectionStore.getState();
-      const { addTab, addAdminTab, addCompareTab, addQueryBuilderTab, editorInstance } = useEditorStore.getState();
-      const selectedConn = activeConnections.find((c) => c.id === selectedConnectionId);
+      const { selectedConnectionId, disconnect } = useConnectionStore.getState();
+      const { addTab, addAdminTab, addCompareTab, editorInstance } = useEditorStore.getState();
 
       switch (action) {
         case "new-query":
@@ -141,11 +140,6 @@ export function AppLayout() {
           break;
         case "refresh-schema":
           useSchemaCache.getState().refreshSchema();
-          break;
-        case "query-builder":
-          if (selectedConnectionId && selectedConn?.database) {
-            addQueryBuilderTab(selectedConnectionId, selectedConn.database);
-          }
           break;
         case "compare-schemas":
           addCompareTab();

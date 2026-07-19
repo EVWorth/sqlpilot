@@ -32,10 +32,6 @@ vi.mock(
   "../../designer/TableDesigner",
   () => ({ TableDesigner: vi.fn(() => <div data-testid="table-designer">TableDesigner</div>) }),
 );
-vi.mock(
-  "../../querybuilder/QueryBuilder",
-  () => ({ QueryBuilder: vi.fn(() => <div data-testid="query-builder">QueryBuilder</div>) }),
-);
 
 vi.mock("react-resizable-panels", () => ({
   Group: vi.fn(({ children }: { children: React.ReactNode }) => <div data-testid="panel-group">{children}</div>),

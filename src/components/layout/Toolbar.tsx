@@ -3,7 +3,6 @@ import {
   ArrowLeftRight,
   HardDriveDownload,
   HardDriveUpload,
-  LayoutGrid,
   Monitor,
   Moon,
   Sparkles,
@@ -31,7 +30,6 @@ export function Toolbar(
   { onShowImport, onShowBackup, onShowRestore, onToggleAI, aiPanelOpen, aiEnabled }: ToolbarProps,
 ) {
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
-  const activeConnections = useConnectionStore((s) => s.activeConnections);
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
 
@@ -44,14 +42,6 @@ export function Toolbar(
     useEditorStore.getState().addCompareTab();
   };
 
-  const handleOpenQueryBuilder = () => {
-    if (!selectedConnectionId) return;
-    const conn = activeConnections.find((c) => c.id === selectedConnectionId);
-    const database = conn?.database ?? "";
-    if (!database) return;
-    useEditorStore.getState().addQueryBuilderTab(selectedConnectionId, database);
-  };
-
   const cycleTheme = () => {
     const idx = themeOrder.indexOf(theme);
     setTheme(themeOrder[(idx + 1) % themeOrder.length]);
@@ -62,15 +52,6 @@ export function Toolbar(
   return (
     <div className="flex h-10 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3">
       <div className="flex-1" />
-      <button
-        onClick={handleOpenQueryBuilder}
-        disabled={!selectedConnectionId}
-        title="Visual Query Builder"
-        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed mr-1"
-      >
-        <LayoutGrid className="h-3.5 w-3.5" />
-        <span>Visual Builder</span>
-      </button>
       <button
         onClick={handleOpenCompare}
         title="Compare Schemas"
