@@ -30,6 +30,7 @@ Each phase lives on a sub-branch off `fix/204-cargo-audit-advisories` to isolate
 ## Test Plan
 
 After each phase:
+
 - `cargo build --workspace`
 - `cargo test --workspace`
 - `cargo clippy --workspace -- -D warnings`

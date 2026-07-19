@@ -292,7 +292,7 @@ RUST_LOG=debug
 
 | Technology                                     | Purpose                                                |
 | ---------------------------------------------- | ------------------------------------------------------ |
-| [Vitest](https://vitest.dev/)                  | Frontend unit tests (1488 tests)                      |
+| [Vitest](https://vitest.dev/)                  | Frontend unit tests (1488 tests)                       |
 | [cargo test](https://doc.rust-lang.org/cargo/) | Rust integration tests against Docker MySQL (45 tests) |
 | [Docker](https://www.docker.com/)              | MySQL 8, MySQL 5.7, MariaDB 11 test containers         |
 
