@@ -161,7 +161,6 @@ let editorState = {
   addTab: vi.fn(() => "tab-1"),
   addAdminTab: vi.fn(),
   addCompareTab: vi.fn(),
-  addQueryBuilderTab: vi.fn(),
   editorInstance: null as any,
 };
 
@@ -219,7 +218,6 @@ describe("AppLayout (browser)", () => {
       addTab: vi.fn(() => "tab-1"),
       addAdminTab: vi.fn(),
       addCompareTab: vi.fn(),
-      addQueryBuilderTab: vi.fn(),
       editorInstance: null,
     };
     aiState = {
@@ -663,29 +661,6 @@ describe("AppLayout (browser)", () => {
     expect(refreshSpy).toHaveBeenCalled();
   });
 
-  // ─── Menu action: query-builder when connected with database ───
-  it("handles query-builder menu action when connected with database", async () => {
-    connectionState.selectedConnectionId = "conn-1";
-    connectionState.activeConnections = [
-      { id: "conn-1", profile_id: "p1", host: "localhost", port: 3306, database: "testdb" },
-    ];
-    await renderApp();
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent("menu-action", { detail: "query-builder" }));
-    });
-    expect(editorState.addQueryBuilderTab).toHaveBeenCalledWith("conn-1", "testdb");
-  });
-
-  // ─── Menu action: query-builder when not connected ───
-  it("handles query-builder menu action when not connected (no-op)", async () => {
-    connectionState.selectedConnectionId = null;
-    await renderApp();
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent("menu-action", { detail: "query-builder" }));
-    });
-    expect(editorState.addQueryBuilderTab).not.toHaveBeenCalled();
-  });
-
   // ─── Menu action: compare-schemas ───
   it("handles compare-schemas menu action", async () => {
     await renderApp();
@@ -760,19 +735,6 @@ describe("AppLayout (browser)", () => {
     // verify dialog did not render (it should only render when connected)
     const dialog = screen.queryByTestId("import-dialog");
     expect(dialog).not.toBeInTheDocument();
-  });
-
-  // ─── query-builder without database in active connection ───
-  it("handles query-builder when connected but no database set (no-op)", async () => {
-    connectionState.selectedConnectionId = "conn-1";
-    connectionState.activeConnections = [
-      { id: "conn-1", profile_id: "p1", host: "localhost", port: 3306 },
-    ];
-    await renderApp();
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent("menu-action", { detail: "query-builder" }));
-    });
-    expect(editorState.addQueryBuilderTab).not.toHaveBeenCalled();
   });
 
   // ─── undo/redo without editorInstance (graceful no-op) ───

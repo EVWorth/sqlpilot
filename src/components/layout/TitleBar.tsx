@@ -5,7 +5,6 @@ import {
   ArrowLeftRight,
   HardDriveDownload,
   HardDriveUpload,
-  LayoutGrid,
   Minus,
   Monitor,
   Moon,
@@ -56,7 +55,6 @@ export function TitleBar(
   const lastClickTime = useRef(0);
 
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
-  const activeConnections = useConnectionStore((s) => s.activeConnections);
   const theme = useThemeStore((s) => s.theme);
   const setTheme = useThemeStore((s) => s.setTheme);
   const ThemeIcon = themeIcons[theme];
@@ -66,11 +64,6 @@ export function TitleBar(
     useEditorStore.getState().addAdminTab(selectedConnectionId);
   };
   const handleOpenCompare = () => useEditorStore.getState().addCompareTab();
-  const handleOpenQueryBuilder = () => {
-    if (!selectedConnectionId) return;
-    const conn = activeConnections.find((c) => c.id === selectedConnectionId);
-    if (conn?.database) useEditorStore.getState().addQueryBuilderTab(selectedConnectionId, conn.database);
-  };
   const cycleTheme = () => {
     const idx = themeOrder.indexOf(theme);
     setTheme(themeOrder[(idx + 1) % themeOrder.length]);
@@ -169,15 +162,6 @@ export function TitleBar(
 
       {/* Toolbar buttons */}
       <div className="flex items-center gap-0.5 px-1" onContextMenu={(e) => e.stopPropagation()}>
-        <button
-          onClick={handleOpenQueryBuilder}
-          disabled={!selectedConnectionId}
-          title="Visual Query Builder"
-          className={toolBtn(!selectedConnectionId)}
-        >
-          <LayoutGrid className="h-3.5 w-3.5" />
-          <span>Visual Builder</span>
-        </button>
         <button onClick={handleOpenCompare} title="Compare Schemas" className={toolBtn()}>
           <ArrowLeftRight className="h-3.5 w-3.5" />
           <span>Compare</span>

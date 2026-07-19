@@ -214,16 +214,6 @@ describe("editorStore", () => {
     });
   });
 
-  describe("addQueryBuilderTab", () => {
-    it("should add a query builder tab", () => {
-      const id = useEditorStore.getState().addQueryBuilderTab("conn-1", "testdb");
-      const tab = useEditorStore.getState().tabs.find((t) => t.id === id);
-      expect(tab?.type).toBe("querybuilder");
-      expect(tab?.connectionId).toBe("conn-1");
-      expect(tab?.database).toBe("testdb");
-    });
-  });
-
   describe("setActiveTab", () => {
     it("should set active tab", () => {
       const id = useEditorStore.getState().addTab();

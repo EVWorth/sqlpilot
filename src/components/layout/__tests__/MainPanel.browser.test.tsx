@@ -25,9 +25,6 @@ vi.mock("../../compare/SchemaCompare", () => ({
 vi.mock("../../designer/TableDesigner", () => ({
   TableDesigner: () => <div data-testid="table-designer" />,
 }));
-vi.mock("../../querybuilder/QueryBuilder", () => ({
-  QueryBuilder: () => <div data-testid="query-builder" />,
-}));
 vi.mock("../../routine/RoutineViewer", () => ({
   RoutineViewer: () => <div data-testid="routine-viewer" />,
 }));
@@ -158,23 +155,6 @@ describe("MainPanel", () => {
     render(<MainPanel />);
     expect(screen.queryByTestId("table-designer")).not.toBeInTheDocument();
     expect(screen.getByTestId("query-toolbar")).toBeInTheDocument();
-  });
-
-  it("renders QueryBuilder when active tab type is querybuilder", () => {
-    mockEditorState({
-      tabs: [{
-        id: "tab-1",
-        title: "QB",
-        content: "",
-        type: "querybuilder",
-        connectionId: "conn-1",
-        database: "testdb",
-        isDirty: false,
-      }],
-      activeTabId: "tab-1",
-    });
-    render(<MainPanel />);
-    expect(screen.getByTestId("query-builder")).toBeInTheDocument();
   });
 
   it("renders RoutineViewer when active tab type is routine", () => {

@@ -10,7 +10,6 @@ import { QueryToolbar } from "../editor/QueryToolbar";
 import { SQLEditor } from "../editor/SQLEditor";
 import { ExplainPanel } from "../explain/ExplainPanel";
 import { ResultsGrid } from "../grid/ResultsGrid";
-import { QueryBuilder } from "../querybuilder/QueryBuilder";
 import { RoutineViewer } from "../routine/RoutineViewer";
 
 export function MainPanel() {
@@ -25,7 +24,6 @@ export function MainPanel() {
   const isCompare = activeTab?.type === "compare";
   const isRoutine = activeTab?.type === "routine";
   const isDesigner = activeTab?.type === "designer";
-  const isQueryBuilder = activeTab?.type === "querybuilder";
 
   return (
     <div className="flex h-full flex-col min-h-0 bg-[var(--color-bg-primary)]">
@@ -40,13 +38,6 @@ export function MainPanel() {
             connectionId={activeTab.connectionId}
             database={activeTab.database}
             tableName={activeTab.tableName}
-          />
-        )
-        : isQueryBuilder && activeTab?.connectionId && activeTab?.database
-        ? (
-          <QueryBuilder
-            connectionId={activeTab.connectionId}
-            database={activeTab.database}
           />
         )
         : isRoutine && activeTab?.connectionId && activeTab?.database && activeTab?.routineName

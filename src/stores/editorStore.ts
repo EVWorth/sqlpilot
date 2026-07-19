@@ -10,7 +10,6 @@ interface EditorState {
   addTab: (connectionId?: string, database?: string) => string;
   addStructureTab: (connectionId: string, database: string, tableName: string) => string;
   addAdminTab: (connectionId: string) => string;
-  addQueryBuilderTab: (connectionId: string, database: string) => string;
   addRoutineTab: (connectionId: string, database: string, routineName: string, routineType: string) => string;
   addCompareTab: () => string;
   addDesignerTab: (connectionId: string, database: string, tableName?: string) => string;
@@ -242,36 +241,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       database,
       tableName: tableName || undefined,
       type: "designer",
-      isDirty: false,
-    };
-    set((state) => ({
-      tabs: [...state.tabs, tab],
-      activeTabId: id,
-    }));
-    return id;
-  },
-
-  addQueryBuilderTab: (connectionId, database) => {
-    const { tabs: existingTabs } = get();
-    const existing = existingTabs.find(
-      (t) =>
-        t.type === "querybuilder"
-        && t.connectionId === connectionId
-        && t.database === database,
-    );
-    if (existing) {
-      set({ activeTabId: existing.id });
-      return existing.id;
-    }
-    tabCounter++;
-    const id = `tab-${tabCounter}`;
-    const tab: EditorTab = {
-      id,
-      title: "🔧 Query Builder",
-      content: "",
-      connectionId,
-      database,
-      type: "querybuilder",
       isDirty: false,
     };
     set((state) => ({

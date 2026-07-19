@@ -316,7 +316,6 @@ sqlpilot/
 │   │   ├── history/               #     QueryHistory
 │   │   ├── import/                #     ImportDialog (CSV + SQL modes)
 │   │   ├── layout/                #     AppLayout, Sidebar, MainPanel, Toolbar, StatusBar
-│   │   ├── querybuilder/          #     QueryBuilder (visual SQL builder)
 │   │   ├── routine/               #     RoutineViewer (procedure/function executor)
 │   │   └── schema/                #     TableStructure (columns, indexes, DDL)
 │   ├── hooks/                     #   7 custom hooks (context menu, keyboard, theme, schema cache, grid editing, query execution, click handler)
