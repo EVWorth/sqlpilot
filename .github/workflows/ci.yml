@@ -109,7 +109,6 @@ jobs:
         run: cargo install cargo-audit --locked
       - name: Run audit check (vulnerabilities fail, warnings log)
         run: bash "$GITHUB_WORKSPACE/scripts/cargo-audit-check.sh"
-        working-directory: src-tauri
         env:
           CARGO_WORKSPACE_DIR: src-tauri
 
