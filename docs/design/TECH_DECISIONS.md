@@ -686,13 +686,13 @@ Testing a database GUI requires a real database. Options:
 
 ### Container Matrix
 
-| Container    | Port | Purpose                         |
-| ------------ | ---- | ------------------------------- |
-| `mysql-8`    | 3307 | Primary test target (MySQL 8.0) |
-| `mysql-5.7`  | 3308 | Legacy version compatibility    |
-| `mariadb`    | 3309 | MariaDB compatibility           |
-| `mysql-ssl`  | 3310 | SSL/TLS connection testing      |
-| `ssh-tunnel` | 2222 | SSH tunnel connection testing   |
+| Container    | Port  | Purpose                         |
+| ------------ | ----- | ------------------------------- |
+| `mysql-8`    | 13306 | Primary test target (MySQL 8.0) |
+| `mysql-5.7`  | 13307 | Legacy version compatibility    |
+| `mariadb`    | 13308 | MariaDB compatibility           |
+| `mysql-ssl`  | 13309 | SSL/TLS connection testing      |
+| `ssh-tunnel` | 12222 | SSH tunnel connection testing   |
 
 ### Risks
 
@@ -781,17 +781,27 @@ src-tauri/
 │       ├── xml.rs
 │       ├── markdown.rs
 │       └── mapping.rs       # Column mapping engine
-└── mas-admin/              # Administration crate
+├── mas-admin/              # Administration crate
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs
+│       ├── users.rs          # User/role management
+│       ├── processes.rs      # Process list, kill
+│       ├── variables.rs      # Server variables
+│       ├── maintenance.rs    # Table maintenance operations
+│       ├── backup.rs         # Backup/restore
+│       └── metrics.rs        # Server status metrics
+└── mas-sqlite/             # Local SQLite storage crate
     ├── Cargo.toml
     └── src/
         ├── lib.rs
-        ├── users.rs          # User/role management
-        ├── processes.rs      # Process list, kill
-        ├── variables.rs      # Server variables
-        ├── maintenance.rs    # Table maintenance operations
-        ├── backup.rs         # Backup/restore
-        └── metrics.rs        # Server status metrics
+        ├── connection.rs     # Connection profile persistence
+        ├── query.rs          # Query history, favorites
+        ├── schema.rs         # Schema cache tables
+        └── error.rs
 ```
+
+> **Note:** The file layout above shows the intended structure. Actual current files: `mas-ai/src/{error.rs, lib.rs, models.rs, service.rs, tools.rs}`, `mas-admin/src/lib.rs` (single file), `mas-export/src/lib.rs` (single file containing CSV/JSON/SQL/Markdown exporters). The workspace membership list below is authoritative.
 
 ### Rationale
 
@@ -840,6 +850,7 @@ sqlpilot (Tauri app)
     "mas-ai",
     "mas-export",
     "mas-admin",
+    "mas-sqlite",
   ]
 
   [workspace.dependencies]

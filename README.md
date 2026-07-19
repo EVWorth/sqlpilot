@@ -28,7 +28,7 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/node-20%2B-brightgreen" alt="Node.js" />
-  <img src="https://img.shields.io/badge/tests-1465%20passing-brightgreen" alt="Tests" />
+  <img src="https://img.shields.io/badge/tests-1488%2B%20passing-brightgreen" alt="Tests" />
 </p>
 
 ---
@@ -188,11 +188,11 @@ dialog while compiling, then opens the app window automatically.
 # Run everything
 make test
 
-# Frontend unit tests (1465 tests — stores, parsers, generators, diff engine)
+# Frontend unit tests (1488 tests — stores, parsers, generators, diff engine)
 make test-frontend
 # or: npx vitest run
 
-# Rust integration tests against Docker MySQL 8 (36 tests)
+# Rust integration tests against Docker MySQL 8 (45 tests)
 make db-up          # Start MySQL 8 on port 13306
 make test-rust
 # or: cd src-tauri && cargo test -p mas-core -p mas-export -p mas-admin
@@ -292,8 +292,8 @@ RUST_LOG=debug
 
 | Technology                                     | Purpose                                                |
 | ---------------------------------------------- | ------------------------------------------------------ |
-| [Vitest](https://vitest.dev/)                  | Frontend unit tests (1465 tests)                       |
-| [cargo test](https://doc.rust-lang.org/cargo/) | Rust integration tests against Docker MySQL (36 tests) |
+| [Vitest](https://vitest.dev/)                  | Frontend unit tests (1488 tests)                      |
+| [cargo test](https://doc.rust-lang.org/cargo/) | Rust integration tests against Docker MySQL (45 tests) |
 | [Docker](https://www.docker.com/)              | MySQL 8, MySQL 5.7, MariaDB 11 test containers         |
 
 ## 📁 Project Structure
@@ -301,8 +301,9 @@ RUST_LOG=debug
 ```
 sqlpilot/
 ├── src/                           # React frontend
-│   ├── components/                #   36 UI components
+│   ├── components/                #   46 UI components
 │   │   ├── admin/                 #     AdminPanel, UserManagement, CreateUser, ChangePassword
+│   │   ├── ai/                    #     AIChatPanel, ChatMessage, ModeSelector, ToolCallBlock
 │   │   ├── backup/                #     BackupDialog, RestoreDialog
 │   │   ├── common/                #     ContextMenu, ConfirmDialog, ShortcutsDialog
 │   │   ├── compare/               #     SchemaCompare, SyncPreview
@@ -315,6 +316,7 @@ sqlpilot/
 │   │   ├── history/               #     QueryHistory
 │   │   ├── import/                #     ImportDialog (CSV + SQL modes)
 │   │   ├── layout/                #     AppLayout, Sidebar, MainPanel, Toolbar, StatusBar
+│   │   ├── querybuilder/          #     QueryBuilder (visual SQL builder)
 │   │   ├── routine/               #     RoutineViewer (procedure/function executor)
 │   │   └── schema/                #     TableStructure (columns, indexes, DDL)
 │   ├── hooks/                     #   7 custom hooks (context menu, keyboard, theme, schema cache, grid editing, query execution, click handler)
@@ -328,8 +330,8 @@ sqlpilot/
 │   │   └── lib.rs                 #   App state, tracing init, command registration
 │   ├── crates/
 │   │   ├── mas-core/              #   Connection manager, query executor, schema inspector
-│   │   ├── mas-sqlite/            #   SQLite wrapper for connection profile storage
-│   │   │   └── tests/             #     32 integration tests against Docker MySQL 8
+│   │   ├── mas-sqlite/            #   SQLite wrapper for connection profile + history storage
+│   │   ├── mas-ai/                #   AI service (Copilot SDK integration)
 │   │   ├── mas-export/            #   CSV, JSON, SQL, Markdown exporters
 │   │   └── mas-admin/             #   Process list, server variables, kill process
 │   ├── Cargo.toml                 #   Workspace with shared dependencies
@@ -338,7 +340,6 @@ sqlpilot/
 ├── docs/design/                   # Design documentation
 │   ├── ARCHITECTURE.md            #   System architecture
 │   ├── DESIGN_REQUIREMENTS.md     #   Requirements & competitive analysis
-│   ├── DEVELOPMENT_PLAN.md        #   Development roadmap
 │   ├── TESTING_STRATEGY.md        #   Test strategy & coverage
 │   └── TECH_DECISIONS.md          #   Architecture Decision Records
 ├── docker-compose.test.yml        # MySQL 8 (13306), MySQL 5.7 (13307), MariaDB 11 (13308)

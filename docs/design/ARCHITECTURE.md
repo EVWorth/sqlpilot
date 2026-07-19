@@ -521,9 +521,9 @@ pub trait DataExporter: Send + Sync {
 | **CSVExporter**      | `.csv`    | Configurable delimiter, quoting, headers, encoding (UTF-8/Latin-1)           |
 | **JSONExporter**     | `.json`   | Array-of-objects or array-of-arrays, pretty-print option                     |
 | **SQLExporter**      | `.sql`    | INSERT statements, CREATE TABLE included optionally, batch size configurable |
-| **ExcelExporter**    | `.xlsx`   | Sheet per result set, auto-column-width, header styling                      |
 | **MarkdownExporter** | `.md`     | GitHub-flavored Markdown tables, alignment                                   |
-| **XMLExporter**      | `.xml`    | Configurable root/row element names, attribute vs. element mode              |
+
+> **Note:** Excel (`.xlsx`) and XML (`.xml`) exporters listed in earlier revisions are not implemented. The crate currently ships 4 formats.
 
 #### Streaming Architecture
 
@@ -608,11 +608,11 @@ src/stores/
 ├── connectionStore.ts    — Active connections, profiles, connection status
 ├── editorStore.ts        — Open tabs, editor content, cursor positions, dirty state
 ├── resultStore.ts        — Query results, pagination state, selected cells
-├── schemaStore.ts        — Cached schema trees per connection, expanded nodes
-├── settingsStore.ts      — User preferences, theme, keybindings, editor config
+├── favoritesStore.ts     — Saved queries, pinned favorites, folders
+├── settingsStore.ts      — User preferences, keybindings, editor config
 ├── aiStore.ts            — AI chat history, pending suggestions, provider status
-├── historyStore.ts       — Query history, favorites, pinned queries
-└── uiStore.ts            — Panel sizes, sidebar state, modals, toasts, focus
+├── historyStore.ts       — Query history (loaded from mas-sqlite)
+└── themeStore.ts         — Active theme, mode (light/dark/system), accent
 ```
 
 #### Store Design Pattern
