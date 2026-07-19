@@ -194,7 +194,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ## 3. Functional Requirements
 
-### FR-1: Connection Management
+### FR-1: Connection Management [done]
 
 **Priority:** P0 — Critical\
 **Description:** Manage MySQL server connections with support for multiple authentication methods, tunneling, and organizational features.
@@ -233,7 +233,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-2: SQL Editor
+### FR-2: SQL Editor [done]
 
 **Priority:** P0 — Critical\
 **Description:** A Monaco-based SQL editor with rich language features, schema awareness, and multi-tab support.
@@ -277,7 +277,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-3: Data Grid / Results
+### FR-3: Data Grid / Results [done]
 
 **Priority:** P0 — Critical\
 **Description:** A high-performance, virtualized data grid for displaying and editing query results.
@@ -333,7 +333,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-4: Schema Browser / Object Explorer
+### FR-4: Schema Browser / Object Explorer [done]
 
 **Priority:** P0 — Critical\
 **Description:** A tree-view navigator for browsing and managing database objects.
@@ -369,7 +369,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-5: Visual Schema Designer (ERD)
+### FR-5: Visual Schema Designer (ERD) [partial]
 
 **Priority:** P1 — High\
 **Description:** A visual entity-relationship diagram tool for designing and understanding database schemas.
@@ -410,7 +410,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-6: AI Features (Copilot Integration)
+### FR-6: AI Features (Copilot Integration) [done]
 
 **Priority:** P0 — Critical\
 **Description:** AI-powered features using GitHub Copilot to assist with SQL development, optimization, and documentation.
@@ -457,7 +457,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-7: Database Administration
+### FR-7: Database Administration [partial]
 
 **Priority:** P1 — High\
 **Description:** Server administration features for managing users, monitoring performance, and maintaining databases.
@@ -494,7 +494,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-8: Import / Export
+### FR-8: Import / Export [partial]
 
 **Priority:** P1 — High\
 **Description:** Comprehensive data import and export with support for multiple formats and intelligent mapping.
@@ -530,7 +530,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-9: Query History & Favorites
+### FR-9: Query History & Favorites [done]
 
 **Priority:** P1 — High\
 **Description:** Persistent query history and favorites system for efficient query management.
@@ -556,7 +556,7 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-10: Performance Monitoring
+### FR-10: Performance Monitoring [dropped]
 
 **Priority:** P1 — High\
 **Description:** Real-time monitoring dashboard and query analysis tools.
