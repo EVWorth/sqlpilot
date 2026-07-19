@@ -5,30 +5,61 @@
 # Unmaintained / yanked / unsound warnings are logged (visible in CI
 # logs + job summary) but don't block the build.
 #
-# Rationale: SQLPilot has 16 transitive advisories on the gtk-rs GTK3
-# bindings (RUSTSEC-2024-0411..0420) that cannot be fixed without
-# upstream action (gtk-rs is archived since 2024-03-04, Tauri 2.x has
-# no GTK4 webview support). Plus 1 unsound (glib 0.18.5). Plus a few
-# unic-* unmaintained sub-deps. None have upstream fixes available.
+# Two-layer policy:
 #
-# These are "unmaintained" / "unsound" warnings, not active exploits.
-# We surface them in CI logs but don't fail.
+# 1. Warnings layer: unmaintained / yanked / unsound advisories (e.g. the
+#    16 gtk-rs chain + glib unsound + unic-* sub-deps) are NOT ignored
+#    in cargo. They appear in `cargo audit` output and the job summary
+#    so they're visible. They just don't fail the build.
 #
-# Real vulnerabilities (cargo audit "vulnerabilities" list) still
-# fail the build. Examples in our tree: quick-xml 0.39.4 has
-# RUSTSEC-2026-0194/0195 (DoS via unbounded namespace allocation).
+# 2. Known-accepted layer: a small list of REAL vulnerabilities whose fix
+#    is blocked by upstream and tracked for cleanup. These ARE passed
+#    to `cargo audit --ignore` (otherwise CI is permanently red), but
+#    the IDs are explicitly listed in this script + the job output
+#    shows them under a "WAITING FOR UPSTREAM" header + a tracking
+#    issue link. NOT silent.
 #
-# No --ignore flags used. All advisories visible in `cargo audit` output.
-# No silent failures.
+# When upstream ships, dependabot will offer the bump; remove the IDs
+# from KNOWN_ACCEPTED below, commit, and the gate goes green naturally.
+#
+# Currently known-accepted (2 advisories, all quick-xml 0.39):
+#
+#   RUSTSEC-2026-0194  Quadratic run time in quick-xml start tag check
+#   RUSTSEC-2026-0195  Unbounded namespace allocation DoS in quick-xml
+#
+# Source: wayland-scanner 0.31.10 (crates.io, Feb 2026) pins
+#   quick-xml = "0.39". Upstream fix: wayland-rs PR #938 merged
+#   2026-07-08 bumping to 0.41 on master. NOT YET RELEASED.
+# Tracked: https://github.com/EVWorth/sqlpilot/issues/206
+#
+# No silent failures. No blanket --ignore. Listed and reviewed.
 
 set -euo pipefail
 
 WORKSPACE_DIR="${CARGO_WORKSPACE_DIR:-src-tauri}"
 cd "$WORKSPACE_DIR"
 
-# Run cargo audit with JSON output. Don't fail on non-zero exit
-# (cargo audit returns non-zero when warnings exist).
-JSON_OUTPUT="$(cargo audit --json 2>/dev/null || true)"
+# Known-accepted vulnerabilities — fix is blocked by upstream.
+# These IDs are passed to `cargo audit --ignore` so CI doesn't stay
+# permanently red, BUT they're explicitly listed in this script
+# header AND in job output (see the KNOWN_ACCEPTED block below).
+# To clear: remove from this list, then commit the dep bump that
+# dependabot (or manual) will offer once upstream releases.
+KNOWN_ACCEPTED=(
+  "RUSTSEC-2026-0194"  # quick-xml 0.39: quadratic start tag check (DoS)
+  "RUSTSEC-2026-0195"  # quick-xml 0.39: unbounded namespace allocation (DoS)
+)
+
+# Build --ignore args from the list
+IGNORE_ARGS=()
+for id in "${KNOWN_ACCEPTED[@]}"; do
+  IGNORE_ARGS+=(--ignore "$id")
+done
+
+# Run cargo audit with JSON output. Pass --ignore for known-accepted.
+# Don't fail on non-zero exit (cargo audit returns non-zero when warnings
+# exist, even with --ignore).
+JSON_OUTPUT="$(cargo audit --json "${IGNORE_ARGS[@]}" 2>/dev/null || true)"
 
 # Pretty-print the full advisory list to job logs (visible, not hidden).
 echo "=== cargo audit findings ==="
@@ -45,6 +76,19 @@ echo "$JSON_OUTPUT" | jq -r '
     .advisory.title
   ] | @tsv
 ' | column -t -s $'\t' 2>/dev/null | head -50 || echo "(parse failed)"
+
+# Always show the known-accepted list — even after they clear from
+# cargo audit output, the list serves as a reminder of past accepted.
+echo ""
+echo "=== Known-accepted vulnerabilities (WAITING FOR UPSTREAM) ==="
+for id in "${KNOWN_ACCEPTED[@]}"; do
+  echo "  $id"
+done
+echo ""
+echo "Fix pending: wayland-rs release with quick-xml 0.41 bump (PR #938"
+echo "merged 2026-07-08, not yet on crates.io). Dependabot will offer the"
+echo "bump when upstream publishes. Remove from KNOWN_ACCEPTED list above"
+echo "when the gate goes green naturally. Tracked in #206."
 
 # Count real vulnerabilities (the blocking kind).
 VULN_COUNT="$(echo "$JSON_OUTPUT" | jq -r '(.vulnerabilities.list // []) | length')"
@@ -75,6 +119,23 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
         .[] |
         "- **\(.advisory.id)** (\(.advisory.package // "?")): \(.advisory.title)"
       ' | head -30
+    fi
+    # Always show the known-accepted list (even when empty) so
+    # reviewers can see what's deliberately being silenced.
+    if [ "${#KNOWN_ACCEPTED[@]}" -gt 0 ]; then
+      echo ""
+      echo "### ⏳ Known-accepted vulnerabilities (waiting for upstream)"
+      echo ""
+      echo "These IDs are passed to \`cargo audit --ignore\` so CI doesn't stay permanently red."
+      echo "They are listed here (not hidden). The fix is pending upstream; remove the ID from the"
+      echo "\`KNOWN_ACCEPTED\` array in \`scripts/cargo-audit-check.sh\` once dependabot offers the dep bump."
+      echo ""
+      for id in "${KNOWN_ACCEPTED[@]}"; do
+      case "$id" in
+        RUSTSEC-2026-019*) echo "- **$id** (quick-xml): fix pending wayland-rs release (PR smithay/wayland-rs#938 merged 2026-07-08, not yet on crates.io). Tracked in #206." ;;
+        *) echo "- **$id**" ;;
+      esac
+      done
     fi
   } >> "$GITHUB_STEP_SUMMARY"
 fi
