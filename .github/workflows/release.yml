@@ -12,37 +12,18 @@ jobs:
   validate:
     name: Validate tag matches manifests
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Check tag vs manifests
+      - name: Run release readiness check
         run: |
           set -euo pipefail
-
           TAG="${GITHUB_REF_NAME#v}"
-          JS_VER="$(node -p "require('./package.json').version")"
-          RS_VER="$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
-          TA_VER="$(node -p "require('./src-tauri/tauri.conf.json').version")"
-
-          echo "Tag pushed:           v${TAG}"
-          echo "package.json:         ${JS_VER}"
-          echo "Cargo.toml:           ${RS_VER}"
-          echo "tauri.conf.json:      ${TA_VER}"
-
-          if [ "${JS_VER}" != "${RS_VER}" ] || [ "${JS_VER}" != "${TA_VER}" ]; then
-            echo "::error::Manifests disagree. All three must match before tagging."
-            echo "::error::Run 'make bump' to align them, then re-tag."
-            exit 1
-          fi
-
-          if [ "${JS_VER}" != "${TAG}" ]; then
-            echo "::error::Manifest version (${JS_VER}) does not match tag (v${TAG})."
-            echo "::error::Either bump manifests to ${TAG} first, or delete and re-tag the right commit."
-            exit 1
-          fi
-
-          echo "OK: tag v${TAG} matches manifests (${JS_VER})"
+          echo "Validating tag v${TAG} against working tree manifests..."
+          bash scripts/check-release-readiness.sh "${TAG}"
 
   build:
     needs: validate
