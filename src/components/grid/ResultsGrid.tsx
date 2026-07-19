@@ -588,13 +588,13 @@ export function ResultsGrid() {
         ref={(node) => {
           scrollContainerRef.current = node;
         }}
-        className="relative flex-1 overflow-auto"
+        className="isolate relative z-0 flex-1 overflow-auto"
         style={{ scrollbarGutter: "stable" }}
       >
         {shouldVirtualize
           ? (
             <div style={{ height: `${totalRows * ROW_HEIGHT + ROW_HEIGHT}px`, position: "relative" }}>
-              <div className="sticky top-0 z-10 flex text-xs">
+              <div className="sticky top-0 z-10 flex bg-[var(--color-bg-tertiary)] text-xs">
                 <div
                   className="flex items-center justify-center border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]"
                   style={{ flex: "0 0 48px" }}
@@ -747,8 +747,8 @@ export function ResultsGrid() {
             </div>
           )
           : (
-            <table className="border-collapse text-xs" style={{ tableLayout: "fixed", width: "100%" }}>
-              <thead className="sticky top-0 z-10">
+            <table className="border-separate border-spacing-0 text-xs" style={{ tableLayout: "fixed", width: "100%" }}>
+              <thead className="sticky top-0 z-10 bg-[var(--color-bg-tertiary)]">
                 <tr>
                   <th className="w-12 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]">
                     #
