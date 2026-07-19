@@ -35,28 +35,29 @@ Does NOT touch: dependencies, code, configs beyond version fields.
 
 ### 1. Verify Pre-conditions
 
+Delegate to `scripts/check-release-readiness.sh --strict` — single source of truth for release-readiness checks (manifests agree, tree clean, on main). Script returns distinct exit codes (1/2/3/4) for each failure mode.
+
 ```bash
-# Working tree clean?
-git status --porcelain
+bash scripts/check-release-readiness.sh --strict
+```
 
-# On main?
-git branch --show-current   # expect: main
+If the script exits non-zero, STOP and report the failure mode to the user.
 
-# CI green on HEAD?
+For CI status (the script doesn't check this), verify separately:
+
+```bash
 gh run list --limit 1 --json conclusion,headSha
 ```
 
-If any fails → STOP, report to user.
-
 ### 2. Read Current Versions
 
+Read via the script too:
+
 ```bash
-node -p "require('./package.json').version"
-grep '^version' src-tauri/Cargo.toml | head -1
-node -p "require('./src-tauri/tauri.conf.json').version"
+bash scripts/check-release-readiness.sh
 ```
 
-All three must match. If drift, ABORT and ask user to fix.
+Displays all three versions + agreement status.
 
 ### 3. Bump
 
@@ -72,12 +73,13 @@ make bump major    # 0.3.4 → 1.0.0
 
 ### 4. Verify Bump
 
+Re-run the script with the new version:
+
 ```bash
-jsver=$(node -p "require('./package.json').version")
-rsver=$(grep '^version' src-tauri/Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')
-taver=$(node -p "require('./src-tauri/tauri.conf.json').version")
-[ "$jsver" = "$rsver" ] && [ "$jsver" = "$taver" ] && echo "All match: $jsver"
+bash scripts/check-release-readiness.sh <new-version>
 ```
+
+Exit code 0 = ready to commit. Non-zero → STOP.
 
 If mismatch → fix manually, ABORT.
 
