@@ -86,14 +86,30 @@ jobs:
       - name: Audit vulnerabilities
         run: npm audit --audit-level=critical
 
-  # NOTE: cargo-audit job intentionally removed (was here pre-path-filters).
-  # Pinned ignores were a workaround — 28 advisories on transitive deps in
-  # the tauri/gtk-rs/sqlx ecosystem. Hiding them via --ignore flags let the
-  # gate pass while the issues persisted. That's lying to CI.
+  # NOTE: cargo-audit runs via the cargo-audit-check wrapper script (not
+  # raw cargo audit). The wrapper:
+  # - Fails ONLY on real vulnerabilities (RUSTSEC type "vulnerability")
+  # - Logs unmaintained/yanked/unsound warnings to job output without blocking
+  # - Uses zero --ignore flags (no silencing)
   #
-  # Proper fix: bump parent crates (tauri, sqlx, rustls) + replace unmaintained
-  # gtk-rs GTK3 bindings. Until that work lands, no cargo-audit check in PR CI.
-  # Tracked in: https://github.com/EVWorth/sqlpilot/issues?q=cargo-audit
+  # 17 transitive advisories remain (gtk-rs GTK3 bindings + glib unsound +
+  # unic-* sub-deps) that cannot be fixed without upstream action.
+  # Tracked in #204.
+  cargo-audit:
+    name: cargo Audit
+    needs: detect-changes
+    if: needs.detect-changes.outputs.cargo == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.0.0
+      - name: Install jq
+        run: sudo apt-get install -y jq
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Run audit check (vulnerabilities fail, warnings log)
+        run: bash scripts/cargo-audit-check.sh
+        working-directory: src-tauri
 
   check-versions:
     name: Version Consistency
