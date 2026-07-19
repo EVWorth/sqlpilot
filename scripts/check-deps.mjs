@@ -1,8 +1,23 @@
 #!/usr/bin/env node
+// scripts/check-deps.mjs
+//
+// Supply-chain defense: minimum-publish-age gate for direct dependencies.
+//
+// npm: handled natively by `.npmrc` -> `min-release-age=7`. The npm CLI refuses
+// to resolve any package version published less than 7 days ago at install /
+// update time. We deliberately do NOT duplicate this check here — running it
+// twice would block resolution that the user otherwise trusts .npmrc to gate.
+// CI also runs `npm ci` against the lockfile, which doesn't re-resolve.
+//
+// cargo: no native stable equivalent exists today. RFC 3923 /
+// `-Zmin-publish-age` is nightly-only as of 2026-07; cargo-cooldown is a
+// wrapper that requires every developer to opt in. Until Rust 1.98+ ships
+// min-publish-age on stable, the post-hoc check below is the closest
+// equivalent for the cargo half of the deps graph. See #223 for tracking.
+
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..");
@@ -50,9 +65,7 @@ async function checkEntry({ name, version, ecosystem, url }) {
   }
   try {
     const data = await res.json();
-    const created = ecosystem === "npm"
-      ? data.time?.[version]
-      : data.version?.created_at;
+    const created = data.version?.created_at;
     if (!created) {
       console.warn(`  [${ecosystem}] ${name}@${version} — no publish time`);
       return null;
@@ -64,42 +77,8 @@ async function checkEntry({ name, version, ecosystem, url }) {
   }
 }
 
-// ── npm: direct dependencies only ────────────────────────────────────
-
-const pkgJson = JSON.parse(readFileSync(resolve(ROOT, "package.json"), "utf-8"));
-const npmDeps = { ...(pkgJson.dependencies || {}), ...(pkgJson.devDependencies || {}) };
-
-let pkgLock;
-try {
-  pkgLock = JSON.parse(readFileSync(resolve(ROOT, "package-lock.json"), "utf-8"));
-} catch {
-  pkgLock = null;
-}
-
-const npmChecks = [];
-for (const [name] of Object.entries(npmDeps)) {
-  const entry = pkgLock?.packages?.[`node_modules/${name}`];
-  const version = entry?.version;
-  if (!version) continue;
-  npmChecks.push({
-    name, version, ecosystem: "npm",
-    url: `https://registry.npmjs.org/${encodeURIComponent(name)}`,
-  });
-}
-
-console.log(`[npm] Checking ${npmChecks.length} direct dependencies (min age: ${MIN_AGE_DAYS}d)...`);
-const npmResults = await checkAll(npmChecks);
-for (const r of npmResults) {
-  if (r.age < MIN_AGE_MS) {
-    const days = (r.age / (24 * 60 * 60 * 1000)).toFixed(1);
-    console.error(`  [npm] ${r.name}@${r.version} too new (${days}d, need >=${MIN_AGE_DAYS}d)`);
-    failures++;
-  }
-}
-
 // ── Cargo: resolve workspace crates against Cargo.lock ───────────────
 
-const CARGO_TOML = resolve(ROOT, "src-tauri", "Cargo.toml");
 const LOCK_PATH = resolve(ROOT, "src-tauri", "Cargo.lock");
 
 function parseCargoLock(path) {
@@ -195,6 +174,7 @@ if (lockPkgs) {
 }
 
 console.log(`[cargo] Checking ${cargoChecks.length} direct dependencies (min age: ${MIN_AGE_DAYS}d)...`);
+console.log(`[npm]   Enforcement at resolver via .npmrc min-release-age=${MIN_AGE_DAYS} (no script-side check).`);
 const cargoResults = await checkAll(cargoChecks);
 for (const r of cargoResults) {
   if (r.age < MIN_AGE_MS) {
@@ -205,8 +185,8 @@ for (const r of cargoResults) {
 }
 
 if (failures > 0) {
-  console.error(`\n${failures} dependency(s) younger than ${MIN_AGE_DAYS} days. Blocked.`);
+  console.error(`\n${failures} cargo dep(s) younger than ${MIN_AGE_DAYS} days. Blocked.`);
   process.exit(1);
 }
 
-console.log(`All dependencies are >=${MIN_AGE_DAYS} days old.`);
+console.log(`All cargo dependencies are >=${MIN_AGE_DAYS} days old.`);
