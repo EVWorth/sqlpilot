@@ -48,74 +48,77 @@ services:
       MYSQL_USER: test_user
       MYSQL_PASSWORD: test_password
     ports:
-      - "3307:3306"
+      - "13306:3306"
     volumes:
-      - ./tests/fixtures/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
+      - ./tests/fixtures/sql/seed_large.sql:/docker-entrypoint-initdb.d/02-seed-large.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 30
 
-  mysql-5.7:
+  mysql-5_7:
     image: mysql:5.7
     environment:
       MYSQL_ROOT_PASSWORD: test_root_password
       MYSQL_DATABASE: test_db
     ports:
-      - "3308:3306"
+      - "13307:3306"
     volumes:
-      - ./tests/fixtures/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 30
 
-  mariadb:
+  mariadb-11:
     image: mariadb:11
     environment:
       MYSQL_ROOT_PASSWORD: test_root_password
       MYSQL_DATABASE: test_db
     ports:
-      - "3309:3306"
+      - "13308:3306"
     volumes:
-      - ./tests/fixtures/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
     healthcheck:
       test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 30
 
   mysql-ssl:
     image: mysql:8.0
     command: >
       --require-secure-transport=ON
-      --ssl-ca=/etc/mysql/ssl/ca.pem
+      --ssl-ca=/etc/mysql/ssl/ca-cert.pem
       --ssl-cert=/etc/mysql/ssl/server-cert.pem
       --ssl-key=/etc/mysql/ssl/server-key.pem
     environment:
       MYSQL_ROOT_PASSWORD: test_root_password
       MYSQL_DATABASE: test_db
     ports:
-      - "3310:3306"
+      - "13309:3306"
     volumes:
-      - ./tests/fixtures/ssl:/etc/mysql/ssl
-      - ./tests/fixtures/seed.sql:/docker-entrypoint-initdb.d/seed.sql
+      - ./tests/fixtures/ssl/server-cert.pem:/etc/mysql/ssl/server-cert.pem
+      - ./tests/fixtures/ssl/server-key.pem:/etc/mysql/ssl/server-key.pem
+      - ./tests/fixtures/ssl/ca-cert.pem:/etc/mysql/ssl/ca-cert.pem
+      - ./tests/fixtures/ssl/my.cnf:/etc/mysql/conf.d/ssl.cnf
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
       interval: 5s
       timeout: 3s
-      retries: 10
+      retries: 30
 
-  ssh-tunnel:
-    image: linuxserver/openssh-server
+  ssh-server:
+    image: lscr.io/linuxserver/openssh-server:latest
     environment:
       - PASSWORD_ACCESS=true
       - USER_PASSWORD=test_ssh_password
       - USER_NAME=test_ssh_user
     ports:
-      - "2222:2222"
+      - "12222:2222"
 ```
 
 ### Container Lifecycle
@@ -408,11 +411,11 @@ The `test_db_large` database is populated by a separate setup script (`tests/fix
 | Test Name                          | Description                                                  | Type        |
 | ---------------------------------- | ------------------------------------------------------------ | ----------- |
 | `test_create_connection_profile`   | Create a profile struct, serialize to JSON, deserialize back | Unit        |
-| `test_connect_mysql8`              | Connect to MySQL 8.0 container on port 3307                  | Integration |
-| `test_connect_mysql57`             | Connect to MySQL 5.7 container on port 3308                  | Integration |
-| `test_connect_mariadb`             | Connect to MariaDB 11 container on port 3309                 | Integration |
-| `test_connect_with_ssl`            | Connect to SSL-enabled MySQL on port 3310                    | Integration |
-| `test_connect_with_ssh_tunnel`     | Connect through SSH tunnel container on port 2222            | Integration |
+| `test_connect_mysql8`              | Connect to MySQL 8.0 container on port 13306                 | Integration |
+| `test_connect_mysql57`             | Connect to MySQL 5.7 container on port 13307                 | Integration |
+| `test_connect_mariadb`             | Connect to MariaDB 11 container on port 13308                | Integration |
+| `test_connect_with_ssl`            | Connect to SSL-enabled MySQL on port 13309                   | Integration |
+| `test_connect_with_ssh_tunnel`     | Connect through SSH tunnel container on port 12222           | Integration |
 | `test_connect_invalid_credentials` | Expect `AccessDenied` error with wrong password              | Integration |
 | `test_connect_invalid_host`        | Expect `ConnectionRefused` or timeout with nonexistent host  | Integration |
 | `test_connect_timeout`             | Expect timeout error when connecting to unresponsive port    | Integration |
@@ -652,10 +655,10 @@ export default async function globalSetup() {
   });
 
   // 2. Wait for all health checks
-  await waitForMySQL(3307); // MySQL 8.0
-  await waitForMySQL(3308); // MySQL 5.7
-  await waitForMySQL(3309); // MariaDB 11
-  await waitForMySQL(3310); // MySQL SSL
+  await waitForMySQL(13306); // MySQL 8.0
+  await waitForMySQL(13307); // MySQL 5.7
+  await waitForMySQL(13308); // MariaDB 11
+  await waitForMySQL(13309); // MySQL SSL
 
   // 3. Seed test data (handled by docker-entrypoint-initdb.d)
   console.log("All MySQL containers healthy and seeded.");
@@ -673,8 +676,8 @@ export async function globalTeardown() {
 | Test                            | Steps                                                                 | Expected Result                             |
 | ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------- |
 | Create and connect to MySQL 8   | Open connection dialog → fill in host/port/user/pass → Save → Connect | Status bar shows "Connected to MySQL 8.0"   |
-| Create and connect to MySQL 5.7 | Same as above with port 3308                                          | Status bar shows "Connected to MySQL 5.7"   |
-| Create and connect to MariaDB   | Same as above with port 3309                                          | Status bar shows "Connected to MariaDB 11"  |
+| Create and connect to MySQL 5.7 | Same as above with port 13307                                         | Status bar shows "Connected to MySQL 5.7"   |
+| Create and connect to MariaDB   | Same as above with port 13308                                         | Status bar shows "Connected to MariaDB 11"  |
 | Test SSH tunnel connection      | Fill SSH tunnel fields → Connect                                      | Connection established through tunnel       |
 | Test SSL connection             | Enable SSL → provide certs → Connect                                  | SSL indicator visible in status bar         |
 | Invalid credentials             | Enter wrong password → Connect                                        | Error message: "Access denied for user..."  |
@@ -845,7 +848,7 @@ jobs:
           MYSQL_ROOT_PASSWORD: test_root_password
           MYSQL_DATABASE: test_db
         ports:
-          - 3307:3306
+          - 13306:3306
         options: >-
           --health-cmd="mysqladmin ping -h localhost"
           --health-interval=5s
@@ -882,7 +885,7 @@ jobs:
         run: cargo test --test '*' --all
         env:
           TEST_MYSQL_HOST: localhost
-          TEST_MYSQL_PORT: 3307
+          TEST_MYSQL_PORT: 13306
           TEST_MYSQL_USER: root
           TEST_MYSQL_PASSWORD: test_root_password
 
@@ -956,7 +959,7 @@ jobs:
         run: npx playwright test
         env:
           TEST_MYSQL_HOST: localhost
-          TEST_MYSQL_PORT: 3307
+          TEST_MYSQL_PORT: 13306
 
       - name: Upload Playwright report
         if: failure()
