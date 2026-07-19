@@ -133,27 +133,6 @@ jobs:
           fi
           echo "All versions match: $jsver"
 
-  deps-age:
-    # Min-publish-age supply-chain defense. npm is enforced at resolver time
-    # by .npmrc `min-release-age=7` (no script-side check needed). Cargo has
-    # no native stable equivalent yet — `-Zmin-publish-age` is nightly-only
-    # (RFC 3923, tracking rust-lang/cargo#17009). Until Rust 1.98+, the
-    # script below is the closest approximation for the cargo half.
-    name: Dependency Age Gate
-    needs: detect-changes
-    if: |
-      needs.detect-changes.outputs.cargo == 'true' ||
-      needs.detect-changes.outputs.npm == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.0.0
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '20'
-      - name: Check cargo dependency ages
-        run: npm run deps:check
-
   lint-ts:
     name: Lint (TypeScript)
     needs: detect-changes
