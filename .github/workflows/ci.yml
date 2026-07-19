@@ -86,53 +86,14 @@ jobs:
       - name: Audit vulnerabilities
         run: npm audit --audit-level=critical
 
-  cargo-audit:
-    name: cargo Audit
-    needs: detect-changes
-    if: needs.detect-changes.outputs.cargo == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.0.0
-      - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
-      - name: Check Rust advisory database
-        working-directory: src-tauri
-        run: |
-          # Pinned ignores for transitive deps in the tauri/gtk-rs/sqlx ecosystem.
-          # Each entry below is tracked as a follow-up to either bump the parent
-          # crate (preferred) or remove the ignore once upstream lands a fix.
-          # See: https://github.com/EVWorth/sqlpilot/issues?q=cargo-audit
-          cargo audit \
-            --ignore RUSTSEC-2023-0071 \
-            --ignore RUSTSEC-2024-0363 \
-            --ignore RUSTSEC-2024-0370 \
-            --ignore RUSTSEC-2024-0411 \
-            --ignore RUSTSEC-2024-0412 \
-            --ignore RUSTSEC-2024-0413 \
-            --ignore RUSTSEC-2024-0414 \
-            --ignore RUSTSEC-2024-0415 \
-            --ignore RUSTSEC-2024-0416 \
-            --ignore RUSTSEC-2024-0417 \
-            --ignore RUSTSEC-2024-0418 \
-            --ignore RUSTSEC-2024-0419 \
-            --ignore RUSTSEC-2024-0420 \
-            --ignore RUSTSEC-2024-0429 \
-            --ignore RUSTSEC-2024-0436 \
-            --ignore RUSTSEC-2025-0057 \
-            --ignore RUSTSEC-2025-0075 \
-            --ignore RUSTSEC-2025-0080 \
-            --ignore RUSTSEC-2025-0081 \
-            --ignore RUSTSEC-2025-0098 \
-            --ignore RUSTSEC-2025-0100 \
-            --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2026-0097 \
-            --ignore RUSTSEC-2026-0098 \
-            --ignore RUSTSEC-2026-0099 \
-            --ignore RUSTSEC-2026-0104 \
-            --ignore RUSTSEC-2026-0194 \
-            --ignore RUSTSEC-2026-0195 \
-            --ignore RUSTSEC-2026-0204
+  # NOTE: cargo-audit job intentionally removed (was here pre-path-filters).
+  # Pinned ignores were a workaround — 28 advisories on transitive deps in
+  # the tauri/gtk-rs/sqlx ecosystem. Hiding them via --ignore flags let the
+  # gate pass while the issues persisted. That's lying to CI.
+  #
+  # Proper fix: bump parent crates (tauri, sqlx, rustls) + replace unmaintained
+  # gtk-rs GTK3 bindings. Until that work lands, no cargo-audit check in PR CI.
+  # Tracked in: https://github.com/EVWorth/sqlpilot/issues?q=cargo-audit
 
   check-versions:
     name: Version Consistency
