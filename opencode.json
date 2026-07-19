@@ -1,4 +1,36 @@
 {
   "$schema": "https://opencode.ai/config.json",
-  "permission": "allow"
+  "instructions": [
+    ".opencode/AGENTS.md",
+    ".github/copilot-instructions.md"
+  ],
+  "references": {
+    "design": {
+      "path": "docs/design",
+      "description": "SQLPilot design docs: ARCHITECTURE, DESIGN_REQUIREMENTS, TECH_DECISIONS, TESTING_STRATEGY"
+    }
+  },
+  "permission": {
+    "edit": {
+      "node_modules/**": "deny",
+      "**/node_modules/**": "deny",
+      "dist/**": "deny",
+      "coverage/**": "deny",
+      "src-tauri/target/**": "deny",
+      "playwright-report/**": "deny",
+      "test-results/**": "deny",
+      ".vitest-attachments/**": "deny",
+      "*.lock": "deny",
+      "*.lockb": "deny",
+      ".git/**": "deny",
+      "*": "allow"
+    },
+    "bash": {
+      "rm -rf /*": "deny",
+      "git push --force *": "deny",
+      "git push -f *": "deny",
+      "git push origin main*": "deny",
+      "*": "allow"
+    }
+  }
 }
