@@ -217,11 +217,18 @@ Or use `/review-prs` to do all of the above in one command.
 
 ## Release Flow
 
+0. **Pre-flight** (from a clean main checkout): `bash scripts/check-release-readiness.sh --strict`
+   - Verifies manifests agree, tree clean, on main
 1. `make bump [patch|minor|major]` — updates 3 version files atomically
-2. Verify CI green on bump commit
-3. `git tag v<version>` and push → triggers `.github/workflows/release.yml`
-4. Workflow: builds 4 platforms, signs Windows (if cert secrets present), generates `latest.json` update manifest
-5. Monitor draft release on GitHub, publish when satisfied
+2. Commit the bump (no tag yet) — push triggers CI on the bump commit
+3. **Local re-check** before tagging: `bash scripts/check-release-readiness.sh <new-version>`
+   - Confirms manifests match the version you're about to tag
+4. `git tag v<version>` and push tag → triggers `.github/workflows/release.yml`
+   - `validate` job (#183) fails fast if tag doesn't match manifests — no wasted build minutes
+5. Workflow: builds 4 platforms, signs Windows (if cert secrets present), generates `latest.json` update manifest
+6. Monitor draft release on GitHub, publish when satisfied
+
+**Why this order:** bump + commit + CI green before tagging. CI validate acts as second line of defense after local check. `release-cutter` agent delegates pre-conditions to `scripts/check-release-readiness.sh` — same checks, single source of truth.
 
 ## When You're Stuck
 
