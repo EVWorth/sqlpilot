@@ -4,7 +4,7 @@ Root system prompt. All agents spawned for this project read this first. Interna
 
 ## Project in One Paragraph
 
-SQLPilot v0.3.4 — Tauri 2 desktop app. Rust backend (Cargo workspace: `mas-core`, `mas-export`, `mas-admin`, `mas-ai`, `mas-sqlite`, root `sqlpilot`), React 19 + TypeScript frontend (Vite 8, Tailwind 4, Zustand 5, Monaco 0.55). MySQL GUI: ~22 MB native binary, cross-platform (Linux/Windows/macOS). 1465 tests passing. Strict pre-commit gates (tests + dprint + cargo fmt + version consistency).
+SQLPilot v0.3.4 — Tauri 2 desktop app. Rust backend (Cargo workspace: `mas-core`, `mas-export`, `mas-admin`, `mas-ai`, `mas-sqlite`, root `sqlpilot`), React 19 + TypeScript frontend (Vite 8, Tailwind 4, Zustand 5, Monaco 0.55). MySQL GUI: ~22 MB native binary, cross-platform (Linux/Windows/macOS). 1488+ frontend tests + 45 Rust integration tests passing. Strict pre-commit gates (tests + dprint + cargo fmt + version consistency).
 
 ## Read Once, Internalize
 
