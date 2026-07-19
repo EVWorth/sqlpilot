@@ -3,6 +3,12 @@ pre-commit:
     unit-tests:
       glob: "*.{ts,tsx,rs}"
       run: npm run test:unit -- --reporter=dot
+    lint:
+      glob: "*.{ts,tsx,js,jsx}"
+      run: npm run lint
+    type-check:
+      glob: "*.{ts,tsx}"
+      run: npm run type-check
     dprint:
       glob: "*.{ts,tsx,js,jsx,json,yml,yaml,md,toml}"
       run: npx dprint check --list-different
@@ -10,6 +16,10 @@ pre-commit:
       root: "src-tauri/"
       glob: "*.rs"
       run: cargo fmt --check
+    cargo-clippy:
+      root: "src-tauri/"
+      glob: "*.rs"
+      run: cargo clippy --all-targets --all-features -- -D warnings
     lockfile-check:
       glob: "package.json"
       run: |
