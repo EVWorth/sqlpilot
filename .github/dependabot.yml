@@ -1,9 +1,18 @@
 version: 2
 updates:
+  # Supply-chain defense: minimum 7-day cooldown before Dependabot opens
+  # a version-bump PR. Matches `.npmrc` `min-release-age=7` and the
+  # cargo audit `min-age` policy. Security updates bypass cooldown by
+  # default (Dependabot's `security-updates`-first behavior).
+  # When RFC 3923 (`-Zmin-publish-age`) stabilizes on Rust stable
+  # (~1.98+), the cargo ecosystem can drop to native enforcement
+  # and `cooldown` can be relaxed. Tracking: see sqlpilot issue.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "github-actions"
@@ -12,6 +21,8 @@ updates:
     directory: "/src-tauri"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "rust"
@@ -25,6 +36,8 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
+    cooldown:
+      default-days: 7
     labels:
       - "dependencies"
       - "javascript"
@@ -33,7 +46,3 @@ updates:
       npm:
         patterns:
           - "*"
-
-# Minimum package age is enforced by the CI `deps-age` job
-# (scripts/check-deps.mjs). Dependabot PRs that bump packages younger
-# than 7 days will fail CI and cannot be merged.
