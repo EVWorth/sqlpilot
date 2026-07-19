@@ -82,4 +82,5 @@ The release workflow conditionally signs Windows artifacts when the required sec
 - `WINDOWS_CERTIFICATE_PASSWORD`
 
 The workflow injects the Windows certificate thumbprint into the build config at runtime so the repository does not need to store machine-specific signing metadata. macOS builds are produced but not signed or notarized.
+
 ## ci/path-filters
