@@ -60,6 +60,17 @@ fi
 log "Pulling latest main..."
 git pull --ff-only || die "git pull failed (maybe main has unpushed local commits?)" 1
 
+# --- Branch BEFORE agent (so partial runs don't pollute main) ---
+# Always checkout a work branch before invoking the agent. If the
+# agent is killed mid-run (timeout, Ctrl-C, OOM), partial edits stay
+# isolated on a throwaway branch instead of contaminating main.
+TS="$(date -u +%Y%m%d-%H%M%S)"
+BRANCH="${BRANCH_PREFIX}-${TS}"
+log "Creating branch ${BRANCH}..."
+git checkout -b "$BRANCH" || die "git checkout -b failed" 1
+git config user.name "doc-keeper-bot"
+git config user.email "doc-keeper-bot@users.noreply.github.com"
+
 # --- Build prompt ---
 PROMPT_FILE="$(mktemp -t doc-keeper-prompt.XXXXXX.md)"
 cat > "$PROMPT_FILE" <<EOF
@@ -145,15 +156,7 @@ if [ "$DIFF_LINES" -gt "$MAX_DIFF_LINES" ]; then
 fi
 log "Diff size OK: ${DIFF_LINES} lines (max ${MAX_DIFF_LINES})"
 
-# --- Create branch + PR ---
-TS="$(date -u +%Y%m%d-%H%M%S)"
-BRANCH="${BRANCH_PREFIX}-${TS}"
-
-log "Creating branch ${BRANCH}..."
-git checkout -b "$BRANCH"
-git config user.name "doc-keeper-bot"
-git config user.email "doc-keeper-bot@users.noreply.github.com"
-
+# --- Commit + (optionally) push/PR ---
 git add -A
 git commit \
   -m "docs: doc-keeper sweep ${TS}" \

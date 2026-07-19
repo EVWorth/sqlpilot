@@ -40,3 +40,6 @@ src-tauri/gen/
 src-tauri/query-results-*
 .vitest-attachments/
 __screenshots__/
+
+# Agent runtime artifacts (regenerated per sweep, never source)
+.doc-keeper-report.md
