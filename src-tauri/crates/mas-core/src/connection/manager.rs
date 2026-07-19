@@ -3,7 +3,7 @@ use crate::models::{ConnectionInfo, ConnectionProfile, SSLMode, TestConnectionRe
 use chrono::Utc;
 use dashmap::DashMap;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlSslMode};
-use sqlx::MySqlPool;
+use sqlx::{AssertSqlSafe, MySqlPool};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -67,7 +67,7 @@ impl ConnectionManager {
             .after_connect(move |conn, _meta| {
                 let charset = charset_for_after_connect.clone();
                 Box::pin(async move {
-                    sqlx::query(&format!("SET NAMES {}", charset))
+                    sqlx::query(AssertSqlSafe(format!("SET NAMES {}", charset)))
                         .execute(&mut *conn)
                         .await?;
                     Ok(())
