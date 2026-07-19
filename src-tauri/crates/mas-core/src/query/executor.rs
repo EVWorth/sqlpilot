@@ -2,7 +2,7 @@ use crate::connection::ConnectionManager;
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue};
 use futures::StreamExt;
-use sqlx::{Column, Either, Row, TypeInfo};
+use sqlx::{AssertSqlSafe, Column, Either, Row, TypeInfo};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -94,7 +94,7 @@ impl QueryExecutor {
         // If USE db was prepended, skip its result (the first Either::Left).
         let mut stmt_idx: isize = if database.is_some() { -1 } else { 0 };
 
-        let mut stream = sqlx::raw_sql(&combined_sql).fetch_many(&pool);
+        let mut stream = sqlx::raw_sql(AssertSqlSafe(combined_sql)).fetch_many(&pool);
         let mut results = Vec::new();
         let mut current_rows: Vec<sqlx::mysql::MySqlRow> = Vec::new();
         let mut start = Instant::now();
