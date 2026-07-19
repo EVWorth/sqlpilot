@@ -9,7 +9,24 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    name: Validate tag matches manifests
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Run release readiness check
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          echo "Validating tag v${TAG} against working tree manifests..."
+          bash scripts/check-release-readiness.sh "${TAG}"
+
   build:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
