@@ -111,6 +111,8 @@ export function SQLEditor() {
         keybindings: [
           // Monaco.KeyMod.CtrlCmd | Monaco.KeyCode.Enter
           2048 | 3,
+          // Monaco.KeyCode.F9
+          67,
         ],
         run: () => {
           const model = editor.getModel();

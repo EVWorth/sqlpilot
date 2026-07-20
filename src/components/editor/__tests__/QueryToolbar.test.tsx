@@ -216,7 +216,7 @@ describe("QueryToolbar", () => {
   it("renders the Run button", () => {
     render(<QueryToolbar />);
     expect(screen.getByText("Run")).toBeInTheDocument();
-    expect(screen.getByText("Ctrl+Enter")).toBeInTheDocument();
+    expect(screen.getByText("Ctrl+Enter / F9")).toBeInTheDocument();
   });
 
   it("renders the Explain button", () => {

@@ -158,7 +158,7 @@ export function QueryToolbar() {
       <button
         onClick={isExecuting ? cancelActiveQuery : handleExecute}
         disabled={!isExecuting && !canExecute}
-        title={isExecuting ? "Cancel Query" : "Execute Query (Ctrl+Enter)"}
+        title={isExecuting ? "Cancel Query" : "Execute Query (Ctrl+Enter / F9)"}
         className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
           isExecuting
             ? "bg-red-600 text-white hover:bg-red-500"
@@ -181,7 +181,7 @@ export function QueryToolbar() {
       </button>
 
       <span className="text-[10px] text-[var(--color-text-muted)]">
-        Ctrl+Enter
+        Ctrl+Enter / F9
       </span>
 
       <div className="relative" ref={explainRef}>
