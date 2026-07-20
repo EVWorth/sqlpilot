@@ -4,6 +4,14 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+
+# Cancel in-flight runs when a new release dispatch arrives (e.g.
+# tag re-pushed, manual re-run). Keyed by workflow + ref/tag/input
+# so concurrent releases don't collide.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref || github.event.inputs.tag || github.run_id }}
+  cancel-in-progress: true
 
 permissions:
   contents: write
