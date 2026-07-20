@@ -214,6 +214,68 @@ export function SQLEditor() {
         },
       });
 
+      editor.addAction({
+        id: "explain-analyze",
+        label: "Explain Analyze",
+        keybindings: [
+          // Monaco.KeyMod.CtrlCmd | Monaco.KeyMod.Shift | Monaco.KeyCode.KeyA
+          2048 | 1024 | 31,
+        ],
+        run: (ed) => {
+          const model = ed.getModel();
+          const selection = ed.getSelection();
+          let sql;
+          if (selection && !selection.isEmpty()) {
+            sql = model?.getValueInRange(selection) ?? "";
+          } else {
+            sql = model?.getValue() ?? "";
+          }
+          const connectionId = useConnectionStore.getState().selectedConnectionId;
+          const { tabs: editorTabs, activeTabId: editorActiveTabId } = useEditorStore.getState();
+          const editorActiveTab = editorTabs.find((t) => t.id === editorActiveTabId);
+          if (sql.trim() && connectionId) {
+            useResultStore.getState().executeExplainAnalyze(connectionId, sql, editorActiveTab?.database);
+          }
+        },
+      });
+
+      editor.addAction({
+        id: "lowercase-selected",
+        label: "Lowercase selected keywords",
+        keybindings: [
+          // Monaco.KeyMod.CtrlCmd | Monaco.KeyMod.Shift | Monaco.KeyCode.KeyL
+          2048 | 1024 | 38,
+        ],
+        run: () => {
+          // delegate to Monaco's built-in TransformToLowercase action
+          editor.trigger("keyboard", "editor.action.transformToLowercase", null);
+        },
+      });
+
+      editor.addAction({
+        id: "uppercase-selected",
+        label: "Uppercase selected keywords",
+        keybindings: [
+          // Monaco.KeyMod.CtrlCmd | Monaco.KeyMod.Shift | Monaco.KeyCode.KeyU
+          2048 | 1024 | 30,
+        ],
+        run: () => {
+          editor.trigger("keyboard", "editor.action.transformToUppercase", null);
+        },
+      });
+
+      editor.addAction({
+        id: "refresh-schema",
+        label: "Refresh Schema",
+        keybindings: [
+          // Monaco.KeyCode.F5
+          64,
+        ],
+        run: async () => {
+          await useSchemaCache.getState().refreshSchema();
+        },
+      });
+
       // AI inline completions - disabled pending Copilot SDK streaming completion support
       inlineProviderRef.current?.dispose();
       inlineProviderRef.current = null;

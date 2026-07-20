@@ -1,7 +1,5 @@
 import { useEffect } from "react";
-import { useConnectionStore } from "../stores/connectionStore";
 import { useEditorStore } from "../stores/editorStore";
-import { useResultStore } from "../stores/resultStore";
 
 export function useKeyboardShortcuts(
   onToggleSidebar?: () => void,
@@ -20,18 +18,6 @@ export function useKeyboardShortcuts(
       if (e.key === "F1" && !isMonacoFocused) {
         e.preventDefault();
         onShowShortcuts?.();
-        return;
-      }
-
-      // F5 — execute query
-      if (e.key === "F5") {
-        e.preventDefault();
-        const connectionId = useConnectionStore.getState().selectedConnectionId;
-        const { tabs, activeTabId } = useEditorStore.getState();
-        const activeTab = tabs.find((t) => t.id === activeTabId);
-        if (activeTab?.content?.trim() && connectionId) {
-          useResultStore.getState().executeQuery(connectionId, activeTab.content, activeTab.database);
-        }
         return;
       }
 
@@ -58,6 +44,16 @@ export function useKeyboardShortcuts(
         return;
       }
 
+      // Ctrl+1..9 — switch to tab by index (industry standard)
+      if (!shift && /^[1-9]$/.test(e.key)) {
+        e.preventDefault();
+        const { tabs, setActiveTab } = useEditorStore.getState();
+        const idx = parseInt(e.key, 10) - 1;
+        const target = tabs[idx];
+        if (target) setActiveTab(target.id);
+        return;
+      }
+
       // Ctrl+N or Ctrl+T — new tab
       if (!shift && (e.key === "n" || e.key === "t")) {
         e.preventDefault();
@@ -75,8 +71,8 @@ export function useKeyboardShortcuts(
         return;
       }
 
-      // Ctrl+Shift+C — toggle sidebar
-      if (shift && e.key === "C") {
+      // Ctrl+B or Ctrl+Shift+C — toggle sidebar (Ctrl+B is industry standard, Ctrl+Shift+C is the SQLPilot default)
+      if ((!shift && e.key === "b") || (shift && e.key === "C")) {
         e.preventDefault();
         onToggleSidebar?.();
         return;

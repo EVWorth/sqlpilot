@@ -84,10 +84,10 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     api.getDatabases(connectionId).then(setDatabases).catch(console.error);
   }, [connectionId]);
 
-  // Ctrl+Shift+F focuses the filter input
+  // Ctrl+Shift+O focuses the schema tree filter input
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === "F") {
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === "O" || e.key === "o")) {
         e.preventDefault();
         filterInputRef.current?.focus();
         filterInputRef.current?.select();
