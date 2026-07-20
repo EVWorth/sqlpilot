@@ -2,19 +2,12 @@ import { renderHook } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useKeyboardShortcuts } from "../useKeyboardShortcuts";
 
-const mockExecuteQuery = vi.fn().mockResolvedValue(undefined);
 const mockSetActiveTab = vi.fn();
 const mockAddTab = vi.fn();
 const mockCloseTab = vi.fn();
 
 vi.mock("../../stores/editorStore", () => ({
   useEditorStore: {
-    getState: vi.fn(),
-  },
-}));
-
-vi.mock("../../stores/resultStore", () => ({
-  useResultStore: {
     getState: vi.fn(),
   },
 }));
@@ -27,12 +20,8 @@ vi.mock("../../stores/connectionStore", () => ({
 
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
-import { useResultStore } from "../../stores/resultStore";
 
 const getEditorState = useEditorStore.getState as unknown as ReturnType<
-  typeof vi.fn
->;
-const getResultState = useResultStore.getState as unknown as ReturnType<
   typeof vi.fn
 >;
 const getConnectionState = useConnectionStore.getState as unknown as ReturnType<
@@ -93,10 +82,6 @@ beforeEach(() => {
     closeTab: mockCloseTab,
   });
 
-  getResultState.mockReturnValue({
-    executeQuery: mockExecuteQuery,
-  });
-
   getConnectionState.mockReturnValue({
     selectedConnectionId: "conn-1",
   });
@@ -133,78 +118,6 @@ describe("useKeyboardShortcuts", () => {
 
       expect(preventDefaultSpy).not.toHaveBeenCalled();
       expect(onShowShortcuts).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("F5 — execute query", () => {
-    it("executes query when F5 is pressed with active tab content and connection", () => {
-      renderHook(() => useKeyboardShortcuts());
-
-      const event = createKeyboardEvent("F5");
-      const preventDefaultSpy = vi.spyOn(event, "preventDefault");
-      window.dispatchEvent(event);
-
-      expect(preventDefaultSpy).toHaveBeenCalled();
-      expect(mockExecuteQuery).toHaveBeenCalledWith(
-        "conn-1",
-        "SELECT 1",
-        undefined,
-      );
-    });
-
-    it("does not execute when no active tab has content", () => {
-      getEditorState.mockReturnValue({
-        tabs: [],
-        activeTabId: null,
-      });
-
-      renderHook(() => useKeyboardShortcuts());
-
-      const event = createKeyboardEvent("F5");
-      window.dispatchEvent(event);
-
-      expect(mockExecuteQuery).not.toHaveBeenCalled();
-    });
-
-    it("does not execute when active tab content is empty", () => {
-      getEditorState.mockReturnValue({
-        tabs: [{ id: "tab-0", content: "" }],
-        activeTabId: "tab-0",
-      });
-
-      renderHook(() => useKeyboardShortcuts());
-
-      const event = createKeyboardEvent("F5");
-      window.dispatchEvent(event);
-
-      expect(mockExecuteQuery).not.toHaveBeenCalled();
-    });
-
-    it("does not execute when active tab content is only whitespace", () => {
-      getEditorState.mockReturnValue({
-        tabs: [{ id: "tab-0", content: "   \n  " }],
-        activeTabId: "tab-0",
-      });
-
-      renderHook(() => useKeyboardShortcuts());
-
-      const event = createKeyboardEvent("F5");
-      window.dispatchEvent(event);
-
-      expect(mockExecuteQuery).not.toHaveBeenCalled();
-    });
-
-    it("does not execute when no connection is selected", () => {
-      getConnectionState.mockReturnValue({
-        selectedConnectionId: null,
-      });
-
-      renderHook(() => useKeyboardShortcuts());
-
-      const event = createKeyboardEvent("F5");
-      window.dispatchEvent(event);
-
-      expect(mockExecuteQuery).not.toHaveBeenCalled();
     });
   });
 
@@ -402,7 +315,7 @@ describe("useKeyboardShortcuts", () => {
     });
   });
 
-  describe("Ctrl+Shift+C — toggle sidebar", () => {
+  describe("Ctrl+B / Ctrl+Shift+C — toggle sidebar", () => {
     it("calls onToggleSidebar when Ctrl+Shift+C is pressed", () => {
       const onToggleSidebar = vi.fn();
       renderHook(() => useKeyboardShortcuts(onToggleSidebar));
@@ -418,6 +331,18 @@ describe("useKeyboardShortcuts", () => {
       expect(onToggleSidebar).toHaveBeenCalled();
     });
 
+    it("calls onToggleSidebar when Ctrl+B is pressed (industry-standard alias)", () => {
+      const onToggleSidebar = vi.fn();
+      renderHook(() => useKeyboardShortcuts(onToggleSidebar));
+
+      const event = createKeyboardEvent("b", { ctrlKey: true });
+      const preventDefaultSpy = vi.spyOn(event, "preventDefault");
+      window.dispatchEvent(event);
+
+      expect(preventDefaultSpy).toHaveBeenCalled();
+      expect(onToggleSidebar).toHaveBeenCalled();
+    });
+
     it("does not call onToggleSidebar with just Ctrl+C (no shift)", () => {
       const onToggleSidebar = vi.fn();
       renderHook(() => useKeyboardShortcuts(onToggleSidebar));
@@ -426,6 +351,118 @@ describe("useKeyboardShortcuts", () => {
       window.dispatchEvent(event);
 
       expect(onToggleSidebar).not.toHaveBeenCalled();
+    });
+
+    it("does not trigger sidebar via Ctrl+Shift+B (different letter)", () => {
+      const onToggleSidebar = vi.fn();
+      renderHook(() => useKeyboardShortcuts(onToggleSidebar));
+
+      const event = createKeyboardEvent("B", {
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(onToggleSidebar).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("Ctrl+1..9 — switch to tab by index", () => {
+    it("Ctrl+1 switches to the first tab", () => {
+      getEditorState.mockReturnValue({
+        tabs: [
+          { id: "tab-0", content: "" },
+          { id: "tab-1", content: "" },
+          { id: "tab-2", content: "" },
+        ],
+        activeTabId: "tab-2",
+        setActiveTab: mockSetActiveTab,
+      });
+
+      renderHook(() => useKeyboardShortcuts());
+
+      const event = createKeyboardEvent("1", { ctrlKey: true });
+      window.dispatchEvent(event);
+
+      expect(mockSetActiveTab).toHaveBeenCalledWith("tab-0");
+    });
+
+    it("Ctrl+5 switches to the fifth tab (if it exists)", () => {
+      getEditorState.mockReturnValue({
+        tabs: [
+          { id: "tab-0", content: "" },
+          { id: "tab-1", content: "" },
+          { id: "tab-2", content: "" },
+          { id: "tab-3", content: "" },
+          { id: "tab-4", content: "" },
+        ],
+        activeTabId: "tab-0",
+        setActiveTab: mockSetActiveTab,
+      });
+
+      renderHook(() => useKeyboardShortcuts());
+
+      const event = createKeyboardEvent("5", { ctrlKey: true });
+      window.dispatchEvent(event);
+
+      expect(mockSetActiveTab).toHaveBeenCalledWith("tab-4");
+    });
+
+    it("Ctrl+9 does nothing if there are fewer than 9 tabs", () => {
+      getEditorState.mockReturnValue({
+        tabs: [
+          { id: "tab-0", content: "" },
+          { id: "tab-1", content: "" },
+        ],
+        activeTabId: "tab-0",
+        setActiveTab: mockSetActiveTab,
+      });
+
+      renderHook(() => useKeyboardShortcuts());
+
+      const event = createKeyboardEvent("9", { ctrlKey: true });
+      window.dispatchEvent(event);
+
+      expect(mockSetActiveTab).not.toHaveBeenCalled();
+    });
+
+    it("Ctrl+Shift+1 does not switch tabs (Shift modifies the digit, not a tab index)", () => {
+      getEditorState.mockReturnValue({
+        tabs: [
+          { id: "tab-0", content: "" },
+          { id: "tab-1", content: "" },
+        ],
+        activeTabId: "tab-1",
+        setActiveTab: mockSetActiveTab,
+      });
+
+      renderHook(() => useKeyboardShortcuts());
+
+      const event = createKeyboardEvent("1", {
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      window.dispatchEvent(event);
+
+      expect(mockSetActiveTab).not.toHaveBeenCalled();
+    });
+
+    it("Ctrl+0 is harmless (regex matches 1..9 only)", () => {
+      getEditorState.mockReturnValue({
+        tabs: [
+          { id: "tab-0", content: "" },
+          { id: "tab-1", content: "" },
+        ],
+        activeTabId: "tab-0",
+        setActiveTab: mockSetActiveTab,
+      });
+
+      renderHook(() => useKeyboardShortcuts());
+
+      const event = createKeyboardEvent("0", { ctrlKey: true });
+      window.dispatchEvent(event);
+
+      expect(mockSetActiveTab).not.toHaveBeenCalled();
     });
   });
 

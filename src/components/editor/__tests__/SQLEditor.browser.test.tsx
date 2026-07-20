@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => {
@@ -11,6 +11,9 @@ const m = vi.hoisted(() => {
   const mockSetEditorInstance = vi.fn();
   const mockExecuteQuery = vi.fn();
   const mockExecuteExplain = vi.fn();
+  const mockExecuteExplainAnalyze = vi.fn();
+  const mockTrigger = vi.fn();
+  const mockRefreshSchema = vi.fn();
 
   const mockMonaco = {
     languages: {
@@ -32,6 +35,9 @@ const m = vi.hoisted(() => {
     mockSetEditorInstance,
     mockExecuteQuery,
     mockExecuteExplain,
+    mockExecuteExplainAnalyze,
+    mockTrigger,
+    mockRefreshSchema,
     mockMonaco,
   };
 });
@@ -76,6 +82,7 @@ vi.mock("@monaco-editor/react", () => ({
           m.capturedActions.push(action);
           return action.id;
         }),
+        trigger: m.mockTrigger,
         layout: vi.fn(),
       };
       m.capturedEditor.current = mockEditor;
@@ -135,6 +142,7 @@ vi.mock("../../stores/resultStore", () => ({
       const state = {
         executeQuery: m.mockExecuteQuery,
         executeExplain: m.mockExecuteExplain,
+        executeExplainAnalyze: m.mockExecuteExplainAnalyze,
       };
       return selector ? selector(state) : state;
     }),
@@ -142,9 +150,25 @@ vi.mock("../../stores/resultStore", () => ({
       getState: vi.fn(() => ({
         executeQuery: m.mockExecuteQuery,
         executeExplain: m.mockExecuteExplain,
+        executeExplainAnalyze: m.mockExecuteExplainAnalyze,
       })),
     },
   ),
+}));
+
+vi.mock("../../hooks/useSchemaCache", () => ({
+  useSchemaCache: vi.fn(() => ({
+    connectionId: "conn-1",
+    databases: [],
+    tables: [],
+    views: [],
+    columns: new Map(),
+    fetchTables: vi.fn(),
+    fetchViews: vi.fn(),
+    fetchColumns: vi.fn(),
+    setConnection: vi.fn(),
+    refreshSchema: m.mockRefreshSchema,
+  })),
 }));
 
 vi.mock("../../stores/connectionStore", () => ({
@@ -244,6 +268,74 @@ describe("SQLEditor (browser)", () => {
     await waitFor(() => {
       expect(m.capturedActions.some((a) => a.id === "explain-query")).toBe(true);
     });
+  });
+
+  it("registers explain-analyze action on mount (fixes advertised-but-missing Ctrl+Shift+A)", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => {
+      expect(m.capturedActions.some((a) => a.id === "explain-analyze")).toBe(true);
+    });
+  });
+
+  it("registers refresh-schema action on mount (industry-standard F5)", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => {
+      expect(m.capturedActions.some((a) => a.id === "refresh-schema")).toBe(true);
+    });
+  });
+
+  it("registers lowercase-selected action (Ctrl+Shift+L)", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => {
+      expect(m.capturedActions.some((a) => a.id === "lowercase-selected")).toBe(true);
+    });
+  });
+
+  it("registers uppercase-selected action (Ctrl+Shift+U)", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => {
+      expect(m.capturedActions.some((a) => a.id === "uppercase-selected")).toBe(true);
+    });
+  });
+
+  it("explain-analyze.run calls executeExplainAnalyze with connectionId", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => {
+      expect(m.capturedActions.some((a) => a.id === "explain-analyze")).toBe(true);
+    });
+    const action = m.capturedActions.find((a) => a.id === "explain-analyze")!;
+    await action.run();
+    expect(m.mockExecuteExplainAnalyze).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined);
+  });
+
+  it("refresh-schema.run calls useSchemaCache.refreshSchema", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => {
+      expect(m.capturedActions.some((a) => a.id === "refresh-schema")).toBe(true);
+    });
+    const action = m.capturedActions.find((a) => a.id === "refresh-schema")!;
+    await action.run();
+    expect(m.mockRefreshSchema).toHaveBeenCalled();
+  });
+
+  it("lowercase-selected.run delegates to Monaco's editor.action.transformToLowercase", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => {
+      expect(m.capturedActions.some((a) => a.id === "lowercase-selected")).toBe(true);
+    });
+    const action = m.capturedActions.find((a) => a.id === "lowercase-selected")!;
+    await action.run();
+    expect(m.mockTrigger).toHaveBeenCalledWith("keyboard", "editor.action.transformToLowercase", null);
+  });
+
+  it("uppercase-selected.run delegates to Monaco's editor.action.transformToUppercase", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => {
+      expect(m.capturedActions.some((a) => a.id === "uppercase-selected")).toBe(true);
+    });
+    const action = m.capturedActions.find((a) => a.id === "uppercase-selected")!;
+    await action.run();
+    expect(m.mockTrigger).toHaveBeenCalledWith("keyboard", "editor.action.transformToUppercase", null);
   });
 
   it("registers completion provider when monaco is available", async () => {
