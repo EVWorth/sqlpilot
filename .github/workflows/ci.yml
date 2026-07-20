@@ -1,8 +1,23 @@
 name: CI
 
 on:
+  # Explicit types. Excluding 'closed' stops GH from re-running CI after
+  # a PR merges or closes (when the merge closed the prior run, the
+  # 'closed' event used to trigger a redundant 're-verify already-green
+  # code' run).
   pull_request:
+    types: [opened, synchronize, reopened]
     branches: [main]
+  push:
+    branches: [main]
+
+# Cancel any in-flight or queued runs in this group when a new run
+# starts. Keyed by workflow + PR number (for PRs) or workflow + ref
+# (for direct branch pushes) so concurrent PRs and unrelated runs
+# don't trip over each other. Industry standard pattern.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
