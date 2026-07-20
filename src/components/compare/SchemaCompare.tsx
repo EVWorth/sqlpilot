@@ -1,4 +1,4 @@
-import { AlertTriangle, ArrowLeftRight, ChevronDown, ChevronRight, Loader2, Play } from "lucide-react";
+import { AlertTriangle, ArrowLeftRight, ChevronDown, ChevronRight, Loader2, Play, X } from "lucide-react";
 import { useCallback, useState } from "react";
 import { compareSchemas } from "../../lib/schema-diff";
 import type { ColumnModification, SchemaComparison, SchemaSnapshot, TableDiff } from "../../lib/schema-diff";
@@ -7,7 +7,7 @@ import type { SyncStatement } from "../../lib/sync-sql-generator";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
-import type { ColumnInfo, DatabaseInfo } from "../../types";
+import type { ColumnInfo, DatabaseInfo, RoutineInfo } from "../../types";
 import { SyncPreview } from "./SyncPreview";
 
 interface EndpointState {
@@ -16,13 +16,28 @@ interface EndpointState {
   databases: DatabaseInfo[];
 }
 
+type Side = "source" | "target";
+
+type RoutineIssue =
+  | { kind: "routines-mariadb-upgrade"; side: Side; raw: string }
+  | { kind: "routines-failed"; side: Side; raw: string };
+
+function classifyRoutinesError(raw: string, side: Side): RoutineIssue {
+  if (/1558|mysql\.proc|mariadb-upgrade/i.test(raw)) {
+    return { kind: "routines-mariadb-upgrade", side, raw };
+  }
+  return { kind: "routines-failed", side, raw };
+}
+
 export function SchemaCompare() {
   const activeConnections = useConnectionStore((s) => s.activeConnections);
 
   const [source, setSource] = useState<EndpointState>({ connectionId: "", database: "", databases: [] });
   const [target, setTarget] = useState<EndpointState>({ connectionId: "", database: "", databases: [] });
+  const [includeRoutines, setIncludeRoutines] = useState(true);
   const [comparing, setComparing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [routineIssues, setRoutineIssues] = useState<RoutineIssue[]>([]);
   const [comparison, setComparison] = useState<SchemaComparison | null>(null);
   const [syncStatements, setSyncStatements] = useState<SyncStatement[]>([]);
   const [showSync, setShowSync] = useState(false);
@@ -40,13 +55,26 @@ export function SchemaCompare() {
     }
   }, []);
 
-  const fetchSnapshot = useCallback(async (connectionId: string, database: string): Promise<SchemaSnapshot> => {
-    const [tables, views, routines, triggers] = await Promise.all([
+  const fetchSnapshot = useCallback(async (
+    connectionId: string,
+    database: string,
+    options: { includeRoutines: boolean },
+  ): Promise<{ snapshot: SchemaSnapshot; routinesError: string | null }> => {
+    const [tables, views, triggers] = await Promise.all([
       api.getTables(connectionId, database),
       api.getViews(connectionId, database),
-      api.getRoutines(connectionId, database),
       api.getTriggers(connectionId, database),
     ]);
+
+    let routines: RoutineInfo[] = [];
+    let routinesError: string | null = null;
+    if (options.includeRoutines) {
+      try {
+        routines = await api.getRoutines(connectionId, database);
+      } catch (e) {
+        routinesError = String(e);
+      }
+    }
 
     const baseTables = tables.filter((t) => t.table_type === "BASE TABLE" || t.table_type === "TABLE");
 
@@ -71,16 +99,18 @@ export function SchemaCompare() {
       }),
     );
 
-    const routineDetails = await Promise.all(
-      routines.map(async (r) => {
-        try {
-          const ddl = await api.getRoutineDdl(connectionId, database, r.name, r.routine_type);
-          return { info: r, ddl };
-        } catch {
-          return { info: r, ddl: "" };
-        }
-      }),
-    );
+    const routineDetails = (routinesError || !options.includeRoutines)
+      ? []
+      : await Promise.all(
+        routines.map(async (r) => {
+          try {
+            const ddl = await api.getRoutineDdl(connectionId, database, r.name, r.routine_type);
+            return { info: r, ddl };
+          } catch {
+            return { info: r, ddl: "" };
+          }
+        }),
+      );
 
     const triggerDetails = await Promise.all(
       triggers.map(async (t) => {
@@ -94,10 +124,13 @@ export function SchemaCompare() {
     );
 
     return {
-      tables: tableDetails,
-      views: viewDetails,
-      routines: routineDetails,
-      triggers: triggerDetails,
+      snapshot: {
+        tables: tableDetails,
+        views: viewDetails,
+        routines: routineDetails,
+        triggers: triggerDetails,
+      },
+      routinesError,
     };
   }, []);
 
@@ -105,15 +138,24 @@ export function SchemaCompare() {
     if (!source.connectionId || !source.database || !target.connectionId || !target.database) return;
     setComparing(true);
     setError(null);
+    setRoutineIssues([]);
     setComparison(null);
     setSyncStatements([]);
     setShowSync(false);
 
     try {
-      const [srcSnapshot, tgtSnapshot] = await Promise.all([
-        fetchSnapshot(source.connectionId, source.database),
-        fetchSnapshot(target.connectionId, target.database),
+      const [
+        { snapshot: srcSnapshot, routinesError: srcRoutinesError },
+        { snapshot: tgtSnapshot, routinesError: tgtRoutinesError },
+      ] = await Promise.all([
+        fetchSnapshot(source.connectionId, source.database, { includeRoutines }),
+        fetchSnapshot(target.connectionId, target.database, { includeRoutines }),
       ]);
+
+      const issues: RoutineIssue[] = [];
+      if (srcRoutinesError) issues.push(classifyRoutinesError(srcRoutinesError, "source"));
+      if (tgtRoutinesError) issues.push(classifyRoutinesError(tgtRoutinesError, "target"));
+      setRoutineIssues(issues);
 
       const result = compareSchemas(srcSnapshot, tgtSnapshot);
       setComparison(result);
@@ -125,7 +167,7 @@ export function SchemaCompare() {
     } finally {
       setComparing(false);
     }
-  }, [source, target, fetchSnapshot]);
+  }, [source, target, includeRoutines, fetchSnapshot]);
 
   const canCompare = source.connectionId && source.database && target.connectionId && target.database && !comparing;
 
@@ -149,19 +191,42 @@ export function SchemaCompare() {
             onConnectionChange={(id) => loadDatabases(id, (s) => setTarget(s))}
             onDatabaseChange={(db) => setTarget((prev) => ({ ...prev, database: db }))}
           />
-          <button
-            onClick={handleCompare}
-            disabled={!canCompare}
-            className="mt-5 flex items-center gap-2 rounded bg-brand-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {comparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-            Compare
-          </button>
+          <div className="mt-5 flex flex-col gap-2">
+            <label className="flex items-center gap-1.5 text-xs text-[var(--color-text-secondary)]">
+              <input
+                type="checkbox"
+                checked={includeRoutines}
+                onChange={(e) => setIncludeRoutines(e.target.checked)}
+                className="h-3 w-3 cursor-pointer rounded border-[var(--color-border)] accent-brand-500"
+                aria-label="Include routines in comparison"
+              />
+              Include routines
+            </label>
+            <button
+              onClick={handleCompare}
+              disabled={!canCompare}
+              className="flex items-center gap-2 rounded bg-brand-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-brand-600"
+            >
+              {comparing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+              Compare
+            </button>
+          </div>
         </div>
         {error && (
           <div className="mt-2 flex items-center gap-2 rounded bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
             <AlertTriangle className="h-3.5 w-3.5" />
             {error}
+          </div>
+        )}
+        {routineIssues.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {routineIssues.map((issue, idx) => (
+              <RoutineIssueBanner
+                key={`${issue.kind}-${issue.side}-${idx}`}
+                issue={issue}
+                onDismiss={() => setRoutineIssues((prev) => prev.filter((_, i) => i !== idx))}
+              />
+            ))}
           </div>
         )}
       </div>
@@ -218,7 +283,7 @@ function EndpointSelector({
 }) {
   return (
     <div className="flex flex-col gap-1">
-      <span className="text-xs font-medium text-[var(--color-text-muted)]">{label}</span>
+      <span className="text-xs font-medium text-[var(--color-text-secondary)]">{label}</span>
       <div className="flex gap-2">
         <select
           value={state.connectionId}
@@ -232,12 +297,64 @@ function EndpointSelector({
           value={state.database}
           onChange={(e) => onDatabaseChange(e.target.value)}
           disabled={state.databases.length === 0}
-          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500 disabled:opacity-40"
+          className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500 disabled:cursor-not-allowed disabled:text-[var(--color-text-muted)] disabled:opacity-70"
         >
           <option value="">Select database...</option>
           {state.databases.map((db) => <option key={db.name} value={db.name}>{db.name}</option>)}
         </select>
       </div>
+    </div>
+  );
+}
+
+function RoutineIssueBanner({
+  issue,
+  onDismiss,
+}: {
+  issue: RoutineIssue;
+  onDismiss: () => void;
+}) {
+  const heading = issue.kind === "routines-mariadb-upgrade"
+    ? `Routines skipped — MariaDB upgrade needed on ${issue.side}`
+    : `Could not fetch routines from ${issue.side}`;
+
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded bg-yellow-500/10 px-3 py-2 text-xs text-yellow-300"
+    >
+      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+      <div className="flex-1 space-y-1">
+        <div className="font-medium">{heading}</div>
+        {issue.kind === "routines-mariadb-upgrade"
+          ? (
+            <>
+              <div>
+                The server's <code className="rounded bg-black/30 px-1 font-mono">mysql.proc</code>{" "}
+                system table is out of date. Tables, views, and triggers were compared normally; routines were skipped.
+              </div>
+              <div>
+                Run on the server and retry:
+              </div>
+              <pre className="overflow-x-auto rounded bg-black/30 px-2 py-1 font-mono text-[11px]">
+                mariadb-upgrade -u root -p
+              </pre>
+            </>
+          )
+          : (
+            <pre className="overflow-x-auto rounded bg-black/30 px-2 py-1 font-mono text-[11px] text-yellow-300/80">
+              {issue.raw.length > 200 ? issue.raw.slice(0, 200) + "…" : issue.raw}
+            </pre>
+          )}
+      </div>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="shrink-0 rounded p-0.5 text-yellow-300/70 hover:bg-yellow-500/20 hover:text-yellow-200"
+        aria-label="Dismiss warning"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }

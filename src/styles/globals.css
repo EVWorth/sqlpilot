@@ -23,11 +23,12 @@
     --color-border: #2a2a3a;
     --color-text-primary: #e4e4ef;
     --color-text-secondary: #9898aa;
-    --color-text-muted: #5a5a6e;
+    --color-text-muted: #8b8ba0;
     --color-accent: #3b82f6;
     --color-success: #22c55e;
     --color-warning: #eab308;
     --color-error: #ef4444;
+    color-scheme: dark;
   }
 
   [data-theme="light"] {
@@ -42,6 +43,7 @@
     --color-success: #16a34a;
     --color-warning: #ca8a04;
     --color-error: #dc2626;
+    color-scheme: light;
   }
 
   body {

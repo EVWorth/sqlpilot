@@ -189,4 +189,172 @@ describe("SchemaCompare", () => {
 
     expect(await screen.findByText(/Failed to load databases/)).toBeDefined();
   });
+
+  it("defaults 'Include routines' to checked (#219)", () => {
+    render(<SchemaCompare />);
+    const checkbox = screen.getByLabelText(/include routines/i) as HTMLInputElement;
+    expect(checkbox.checked).toBe(true);
+  });
+
+  it("completes comparison and shows MariaDB-upgrade warning when routines fetch fails with 1558 (#219)", async () => {
+    vi.mocked(api.getDatabases).mockResolvedValue([
+      { name: "mydb", default_charset: "utf8mb4", default_collation: "utf8mb4_general_ci" },
+    ]);
+    vi.mocked(api.getTables).mockResolvedValue([
+      { name: "users", table_type: "BASE TABLE", engine: "InnoDB", row_count: 100, data_size: 1024, comment: "" },
+    ]);
+    vi.mocked(api.getColumns).mockResolvedValue([]);
+    vi.mocked(api.getIndexes).mockResolvedValue([]);
+    vi.mocked(api.getViews).mockResolvedValue([]);
+    vi.mocked(api.getTriggers).mockResolvedValue([]);
+    vi.mocked(api.getRoutines).mockRejectedValue(
+      "Schema error: error returned from database: 1558 (HY000): Column count of mysql.proc is wrong. "
+        + "Expected 22, found 21. Created with MariaDB 110602, now running 120302. "
+        + "Please use mariadb-upgrade to fix this error",
+    );
+    vi.mocked(compareSchemas).mockReturnValue({
+      tables: { onlyInSource: [], onlyInTarget: [], different: [], identical: ["users"] },
+      views: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+      routines: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+      triggers: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+    });
+    vi.mocked(generateSyncSQL).mockReturnValue([]);
+
+    render(<SchemaCompare />);
+
+    const selects = screen.getAllByRole("combobox");
+    fireEvent.change(selects[0], { target: { value: "conn-1" } });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "mydb" } });
+
+    fireEvent.change(screen.getAllByRole("combobox")[2], { target: { value: "conn-2" } });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.change(screen.getAllByRole("combobox")[3], { target: { value: "mydb" } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Compare"));
+    });
+
+    // Comparison completed despite the routines failure
+    expect(compareSchemas).toHaveBeenCalled();
+    // No red "Comparison failed" banner
+    expect(screen.queryByText(/comparison failed/i)).toBeNull();
+    // Structured MariaDB-upgrade warning shown for both sides
+    expect(screen.getAllByText(/MariaDB upgrade needed/i).length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText(/mariadb-upgrade/).length).toBeGreaterThan(0);
+  });
+
+  it("still renders the red generic banner for non-routine comparison failures (#219)", async () => {
+    vi.mocked(api.getDatabases).mockResolvedValue([
+      { name: "mydb", default_charset: "utf8mb4", default_collation: "utf8mb4_general_ci" },
+    ]);
+    vi.mocked(api.getTables).mockRejectedValue("connection lost");
+    vi.mocked(api.getViews).mockResolvedValue([]);
+    vi.mocked(api.getRoutines).mockResolvedValue([]);
+    vi.mocked(api.getTriggers).mockResolvedValue([]);
+
+    render(<SchemaCompare />);
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "conn-1" } });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "mydb" } });
+
+    fireEvent.change(screen.getAllByRole("combobox")[2], { target: { value: "conn-2" } });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.change(screen.getAllByRole("combobox")[3], { target: { value: "mydb" } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Compare"));
+    });
+
+    expect(await screen.findByText(/comparison failed: connection lost/i)).toBeDefined();
+    expect(screen.queryByText(/MariaDB upgrade needed/i)).toBeNull();
+  });
+
+  it("dismisses a routine warning when its X is clicked (#219)", async () => {
+    vi.mocked(api.getDatabases).mockResolvedValue([
+      { name: "mydb", default_charset: "utf8mb4", default_collation: "utf8mb4_general_ci" },
+    ]);
+    vi.mocked(api.getTables).mockResolvedValue([]);
+    vi.mocked(api.getViews).mockResolvedValue([]);
+    vi.mocked(api.getTriggers).mockResolvedValue([]);
+    vi.mocked(api.getRoutines).mockRejectedValue(
+      "1558 (HY000): mysql.proc column count wrong. use mariadb-upgrade",
+    );
+    vi.mocked(compareSchemas).mockReturnValue({
+      tables: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+      views: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+      routines: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+      triggers: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+    });
+    vi.mocked(generateSyncSQL).mockReturnValue([]);
+
+    render(<SchemaCompare />);
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "conn-1" } });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "mydb" } });
+
+    fireEvent.change(screen.getAllByRole("combobox")[2], { target: { value: "conn-2" } });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.change(screen.getAllByRole("combobox")[3], { target: { value: "mydb" } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Compare"));
+    });
+
+    const warnings = screen.getAllByText(/MariaDB upgrade needed/i);
+    expect(warnings.length).toBeGreaterThanOrEqual(1);
+
+    const dismissButtons = screen.getAllByLabelText(/dismiss warning/i);
+    await act(async () => {
+      fireEvent.click(dismissButtons[0]);
+    });
+
+    expect(screen.queryAllByText(/MariaDB upgrade needed/i).length).toBeLessThan(warnings.length);
+  });
+
+  it("skips getRoutines call entirely when Include routines is unchecked (#219)", async () => {
+    vi.mocked(api.getDatabases).mockResolvedValue([
+      { name: "mydb", default_charset: "utf8mb4", default_collation: "utf8mb4_general_ci" },
+    ]);
+    vi.mocked(api.getTables).mockResolvedValue([
+      { name: "users", table_type: "BASE TABLE", engine: "InnoDB", row_count: 100, data_size: 1024, comment: "" },
+    ]);
+    vi.mocked(api.getColumns).mockResolvedValue([]);
+    vi.mocked(api.getIndexes).mockResolvedValue([]);
+    vi.mocked(api.getViews).mockResolvedValue([]);
+    vi.mocked(api.getTriggers).mockResolvedValue([]);
+    vi.mocked(api.getRoutines).mockResolvedValue([]);
+    vi.mocked(compareSchemas).mockReturnValue({
+      tables: { onlyInSource: [], onlyInTarget: [], different: [], identical: ["users"] },
+      views: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+      routines: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+      triggers: { onlyInSource: [], onlyInTarget: [], different: [], identical: [] },
+    });
+    vi.mocked(generateSyncSQL).mockReturnValue([]);
+
+    render(<SchemaCompare />);
+
+    // Uncheck the Include routines checkbox
+    const checkbox = screen.getByLabelText(/include routines/i) as HTMLInputElement;
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.change(screen.getAllByRole("combobox")[0], { target: { value: "conn-1" } });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "mydb" } });
+
+    fireEvent.change(screen.getAllByRole("combobox")[2], { target: { value: "conn-2" } });
+    await act(async () => new Promise((r) => setTimeout(r, 50)));
+    fireEvent.change(screen.getAllByRole("combobox")[3], { target: { value: "mydb" } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Compare"));
+    });
+
+    expect(compareSchemas).toHaveBeenCalled();
+    expect(api.getRoutines).not.toHaveBeenCalled();
+    expect(screen.queryByText(/MariaDB upgrade needed/i)).toBeNull();
+  });
 });
