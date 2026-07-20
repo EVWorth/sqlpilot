@@ -180,6 +180,16 @@ jobs:
           # Build the manifest JSON
           echo "{" > update-manifest.json
           echo "  \"version\": \"$VERSION\"," >> update-manifest.json
+
+          # min_app_version: most recent tag excluding the one being shipped.
+          # Plugin honors this: current-version users whose app is below the
+          # threshold don't see the update. Falls back to omitting the field
+          # on the very first release.
+          PREV_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -v "^${TAG}$" | head -1 | sed 's/^v//')
+          if [ -n "$PREV_TAG" ]; then
+            echo "  \"min_app_version\": \"$PREV_TAG\"," >> update-manifest.json
+          fi
+
           echo "  \"notes\": \"See https://github.com/EVWorth/sqlpilot/releases/tag/$TAG\"," >> update-manifest.json
           echo "  \"pub_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," >> update-manifest.json
           echo "  \"platforms\": {" >> update-manifest.json
@@ -192,6 +202,8 @@ jobs:
             case "$base" in
               *_amd64.AppImage)     key="linux-x86_64" ;;
               *_amd64.deb)          key="linux-deb" ;;
+              *aarch64.rpm)        key="linux-aarch64" ;;
+              *x86_64.rpm)         key="linux-rpm" ;;
               *_x64_en-US.msi)      key="windows-x86_64" ;;
               *_x64-setup.exe)      key="windows-x86_64-nsis" ;;
               *_x64.dmg)            key="darwin-x86_64" ;;
