@@ -211,36 +211,52 @@ describe("settingsStore", () => {
       vi.clearAllMocks();
     });
 
-    it("downloads, installs, and relaunches", async () => {
+    it("downloads, installs, and relaunches using the cached Update", async () => {
       vi.resetModules();
-      const updater = await import("@tauri-apps/plugin-updater");
       const process = await import("@tauri-apps/plugin-process");
       const downloadAndInstall = vi.fn();
-      vi.mocked(updater.check).mockResolvedValue({ version: "1.0.0", downloadAndInstall } as any);
       const { useSettingsStore } = await import("../settingsStore");
+      const cached = { version: "1.0.0", downloadAndInstall } as any;
+      useSettingsStore.setState({
+        pendingUpdate: cached,
+        updateStatus: "available",
+        updateVersion: "1.0.0",
+      });
       await useSettingsStore.getState().installUpdate();
       expect(useSettingsStore.getState().updateStatus).toBe("downloaded");
       expect(downloadAndInstall).toHaveBeenCalledOnce();
       expect(process.relaunch).toHaveBeenCalledOnce();
     });
 
-    it("does nothing when no update is available", async () => {
+    it("does nothing when no cached update is available", async () => {
       vi.resetModules();
-      const updater = await import("@tauri-apps/plugin-updater");
       const process = await import("@tauri-apps/plugin-process");
-      vi.mocked(updater.check).mockResolvedValue(null);
       const { useSettingsStore } = await import("../settingsStore");
+      useSettingsStore.setState({
+        pendingUpdate: null,
+        updateStatus: "available",
+        updateVersion: null,
+      });
       await useSettingsStore.getState().installUpdate();
       expect(process.relaunch).not.toHaveBeenCalled();
     });
 
-    it("sets status to error on failure", async () => {
+    it("surfaces the underlying error string in updateError", async () => {
       vi.resetModules();
-      const updater = await import("@tauri-apps/plugin-updater");
-      vi.mocked(updater.check).mockRejectedValue(new Error("fail"));
       const { useSettingsStore } = await import("../settingsStore");
+      const downloadAndInstall = vi.fn().mockRejectedValue(
+        new Error("rpm install failed: signature verification failed"),
+      );
+      useSettingsStore.setState({
+        pendingUpdate: { version: "1.0.0", downloadAndInstall } as any,
+        updateStatus: "available",
+        updateVersion: "1.0.0",
+      });
       await useSettingsStore.getState().installUpdate();
       expect(useSettingsStore.getState().updateStatus).toBe("error");
+      expect(useSettingsStore.getState().updateError).toBe(
+        "rpm install failed: signature verification failed",
+      );
     });
   });
 });
