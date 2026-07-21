@@ -1,5 +1,5 @@
 import { relaunch } from "@tauri-apps/plugin-process";
-import { check } from "@tauri-apps/plugin-updater";
+import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
 
 export interface QuerySettings {
@@ -74,8 +74,11 @@ interface SettingsState {
   formatterSettings: FormatterSettings;
   updateStatus: "idle" | "checking" | "available" | "downloading" | "downloaded" | "up-to-date" | "error";
   updateVersion: string | null;
+  updateError: string | null;
+  pendingUpdate: Update | null;
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
+  setUpdateError: (message: string | null) => void;
   setQuerySettings: (settings: QuerySettings) => void;
   setFormatterSettings: (settings: FormatterSettings) => void;
 }
@@ -85,34 +88,55 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   formatterSettings: loadSettings(),
   updateStatus: "idle",
   updateVersion: null,
+  updateError: null,
+  pendingUpdate: null,
 
   checkForUpdates: async () => {
-    set({ updateStatus: "checking" });
+    set({ updateStatus: "checking", updateError: null });
     try {
       const update = await check();
       if (update) {
-        set({ updateStatus: "available", updateVersion: update.version });
+        set({
+          updateStatus: "available",
+          updateVersion: update.version,
+          pendingUpdate: update,
+        });
       } else {
-        set({ updateStatus: "up-to-date", updateVersion: null });
+        set({
+          updateStatus: "up-to-date",
+          updateVersion: null,
+          pendingUpdate: null,
+        });
       }
     } catch (e) {
       console.error("Update check failed:", e);
-      set({ updateStatus: "error", updateVersion: null });
+      set({
+        updateStatus: "error",
+        updateVersion: null,
+        pendingUpdate: null,
+        updateError: e instanceof Error ? e.message : String(e),
+      });
     }
   },
 
   installUpdate: async () => {
-    set({ updateStatus: "downloading" });
+    set({ updateStatus: "downloading", updateError: null });
     try {
-      const update = await check();
-      if (!update) return;
-      await update.downloadAndInstall();
+      const cached = useSettingsStore.getState().pendingUpdate;
+      if (!cached) return;
+      await cached.downloadAndInstall();
       set({ updateStatus: "downloaded" });
       await relaunch();
-    } catch {
-      set({ updateStatus: "error" });
+    } catch (e) {
+      console.error("Update install failed:", e);
+      set({
+        updateStatus: "error",
+        updateError: e instanceof Error ? e.message : String(e),
+      });
     }
   },
+
+  setUpdateError: (message) => set({ updateError: message }),
 
   setQuerySettings: (settings) => {
     try {

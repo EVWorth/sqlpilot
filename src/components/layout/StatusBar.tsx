@@ -42,8 +42,10 @@ export function StatusBar() {
   const [appVersion, setAppVersion] = useState("");
   const updateStatus = useSettingsStore((s) => s.updateStatus);
   const updateVersion = useSettingsStore((s) => s.updateVersion);
+  const updateError = useSettingsStore((s) => s.updateError);
   const checkForUpdates = useSettingsStore((s) => s.checkForUpdates);
   const installUpdate = useSettingsStore((s) => s.installUpdate);
+  const setUpdateError = useSettingsStore((s) => s.setUpdateError);
 
   useEffect(() => {
     api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
@@ -52,6 +54,9 @@ export function StatusBar() {
   useEffect(() => {
     if (updateStatus === "idle") checkForUpdates();
   }, [checkForUpdates, updateStatus]);
+
+  const dirtyTabs = tabs.filter((t) => t.isDirty);
+  const hasDirtyTabs = dirtyTabs.length > 0;
 
   const activeConn = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -161,7 +166,25 @@ export function StatusBar() {
         )}
         {updateStatus === "available" && (
           <button
-            onClick={installUpdate}
+            onClick={() => {
+              if (isExecuting) {
+                setUpdateError(
+                  "Cannot update while a query is running. Cancel or wait for it to finish.",
+                );
+                useSettingsStore.setState({ updateStatus: "error" });
+                return;
+              }
+              if (hasDirtyTabs) {
+                setUpdateError(
+                  `Cannot update: ${dirtyTabs.length} editor tab${dirtyTabs.length === 1 ? "" : "s"} ${
+                    dirtyTabs.length === 1 ? "has" : "have"
+                  } unsaved changes. Save or discard first.`,
+                );
+                useSettingsStore.setState({ updateStatus: "error" });
+                return;
+              }
+              void installUpdate();
+            }}
             className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
             title={`Update v${updateVersion} available — click to install`}
           >
@@ -185,7 +208,9 @@ export function StatusBar() {
           <button
             onClick={checkForUpdates}
             className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
-            title="Update check failed — click to retry"
+            title={updateError
+              ? `Update failed: ${updateError} — click to retry`
+              : "Update check failed — click to retry"}
           >
             <RefreshCw className="h-3 w-3" />
             Update failed

@@ -206,16 +206,87 @@ describe("StatusBar", () => {
 
     it("calls installUpdate when update button is clicked", async () => {
       const user = userEvent.setup({ applyAccept: false });
-      useSettingsStore.setState({ updateStatus: "available", updateVersion: "2.0.0" });
+      useSettingsStore.setState({
+        updateStatus: "available",
+        updateVersion: "2.0.0",
+        updateError: null,
+      });
+      useResultStore.setState({ isExecuting: false });
+      useEditorStore.setState({
+        tabs: [{ id: "tab-0", title: "Query", content: "", type: "query", isDirty: false, database: "analytics" }],
+        activeTabId: "tab-0",
+      });
       renderStatusBar();
       const spy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
       await user.click(screen.getByText("Update to v2.0.0"));
       expect(spy).toHaveBeenCalledOnce();
     });
 
+    it("blocks install when a query is executing", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({
+        updateStatus: "available",
+        updateVersion: "2.0.0",
+        updateError: null,
+      });
+      useResultStore.setState({ isExecuting: true });
+      useEditorStore.setState({
+        tabs: [{ id: "tab-0", title: "Query", content: "", type: "query", isDirty: false, database: "analytics" }],
+        activeTabId: "tab-0",
+      });
+      renderStatusBar();
+      const installSpy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
+      await user.click(screen.getByText("Update to v2.0.0"));
+      expect(installSpy).not.toHaveBeenCalled();
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+      expect(useSettingsStore.getState().updateError).toMatch(/query is running/i);
+    });
+
+    it("blocks install when an editor tab has unsaved changes", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({
+        updateStatus: "available",
+        updateVersion: "2.0.0",
+        updateError: null,
+      });
+      useResultStore.setState({ isExecuting: false });
+      useEditorStore.setState({
+        tabs: [
+          {
+            id: "tab-0",
+            title: "Query",
+            content: "SELECT 1",
+            type: "query",
+            isDirty: true,
+            database: "analytics",
+          },
+        ],
+        activeTabId: "tab-0",
+      });
+      renderStatusBar();
+      const installSpy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
+      await user.click(screen.getByText("Update to v2.0.0"));
+      expect(installSpy).not.toHaveBeenCalled();
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+      expect(useSettingsStore.getState().updateError).toMatch(/unsaved changes/i);
+    });
+
+    it("surfaces the underlying install error in the chip title", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({
+        updateStatus: "error",
+        updateError: "rpm install failed: transaction check failed",
+      });
+      renderStatusBar();
+      const chip = screen.getByText("Update failed");
+      expect(chip.closest("button")?.getAttribute("title")).toContain(
+        "rpm install failed: transaction check failed",
+      );
+    });
+
     it("calls checkForUpdates when retry button is clicked", async () => {
       const user = userEvent.setup({ applyAccept: false });
-      useSettingsStore.setState({ updateStatus: "error" });
+      useSettingsStore.setState({ updateStatus: "error", updateError: null });
       renderStatusBar();
       const spy = vi.spyOn(useSettingsStore.getState(), "checkForUpdates");
       await user.click(screen.getByText("Update failed"));
