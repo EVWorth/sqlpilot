@@ -27,16 +27,12 @@ git push origin v<NEW_VERSION>
 
 # Watch the workflow:
 #   https://github.com/EVWorth/sqlpilot/actions/workflows/release.yml
-# Confirm ALL 4 builds + generate-update-manifest succeed.
+# Confirm ALL 4 builds + upload + generate-update-manifest succeed.
 
 # If a build fails (lost runner, flaky test, etc.):
 git tag -d v<NEW_VERSION>
 git push origin :refs/tags/v<NEW_VERSION>
 # fix, re-bump if needed, then re-tag
-
-# If release.yml produced two draft releases (race condition - see gotcha #1):
-#   1. publish the one with all assets (likely the Draft)
-#   2. delete the one with 2 assets (the broken Latest)
 
 # Final verification:
 gh release view v<NEW_VERSION> --json assets | \
@@ -51,23 +47,28 @@ Expected output: 17+ assets including `latest.json`, `*.AppImage`, `*.deb`, `*x8
 
 ## Release pipeline gotchas
 
-### 1. `tauri-action@v1.0.0` creates duplicate release candidates with strategy.matrix
+### 1. ~~`tauri-action@v1.0.0` creates duplicate release candidates with strategy.matrix~~ (FIXED)
 
-**Symptom.** Tag-push triggers the release workflow. All 4 builds succeed. But after the run, GitHub shows two releases both tagged `vX.Y.Z`:
+**Symptom (was).** Tag-push triggers the release workflow. All 4 builds succeed. But after the run, GitHub shows two releases both tagged `vX.Y.Z`:
 
 - One Draft with all assets (full set)
 - One published "Latest" with only `latest.json` + `SQLPilot.exe` (Windows portable upload from the matrix's `Upload portable exe` step)
 
 GitHub picks the partial one as the visible release. Linux/macOS users see no auto-update.
 
-**Root cause.** `tauri-action@v1.0.0`'s `releaseDraft: true` mode in a strategy matrix has each parallel job race to create the draft release. The first wins; the others either create a SECOND draft or fail to find the existing release and silently lose their assets.
+**Root cause (was).** `tauri-action@v1.0.0`'s `releaseDraft: true` mode in a strategy matrix has each parallel job race to create the draft release. The first wins; the others either create a SECOND draft or fail to find the existing release and silently lose their assets.
 
-**Fix.** (issue #242)
+**Fix.** Workflow restructured (PR #248, issue #242). Pattern is now:
 
-- Option A: split into `build` (matrix) + `upload` (single ubuntu-latest) jobs. Upload job downloads artifacts via `actions/upload-artifact@v4` from each build job.
-- Option B: a `concurrency: group: release-${{ github.ref_name }} cancel-in-progress: false` block on the workflow — but this serializes runs, doesn't help within a single run.
+- `build` job (matrix) — runs `tauri build` only, no release. Uploads bundles + `.sig` to GH artifact store via `actions/upload-artifact@v7`.
+- `upload` job (single ubuntu-latest) — downloads all build artifacts, then `softprops/action-gh-release@v2` creates the draft release ONCE and uploads all assets. No race possible because only one job touches the GitHub Releases API.
+- `generate-update-manifest` job now `needs: [upload]` so the release exists before `gh release download` runs.
 
-**Recovery when it happens.**
+tauri-action's "build only" mode is achieved by omitting `tagName`, `releaseName`, and `releaseId` (per the action's README). The signing key is still passed to the build step because tauri itself signs during `tauri build` when `bundle.createUpdaterArtifacts: true`.
+
+**Verification.** Push a test tag (e.g. `v0.4.0-rc.test`), wait for all 4 builds + upload + manifest jobs, then `gh api -X GET repos/EVWorth/sqlpilot/releases` and confirm **exactly one** release for that tag.
+
+**Historical recovery (v0.4.0 only — should not recur):**
 
 ```bash
 # Find the draft (the one with all assets)
@@ -179,22 +180,27 @@ This is how the v0.4.0 release was recovered after #241 fixed the signing-key is
 [ ] Tag pushed
 [ ] Workflow run URL bookmarked
 [ ] All 4 build jobs: SUCCESS
+[ ] upload job: SUCCESS (one draft release created, no race)
 [ ] generate-update-manifest job: SUCCESS
 [ ] gh release view v<X.Y.Z> --json assets shows >=17 assets
 [ ] gh release view v<X.Y.Z> --json assets | jq '.assets[].name' | grep -E '\.(AppImage|deb|rpm|dmg|msi|exe)$'
     → all 4 platform families present
+[ ] gh api repos/EVWorth/sqlpilot/releases | jq '.[] | select(.tag_name == "v<X.Y.Z>") | .draft'
+    → exactly ONE release for the tag, draft=true
 [ ] latest.json has linux-x86_64-rpm key
 [ ] (Optional but recommended) Manual smoke test of update from previous version
 ```
 
 ## Related
 
-- Issue #242 — fix race condition
+- Issue #242 — fix race condition (FIXED in PR #248)
 - Issue #243 — release-capture doc
 - Issue #244 — Bazzite auto-updater broken
 - PR #239 — linux-rpm manifest + bundle deps + min_app_version
 - PR #241 — TAURI_SIGNING_PRIVATE_KEY on build step
+- PR #248 — split build matrix + single upload job
 
 ## History of gotchas
 
-- 0.4.0 — discovered gotchas 1, 2, 3, 4 above (race condition, signing key, rpm manifest gap, linux deps).
+- 0.4.0 — discovered gotchas 1, 2, 3, 4 (race condition, signing key, rpm manifest gap, linux deps).
+- 0.4.0+ — gotcha 1 fixed in PR #248 (split build/upload).

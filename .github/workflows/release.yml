@@ -33,6 +33,10 @@ jobs:
           echo "Validating tag v${TAG} against working tree manifests..."
           bash scripts/check-release-readiness.sh "${TAG}"
 
+  # Build only — does NOT create a release. Each matrix job produces platform
+  # bundles and uploads them as workflow artifacts. The `upload` job
+  # below is the single source of release creation, eliminating the
+  # tauri-action@v1.0.0 race that produced duplicate GitHub Releases.
   build:
     needs: validate
     strategy:
@@ -42,15 +46,19 @@ jobs:
           - platform: ubuntu-22.04
             args: ""
             rust_target: x86_64-unknown-linux-gnu
+            artifact_suffix: linux-x86_64
           - platform: windows-latest
             args: ""
             rust_target: x86_64-pc-windows-msvc
+            artifact_suffix: windows-x86_64
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
             rust_target: aarch64-apple-darwin
+            artifact_suffix: macos-aarch64
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
             rust_target: x86_64-apple-darwin
+            artifact_suffix: macos-x86_64
 
     runs-on: ${{ matrix.platform }}
 
@@ -109,17 +117,61 @@ jobs:
           })
           $config | ConvertTo-Json -Depth 100 | Set-Content src-tauri/tauri.conf.json
 
-      - name: Build and publish
-        id: tauri_build
+      # Build-only mode: omit tagName/releaseName/releaseId. Per tauri-action@v1.0.0
+      # README: "If you only want to build the app without having the action upload
+      # any assets, for example if you want to only use actions/upload-artifact,
+      # simply omit tagName, releaseName and releaseId."
+      - name: Build bundles (no release)
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
         with:
-          tagName: ${{ github.ref_name }}
-          releaseName: "SQLPilot ${{ github.ref_name }}"
-          releaseBody: |
+          args: ${{ matrix.args }}
+
+      # Stage the Windows portable exe under its public name so the upload job
+      # can publish it as `SQLPilot.exe` (matches the historical asset name).
+      - name: Stage portable exe (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        run: |
+          $exe = "src-tauri/target/release/sqlpilot.exe"
+          $dest = "SQLPilot.exe"
+          if (-not (Test-Path $exe)) { throw "Expected binary not found: $exe" }
+          Copy-Item $exe $dest -Force
+
+      # Upload every artifact the upload job will need: the bundle tree
+      # (containing .deb/.rpm/.AppImage/.msi/.exe/.dmg + .sig) and, on
+      # Windows, the staged portable exe at the repo root.
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bundles-${{ matrix.artifact_suffix }}
+          path: |
+            src-tauri/target/release/bundle/
+            SQLPilot.exe
+          if-no-files-found: error
+
+  # Single source of release creation. All 4 build jobs race to complete,
+  # but only this job touches the GitHub Releases API — no race possible.
+  upload:
+    name: Create release and upload assets
+    needs: [build]
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Download all build artifacts
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create draft release and upload assets
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "SQLPilot ${{ github.ref_name }}"
+          body: |
             ## Downloads
             | Platform | File |
             |----------|------|
@@ -128,24 +180,24 @@ jobs:
             | macOS (Apple Silicon) | `aarch64.dmg` |
             | macOS (Intel) | `x64.dmg` |
             | Linux | `.deb` or `.AppImage` |
-          releaseDraft: true
+          draft: true
           prerelease: false
-          args: ${{ matrix.args }}
-
-      - name: Upload portable exe (Windows)
-        if: matrix.platform == 'windows-latest'
-        shell: pwsh
+          fail_on_unmatched_files: true
+          files: |
+            artifacts/**/*.AppImage
+            artifacts/**/*.deb
+            artifacts/**/*.rpm
+            artifacts/**/*.msi
+            artifacts/**/*.exe
+            artifacts/**/*.dmg
+            artifacts/**/*.sig
+            artifacts/**/*.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          $exe = "src-tauri/target/release/sqlpilot.exe"
-          $dest = "SQLPilot.exe"
-          Copy-Item $exe $dest
-          gh release upload ${{ github.ref_name }} $dest --clobber
 
   generate-update-manifest:
     name: Generate update manifest
-    needs: [build]
+    needs: [upload]
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout
