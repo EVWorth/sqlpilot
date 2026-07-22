@@ -465,6 +465,21 @@ describe("AppLayout", () => {
       expect(dialog.getAttribute("data-tab")).toBe("about");
     });
 
+    it("triggers checkForUpdates on 'check-for-updates' menu-action", async () => {
+      const { useSettingsStore } = await import("../../../stores/settingsStore");
+      const spy = vi.spyOn(useSettingsStore.getState(), "checkForUpdates");
+      useSettingsStore.setState({ updateStatus: "idle" });
+      render(<AppLayout />);
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("menu-action", { detail: "check-for-updates" }),
+        );
+      });
+
+      expect(spy).toHaveBeenCalledOnce();
+    });
+
     it("dispatches disconnect action when connection selected", async () => {
       connectionState.selectedConnectionId = "conn-1";
       connectionState.activeConnections = [

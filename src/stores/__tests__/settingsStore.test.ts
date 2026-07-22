@@ -221,6 +221,7 @@ describe("settingsStore", () => {
         pendingUpdate: cached,
         updateStatus: "available",
         updateVersion: "1.0.0",
+        downloadProgress: { transferred: 0, total: null },
       });
       await useSettingsStore.getState().installUpdate();
       expect(useSettingsStore.getState().updateStatus).toBe("downloaded");
@@ -239,6 +240,34 @@ describe("settingsStore", () => {
       });
       await useSettingsStore.getState().installUpdate();
       expect(process.relaunch).not.toHaveBeenCalled();
+    });
+
+    it("updates downloadProgress as bytes stream in via the onProgress callback", async () => {
+      vi.resetModules();
+      const process = await import("@tauri-apps/plugin-process");
+      const events: unknown[] = [];
+      const downloadAndInstall = vi.fn(
+        (onProgress: (e: { event: string; data?: unknown }) => void) => {
+          events.push({ event: "Started", data: { contentLength: 1000 } });
+          onProgress({ event: "Started", data: { contentLength: 1000 } });
+          events.push({ event: "Progress", data: { chunkLength: 250 } });
+          onProgress({ event: "Progress", data: { chunkLength: 250 } });
+          events.push({ event: "Progress", data: { chunkLength: 750 } });
+          onProgress({ event: "Progress", data: { chunkLength: 750 } });
+          return Promise.resolve();
+        },
+      );
+      const { useSettingsStore } = await import("../settingsStore");
+      useSettingsStore.setState({
+        pendingUpdate: { version: "1.0.0", downloadAndInstall } as any,
+        updateStatus: "available",
+        updateVersion: "1.0.0",
+        downloadProgress: { transferred: 0, total: null },
+      });
+      await useSettingsStore.getState().installUpdate();
+      const final = useSettingsStore.getState().downloadProgress;
+      expect(final).toEqual({ transferred: 1000, total: 1000 });
+      expect(process.relaunch).toHaveBeenCalledOnce();
     });
 
     it("surfaces the underlying error string in updateError", async () => {
