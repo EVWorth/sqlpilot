@@ -69,6 +69,11 @@ function loadSettings(): FormatterSettings {
   return DEFAULT_FORMATTER_SETTINGS;
 }
 
+interface DownloadProgress {
+  transferred: number;
+  total: number | null;
+}
+
 interface SettingsState {
   querySettings: QuerySettings;
   formatterSettings: FormatterSettings;
@@ -76,6 +81,7 @@ interface SettingsState {
   updateVersion: string | null;
   updateError: string | null;
   pendingUpdate: Update | null;
+  downloadProgress: DownloadProgress;
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
   setUpdateError: (message: string | null) => void;
@@ -90,6 +96,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   updateVersion: null,
   updateError: null,
   pendingUpdate: null,
+  downloadProgress: { transferred: 0, total: null },
 
   checkForUpdates: async () => {
     set({ updateStatus: "checking", updateError: null });
@@ -120,11 +127,28 @@ export const useSettingsStore = create<SettingsState>((set) => ({
   },
 
   installUpdate: async () => {
-    set({ updateStatus: "downloading", updateError: null });
+    set({
+      updateStatus: "downloading",
+      updateError: null,
+      downloadProgress: { transferred: 0, total: null },
+    });
     try {
       const cached = useSettingsStore.getState().pendingUpdate;
       if (!cached) return;
-      await cached.downloadAndInstall();
+      await cached.downloadAndInstall((event) => {
+        const data = (event as { data?: { contentLength?: number; chunkLength?: number } }).data;
+        if (event.event === "Started" && data?.contentLength != null) {
+          set({ downloadProgress: { transferred: 0, total: data.contentLength } });
+        } else if (event.event === "Progress" && data?.chunkLength != null) {
+          const chunk = data.chunkLength;
+          set((s) => ({
+            downloadProgress: {
+              transferred: s.downloadProgress.transferred + chunk,
+              total: s.downloadProgress.total,
+            },
+          }));
+        }
+      });
       set({ updateStatus: "downloaded" });
       await relaunch();
     } catch (e) {
@@ -132,6 +156,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
       set({
         updateStatus: "error",
         updateError: e instanceof Error ? e.message : String(e),
+        downloadProgress: { transferred: 0, total: null },
       });
     }
   },

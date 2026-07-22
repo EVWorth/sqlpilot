@@ -195,7 +195,26 @@ describe("StatusBar", () => {
     it("shows downloading status", () => {
       useSettingsStore.setState({ updateStatus: "downloading" });
       renderStatusBar();
-      expect(screen.getByText("Downloading update...")).toBeInTheDocument();
+      expect(screen.getByText("Downloading update")).toBeInTheDocument();
+    });
+
+    it("shows download progress percentage when total is known", () => {
+      useSettingsStore.setState({
+        updateStatus: "downloading",
+        downloadProgress: { transferred: 512 * 1024 * 1024, total: 1024 * 1024 * 1024 },
+      });
+      renderStatusBar();
+      // 512 MB / 1024 MB = 50%
+      expect(screen.getByText("50%")).toBeInTheDocument();
+    });
+
+    it("shows downloaded bytes without percentage when total unknown", () => {
+      useSettingsStore.setState({
+        updateStatus: "downloading",
+        downloadProgress: { transferred: 5 * 1024 * 1024, total: null },
+      });
+      renderStatusBar();
+      expect(screen.getByText("5.0 MB")).toBeInTheDocument();
     });
 
     it("shows retry button when update check fails", () => {

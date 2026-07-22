@@ -9,6 +9,7 @@ import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { AIChatPanel } from "../ai/AIChatPanel";
 import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
@@ -156,6 +157,9 @@ export function AppLayout() {
         case "keyboard-shortcuts":
           setHelpTab("shortcuts");
           setShowShortcuts(true);
+          break;
+        case "check-for-updates":
+          void useSettingsStore.getState().checkForUpdates();
           break;
         case "about":
           setHelpTab("about");

@@ -55,6 +55,8 @@ const MENUS: MenuDef[] = [
   {
     label: "Help",
     items: [
+      { type: "item", id: "check-for-updates", label: "Check for Updates…" },
+      { type: "separator" },
       { type: "item", id: "keyboard-shortcuts", label: "Keyboard Shortcuts", shortcut: "F1" },
       { type: "separator" },
       { type: "item", id: "about", label: "About SQLPilot" },

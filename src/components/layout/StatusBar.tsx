@@ -23,6 +23,13 @@ function formatRows(count: number): string {
   return count.toLocaleString() + " row" + (count === 1 ? "" : "s");
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function StatusBar() {
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const selectedConnectionId = useConnectionStore(
@@ -43,6 +50,7 @@ export function StatusBar() {
   const updateStatus = useSettingsStore((s) => s.updateStatus);
   const updateVersion = useSettingsStore((s) => s.updateVersion);
   const updateError = useSettingsStore((s) => s.updateError);
+  const downloadProgress = useSettingsStore((s) => s.downloadProgress);
   const checkForUpdates = useSettingsStore((s) => s.checkForUpdates);
   const installUpdate = useSettingsStore((s) => s.installUpdate);
   const setUpdateError = useSettingsStore((s) => s.setUpdateError);
@@ -199,9 +207,29 @@ export function StatusBar() {
           </span>
         )}
         {updateStatus === "downloading" && (
-          <span className="flex items-center gap-1 text-[10px] text-brand-400">
+          <span
+            className="flex items-center gap-1.5 text-[10px] text-brand-400"
+            title={`Downloading update... ${
+              downloadProgress.total
+                ? `${formatBytes(downloadProgress.transferred)} / ${formatBytes(downloadProgress.total)}`
+                : formatBytes(downloadProgress.transferred)
+            }`}
+          >
             <Loader2 className="h-3 w-3 animate-spin" />
-            Downloading update...
+            Downloading update
+            {downloadProgress.total
+              ? (
+                <span className="tabular-nums">
+                  {Math.min(
+                    100,
+                    Math.round((downloadProgress.transferred / downloadProgress.total) * 100),
+                  )}
+                  %
+                </span>
+              )
+              : downloadProgress.transferred > 0
+              ? <span className="tabular-nums">{formatBytes(downloadProgress.transferred)}</span>
+              : null}
           </span>
         )}
         {updateStatus === "error" && (

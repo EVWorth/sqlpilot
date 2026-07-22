@@ -143,4 +143,21 @@ describe("MenuBar", () => {
     fireEvent.click(screen.getByText("Tools"));
     expect(screen.queryByText("AI Assistant")).toBeNull();
   });
+
+  it("includes 'Check for Updates…' under the Help menu", () => {
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Help"));
+    expect(screen.getByText("Check for Updates…")).toBeInTheDocument();
+  });
+
+  it("dispatches 'check-for-updates' menu-action when the entry is clicked", () => {
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Help"));
+    fireEvent.click(screen.getByText("Check for Updates…"));
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: "check-for-updates" }),
+    );
+  });
 });
