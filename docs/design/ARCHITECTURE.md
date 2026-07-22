@@ -1494,141 +1494,96 @@ Feature availability when dependencies are unavailable:
 
 ## 9. Local Storage Architecture
 
-All application data is stored under the platform-appropriate data directory, managed by Tauri's `app_data_dir()`.
+Two-tier storage: filesystem (`connections.db` + logs + keyring) on the Rust side, and `localStorage` for everything UI-facing on the frontend.
 
-### Directory Structure
+### Directory Structure (filesystem / Rust)
 
 ```
-~/.sqlpilot/                      (Linux: ~/.local/share/sqlpilot/)
-│                                         (macOS: ~/Library/Application Support/sqlpilot/)
-│                                         (Windows: %APPDATA%/sqlpilot/)
-│
-├── config.toml                          — Application settings
-├── connections.db                       — SQLite: connection profiles (no passwords)
-├── history.db                           — SQLite: query history, favorites, pins
-│
-├── themes/                              — Custom CSS theme overrides
-│   ├── monokai.css
-│   └── solarized-dark.css
-│
-├── snippets/                            — User-defined SQL snippet library
-│   ├── common.json
-│   └── per-connection/
-│       └── <profile_id>.json
-│
-├── backups/                             — Auto-saved editor content
-│   └── <tab_id>_<timestamp>.sql         — Recovered on crash
-│
-├── logs/                                — Structured log files
-│   ├── app.log                          — Current session
-│   └── app.log.1                        — Rotated (max 5 × 10 MB)
-│
-└── cache/
-    ├── schema/                          — Serialized schema metadata
-    │   └── <connection_id>.json
-    └── ai/                              — AI response cache
-        └── <prompt_hash>.json           — TTL: 24 hours
+~/.local/share/sqlpilot/                (Linux: $XDG_DATA_HOME/sqlpilot)
+|                                        (macOS: ~/Library/Application Support/sqlpilot/)
+|                                        (Windows: %APPDATA%/sqlpilot/)
+|
+|-- connections.db                       -- SQLite: connection profiles
+|                                          (passwords are NOT here; see "Password
+|                                          storage" below)
+|-- connections.db-wal                   -- SQLite write-ahead-log (auto)
+|-- connections.db-shm                   -- SQLite shared-memory file (auto)
+|
+\-- logs/                                -- Structured log files (tracing-subscriber)
+    |-- sqlpilot.log.YYYY-MM-DD          -- Current day, rolling
+    \-- sqlpilot.log.YYYY-MM-DD.1       -- Yesterday, gzipped
 ```
 
-### config.toml Schema
+`themes/`, `snippets/`, `backups/`, `cache/` from earlier drafts were never implemented. Custom CSS themes use the existing `theme` localStorage key (single string `dark` | `light` | `system`); snippets/favorites are stored via the `favoritesStore`; query history via the `historyStore`. Schema metadata is fetched live via `mas-core::schema::SchemaInspector` and cached in memory for the session only (re-fetched on connection-change / manual refresh); AI response cache is in-memory keyed by prompt hash (no on-disk cache).
 
-```toml
-[general]
-theme = "dark" # "dark" | "light" | "system" | custom name
-language = "en"
-check_updates = true
-telemetry = false # No telemetry by default
+### localStorage keys (frontend / Zustand)
 
-[editor]
-font_family = "JetBrains Mono, Fira Code, monospace"
-font_size = 14
-tab_size = 4
-word_wrap = "off" # "off" | "on" | "wordWrapColumn"
-minimap = true
-line_numbers = true
-auto_save_interval_secs = 30
+| Key                           | Owner                          | Format                                             |
+| ----------------------------- | ------------------------------ | -------------------------------------------------- |
+| `theme`                       | `themeStore.ts`                | single string: `"dark"` or `"light"` or `"system"` |
+| `sqlpilot-formatter-settings` | `settingsStore.ts`             | JSON: full `FormatterSettings`                     |
+| `sqlpilot-query-settings`     | `settingsStore.ts`             | JSON: `{ maxResultRows, limitEnabled }`            |
+| `mas-query-history`           | `historyStore.ts`              | JSON via `zustand/middleware::persist`             |
+| `mas-query-favorites`         | `favoritesStore.ts`            | JSON via `zustand/middleware::persist`             |
+| `sqlpilot-editor-session`     | `editorStore.ts` (manual save) | JSON: `{ tabs, activeTabId }` debounced ~150ms     |
 
-[query]
-default_limit = 1000 # Auto-append LIMIT to SELECT queries
-max_display_rows = 100_000
-confirm_destructive = true # Confirm DROP, TRUNCATE, DELETE w/o WHERE
-auto_uppercase_keywords = false
+The webview's localStorage lives under `~/Library/Application Support/com.sqlpilot.app/...` (macOS), `~/.config/com.sqlpilot.app/...` (Linux), `%APPDATA%\com.sqlpilot.app\...` (Windows) — separate from the data dir above. Bundle identifier is set via `tauri.conf.json:identifier = "com.sqlpilot.app"`.
 
-[export]
-default_format = "csv"
-csv_delimiter = ","
-csv_quote = "\""
-include_headers = true
+### Password storage
 
-[ai]
-provider = "copilot" # "copilot" | "none"
+Passwords are never written to disk. The schema column `password TEXT NOT NULL DEFAULT ''` is emptied once the password is migrated to the OS-native keyring (macOS Keychain, Linux Secret Service / KWallet via D-Bus, Windows Credential Manager) via `apple-native-keyring-store` (`src-tauri/Cargo.toml:43`). On startup, `migrate_plaintext_passwords` moves any non-empty plaintext values into the keyring and clears the column. After migration, the SQL row holds an empty `password` string; the actual secret lives in the OS keyring keyed by `connection_profiles.id`. The Rust side resolves it via `keyring-core` (see `src-tauri/crates/mas-core/src/connection/store.rs:287-367`).
 
-max_context_tokens = 4096
-```
+### SQLite Schema: `connections.db`
 
-### SQLite Schemas
-
-#### connections.db
+One table. Schema is created idempotently in `ConnectionStore::init_tables()` (`src-tauri/crates/mas-core/src/connection/store.rs:25`) via `CREATE TABLE IF NOT EXISTS` followed by `ALTER TABLE ... .ok()` migration stanzas (each column added in a separate migration call). The `.ok()` swallows errors — a silent failure mode that needs replacing with a `PRAGMA user_version`-gated framework (tracked in #241).
 
 ```sql
-CREATE TABLE connection_profiles (
-    id                TEXT PRIMARY KEY,
-    name              TEXT NOT NULL,
-    "group"           TEXT,
-    color             TEXT,
-    host              TEXT NOT NULL,
-    port              INTEGER NOT NULL DEFAULT 3306,
-    username          TEXT NOT NULL,
-    password_ref      TEXT NOT NULL,          -- keychain reference, NOT the password
-    default_database  TEXT,
-    ssh_config        TEXT,                   -- JSON blob
-    ssl_config        TEXT,                   -- JSON blob
-    pool_config       TEXT,                   -- JSON blob
-    read_only         INTEGER NOT NULL DEFAULT 0,
-    sort_order        INTEGER NOT NULL DEFAULT 0,
-    created_at        TEXT NOT NULL DEFAULT (datetime('now')),
-    updated_at        TEXT NOT NULL DEFAULT (datetime('now'))
+CREATE TABLE IF NOT EXISTS connection_profiles (
+    id                     TEXT PRIMARY KEY,
+    name                   TEXT NOT NULL,
+    grp                    TEXT,
+    color                  TEXT,
+    host                   TEXT NOT NULL,
+    port                   INTEGER NOT NULL DEFAULT 3306,
+    username               TEXT NOT NULL,
+    password               TEXT NOT NULL DEFAULT '',   -- emptied after keyring migration
+    default_database       TEXT,
+    ssh_config             TEXT,                         -- JSON blob (SshConfig)
+    ssl_config             TEXT,                         -- JSON blob (SslConfig)
+    pool_min               INTEGER NOT NULL DEFAULT 1,
+    pool_max               INTEGER NOT NULL DEFAULT 5,
+    read_only              INTEGER NOT NULL DEFAULT 0,
+    created_at             TEXT NOT NULL,
+    updated_at             TEXT NOT NULL,
+    env                    TEXT,                         -- 'production' | 'staging' | 'development'
+    connect_timeout_secs   INTEGER,
+    query_timeout_secs     INTEGER,
+    charset                TEXT
 );
-
-CREATE INDEX idx_profiles_group ON connection_profiles("group");
 ```
 
-#### history.db
+Migration chain (each `.ok()` swallows failures — silent failure mode that needs replacing with a version-gated framework, see #241):
 
-```sql
-CREATE TABLE query_history (
-    id              TEXT PRIMARY KEY,
-    connection_id   TEXT NOT NULL,
-    database_name   TEXT,
-    sql_text        TEXT NOT NULL,
-    execution_time  INTEGER,                  -- milliseconds
-    rows_affected   INTEGER,
-    status          TEXT NOT NULL DEFAULT 'success',  -- 'success' | 'error'
-    error_message   TEXT,
-    is_favorite     INTEGER NOT NULL DEFAULT 0,
-    executed_at     TEXT NOT NULL DEFAULT (datetime('now'))
-);
+| Migration | Column                         | Origin                          |
+| --------- | ------------------------------ | ------------------------------- |
+| initial   | all columns up to `updated_at` | first migration                 |
+| v0.2.x    | `env` TEXT                     | env badge on Profile tab        |
+| v0.3.x    | `connect_timeout_secs` INTEGER | connection-level timeout        |
+| v0.3.x    | `query_timeout_secs` INTEGER   | per-query timeout               |
+| v0.3.x    | `charset` TEXT                 | per-connection charset override |
 
-CREATE INDEX idx_history_connection ON query_history(connection_id, executed_at DESC);
-CREATE INDEX idx_history_favorite ON query_history(is_favorite) WHERE is_favorite = 1;
-CREATE INDEX idx_history_fts ON query_history(sql_text);  -- For search
+No `password_ref` column (passwords live in OS keyring, not SQL). No `sort_order` column (ordering derived from `updated_at` at read time). No `pool_config` JSON blob (pool settings are two separate columns `pool_min` / `pool_max`).
 
--- Auto-cleanup: keep last 10,000 entries per connection
-CREATE TRIGGER cleanup_history
-AFTER INSERT ON query_history
-BEGIN
-    DELETE FROM query_history
-    WHERE id IN (
-        SELECT id FROM query_history
-        WHERE connection_id = NEW.connection_id
-        ORDER BY executed_at DESC
-        LIMIT -1 OFFSET 10000
-    );
-END;
-```
+### Query history / favorites — not in SQLite
+
+`query_history` table from earlier drafts was never implemented. Today:
+
+- `historyStore.ts` — last ~200 queries per session, in-memory + `localStorage` via `zustand/middleware::persist` keyed `mas-query-history`.
+- `favoritesStore.ts` — saved queries + categories, `localStorage` via `persist` keyed `mas-query-favorites`.
+
+A future migration to SQLite (`history.db`) is plausible but not in scope.
 
 ---
-
 ## 10. Plugin Architecture (Future)
 
 > **Status:** Planned for v2.0. This section describes the intended design; implementation details may change.
@@ -1724,7 +1679,6 @@ Disable:    Unmount components → Unsubscribe events → Unload module
 Uninstall:  Disable → Remove files → Clean registry → Purge plugin data
 Update:     Download new version → Disable old → Install new → Enable
 ```
-
 ---
 
 ## Appendix A: Glossary
