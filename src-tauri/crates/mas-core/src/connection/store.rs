@@ -1,3 +1,4 @@
+use crate::connection::migrations;
 use crate::error::CoreError;
 use crate::models::{ConnectionProfile, ConnectionProfileSummary};
 use chrono::Utc;
@@ -27,50 +28,12 @@ impl ConnectionStore {
             .db
             .lock()
             .map_err(|e| CoreError::Storage(e.to_string()))?;
-        db.execute_batch(
-            "CREATE TABLE IF NOT EXISTS connection_profiles (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                grp TEXT,
-                color TEXT,
-                host TEXT NOT NULL,
-                port INTEGER NOT NULL DEFAULT 3306,
-                username TEXT NOT NULL,
-                password TEXT NOT NULL DEFAULT '',
-                default_database TEXT,
-                ssh_config TEXT,
-                ssl_config TEXT,
-                pool_min INTEGER NOT NULL DEFAULT 1,
-                pool_max INTEGER NOT NULL DEFAULT 5,
-                read_only INTEGER NOT NULL DEFAULT 0,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                env TEXT,
-                connect_timeout_secs INTEGER,
-                query_timeout_secs INTEGER,
-                charset TEXT
-            )",
-        )?;
-        // Migration: add env column if missing
-        db.execute("ALTER TABLE connection_profiles ADD COLUMN env TEXT", [])
-            .ok();
-        // Migration: add advanced settings columns if missing
-        db.execute(
-            "ALTER TABLE connection_profiles ADD COLUMN connect_timeout_secs INTEGER",
-            [],
-        )
-        .ok();
-        db.execute(
-            "ALTER TABLE connection_profiles ADD COLUMN query_timeout_secs INTEGER",
-            [],
-        )
-        .ok();
-        db.execute(
-            "ALTER TABLE connection_profiles ADD COLUMN charset TEXT",
-            [],
-        )
-        .ok();
-        tracing::debug!("Connection profiles table initialized");
+        let applied = migrations::run(&db)
+            .map_err(|e| CoreError::Storage(format!("Migration failed: {}", e)))?;
+        tracing::debug!(
+            schema_version = applied,
+            "Connection profiles table initialized"
+        );
         Ok(())
     }
 

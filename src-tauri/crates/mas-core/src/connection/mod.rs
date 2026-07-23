@@ -1,4 +1,5 @@
 pub mod manager;
+pub mod migrations;
 pub mod store;
 
 pub use manager::ConnectionManager;
