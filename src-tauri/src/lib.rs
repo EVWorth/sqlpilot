@@ -209,6 +209,7 @@ pub fn run() {
             commands::pick_file,
             commands::write_file_contents,
             commands::pick_save_file,
+            commands::is_rpm_ostree,
             #[cfg(feature = "beta-ai")]
             commands::ai::ai_chat,
             #[cfg(feature = "beta-ai")]

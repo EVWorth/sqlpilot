@@ -141,7 +141,6 @@ export const api = {
     isTauri
       ? getVersion()
       : Promise.resolve(import.meta.env.VITE_APP_VERSION ?? ""),
-
   // SQLite
   sqliteOpen: (path: string) => tauriInvoke<string>("sqlite_open", { path }),
 
@@ -162,4 +161,7 @@ export const api = {
 
   sqliteGetTableDdl: (connectionId: string, table: string) =>
     tauriInvoke<string>("sqlite_get_table_ddl", { connectionId, table }),
+
+  // Platform detection
+  isRpmOstree: () => tauriInvoke<boolean>("is_rpm_ostree"),
 };

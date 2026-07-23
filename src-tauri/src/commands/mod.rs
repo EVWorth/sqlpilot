@@ -15,6 +15,8 @@ use mas_core::schema::SchemaInspector;
 use mas_sqlite::connection::SqliteConnectionManager;
 use mas_sqlite::query::SqliteQueryExecutor;
 use mas_sqlite::schema::SqliteSchemaInspector;
+#[cfg(target_os = "linux")]
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::State;
@@ -475,6 +477,28 @@ pub async fn kill_process(
     Ok(())
 }
 
+// Platform detection
+//
+// `tauri-plugin-updater` shells out to `rpm -U` on Linux, which is a no-op
+// (or worse, writes into a shadowed /var/lib/rpm) on atomic distros that use
+// `rpm-ostree` (Bazzite, Fedora Silverblue, Bluefin, Aurora, Universal Blue,
+// Fedora Atomic). The frontend uses this signal to suppress the auto-update
+// chip and surface a copyable `rpm-ostree install <url>` command instead.
+// On non-Linux targets, the answer is always false so the frontend short-
+// circuits without a runtime branch.
+#[tauri::command]
+#[tracing::instrument]
+pub async fn is_rpm_ostree() -> Result<bool, String> {
+    #[cfg(target_os = "linux")]
+    {
+        Ok(Path::new("/usr/bin/rpm-ostree").exists())
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        Ok(false)
+    }
+}
+
 // File import commands
 #[tauri::command]
 #[tracing::instrument]
@@ -570,6 +594,30 @@ pub async fn pick_save_file(
         None => {
             tracing::info!("Save file pick cancelled");
             Ok(None)
+        }
+    }
+}
+
+#[cfg(test)]
+mod platform_tests {
+    use super::is_rpm_ostree;
+
+    #[tokio::test]
+    async fn is_rpm_ostree_returns_false_on_non_linux() {
+        #[cfg(not(target_os = "linux"))]
+        assert!(!is_rpm_ostree().await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn is_rpm_ostree_reflects_binary_presence() {
+        // On Linux this returns true iff /usr/bin/rpm-ostree exists. We don't
+        // assert a specific value (CI runner may or may not be atomic) — just
+        // that the command succeeds and the boolean matches the filesystem.
+        #[cfg(target_os = "linux")]
+        {
+            let result = is_rpm_ostree().await.unwrap();
+            let expected = std::path::Path::new("/usr/bin/rpm-ostree").exists();
+            assert_eq!(result, expected);
         }
     }
 }

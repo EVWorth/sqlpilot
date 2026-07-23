@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -11,6 +11,7 @@ import { StatusBar } from "../StatusBar";
 vi.mock("../../../lib/tauri-api", () => ({
   api: {
     getAppVersion: vi.fn().mockResolvedValue("2.1.0"),
+    isRpmOstree: vi.fn().mockResolvedValue(false),
   },
 }));
 
@@ -305,11 +306,134 @@ describe("StatusBar", () => {
 
     it("calls checkForUpdates when retry button is clicked", async () => {
       const user = userEvent.setup({ applyAccept: false });
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockClear();
       useSettingsStore.setState({ updateStatus: "error", updateError: null });
       renderStatusBar();
-      const spy = vi.spyOn(useSettingsStore.getState(), "checkForUpdates");
+      // Chip click now opens the details panel (which holds the Retry button)
       await user.click(screen.getByText("Update failed"));
-      expect(spy).toHaveBeenCalledOnce();
+      await user.click(screen.getByRole("button", { name: /retry/i }));
+      expect(vi.mocked(updater.check)).toHaveBeenCalledOnce();
+    });
+
+    it("opens the error details panel with diagnostic + report + retry buttons", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({
+        updateStatus: "error",
+        updateError: "rpm install failed: transaction test failed",
+      });
+      renderStatusBar();
+      await user.click(screen.getByText("Update failed"));
+      const dialog = screen.getByRole("dialog", { name: /update error details/i });
+      expect(dialog).toBeInTheDocument();
+      expect(dialog.textContent).toContain("rpm install failed: transaction test failed");
+      expect(dialog.textContent).toMatch(/SQLPilot v2\.1\.0/);
+      expect(dialog.textContent).toMatch(/rpm-ostree detected: no/);
+      expect(screen.getByRole("button", { name: /copy diagnostic/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /report issue/i })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
+    });
+
+    it("Report issue opens a GitHub new-issue URL with the diagnostic in the body", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+      useSettingsStore.setState({
+        updateStatus: "error",
+        updateError: "rpm install failed: signature bad",
+        updateVersion: "0.4.1",
+      });
+      renderStatusBar();
+      await user.click(screen.getByText("Update failed"));
+      await user.click(screen.getByRole("button", { name: /report issue/i }));
+      expect(openSpy).toHaveBeenCalledOnce();
+      const url = openSpy.mock.calls[0][0] as string;
+      expect(url).toContain("https://github.com/EVWorth/sqlpilot/issues/new");
+      expect(url).toContain("labels=bug%2Cauto-update");
+      // decoded body should contain the error and diagnostic line
+      const decoded = decodeURIComponent(url.split("body=")[1]);
+      expect(decoded).toContain("rpm install failed: signature bad");
+      expect(decoded).toContain("SQLPilot v2.1.0");
+    });
+
+    it("Copy diagnostic writes the formatted blob to the clipboard", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      const writeSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+      useSettingsStore.setState({
+        updateStatus: "error",
+        updateError: "rpm install failed",
+        updateVersion: "0.4.1",
+        platformHint: "rpm-ostree",
+      });
+      renderStatusBar();
+      // detectPlatform runs on mount and overrides platformHint. Wait for
+      // it to settle, then re-set state and re-open the panel.
+      await user.click(screen.getByText("Update failed"));
+      // dialog text reflects post-detectPlatform hint; assert the structural fields instead.
+      await user.click(screen.getByRole("button", { name: /copy diagnostic/i }));
+      expect(writeSpy).toHaveBeenCalledOnce();
+      const blob = writeSpy.mock.calls[0][0] as string;
+      expect(blob).toContain("SQLPilot v2.1.0");
+      expect(blob).toContain("Error: rpm install failed");
+      expect(blob).toContain("target v0.4.1");
+      expect(blob).toMatch(/rpm-ostree detected: (yes|no)/);
+      expect(blob).toMatch(/Timestamp: \d{4}-\d{2}-\d{2}T/);
+    });
+
+    it("Close button dismisses the error details panel", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({ updateStatus: "error", updateError: "boom" });
+      renderStatusBar();
+      await user.click(screen.getByText("Update failed"));
+      expect(screen.getByRole("dialog", { name: /update error details/i })).toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: /close update error details/i }));
+      expect(screen.queryByRole("dialog", { name: /update error details/i })).toBeNull();
+    });
+
+    it("clicking outside the details panel dismisses it", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({ updateStatus: "error", updateError: "boom" });
+      renderStatusBar();
+      await user.click(screen.getByText("Update failed"));
+      expect(screen.getByRole("dialog", { name: /update error details/i })).toBeInTheDocument();
+      // mousedown on document body, outside the panel
+      fireEvent.mouseDown(document.body);
+      expect(screen.queryByRole("dialog", { name: /update error details/i })).toBeNull();
+    });
+
+    it("leaves the status bar in error state when panel is open", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useSettingsStore.setState({ updateStatus: "error", updateError: "boom" });
+      renderStatusBar();
+      await user.click(screen.getByText("Update failed"));
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+    });
+
+    it("shows manual-update-required chip with copyable command on rpm-ostree", () => {
+      useSettingsStore.setState({
+        updateStatus: "manual-update-required",
+        updateVersion: "0.4.1",
+        manualUpdateCommand:
+          "rpm-ostree install https://github.com/EVWorth/sqlpilot/releases/download/v0.4.1/SQLPilot-0.4.1-1.x86_64.rpm",
+      });
+      renderStatusBar();
+      expect(screen.getByText(/Manual update on rpm-ostree/)).toBeInTheDocument();
+      expect(useSettingsStore.getState().pendingUpdate).toBeNull();
+    });
+
+    it("manual-update chip click copies the install command", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      const writeSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue();
+      useSettingsStore.setState({
+        updateStatus: "manual-update-required",
+        updateVersion: "0.4.1",
+        manualUpdateCommand:
+          "rpm-ostree install https://github.com/EVWorth/sqlpilot/releases/download/v0.4.1/SQLPilot-0.4.1-1.x86_64.rpm",
+      });
+      renderStatusBar();
+      await user.click(screen.getByText(/Manual update on rpm-ostree/));
+      expect(writeSpy).toHaveBeenCalledWith(
+        "rpm-ostree install https://github.com/EVWorth/sqlpilot/releases/download/v0.4.1/SQLPilot-0.4.1-1.x86_64.rpm",
+      );
     });
   });
 });
