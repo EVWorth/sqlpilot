@@ -1,6 +1,7 @@
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
+import { api } from "../lib/tauri-api";
 
 export interface QuerySettings {
   maxResultRows: number;
@@ -77,11 +78,22 @@ interface DownloadProgress {
 interface SettingsState {
   querySettings: QuerySettings;
   formatterSettings: FormatterSettings;
-  updateStatus: "idle" | "checking" | "available" | "downloading" | "downloaded" | "up-to-date" | "error";
+  updateStatus:
+    | "idle"
+    | "checking"
+    | "available"
+    | "manual-update-required"
+    | "downloading"
+    | "downloaded"
+    | "up-to-date"
+    | "error";
   updateVersion: string | null;
   updateError: string | null;
   pendingUpdate: Update | null;
+  manualUpdateCommand: string | null;
+  platformHint: "standard" | "rpm-ostree" | "unknown";
   downloadProgress: DownloadProgress;
+  detectPlatform: () => Promise<void>;
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
   setUpdateError: (message: string | null) => void;
@@ -89,30 +101,59 @@ interface SettingsState {
   setFormatterSettings: (settings: FormatterSettings) => void;
 }
 
-export const useSettingsStore = create<SettingsState>((set) => ({
+// Tauri-action's .rpm filename uses period before arch:
+// `SQLPilot-0.4.0-1.x86_64.rpm`. If tauri-action ever changes this pattern,
+// this template must follow. See docs/RELEASING.md gotcha #3.
+function buildRpmUrl(version: string): string {
+  return `https://github.com/EVWorth/sqlpilot/releases/download/v${version}/SQLPilot-${version}-1.x86_64.rpm`;
+}
+
+export const useSettingsStore = create<SettingsState>((set, get) => ({
   querySettings: loadQuerySettings(),
   formatterSettings: loadSettings(),
   updateStatus: "idle",
   updateVersion: null,
   updateError: null,
   pendingUpdate: null,
+  manualUpdateCommand: null,
+  platformHint: "unknown",
   downloadProgress: { transferred: 0, total: null },
 
+  detectPlatform: async () => {
+    try {
+      const isRpmOstree = await api.isRpmOstree();
+      set({ platformHint: isRpmOstree ? "rpm-ostree" : "standard" });
+    } catch (e) {
+      console.error("Failed to detect platform:", e);
+      set({ platformHint: "unknown" });
+    }
+  },
+
   checkForUpdates: async () => {
-    set({ updateStatus: "checking", updateError: null });
+    set({ updateStatus: "checking", updateError: null, manualUpdateCommand: null });
     try {
       const update = await check();
       if (update) {
-        set({
-          updateStatus: "available",
-          updateVersion: update.version,
-          pendingUpdate: update,
-        });
+        if (get().platformHint === "rpm-ostree") {
+          set({
+            updateStatus: "manual-update-required",
+            updateVersion: update.version,
+            pendingUpdate: null,
+            manualUpdateCommand: `rpm-ostree install ${buildRpmUrl(update.version)}`,
+          });
+        } else {
+          set({
+            updateStatus: "available",
+            updateVersion: update.version,
+            pendingUpdate: update,
+          });
+        }
       } else {
         set({
           updateStatus: "up-to-date",
           updateVersion: null,
           pendingUpdate: null,
+          manualUpdateCommand: null,
         });
       }
     } catch (e) {
@@ -121,6 +162,7 @@ export const useSettingsStore = create<SettingsState>((set) => ({
         updateStatus: "error",
         updateVersion: null,
         pendingUpdate: null,
+        manualUpdateCommand: null,
         updateError: e instanceof Error ? e.message : String(e),
       });
     }

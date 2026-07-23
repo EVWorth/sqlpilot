@@ -1,5 +1,17 @@
-import { AlertCircle, AlertTriangle, Check, Copy, Download, Loader2, RefreshCw } from "lucide-react";
-import { useEffect, useState } from "react";
+import {
+  AlertCircle,
+  AlertTriangle,
+  Bug,
+  Check,
+  Copy,
+  Download,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Terminal,
+  X,
+} from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -45,23 +57,48 @@ export function StatusBar() {
   const activeTabId = useEditorStore((s) => s.activeTabId);
 
   const [showFullError, setShowFullError] = useState(false);
+  const [showUpdateDetails, setShowUpdateDetails] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedDiagnostic, setCopiedDiagnostic] = useState(false);
+  const [copiedCommand, setCopiedCommand] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const updateStatus = useSettingsStore((s) => s.updateStatus);
   const updateVersion = useSettingsStore((s) => s.updateVersion);
   const updateError = useSettingsStore((s) => s.updateError);
+  const manualUpdateCommand = useSettingsStore((s) => s.manualUpdateCommand);
+  const platformHint = useSettingsStore((s) => s.platformHint);
   const downloadProgress = useSettingsStore((s) => s.downloadProgress);
   const checkForUpdates = useSettingsStore((s) => s.checkForUpdates);
   const installUpdate = useSettingsStore((s) => s.installUpdate);
   const setUpdateError = useSettingsStore((s) => s.setUpdateError);
+  const updateDetailsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
   }, []);
 
   useEffect(() => {
+    void useSettingsStore.getState().detectPlatform();
+  }, []);
+
+  useEffect(() => {
     if (updateStatus === "idle") checkForUpdates();
   }, [checkForUpdates, updateStatus]);
+
+  useEffect(() => {
+    if (updateStatus !== "error") setShowUpdateDetails(false);
+  }, [updateStatus]);
+
+  useEffect(() => {
+    if (!showUpdateDetails) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (updateDetailsRef.current && !updateDetailsRef.current.contains(e.target as Node)) {
+        setShowUpdateDetails(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [showUpdateDetails]);
 
   const dirtyTabs = tabs.filter((t) => t.isDirty);
   const hasDirtyTabs = dirtyTabs.length > 0;
@@ -89,6 +126,47 @@ export function StatusBar() {
     navigator.clipboard.writeText(connStr).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
+    });
+  };
+
+  const diagnosticBlob = [
+    `SQLPilot v${appVersion || "unknown"}`,
+    `Platform: ${navigator.platform} (${navigator.userAgent})`,
+    `rpm-ostree detected: ${platformHint === "rpm-ostree" ? "yes" : "no"}`,
+    `Update status: ${updateStatus}${updateVersion ? ` (target v${updateVersion})` : ""}`,
+    updateError ? `Error: ${updateError}` : null,
+    `Timestamp: ${new Date().toISOString()}`,
+  ].filter(Boolean).join("\n");
+
+  const handleCopyDiagnostic = () => {
+    void navigator.clipboard.writeText(diagnosticBlob).then(() => {
+      setCopiedDiagnostic(true);
+      setTimeout(() => setCopiedDiagnostic(false), 2000);
+    });
+  };
+
+  const handleReportIssue = () => {
+    const body = [
+      "## What happened",
+      "<!-- Describe what you were doing when the update failed. -->",
+      "",
+      "## Diagnostic",
+      "```",
+      diagnosticBlob,
+      "```",
+    ].join("\n");
+    const url = `https://github.com/EVWorth/sqlpilot/issues/new`
+      + `?title=${encodeURIComponent("Auto-update failed: <one-line summary>")}`
+      + `&labels=${encodeURIComponent("bug,auto-update")}`
+      + `&body=${encodeURIComponent(body)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const handleCopyManualCommand = () => {
+    if (!manualUpdateCommand) return;
+    void navigator.clipboard.writeText(manualUpdateCommand).then(() => {
+      setCopiedCommand(true);
+      setTimeout(() => setCopiedCommand(false), 2000);
     });
   };
 
@@ -200,6 +278,16 @@ export function StatusBar() {
             Update to v{updateVersion}
           </button>
         )}
+        {updateStatus === "manual-update-required" && manualUpdateCommand && (
+          <button
+            onClick={handleCopyManualCommand}
+            className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
+            title={`Click to copy: ${manualUpdateCommand}\n(then run in a terminal; reboot to apply)`}
+          >
+            <Terminal className="h-3 w-3" />
+            {copiedCommand ? "Copied command" : `Manual update on rpm-ostree (v${updateVersion})`}
+          </button>
+        )}
         {updateStatus === "checking" && (
           <span className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)]">
             <RefreshCw className="h-3 w-3 animate-spin" />
@@ -233,16 +321,74 @@ export function StatusBar() {
           </span>
         )}
         {updateStatus === "error" && (
-          <button
-            onClick={checkForUpdates}
-            className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
-            title={updateError
-              ? `Update failed: ${updateError} — click to retry`
-              : "Update check failed — click to retry"}
-          >
-            <RefreshCw className="h-3 w-3" />
-            Update failed
-          </button>
+          <div className="relative flex items-center gap-1" ref={updateDetailsRef}>
+            <button
+              onClick={() => setShowUpdateDetails((v) => !v)}
+              className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
+              title={updateError
+                ? `Update failed: ${updateError} — click for details`
+                : "Update check failed — click for details"}
+            >
+              <RefreshCw className="h-3 w-3" />
+              Update failed
+            </button>
+            {showUpdateDetails && (
+              <div
+                role="dialog"
+                aria-label="Update error details"
+                className="absolute bottom-full right-0 mb-2 w-[420px] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3 shadow-lg text-left"
+              >
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-primary)]">
+                    <Bug className="h-3.5 w-3.5 text-red-400" />
+                    Update failed
+                  </div>
+                  <button
+                    onClick={() => setShowUpdateDetails(false)}
+                    className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+                    title="Close"
+                    aria-label="Close update error details"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+                {updateError && (
+                  <pre className="max-h-32 overflow-auto rounded bg-[var(--color-bg-secondary)] p-2 text-[10px] font-mono whitespace-pre-wrap break-words text-red-400 mb-2">
+                    {updateError}
+                  </pre>
+                )}
+                <pre className="max-h-32 overflow-auto rounded bg-[var(--color-bg-secondary)] p-2 text-[10px] font-mono whitespace-pre-wrap text-[var(--color-text-muted)] mb-3">
+                  {diagnosticBlob}
+                </pre>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={handleCopyDiagnostic}
+                    className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-muted)]"
+                  >
+                    <Copy className="h-3 w-3" />
+                    {copiedDiagnostic ? "Copied" : "Copy diagnostic"}
+                  </button>
+                  <button
+                    onClick={handleReportIssue}
+                    className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-muted)]"
+                  >
+                    <ExternalLink className="h-3 w-3" />
+                    Report issue
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowUpdateDetails(false);
+                      void checkForUpdates();
+                    }}
+                    className="flex items-center gap-1 rounded bg-yellow-500/20 px-2 py-1 text-[10px] text-yellow-400 hover:bg-yellow-500/30"
+                  >
+                    <RefreshCw className="h-3 w-3" />
+                    Retry
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
         <button
           onClick={checkForUpdates}

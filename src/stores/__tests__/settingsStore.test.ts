@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("../../lib/tauri-api", () => ({
+  api: {
+    isRpmOstree: vi.fn().mockResolvedValue(false),
+  },
+}));
+
 const QUERY_SETTINGS_KEY = "sqlpilot-query-settings";
 const STORAGE_KEY = "sqlpilot-formatter-settings";
 
@@ -203,6 +209,79 @@ describe("settingsStore", () => {
       const { useSettingsStore } = await import("../settingsStore");
       await useSettingsStore.getState().checkForUpdates();
       expect(useSettingsStore.getState().updateStatus).toBe("error");
+    });
+
+    it("on rpm-ostree, sets status to manual-update-required with copyable command", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockResolvedValue({ version: "0.4.1", downloadAndInstall: vi.fn() } as any);
+      const { useSettingsStore } = await import("../settingsStore");
+      useSettingsStore.setState({ platformHint: "rpm-ostree" });
+      await useSettingsStore.getState().checkForUpdates();
+      const state = useSettingsStore.getState();
+      expect(state.updateStatus).toBe("manual-update-required");
+      expect(state.updateVersion).toBe("0.4.1");
+      expect(state.pendingUpdate).toBeNull();
+      expect(state.manualUpdateCommand).toBe(
+        "rpm-ostree install https://github.com/EVWorth/sqlpilot/releases/download/v0.4.1/SQLPilot-0.4.1-1.x86_64.rpm",
+      );
+    });
+
+    it("on standard Linux/macOS/Windows, sets status to available (not manual)", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      const update = { version: "0.4.1", downloadAndInstall: vi.fn() } as any;
+      vi.mocked(updater.check).mockResolvedValue(update);
+      const { useSettingsStore } = await import("../settingsStore");
+      useSettingsStore.setState({ platformHint: "standard" });
+      await useSettingsStore.getState().checkForUpdates();
+      const state = useSettingsStore.getState();
+      expect(state.updateStatus).toBe("available");
+      expect(state.manualUpdateCommand).toBeNull();
+      expect(state.pendingUpdate).toBe(update);
+    });
+
+    it("treats platformHint=unknown as standard (best-effort: try the plugin path)", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockResolvedValue({ version: "0.4.1", downloadAndInstall: vi.fn() } as any);
+      const { useSettingsStore } = await import("../settingsStore");
+      // platformHint default is "unknown"
+      await useSettingsStore.getState().checkForUpdates();
+      expect(useSettingsStore.getState().updateStatus).toBe("available");
+    });
+  });
+
+  describe("detectPlatform", () => {
+    beforeEach(() => {
+      vi.clearAllMocks();
+    });
+
+    it("sets platformHint to rpm-ostree when api reports true", async () => {
+      vi.resetModules();
+      const api = await import("../../lib/tauri-api");
+      vi.mocked(api.api.isRpmOstree).mockResolvedValue(true);
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().detectPlatform();
+      expect(useSettingsStore.getState().platformHint).toBe("rpm-ostree");
+    });
+
+    it("sets platformHint to standard when api reports false", async () => {
+      vi.resetModules();
+      const api = await import("../../lib/tauri-api");
+      vi.mocked(api.api.isRpmOstree).mockResolvedValue(false);
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().detectPlatform();
+      expect(useSettingsStore.getState().platformHint).toBe("standard");
+    });
+
+    it("sets platformHint to unknown when api throws", async () => {
+      vi.resetModules();
+      const api = await import("../../lib/tauri-api");
+      vi.mocked(api.api.isRpmOstree).mockRejectedValue(new Error("boom"));
+      const { useSettingsStore } = await import("../settingsStore");
+      await useSettingsStore.getState().detectPlatform();
+      expect(useSettingsStore.getState().platformHint).toBe("unknown");
     });
   });
 
