@@ -647,4 +647,104 @@ mod tests {
         assert_eq!(stmts.len(), 1);
         assert_eq!(stmts[0], "SELECT 1");
     }
+
+    // -- has_limit_clause / strip_limit / find_limit_keyword / find_keyword_offset --
+
+    #[test]
+    fn has_limit_clause_detects_trailing_limit_n() {
+        assert!(has_limit_clause("SELECT * FROM t LIMIT 10"));
+    }
+
+    #[test]
+    fn has_limit_clause_detects_trailing_limit_n_offset_m() {
+        assert!(has_limit_clause("SELECT * FROM t LIMIT 10 OFFSET 5"));
+    }
+
+    #[test]
+    fn has_limit_clause_matches_any_limit_n_anywhere_in_statement() {
+        // Implementation finds the LAST "LIMIT <digit>" anywhere in the
+        // statement, not just trailing. Document this current behavior.
+        assert!(has_limit_clause("SELECT * FROM t WHERE col LIMIT 10"));
+        assert!(has_limit_clause(
+            "SELECT * FROM (SELECT * FROM t LIMIT 5) sub"
+        ));
+    }
+
+    #[test]
+    fn has_limit_clause_is_case_insensitive() {
+        assert!(has_limit_clause("select * from t limit 10"));
+        assert!(has_limit_clause("Select * From T Limit 10"));
+    }
+
+    #[test]
+    fn has_limit_clause_returns_false_when_absent() {
+        assert!(!has_limit_clause("SELECT * FROM t"));
+        assert!(!has_limit_clause("SELECT * FROM t WHERE x = 1"));
+    }
+
+    #[test]
+    fn has_limit_clause_returns_false_when_limit_word_is_part_of_identifier() {
+        // 'limited' contains 'limit' as a substring; the helper should not match it.
+        assert!(!has_limit_clause("SELECT limited_col FROM t"));
+    }
+
+    #[test]
+    fn strip_limit_removes_trailing_limit_n() {
+        assert_eq!(strip_limit("SELECT * FROM t LIMIT 10"), "SELECT * FROM t");
+    }
+
+    #[test]
+    fn strip_limit_removes_trailing_limit_n_offset_m() {
+        assert_eq!(
+            strip_limit("SELECT * FROM t LIMIT 10 OFFSET 5"),
+            "SELECT * FROM t"
+        );
+    }
+
+    #[test]
+    fn strip_limit_passes_through_unchanged_when_no_limit() {
+        assert_eq!(
+            strip_limit("SELECT * FROM t WHERE x = 1"),
+            "SELECT * FROM t WHERE x = 1"
+        );
+    }
+
+    #[test]
+    fn strip_limit_trims_trailing_whitespace() {
+        assert_eq!(
+            strip_limit("SELECT * FROM t LIMIT 10   "),
+            "SELECT * FROM t"
+        );
+    }
+
+    #[test]
+    fn strip_limit_strips_at_last_limit_n_even_inside_subquery() {
+        // The helper finds the LAST "LIMIT <digit>" position anywhere in
+        // the statement. With LIMIT inside a subquery and no trailing LIMIT,
+        // the inner LIMIT is removed.
+        let stripped = strip_limit("SELECT * FROM (SELECT * FROM t LIMIT 5) sub");
+        assert_eq!(stripped, "SELECT * FROM (SELECT * FROM t");
+    }
+
+    #[test]
+    fn find_keyword_offset_returns_byte_position_of_trailing_limit() {
+        let sql = "SELECT * FROM t LIMIT 10";
+        let pos = find_keyword_offset(&sql.to_uppercase(), "LIMIT");
+        assert_eq!(pos, Some("SELECT * FROM t ".len()));
+    }
+
+    #[test]
+    fn find_keyword_offset_returns_none_when_no_digit_follows() {
+        // LIMIT without a trailing number shouldn't match (it's not a real
+        // LIMIT clause — likely a placeholder or syntax error).
+        let sql = "SELECT * FROM t LIMIT";
+        assert_eq!(find_keyword_offset(&sql.to_uppercase(), "LIMIT"), None);
+    }
+
+    #[test]
+    fn find_keyword_offset_does_not_match_substring_of_longer_word() {
+        // 'LIMITED' is not 'LIMIT' followed by space+digit; it must not match.
+        let sql = "SELECT * FROM t WHERE LIMITED = 5";
+        assert_eq!(find_keyword_offset(&sql.to_uppercase(), "LIMIT"), None);
+    }
 }
