@@ -314,4 +314,127 @@ describe("connectionStore", () => {
       expect(useConnectionStore.getState().error).toBeNull();
     });
   });
+
+  describe("concurrent connect (race)", () => {
+    it("two parallel connect() calls each create their own activeConnection entry", async () => {
+      // Current behavior: connect() does not dedupe or gate by in-flight
+      // status. Two parallel calls each resolve their api.connect() and
+      // push their own entry. The second selectedConnectionId wins.
+      // Documenting this prevents regressions from accidental "dedup"
+      // changes that might break legitimate multi-profile scenarios.
+      const first = deferred<ConnectionInfo>();
+      const second = deferred<ConnectionInfo>();
+
+      vi.mocked(api.connect)
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+
+      const p1 = useConnectionStore.getState().connect("profile-1");
+      const p2 = useConnectionStore.getState().connect("profile-2");
+
+      first.resolve({ ...mockConnectionInfo, id: "conn-1", profile_id: "profile-1" });
+      second.resolve({ ...mockConnectionInfo, id: "conn-2", profile_id: "profile-2" });
+
+      await Promise.all([p1, p2]);
+
+      const state = useConnectionStore.getState();
+      expect(state.activeConnections.map((c) => c.id).sort()).toEqual(["conn-1", "conn-2"]);
+      // selectedConnectionId reflects the most recent resolve
+      expect(state.selectedConnectionId).toBe("conn-2");
+    });
+
+    it("connect error during a parallel connect leaves prior in-flight connection intact", async () => {
+      // Two parallel calls. First succeeds, second rejects.
+      // The first connection must remain in activeConnections;
+      // the second's error must populate error state.
+      const first = deferred<ConnectionInfo>();
+      const second = deferred<ConnectionInfo>();
+
+      vi.mocked(api.connect)
+        .mockReturnValueOnce(first.promise)
+        .mockReturnValueOnce(second.promise);
+
+      const p1 = useConnectionStore.getState().connect("profile-1");
+      const p2 = useConnectionStore.getState().connect("profile-2");
+
+      first.resolve({ ...mockConnectionInfo, id: "conn-1", profile_id: "profile-1" });
+      second.reject(new Error("Connection refused"));
+
+      await p1;
+      await expect(p2).rejects.toThrow("Connection refused");
+
+      const state = useConnectionStore.getState();
+      expect(state.activeConnections).toHaveLength(1);
+      expect(state.activeConnections[0].id).toBe("conn-1");
+      expect(state.selectedConnectionId).toBe("conn-1");
+      expect(state.error).toBe("Error: Connection refused");
+    });
+  });
+
+  describe("connect + disconnect race", () => {
+    it("disconnect issued before connect resolves leaves the connection in activeConnections after both settle", async () => {
+      // The user's "Cancel" click path: connect starts, user immediately
+      // disconnects the (not-yet-existing) id. After connect resolves,
+      // the entry IS present even though disconnect was issued first.
+      // (No cancellation hook exists in the current implementation.)
+      const connectDeferred = deferred<ConnectionInfo>();
+      const disconnectDeferred = deferred<void>();
+
+      vi.mocked(api.connect).mockReturnValueOnce(connectDeferred.promise);
+      vi.mocked(api.disconnect).mockReturnValueOnce(disconnectDeferred.promise);
+
+      const connectPromise = useConnectionStore.getState().connect("profile-1");
+      const disconnectPromise = useConnectionStore.getState().disconnect("conn-1");
+
+      // Connect resolves AFTER disconnect was issued.
+      disconnectDeferred.resolve();
+      await disconnectPromise;
+
+      connectDeferred.resolve({ ...mockConnectionInfo, id: "conn-1", profile_id: "profile-1" });
+      await connectPromise;
+
+      const state = useConnectionStore.getState();
+      // Documenting current behavior: connect wins because disconnect
+      // ran before the connection was added to activeConnections.
+      expect(state.activeConnections.map((c) => c.id)).toContain("conn-1");
+    });
+
+    it("disconnect issued after connect resolves removes the entry normally", async () => {
+      // Order: connect → completes → disconnect → completes.
+      vi.mocked(api.connect).mockResolvedValueOnce(mockConnectionInfo);
+      vi.mocked(api.disconnect).mockResolvedValueOnce(undefined);
+
+      await useConnectionStore.getState().connect("profile-1");
+      await useConnectionStore.getState().disconnect("conn-1");
+
+      expect(useConnectionStore.getState().activeConnections).toEqual([]);
+    });
+  });
+
+  describe("reconnect after disconnect", () => {
+    it("reconnect with the same profile produces no duplicate entry", async () => {
+      const firstConn: ConnectionInfo = {
+        ...mockConnectionInfo,
+        id: "conn-1",
+      };
+      const secondConn: ConnectionInfo = {
+        ...mockConnectionInfo,
+        id: "conn-2", // different id from the second connect call
+      };
+
+      vi.mocked(api.connect)
+        .mockResolvedValueOnce(firstConn)
+        .mockResolvedValueOnce(secondConn);
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+
+      await useConnectionStore.getState().connect("profile-1");
+      await useConnectionStore.getState().disconnect("conn-1");
+      await useConnectionStore.getState().connect("profile-1");
+
+      const state = useConnectionStore.getState();
+      // After disconnect-then-reconnect, only the new connection is present.
+      expect(state.activeConnections).toEqual([secondConn]);
+      expect(state.selectedConnectionId).toBe("conn-2");
+    });
+  });
 });
