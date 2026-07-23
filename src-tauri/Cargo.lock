@@ -2744,6 +2744,7 @@ dependencies = [
 name = "mas-admin"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "mas-core",
  "serde",
  "serde_json",
@@ -2751,6 +2752,7 @@ dependencies = [
  "thiserror 2.0.19",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
