@@ -426,6 +426,97 @@ describe("api (Tauri available)", () => {
     });
   });
 
+  // -- SQLite --------------------------------------------------------------
+
+  it("sqliteOpen calls invoke with path", async () => {
+    invokeMock.mockResolvedValue("conn-1");
+    const result = await api.sqliteOpen("/tmp/local.db");
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_open", {
+      path: "/tmp/local.db",
+    });
+    expect(result).toBe("conn-1");
+  });
+
+  it("sqliteClose calls invoke with connectionId", async () => {
+    await api.sqliteClose("conn-1");
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_close", {
+      connectionId: "conn-1",
+    });
+  });
+
+  it("sqliteList calls invoke with no args", async () => {
+    invokeMock.mockResolvedValue(["/tmp/a.db", "/tmp/b.db"]);
+    const result = await api.sqliteList();
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_list", undefined);
+    expect(result).toEqual(["/tmp/a.db", "/tmp/b.db"]);
+  });
+
+  it("sqliteExecute calls invoke with connectionId and sql", async () => {
+    const fakeResults = [{ columns: ["id"], rows: [[1]], rows_affected: 0 }];
+    invokeMock.mockResolvedValue(fakeResults);
+    const result = await api.sqliteExecute("conn-1", "SELECT 1");
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_execute", {
+      connectionId: "conn-1",
+      sql: "SELECT 1",
+    });
+    expect(result).toEqual(fakeResults);
+  });
+
+  it("sqliteGetTables calls invoke with connectionId", async () => {
+    invokeMock.mockResolvedValue([{ name: "users" }]);
+    const result = await api.sqliteGetTables("conn-1");
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_get_tables", {
+      connectionId: "conn-1",
+    });
+    expect(result).toEqual([{ name: "users" }]);
+  });
+
+  it("sqliteGetColumns calls invoke with connectionId and table", async () => {
+    invokeMock.mockResolvedValue([{ name: "id", type: "INTEGER" }]);
+    const result = await api.sqliteGetColumns("conn-1", "users");
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_get_columns", {
+      connectionId: "conn-1",
+      table: "users",
+    });
+    expect(result).toEqual([{ name: "id", type: "INTEGER" }]);
+  });
+
+  it("sqliteGetIndexes calls invoke with connectionId and table", async () => {
+    invokeMock.mockResolvedValue([{ name: "idx_users_id" }]);
+    const result = await api.sqliteGetIndexes("conn-1", "users");
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_get_indexes", {
+      connectionId: "conn-1",
+      table: "users",
+    });
+    expect(result).toEqual([{ name: "idx_users_id" }]);
+  });
+
+  it("sqliteGetTableDdl calls invoke with connectionId and table", async () => {
+    invokeMock.mockResolvedValue("CREATE TABLE users (id INTEGER)");
+    const result = await api.sqliteGetTableDdl("conn-1", "users");
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_get_table_ddl", {
+      connectionId: "conn-1",
+      table: "users",
+    });
+    expect(result).toBe("CREATE TABLE users (id INTEGER)");
+  });
+
+  // -- Platform detection --------------------------------------------------
+
+  it("isRpmOstree calls invoke with no args and returns true", async () => {
+    invokeMock.mockResolvedValue(true);
+    const result = await api.isRpmOstree();
+    expect(invokeMock).toHaveBeenCalledWith("is_rpm_ostree", undefined);
+    expect(result).toBe(true);
+  });
+
+  it("isRpmOstree returns false on non-atomic systems", async () => {
+    invokeMock.mockResolvedValue(false);
+    const result = await api.isRpmOstree();
+    expect(invokeMock).toHaveBeenCalledWith("is_rpm_ostree", undefined);
+    expect(result).toBe(false);
+  });
+
   // -- App metadata --------------------------------------------------------
 
   it("getAppVersion returns version from getVersion", async () => {
