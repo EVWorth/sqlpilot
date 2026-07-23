@@ -119,6 +119,7 @@ CI mirrors these gates. Local failure = CI failure. Don't ship red.
 10. **Dep age gate:** Dependabot PRs bumping packages <7 days old fail CI (`npm run deps:check`).
 11. **E2E disabled:** `test-e2e` job has `if: false` in `ci.yml`. Don't enable without team-lead approval.
 12. **Windows signing secrets** in `release.yml` are optional — workflow skips if absent. Don't assume they exist.
+13. **`bundle.createUpdaterArtifacts: true`** in `tauri.conf.json` makes the bundler sign artifacts during `tauri build` — the build step (not just the manifest step) needs `TAURI_SIGNING_PRIVATE_KEY`. Miss it and every build fails with `A public key has been found, but no private key.` See `docs/RELEASING.md` gotcha #2 (issue #243).
 
 ## Dispatch Patterns — Quick Routing
 
@@ -227,6 +228,8 @@ Or use `/review-prs` to do all of the above in one command.
    - `validate` job (#183) fails fast if tag doesn't match manifests — no wasted build minutes
 5. Workflow: builds 4 platforms, signs Windows (if cert secrets present), generates `latest.json` update manifest
 6. Monitor draft release on GitHub, publish when satisfied
+
+**Gotchas.** The release pipeline has accumulated sharp edges. Before touching `release.yml` or `TAURI_*` env vars, read `docs/RELEASING.md` gotchas 1-5 (race conditions, signing-key env var, rpm manifest gap, linux deps, re-tag protocol). They cover the symptoms that bit v0.4.0.
 
 **Why this order:** bump + commit + CI green before tagging. CI validate acts as second line of defense after local check. `release-cutter` agent delegates pre-conditions to `scripts/check-release-readiness.sh` — same checks, single source of truth.
 

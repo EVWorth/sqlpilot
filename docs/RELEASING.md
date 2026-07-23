@@ -45,101 +45,81 @@ Expected output: 17+ assets including `latest.json`, `*.AppImage`, `*.deb`, `*x8
 
 ---
 
-## Release pipeline gotchas
+## Release workflow architecture
 
-### 1. ~~`tauri-action@v1.0.0` creates duplicate release candidates with strategy.matrix~~ (FIXED)
-
-**Symptom (was).** Tag-push triggers the release workflow. All 4 builds succeed. But after the run, GitHub shows two releases both tagged `vX.Y.Z`:
-
-- One Draft with all assets (full set)
-- One published "Latest" with only `latest.json` + `SQLPilot.exe` (Windows portable upload from the matrix's `Upload portable exe` step)
-
-GitHub picks the partial one as the visible release. Linux/macOS users see no auto-update.
-
-**Root cause (was).** `tauri-action@v1.0.0`'s `releaseDraft: true` mode in a strategy matrix has each parallel job race to create the draft release. The first wins; the others either create a SECOND draft or fail to find the existing release and silently lose their assets.
-
-**Fix.** Workflow restructured (PR #248, issue #242). Pattern is now:
+The release pipeline splits build from release-creation to keep creation single-sourced:
 
 - `build` job (matrix) — runs `tauri build` only, no release. Uploads bundles + `.sig` to GH artifact store via `actions/upload-artifact@v7`.
-- `upload` job (single ubuntu-latest) — downloads all build artifacts, then `softprops/action-gh-release@v2` creates the draft release ONCE and uploads all assets. No race possible because only one job touches the GitHub Releases API.
-- `generate-update-manifest` job now `needs: [upload]` so the release exists before `gh release download` runs.
+- `upload` job (single ubuntu-22.04) — downloads all build artifacts, then `softprops/action-gh-release@v2` creates the draft release ONCE and uploads all assets.
+- `generate-update-manifest` job runs after `upload` so `gh release download` sees the release.
 
 tauri-action's "build only" mode is achieved by omitting `tagName`, `releaseName`, and `releaseId` (per the action's README). The signing key is still passed to the build step because tauri itself signs during `tauri build` when `bundle.createUpdaterArtifacts: true`.
 
-**Verification.** Push a test tag (e.g. `v0.4.0-rc.test`), wait for all 4 builds + upload + manifest jobs, then `gh api -X GET repos/EVWorth/sqlpilot/releases` and confirm **exactly one** release for that tag.
-
-**Historical recovery (v0.4.0 only — should not recur):**
+**Verify after each release.** Confirm exactly one release exists for the tag:
 
 ```bash
-# Find the draft (the one with all assets)
-gh api -X GET repos/EVWorth/sqlpilot/releases | \
-  python3 -c "import json,sys; [print(r['id'], r['name'], len(r['assets']), r['draft']) for r in json.load(sys.stdin) if r['tag_name'] == 'vX.Y.Z']"
-# Should show one Draft with ~17 assets and one Latest with ~2.
-
-DRAFT_ID=<the one with ~17 assets>
-LATEST_ID=<the one with ~2>
-
-# Delete the broken Latest
-gh api -X DELETE repos/EVWorth/sqlpilot/releases/$LATEST_ID
-
-# Publish the Draft (now becomes the new Latest)
-gh api -X PATCH repos/EVWorth/sqlpilot/releases/$DRAFT_ID -f draft=false
+gh api repos/EVWorth/sqlpilot/releases | \
+  jq '.[] | select(.tag_name == "v<X.Y.Z>") | {id, name, draft, assets: (.assets | length)}'
+# Expect: exactly one entry, draft=true, ~17 assets.
 ```
 
 ---
 
-### 2. `bundle.createUpdaterArtifacts: true` requires the signing key on the BUILD step
+## Release pipeline gotchas
+
+### 1. `bundle.createUpdaterArtifacts: true` requires the signing key on the BUILD step
 
 **Symptom.** All 4 builds fail at the build step:
 
 > A public key has been found, but no private key. Make sure to set TAURI_SIGNING_PRIVATE_KEY environment variable.
 > [error]Command "npm [\"run\",\"tauri\",\"build\",\"--\",\"--target\",\"...\"]" failed with exit code 1
 
-**Root cause.** When `tauri.conf.json` has `bundle.createUpdaterArtifacts: true` (the canonical flag added in #239), `tauri-action@v1.0.0` signs artifacts **during `tauri build`** — not just during the manifest-generation step. The workflow had `TAURI_SIGNING_PRIVATE_KEY` set only on the manifest step, missing the build step.
+**Root cause.** When `tauri.conf.json` has `bundle.createUpdaterArtifacts: true`, `tauri-action@v1.0.0` signs artifacts **during `tauri build`** — not just during the manifest-generation step. The `TAURI_SIGNING_PRIVATE_KEY` env var must be on the build step's `env:` block, not just the manifest step's.
 
-**Fix.** (PR #241) Add the env to the build step:
+**Current shape:**
 
 ```yaml
-- name: Build and publish
+- name: Build bundles (no release)
   uses: tauri-apps/tauri-action@<sha> # v1.0.0
   env:
     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
     TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
   with:
-    ...
+    args: ${{ matrix.args }}
 ```
 
 **Detecting.** When `createUpdaterArtifacts` is true and the key is missing, the bundler exits with `A public key has been found, but no private key.` The `dist/assets/` dir may be empty.
 
 ---
 
-### 3. `linux-rpm` platform key was silently absent from `latest.json` before #239
+### 2. `linux-rpm` platform key in `latest.json`
 
-**Symptom.** App is installed via `.rpm` on Fedora/Bazzite. Status bar never shows an update chip. The `.rpm` is built and uploaded to the release (12 MB), but `latest.json` only lists `linux-x86_64` (AppImage) and `linux-deb`.
+**Symptom.** App installed via `.rpm` on Fedora/Bazzite. Status bar never shows an update chip. The `.rpm` is built and uploaded to the release (12 MB), but `latest.json` only lists `linux-x86_64` (AppImage) and `linux-deb`.
 
-**Root cause.** `release.yml`'s bash manifest generator had no `*_x86_64.rpm)` case branch; the default `*` skipped silently. (issue from the 0.4.0 audit)
+**Root cause.** `release.yml`'s bash manifest generator must have a `*_x86_64.rpm` case branch. The default `*` skips silently and the `.rpm` is left orphaned.
 
-**Fix.** (PR #239) Add the case branch:
+**Current shape:**
 
 ```bash
 case "$base" in
   *_amd64.AppImage)     key="linux-x86_64" ;;
   *_amd64.deb)          key="linux-deb" ;;
   *aarch64.rpm)         key="linux-aarch64" ;;
-  *x86_64.rpm)          key="linux-rpm" ;;     # NEW
+  *x86_64.rpm)          key="linux-rpm" ;;
   ...
+esac
 ```
 
-**Pattern note:** Tauri-action's `.rpm` filename uses period before arch (`SQLPilot-0.4.0-1.x86_64.rpm`). `.deb` uses underscore (`SQLPilot_0.4.0_amd64.deb`). Different conventions — patterns differ.
+**Pattern note.** Tauri's `.rpm` filename uses period before arch (`SQLPilot-0.4.0-1.x86_64.rpm`). `.deb` uses underscore (`SQLPilot_0.4.0_amd64.deb`). Different conventions — patterns differ.
 
 ---
 
-### 4. `tauri.conf.json` `bundle.linux.deb.depends` / `rpm.depends` for clean installs
+### 3. `tauri.conf.json` `bundle.linux.deb.depends` / `rpm.depends` for clean installs
 
 **Symptom.** User runs `apt install ./SQLPilot_0.4.0_amd64.deb` on a minimal Debian system. Transaction fails with unsatisfiable deps. Or `rpm-ostree install ./SQLPilot-0.4.0-1.x86_64.rpm` on minimal Bazzite triggers an interactive dependency transaction.
 
-**Fix.** (PR #239) Declare runtime deps in `tauri.conf.json`:
+**Current shape:**
 
 ```json
 "linux": {
@@ -152,7 +132,7 @@ Note: these match what tauri-action's own CI matrix uses, so they're verified.
 
 ---
 
-### 5. Tag a fresh commit, not a re-pushed existing one
+### 4. Tag a fresh commit, not a re-pushed existing one
 
 If the previous tag-push produced a partial / broken release, simply pushing the same SHA again does nothing. GitHub doesn't re-trigger the workflow on a tag that already exists.
 
@@ -164,8 +144,6 @@ git push origin --delete v0.4.0
 git tag v0.4.0
 git push origin v0.4.0
 ```
-
-This is how the v0.4.0 release was recovered after #241 fixed the signing-key issue.
 
 ---
 
@@ -180,7 +158,7 @@ This is how the v0.4.0 release was recovered after #241 fixed the signing-key is
 [ ] Tag pushed
 [ ] Workflow run URL bookmarked
 [ ] All 4 build jobs: SUCCESS
-[ ] upload job: SUCCESS (one draft release created, no race)
+[ ] upload job: SUCCESS (one draft release created)
 [ ] generate-update-manifest job: SUCCESS
 [ ] gh release view v<X.Y.Z> --json assets shows >=17 assets
 [ ] gh release view v<X.Y.Z> --json assets | jq '.assets[].name' | grep -E '\.(AppImage|deb|rpm|dmg|msi|exe)$'
@@ -190,17 +168,3 @@ This is how the v0.4.0 release was recovered after #241 fixed the signing-key is
 [ ] latest.json has linux-x86_64-rpm key
 [ ] (Optional but recommended) Manual smoke test of update from previous version
 ```
-
-## Related
-
-- Issue #242 — fix race condition (FIXED in PR #248)
-- Issue #243 — release-capture doc
-- Issue #244 — Bazzite auto-updater broken
-- PR #239 — linux-rpm manifest + bundle deps + min_app_version
-- PR #241 — TAURI_SIGNING_PRIVATE_KEY on build step
-- PR #248 — split build matrix + single upload job
-
-## History of gotchas
-
-- 0.4.0 — discovered gotchas 1, 2, 3, 4 (race condition, signing key, rpm manifest gap, linux deps).
-- 0.4.0+ — gotcha 1 fixed in PR #248 (split build/upload).
