@@ -621,3 +621,112 @@ mod platform_tests {
         }
     }
 }
+
+#[cfg(test)]
+mod file_command_tests {
+    //! Tests for the file-IO Tauri commands (`read_file_contents`,
+    //! `write_file_contents`). These don't require a MySQL container so
+    //! they run as plain unit tests alongside the rest of the module.
+    use super::{read_file_contents, write_file_contents};
+    use std::fs;
+    use tempfile::TempDir;
+
+    #[tokio::test]
+    async fn read_file_contents_returns_file_body() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("hello.sql");
+        fs::write(&path, "SELECT 1;\nSELECT 2;\n").expect("write");
+
+        let contents = read_file_contents(path.to_string_lossy().to_string())
+            .await
+            .expect("read ok");
+        assert_eq!(contents, "SELECT 1;\nSELECT 2;\n");
+    }
+
+    #[tokio::test]
+    async fn read_file_contents_rejects_missing_path() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("does-not-exist.sql");
+
+        let err = read_file_contents(path.to_string_lossy().to_string())
+            .await
+            .unwrap_err();
+        // Either "Invalid path" (canonicalize fails) or "Failed to read file"
+        // (canonicalize succeeds because parent exists, then read fails).
+        assert!(
+            err.contains("Invalid path") || err.contains("Failed to read file"),
+            "unexpected error: {err}",
+        );
+    }
+
+    #[tokio::test]
+    async fn read_file_contents_rejects_directory_path() {
+        let dir = TempDir::new().expect("tempdir");
+        let err = read_file_contents(dir.path().to_string_lossy().to_string())
+            .await
+            .unwrap_err();
+        assert!(
+            err.contains("Not a regular file"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn write_file_contents_creates_file_with_body() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("out.sql");
+
+        write_file_contents(
+            path.to_string_lossy().to_string(),
+            "CREATE TABLE x (id INT)".to_string(),
+        )
+        .await
+        .expect("write ok");
+
+        let written = fs::read_to_string(&path).expect("read back");
+        assert_eq!(written, "CREATE TABLE x (id INT)");
+    }
+
+    #[tokio::test]
+    async fn write_file_contents_overwrites_existing_file() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("out.sql");
+        fs::write(&path, "OLD CONTENT").expect("write seed");
+
+        write_file_contents(
+            path.to_string_lossy().to_string(),
+            "NEW CONTENT".to_string(),
+        )
+        .await
+        .expect("write ok");
+
+        let written = fs::read_to_string(&path).expect("read back");
+        assert_eq!(written, "NEW CONTENT");
+    }
+
+    #[tokio::test]
+    async fn write_file_contents_rejects_missing_parent_dir() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("nope").join("nope").join("out.sql");
+
+        let err = write_file_contents(path.to_string_lossy().to_string(), "x".to_string())
+            .await
+            .unwrap_err();
+        assert!(err.contains("Invalid path"), "unexpected error: {err}");
+    }
+
+    #[tokio::test]
+    async fn read_write_roundtrip_preserves_unicode_content() {
+        let dir = TempDir::new().expect("tempdir");
+        let path = dir.path().join("rt.sql");
+
+        let payload = "SELECT 'unicode: ümläut 🚀';\n-- comment\nSELECT 2;";
+        write_file_contents(path.to_string_lossy().to_string(), payload.to_string())
+            .await
+            .expect("write");
+        let round_tripped = read_file_contents(path.to_string_lossy().to_string())
+            .await
+            .expect("read");
+        assert_eq!(round_tripped, payload);
+    }
+}

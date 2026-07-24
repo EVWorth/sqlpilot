@@ -64,3 +64,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 default = []
 beta-ai = ["dep:mas-ai"]
 custom-protocol = ["tauri/custom-protocol"]
+
+[dev-dependencies]
+tempfile = "3"
