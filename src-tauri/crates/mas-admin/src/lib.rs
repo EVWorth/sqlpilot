@@ -101,25 +101,22 @@ impl AdminService {
     ) -> Result<(), CoreError> {
         tracing::info!(process_id = process_id, "Killing MySQL process");
         let pool = self.connection_manager.get_pool(connection_id)?;
-        let result = sqlx::query("KILL ?").bind(process_id).execute(&pool).await;
-        match result {
+        // Use raw_sql (text protocol) instead of prepared statements. MySQL
+        // 8 returns a non-standard OK packet for KILL that sqlx's prepared-
+        // statement response decoder rejects with "unknown column type
+        // 0xf3", masking the actual KILL failure with a protocol error.
+        // process_id comes from a trusted integer column, no injection risk.
+        // raw_sql requires AssertSqlSafe; SQL is a literal we control.
+        let sql = sqlx::AssertSqlSafe(format!("KILL {}", process_id));
+        match sqlx::raw_sql(sql).execute(&pool).await {
             Ok(_) => {
                 tracing::info!(process_id = process_id, "Process killed successfully");
                 Ok(())
             }
             Err(e) => {
                 let msg = e.to_string();
-                if msg.contains("Unknown column type") || msg.contains("0xf3") {
-                    tracing::warn!(
-                        process_id = process_id,
-                        "KILL command errored during result parsing (MariaDB compatibility): {}. Process was likely killed.",
-                        msg
-                    );
-                    Ok(())
-                } else {
-                    tracing::error!(process_id = process_id, error = %msg, "Failed to kill process");
-                    Err(CoreError::Query(msg))
-                }
+                tracing::error!(process_id = process_id, error = %msg, "Failed to kill process");
+                Err(CoreError::Query(msg))
             }
         }
     }
