@@ -87,6 +87,61 @@ describe("ContextMenu", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("calls onClose on scroll (any ancestor — menu is anchored to x/y)", () => {
+    const onClose = vi.fn();
+    render(
+      <div>
+        <div data-testid="scrollable" style={{ overflow: "auto" }}>
+          <ContextMenu x={0} y={0} items={createItems()} onClose={onClose} />
+        </div>
+      </div>,
+    );
+
+    // Use capture phase since the scroll listener is registered with `{capture: true}`
+    const scrollable = screen.getByTestId("scrollable");
+    fireEvent.scroll(scrollable, { target: { scrollTop: 10 } });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose on window resize", () => {
+    const onClose = vi.fn();
+    render(
+      <ContextMenu x={0} y={0} items={createItems()} onClose={onClose} />,
+    );
+
+    fireEvent.resize(window);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("calls onClose when document becomes hidden", () => {
+    const onClose = vi.fn();
+    render(
+      <ContextMenu x={0} y={0} items={createItems()} onClose={onClose} />,
+    );
+
+    // visibilitychange handler only closes when state becomes "hidden"
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "hidden",
+    });
+    fireEvent(document, new Event("visibilitychange"));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does NOT call onClose when document becomes visible (only hidden triggers close)", () => {
+    const onClose = vi.fn();
+    render(
+      <ContextMenu x={0} y={0} items={createItems()} onClose={onClose} />,
+    );
+
+    Object.defineProperty(document, "visibilityState", {
+      configurable: true,
+      get: () => "visible",
+    });
+    fireEvent(document, new Event("visibilitychange"));
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it("renders icons when provided", () => {
     const items: MenuItem[] = [
       { label: "With Icon", icon: <span data-testid="menu-icon">*</span>, onClick: vi.fn() },
