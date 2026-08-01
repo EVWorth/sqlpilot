@@ -2,9 +2,15 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryFavorites } from "../QueryFavorites";
 
-const { useFavoritesStoreFn } = vi.hoisted(() => {
-  return { useFavoritesStoreFn: vi.fn() };
-});
+const { useFavoritesStoreFn, updateTabContent, addTab, editorState } = vi.hoisted(() => ({
+  useFavoritesStoreFn: vi.fn(),
+  updateTabContent: vi.fn(),
+  addTab: vi.fn(() => "newTabId"),
+  editorState: {
+    tabs: [{ id: "tab1", type: "query", content: "", isDirty: false }],
+    activeTabId: "tab1",
+  },
+}));
 
 vi.mock("../../../stores/favoritesStore", () => ({
   useFavoritesStore: useFavoritesStoreFn,
@@ -13,10 +19,9 @@ vi.mock("../../../stores/favoritesStore", () => ({
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: {
     getState: vi.fn(() => ({
-      tabs: [{ id: "tab1", type: "query", content: "" }],
-      activeTabId: "tab1",
-      addTab: vi.fn(() => "newTabId"),
-      updateTabContent: vi.fn(),
+      ...editorState,
+      addTab,
+      updateTabContent,
     })),
   },
 }));
@@ -106,6 +111,12 @@ beforeEach(() => {
   storeState.updateFavorite.mockClear();
   storeState.addCategory.mockClear();
   storeState.deleteCategory.mockClear();
+  updateTabContent.mockReset();
+  addTab.mockReset().mockReturnValue("newTabId");
+  editorState.tabs = [
+    { id: "tab1", type: "query", content: "", isDirty: false },
+  ];
+  editorState.activeTabId = "tab1";
 });
 
 afterEach(() => {
@@ -127,6 +138,50 @@ describe("QueryFavorites", () => {
   it("renders favorites container", () => {
     const { container } = render(<QueryFavorites />);
     expect(container.querySelector(".flex.h-full.flex-col")).toBeInTheDocument();
+  });
+
+  it("confirms before replacing a dirty query tab", () => {
+    editorState.tabs = [
+      {
+        id: "tab1",
+        type: "query",
+        content: "SELECT unsaved_work",
+        isDirty: true,
+      },
+    ];
+    render(<QueryFavorites />);
+
+    fireEvent.click(screen.getByText("Get Active Users"));
+
+    expect(screen.getByText("Replace current tab content?")).toBeInTheDocument();
+    expect(screen.getByText("Unsaved changes will be lost.")).toBeInTheDocument();
+    expect(updateTabContent).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(updateTabContent).toHaveBeenCalledWith(
+      "tab1",
+      "SELECT * FROM users WHERE active = 1",
+    );
+    expect(screen.queryByText("Unsaved changes will be lost.")).not.toBeInTheDocument();
+  });
+
+  it("keeps dirty query content when replacement is cancelled", () => {
+    editorState.tabs = [
+      {
+        id: "tab1",
+        type: "query",
+        content: "SELECT unsaved_work",
+        isDirty: true,
+      },
+    ];
+    render(<QueryFavorites />);
+
+    fireEvent.click(screen.getByText("Get Active Users"));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(updateTabContent).not.toHaveBeenCalled();
+    expect(screen.queryByText("Unsaved changes will be lost.")).not.toBeInTheDocument();
   });
 });
 
@@ -211,5 +266,54 @@ describe("QueryFavorites — delete category confirmation (#337)", () => {
     fireEvent.click(screen.getByTestId("ctx-item-Delete Category"));
 
     expect(screen.getByText("1 favorite will be moved to Uncategorized.")).toBeInTheDocument();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────
+// Issue #341: confirm before overwriting a dirty editor tab.
+// ─────────────────────────────────────────────────────────────────────────
+describe("QueryFavorites — dirty-tab overwrite confirmation (#341)", () => {
+  it("confirms before replacing a dirty query tab", () => {
+    editorState.tabs = [
+      {
+        id: "tab1",
+        type: "query",
+        content: "SELECT unsaved_work",
+        isDirty: true,
+      },
+    ];
+    render(<QueryFavorites />);
+
+    fireEvent.click(screen.getByText("Get Active Users"));
+
+    expect(screen.getByText("Replace current tab content?")).toBeInTheDocument();
+    expect(screen.getByText("Unsaved changes will be lost.")).toBeInTheDocument();
+    expect(updateTabContent).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirm" }));
+
+    expect(updateTabContent).toHaveBeenCalledWith(
+      "tab1",
+      "SELECT * FROM users WHERE active = 1",
+    );
+    expect(screen.queryByText("Unsaved changes will be lost.")).not.toBeInTheDocument();
+  });
+
+  it("keeps dirty query content when replacement is cancelled", () => {
+    editorState.tabs = [
+      {
+        id: "tab1",
+        type: "query",
+        content: "SELECT unsaved_work",
+        isDirty: true,
+      },
+    ];
+    render(<QueryFavorites />);
+
+    fireEvent.click(screen.getByText("Get Active Users"));
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    expect(updateTabContent).not.toHaveBeenCalled();
+    expect(screen.queryByText("Unsaved changes will be lost.")).not.toBeInTheDocument();
   });
 });

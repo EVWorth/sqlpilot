@@ -36,6 +36,8 @@ export function QueryFavorites() {
   const [editDescValue, setEditDescValue] = useState("");
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [pendingFavorite, setPendingFavorite] = useState<Favorite | null>(null);
+  const [showConfirm, setShowConfirm] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<{ cat: string; count: number } | null>(
     null,
   );
@@ -67,7 +69,7 @@ export function QueryFavorites() {
     return groups;
   }, [filtered, categories]);
 
-  const handleClick = (fav: Favorite) => {
+  const openFavorite = (fav: Favorite) => {
     const store = useEditorStore.getState();
     const activeTab = store.tabs.find((t) => t.id === store.activeTabId);
     if (activeTab && activeTab.type === "query") {
@@ -76,6 +78,30 @@ export function QueryFavorites() {
       const tabId = store.addTab();
       store.updateTabContent(tabId, fav.sql);
     }
+  };
+
+  const handleClick = (fav: Favorite) => {
+    const store = useEditorStore.getState();
+    const activeTab = store.tabs.find((t) => t.id === store.activeTabId);
+    if (activeTab?.type === "query" && activeTab.isDirty) {
+      setPendingFavorite(fav);
+      setShowConfirm(true);
+      return;
+    }
+    openFavorite(fav);
+  };
+
+  const handleConfirmReplace = () => {
+    if (pendingFavorite) {
+      openFavorite(pendingFavorite);
+    }
+    setPendingFavorite(null);
+    setShowConfirm(false);
+  };
+
+  const handleCancelReplace = () => {
+    setPendingFavorite(null);
+    setShowConfirm(false);
   };
 
   const handleDoubleClick = (fav: Favorite) => {
@@ -388,6 +414,13 @@ export function QueryFavorites() {
           setPendingDelete(null);
         }}
         onCancel={() => setPendingDelete(null)}
+      />
+      <ConfirmDialog
+        isOpen={showConfirm}
+        title="Replace current tab content?"
+        message="Unsaved changes will be lost."
+        onConfirm={handleConfirmReplace}
+        onCancel={handleCancelReplace}
       />
     </div>
   );
