@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryHistory } from "../QueryHistory";
 
 vi.mock("../../../stores/historyStore", () => ({
-  useHistoryStore: vi.fn(),
+  useHistoryStore: Object.assign(vi.fn(), { getState: vi.fn() }),
 }));
 
 vi.mock("../../../stores/editorStore", () => ({
@@ -14,6 +14,8 @@ vi.mock("../../../stores/editorStore", () => ({
 
 import { useEditorStore } from "../../../stores/editorStore";
 import { useHistoryStore } from "../../../stores/historyStore";
+
+const mockRemoveEntry = vi.fn();
 
 const mockEntries = [
   {
@@ -62,11 +64,19 @@ describe("QueryHistory", () => {
           entries: mockEntries,
           clearHistory: mockClearHistory,
           addEntry: vi.fn(),
-          removeEntry: vi.fn(),
+          removeEntry: mockRemoveEntry,
         });
       }
       return mockEntries;
     });
+    (
+      useHistoryStore as unknown as { getState: ReturnType<typeof vi.fn> }
+    ).getState.mockImplementation(() => ({
+      entries: mockEntries,
+      clearHistory: mockClearHistory,
+      addEntry: vi.fn(),
+      removeEntry: mockRemoveEntry,
+    }));
   });
 
   it("renders history entries", () => {
@@ -86,7 +96,12 @@ describe("QueryHistory", () => {
   it("shows empty state when no entries", () => {
     vi.mocked(useHistoryStore).mockImplementation((selector) => {
       if (typeof selector === "function") {
-        return selector({ entries: [], clearHistory: mockClearHistory, addEntry: vi.fn(), removeEntry: vi.fn() });
+        return selector({
+          entries: [],
+          clearHistory: mockClearHistory,
+          addEntry: vi.fn(),
+          removeEntry: mockRemoveEntry,
+        });
       }
       return [];
     });
@@ -168,5 +183,40 @@ describe("QueryHistory", () => {
     // There should be 2 success icons (checkcircle) and 1 error icon (xcircle)
     const successEntries = screen.getAllByText(/users|INSERT INTO logs/);
     expect(successEntries.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("renders a delete button for each entry", () => {
+    render(<QueryHistory />);
+    const deleteButtons = screen.getAllByLabelText("Delete entry");
+    expect(deleteButtons).toHaveLength(mockEntries.length);
+  });
+
+  it("calls removeEntry with the entry id when × button is clicked", () => {
+    render(<QueryHistory />);
+    const deleteButtons = screen.getAllByLabelText("Delete entry");
+
+    fireEvent.click(deleteButtons[0]);
+
+    expect(mockRemoveEntry).toHaveBeenCalledTimes(1);
+    expect(mockRemoveEntry).toHaveBeenCalledWith("entry-1");
+  });
+
+  it("does not trigger entry load when × button is clicked", () => {
+    const mockTabs = [{ id: "tab-1", title: "Query", content: "" }];
+    vi.mocked(useEditorStore.getState).mockReturnValue({
+      tabs: mockTabs,
+      activeTabId: "tab-1",
+      updateTabContent: mockUpdateTabContent,
+      addTab: mockAddTab,
+    });
+
+    render(<QueryHistory />);
+    const deleteButtons = screen.getAllByLabelText("Delete entry");
+
+    fireEvent.click(deleteButtons[2]);
+
+    expect(mockUpdateTabContent).not.toHaveBeenCalled();
+    expect(mockAddTab).not.toHaveBeenCalled();
+    expect(mockRemoveEntry).toHaveBeenCalledWith("entry-3");
   });
 });

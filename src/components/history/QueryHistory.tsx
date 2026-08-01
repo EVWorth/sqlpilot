@@ -1,4 +1,4 @@
-import { CheckCircle, Clock, Search, Trash2, XCircle } from "lucide-react";
+import { CheckCircle, Clock, Search, Trash2, X, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useEditorStore } from "../../stores/editorStore";
 import { type HistoryEntry, useHistoryStore } from "../../stores/historyStore";
@@ -48,6 +48,11 @@ export function QueryHistory() {
     }
   };
 
+  const handleRemove = (e: React.MouseEvent, entryId: string) => {
+    e.stopPropagation();
+    useHistoryStore.getState().removeEntry(entryId);
+  };
+
   return (
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-1 border-b border-[var(--color-border)] px-2 py-1.5">
@@ -85,9 +90,20 @@ export function QueryHistory() {
                 onClick={() => handleClick(entry)}
                 className="group flex w-full flex-col gap-0.5 border-b border-[var(--color-border)] px-2.5 py-2 text-left hover:bg-[var(--color-bg-tertiary)]"
               >
-                <pre className="line-clamp-2 whitespace-pre-wrap break-all font-mono text-[11px] leading-tight text-[var(--color-text-primary)]">
-                {entry.sql}
-                </pre>
+                <div className="flex items-start justify-between gap-1">
+                  <pre className="line-clamp-2 flex-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-tight text-[var(--color-text-primary)]">
+                    {entry.sql}
+                  </pre>
+                  <span
+                    role="button"
+                    aria-label="Delete entry"
+                    title="Delete entry"
+                    onClick={(e) => handleRemove(e, entry.id)}
+                    className="inline-flex shrink-0 cursor-pointer rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-secondary)] hover:text-red-400 group-hover:opacity-100"
+                  >
+                    <X className="h-3 w-3" />
+                  </span>
+                </div>
                 <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
                   {entry.status === "success"
                     ? <CheckCircle className="h-3 w-3 text-green-400" />
