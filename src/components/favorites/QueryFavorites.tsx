@@ -14,6 +14,7 @@ import { useMemo, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useEditorStore } from "../../stores/editorStore";
 import { type Favorite, useFavoritesStore } from "../../stores/favoritesStore";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 
 export function QueryFavorites() {
   const favorites = useFavoritesStore((s) => s.favorites);
@@ -35,6 +36,9 @@ export function QueryFavorites() {
   const [editDescValue, setEditDescValue] = useState("");
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
+  const [pendingDelete, setPendingDelete] = useState<{ cat: string; count: number } | null>(
+    null,
+  );
 
   const { contextMenu, showContextMenu } = useContextMenu();
 
@@ -212,7 +216,10 @@ export function QueryFavorites() {
                             label: "Delete Category",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
-                            onClick: () => deleteCategory(cat),
+                            onClick: () => {
+                              const count = favorites.filter((f) => f.category === cat).length;
+                              setPendingDelete({ cat, count });
+                            },
                           },
                         ]);
                       }
@@ -365,6 +372,23 @@ export function QueryFavorites() {
           )}
       </div>
       {contextMenu}
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        title={`Delete category "${pendingDelete?.cat ?? ""}"?`}
+        message={pendingDelete
+          ? `${pendingDelete.count} favorite${pendingDelete.count === 1 ? "" : "s"} will be moved to Uncategorized.`
+          : ""}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => {
+          if (pendingDelete) {
+            deleteCategory(pendingDelete.cat);
+          }
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
     </div>
   );
 }
