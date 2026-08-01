@@ -10,6 +10,7 @@ import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useThemeStore } from "../../stores/themeStore";
 import { AIChatPanel } from "../ai/AIChatPanel";
 import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
@@ -160,6 +161,18 @@ export function AppLayout() {
           break;
         case "check-for-updates":
           void useSettingsStore.getState().checkForUpdates();
+          break;
+        case "cycle-theme":
+          // Cycle Dark → Light → System, mirroring Toolbar.cycleTheme so
+          // macOS users get the same one-click action as everyone else.
+          // (refs #453)
+          {
+            const themeStore = useThemeStore.getState();
+            const themeOrder = ["dark", "light", "system"] as const;
+            const idx = themeOrder.indexOf(themeStore.theme);
+            const next = themeOrder[(idx + 1) % themeOrder.length];
+            themeStore.setTheme(next);
+          }
           break;
         case "about":
           setHelpTab("about");
