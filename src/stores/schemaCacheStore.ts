@@ -26,7 +26,7 @@ interface SchemaCache {
   refreshSchema: () => Promise<void>;
 }
 
-export const useSchemaCache = create<SchemaCache>((set, get) => ({
+export const useSchemaCacheStore = create<SchemaCache>((set, get) => ({
   connectionId: null,
   databases: [],
   tables: new Map(),

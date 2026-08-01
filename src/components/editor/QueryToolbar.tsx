@@ -16,7 +16,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { format } from "sql-formatter";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
-import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { postProcessSQL } from "../../lib/sql-post-process";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -46,8 +46,8 @@ export function QueryToolbar() {
     (s) => s.selectedConnectionId,
   );
   const activeConnections = useConnectionStore((s) => s.activeConnections);
-  const refreshSchema = useSchemaCache((s) => s.refreshSchema);
-  const schemaLoading = useSchemaCache((s) => s.loading);
+  const refreshSchema = useSchemaCacheStore((s) => s.refreshSchema);
+  const schemaLoading = useSchemaCacheStore((s) => s.loading);
 
   const {
     executeQuery,

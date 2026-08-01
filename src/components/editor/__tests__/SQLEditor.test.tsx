@@ -132,8 +132,8 @@ vi.mock("../../../stores/settingsStore", () => ({
 }));
 
 // Mock schema cache store
-vi.mock("../../../hooks/useSchemaCache", () => ({
-  useSchemaCache: vi.fn((selector?: (s: any) => any) => {
+vi.mock("../../../stores/schemaCacheStore", () => ({
+  useSchemaCacheStore: vi.fn((selector?: (s: any) => any) => {
     const state = {
       connectionId: null,
       databases: [],

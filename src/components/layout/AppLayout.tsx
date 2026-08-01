@@ -3,7 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
-import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { useTheme } from "../../hooks/useTheme";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -140,7 +140,7 @@ export function AppLayout() {
           if (selectedConnectionId) disconnect(selectedConnectionId);
           break;
         case "refresh-schema":
-          useSchemaCache.getState().refreshSchema();
+          useSchemaCacheStore.getState().refreshSchema();
           break;
         case "compare-schemas":
           addCompareTab();

@@ -156,8 +156,8 @@ vi.mock("../../stores/resultStore", () => ({
   ),
 }));
 
-vi.mock("../../hooks/useSchemaCache", () => ({
-  useSchemaCache: vi.fn(() => ({
+vi.mock("../../stores/schemaCacheStore", () => ({
+  useSchemaCacheStore: vi.fn(() => ({
     connectionId: "conn-1",
     databases: [],
     tables: [],
@@ -214,8 +214,8 @@ vi.mock("../../stores/themeStore", () => ({
   }),
 }));
 
-vi.mock("../../hooks/useSchemaCache", () => ({
-  useSchemaCache: vi.fn((selector?: (s: object) => unknown) => {
+vi.mock("../../stores/schemaCacheStore", () => ({
+  useSchemaCacheStore: vi.fn((selector?: (s: object) => unknown) => {
     const state = {
       connectionId: null,
       databases: [],
@@ -308,7 +308,7 @@ describe("SQLEditor (browser)", () => {
     expect(m.mockExecuteExplainAnalyze).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined);
   });
 
-  it("refresh-schema.run calls useSchemaCache.refreshSchema", async () => {
+  it("refresh-schema.run calls useSchemaCacheStore.refreshSchema", async () => {
     render(<SQLEditor />);
     await waitFor(() => {
       expect(m.capturedActions.some((a) => a.id === "refresh-schema")).toBe(true);

@@ -2,7 +2,7 @@ import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
 import type { editor, IDisposable } from "monaco-editor";
 import { useCallback, useEffect, useRef } from "react";
 import { format } from "sql-formatter";
-import { useSchemaCache } from "../../hooks/useSchemaCache";
+import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { postProcessSQL } from "../../lib/sql-post-process";
 import { getStatementAtCursor } from "../../lib/statement-at-cursor";
@@ -47,7 +47,7 @@ export function SQLEditor() {
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
-  const schemaCache = useSchemaCache();
+  const schemaCache = useSchemaCacheStore();
 
   // Sync schema cache with active connection
   useEffect(() => {
@@ -274,7 +274,7 @@ export function SQLEditor() {
           64,
         ],
         run: async () => {
-          await useSchemaCache.getState().refreshSchema();
+          await useSchemaCacheStore.getState().refreshSchema();
         },
       });
 

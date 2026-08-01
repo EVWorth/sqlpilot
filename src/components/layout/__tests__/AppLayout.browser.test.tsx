@@ -127,8 +127,8 @@ vi.mock("../../../hooks/useKeyboardShortcuts", () => ({
 vi.mock("../../../hooks/useTheme", () => ({
   useTheme: vi.fn(),
 }));
-vi.mock("../../../hooks/useSchemaCache", () => ({
-  useSchemaCache: {
+vi.mock("../../../stores/schemaCacheStore", () => ({
+  useSchemaCacheStore: {
     getState: vi.fn(() => ({ refreshSchema: vi.fn() })),
   },
 }));
@@ -652,8 +652,8 @@ describe("AppLayout (browser)", () => {
   // ─── Menu action: refresh-schema ───
   it("handles refresh-schema menu action", async () => {
     const refreshSpy = vi.fn();
-    const schemaCacheModule = await import("../../../hooks/useSchemaCache");
-    vi.mocked(schemaCacheModule.useSchemaCache.getState).mockReturnValue({ refreshSchema: refreshSpy } as any);
+    const schemaCacheModule = await import("../../../stores/schemaCacheStore");
+    vi.mocked(schemaCacheModule.useSchemaCacheStore.getState).mockReturnValue({ refreshSchema: refreshSpy } as any);
     await renderApp();
     await act(async () => {
       window.dispatchEvent(new CustomEvent("menu-action", { detail: "refresh-schema" }));
