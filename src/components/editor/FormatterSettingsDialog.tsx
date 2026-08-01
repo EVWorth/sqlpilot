@@ -1,5 +1,5 @@
 import { Settings2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { type FormatterSettings, useSettingsStore } from "../../stores/settingsStore";
 
 interface FormatterSettingsDialogProps {
@@ -24,6 +24,14 @@ const DEFAULTS: FormatterSettings = {
 
 type CaseOption = "upper" | "lower" | "preserve";
 
+function shallowEqual(a: FormatterSettings, b: FormatterSettings): boolean {
+  const keys = Object.keys(a) as (keyof FormatterSettings)[];
+  for (const k of keys) {
+    if (a[k] !== b[k]) return false;
+  }
+  return true;
+}
+
 export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDialogProps) {
   const { formatterSettings, setFormatterSettings } = useSettingsStore();
   // Always merge with defaults so new fields are never undefined
@@ -34,9 +42,21 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
     if (isOpen) setLocal({ ...DEFAULTS, ...formatterSettings });
   }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Dirty = any field differs from the persisted settings. Saves a no-op
+  // localStorage round-trip when the user opens the dialog and clicks Save
+  // without changing anything. (refs GH-#349)
+  const isDirty = useMemo(
+    () => !shallowEqual(local, formatterSettings),
+    [local, formatterSettings],
+  );
+
   if (!isOpen) return null;
 
   const handleSave = () => {
+    if (!isDirty) {
+      onClose();
+      return;
+    }
     setFormatterSettings(local);
     onClose();
   };
@@ -88,6 +108,13 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
           <Settings2 className="h-4 w-4 text-[var(--color-text-muted)]" />
           <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
             SQL Formatter Settings
+            {isDirty && (
+              <span
+                aria-label="unsaved changes"
+                title="Unsaved changes"
+                className="ml-2 inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-accent)] align-middle"
+              />
+            )}
           </h2>
         </div>
 
@@ -236,7 +263,8 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
             </button>
             <button
               onClick={handleSave}
-              className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white hover:opacity-90 transition-opacity"
+              disabled={!isDirty}
+              className="rounded bg-[var(--color-accent)] px-3 py-1 text-xs font-medium text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-50 hover:enabled:opacity-90"
             >
               Save
             </button>
