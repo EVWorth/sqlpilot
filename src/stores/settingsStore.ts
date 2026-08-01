@@ -78,6 +78,7 @@ interface DownloadProgress {
 interface SettingsState {
   querySettings: QuerySettings;
   formatterSettings: FormatterSettings;
+  settingsStorageError: string | null;
   updateStatus:
     | "idle"
     | "checking"
@@ -111,6 +112,7 @@ function buildRpmUrl(version: string): string {
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   querySettings: loadQuerySettings(),
   formatterSettings: loadSettings(),
+  settingsStorageError: null,
   updateStatus: "idle",
   updateVersion: null,
   updateError: null,
@@ -206,20 +208,44 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setUpdateError: (message) => set({ updateError: message }),
 
   setQuerySettings: (settings) => {
+    let storageError: string | null = null;
     try {
       localStorage.setItem(QUERY_SETTINGS_KEY, JSON.stringify(settings));
-    } catch {
-      // localStorage unavailable
+    } catch (e) {
+      // Quota exceeded, Safari private mode, or storage disabled. Without a
+      // visible signal here the user's settings silently revert to defaults
+      // on next launch. (refs #454)
+      storageError = describeStorageError(e, "query settings");
+      console.warn("[settingsStore] could not persist query settings:", e);
     }
-    set({ querySettings: settings });
+    set({ querySettings: settings, settingsStorageError: storageError });
   },
 
   setFormatterSettings: (settings) => {
+    let storageError: string | null = null;
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-    } catch {
-      // localStorage unavailable
+    } catch (e) {
+      storageError = describeStorageError(e, "formatter settings");
+      console.warn("[settingsStore] could not persist formatter settings:", e);
     }
-    set({ formatterSettings: settings });
+    set({ formatterSettings: settings, settingsStorageError: storageError });
   },
 }));
+
+/**
+ * Convert a caught `localStorage.setItem` exception into a short, user-facing
+ * description for the `settingsStorageError` store slot. Distinguishes
+ * QuotaExceededError from generic failures so the UI can suggest "clear
+ * space" vs "check privacy mode".
+ */
+function describeStorageError(e: unknown, label: string): string {
+  if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
+    return `Could not save ${label}: browser storage quota exceeded. Clear site data or free up space, then re-save.`;
+  }
+  if (e instanceof DOMException && (e.name === "SecurityError" || e.code === 18)) {
+    return `Could not save ${label}: browser storage access blocked (private mode or disabled cookies).`;
+  }
+  const msg = e instanceof Error ? e.message : String(e);
+  return `Could not save ${label}: ${msg}`;
+}
