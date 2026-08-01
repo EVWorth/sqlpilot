@@ -38,6 +38,9 @@ export function QueryFavorites() {
   const [newCategoryName, setNewCategoryName] = useState("");
   const [pendingFavorite, setPendingFavorite] = useState<Favorite | null>(null);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<{ cat: string; count: number } | null>(
+    null,
+  );
 
   const { contextMenu, showContextMenu } = useContextMenu();
 
@@ -239,7 +242,10 @@ export function QueryFavorites() {
                             label: "Delete Category",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
-                            onClick: () => deleteCategory(cat),
+                            onClick: () => {
+                              const count = favorites.filter((f) => f.category === cat).length;
+                              setPendingDelete({ cat, count });
+                            },
                           },
                         ]);
                       }
@@ -392,6 +398,23 @@ export function QueryFavorites() {
           )}
       </div>
       {contextMenu}
+      <ConfirmDialog
+        isOpen={pendingDelete !== null}
+        title={`Delete category "${pendingDelete?.cat ?? ""}"?`}
+        message={pendingDelete
+          ? `${pendingDelete.count} favorite${pendingDelete.count === 1 ? "" : "s"} will be moved to Uncategorized.`
+          : ""}
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => {
+          if (pendingDelete) {
+            deleteCategory(pendingDelete.cat);
+          }
+          setPendingDelete(null);
+        }}
+        onCancel={() => setPendingDelete(null)}
+      />
       <ConfirmDialog
         isOpen={showConfirm}
         title="Replace current tab content?"
