@@ -20,7 +20,7 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
-db-keystore = "0.4"
+db-keystore = "0.5"
 mas-admin = { path = "../mas-admin" }
 mas-export = { path = "../mas-export" }
 tempfile = "3"
