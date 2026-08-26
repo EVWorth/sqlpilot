@@ -17,6 +17,7 @@ import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { type StorageErrorKey, useStorageErrorStore } from "../../stores/storageErrorStore";
 import type { ConnectionEnvironment } from "../../types";
 
 const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
@@ -48,6 +49,8 @@ export function StatusBar() {
     (s) => s.selectedConnectionId,
   );
   const connectionError = useConnectionStore((s) => s.error);
+  const storageErrors = useStorageErrorStore((s) => s.errors);
+  const dismissStorageError = useStorageErrorStore((s) => s.dismissStorageError);
   const clearConnectionError = useConnectionStore((s) => s.clearError);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const results = useResultStore((s) => s.results);
@@ -55,6 +58,8 @@ export function StatusBar() {
   const error = useResultStore((s) => s.error);
   const tabs = useEditorStore((s) => s.tabs);
   const activeTabId = useEditorStore((s) => s.activeTabId);
+
+  const storageErrorEntries = Object.entries(storageErrors);
 
   const [showFullError, setShowFullError] = useState(false);
   const [showUpdateDetails, setShowUpdateDetails] = useState(false);
@@ -221,6 +226,17 @@ export function StatusBar() {
             <span className="truncate">{connectionError}</span>
           </button>
         )}
+        {storageErrorEntries.map(([key, message]) => (
+          <button
+            key={key}
+            onClick={() => dismissStorageError(key as StorageErrorKey)}
+            className="flex items-center gap-1 text-[10px] text-yellow-400 max-w-[300px] hover:text-yellow-300 transition-colors"
+            title={`${message} — click to dismiss`}
+          >
+            <AlertTriangle className="h-3 w-3 flex-shrink-0" />
+            <span className="truncate">{message}</span>
+          </button>
+        ))}
         {error && !isExecuting && (
           <button
             onClick={() => setShowFullError(!showFullError)}

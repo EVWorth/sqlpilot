@@ -2,6 +2,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
+import { type StorageErrorKey, useStorageErrorStore } from "./storageErrorStore";
 
 export interface QuerySettings {
   maxResultRows: number;
@@ -78,7 +79,6 @@ interface DownloadProgress {
 interface SettingsState {
   querySettings: QuerySettings;
   formatterSettings: FormatterSettings;
-  settingsStorageError: string | null;
   updateStatus:
     | "idle"
     | "checking"
@@ -109,10 +109,30 @@ function buildRpmUrl(version: string): string {
   return `https://github.com/EVWorth/sqlpilot/releases/download/v${version}/SQLPilot-${version}-1.x86_64.rpm`;
 }
 
+/**
+ * Write one settings blob to localStorage, routing any failure to the shared
+ * storage-error store so the StatusBar can show it. Quota exhaustion or a
+ * blocked store would otherwise revert the user's settings on next launch
+ * with no signal at all. (refs #454)
+ */
+function persist(
+  storageKey: string,
+  value: unknown,
+  errorKey: StorageErrorKey,
+  label: string,
+): void {
+  const { reportStorageError } = useStorageErrorStore.getState();
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(value));
+    reportStorageError(errorKey, null, label);
+  } catch (e) {
+    reportStorageError(errorKey, e, label);
+  }
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   querySettings: loadQuerySettings(),
   formatterSettings: loadSettings(),
-  settingsStorageError: null,
   updateStatus: "idle",
   updateVersion: null,
   updateError: null,
@@ -208,44 +228,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setUpdateError: (message) => set({ updateError: message }),
 
   setQuerySettings: (settings) => {
-    let storageError: string | null = null;
-    try {
-      localStorage.setItem(QUERY_SETTINGS_KEY, JSON.stringify(settings));
-    } catch (e) {
-      // Quota exceeded, Safari private mode, or storage disabled. Without a
-      // visible signal here the user's settings silently revert to defaults
-      // on next launch. (refs #454)
-      storageError = describeStorageError(e, "query settings");
-      console.warn("[settingsStore] could not persist query settings:", e);
-    }
-    set({ querySettings: settings, settingsStorageError: storageError });
+    persist(QUERY_SETTINGS_KEY, settings, "query-settings", "query settings");
+    set({ querySettings: settings });
   },
 
   setFormatterSettings: (settings) => {
-    let storageError: string | null = null;
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-    } catch (e) {
-      storageError = describeStorageError(e, "formatter settings");
-      console.warn("[settingsStore] could not persist formatter settings:", e);
-    }
-    set({ formatterSettings: settings, settingsStorageError: storageError });
+    persist(STORAGE_KEY, settings, "formatter-settings", "formatter settings");
+    set({ formatterSettings: settings });
   },
 }));
-
-/**
- * Convert a caught `localStorage.setItem` exception into a short, user-facing
- * description for the `settingsStorageError` store slot. Distinguishes
- * QuotaExceededError from generic failures so the UI can suggest "clear
- * space" vs "check privacy mode".
- */
-function describeStorageError(e: unknown, label: string): string {
-  if (e instanceof DOMException && (e.name === "QuotaExceededError" || e.code === 22)) {
-    return `Could not save ${label}: browser storage quota exceeded. Clear site data or free up space, then re-save.`;
-  }
-  if (e instanceof DOMException && (e.name === "SecurityError" || e.code === 18)) {
-    return `Could not save ${label}: browser storage access blocked (private mode or disabled cookies).`;
-  }
-  const msg = e instanceof Error ? e.message : String(e);
-  return `Could not save ${label}: ${msg}`;
-}

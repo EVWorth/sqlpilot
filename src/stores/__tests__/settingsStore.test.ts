@@ -177,7 +177,7 @@ describe("settingsStore", () => {
     });
   });
 
-  describe("storage failure surfacing (issue #454)", () => {
+  describe("storage failure reporting (issue #454)", () => {
     let spyWarn: ReturnType<typeof vi.spyOn>;
 
     beforeEach(() => {
@@ -187,99 +187,89 @@ describe("settingsStore", () => {
 
     afterEach(() => {
       spyWarn.mockRestore();
-      // localStorage is shared across tests; clean it between runs.
       if (typeof window !== "undefined" && window.localStorage) {
         window.localStorage.clear();
       }
     });
 
-    it("setQuerySettings sets settingsStorageError when localStorage throws QuotaExceededError", async () => {
-      const { useSettingsStore } = await import("../settingsStore");
-
-      // jsdom's localStorage keeps setItem as an own property; spy on the
-      // instance, not the prototype, so the override actually fires.
-      const throwQuota = () => {
-        throw new DOMException("quota", "QuotaExceededError");
-      };
+    async function withFailingSetItem(err: DOMException, fn: () => void) {
       const original = window.localStorage.setItem;
-      // @ts-expect-error -- testing assignment to host-provided method
-      window.localStorage.setItem = throwQuota;
-
+      // jsdom keeps setItem as an own property; override the instance.
+      // @ts-expect-error -- testing assignment to a host-provided method
+      window.localStorage.setItem = () => {
+        throw err;
+      };
       try {
+        fn();
+      } finally {
+        window.localStorage.setItem = original;
+      }
+    }
+
+    it("reports a quota failure for query settings", async () => {
+      const { useSettingsStore } = await import("../settingsStore");
+      const { useStorageErrorStore } = await import("../storageErrorStore");
+
+      await withFailingSetItem(new DOMException("quota", "QuotaExceededError"), () => {
         useSettingsStore.getState().setQuerySettings({
           maxResultRows: 999,
           limitEnabled: true,
         });
+      });
 
-        // In-memory write still succeeded.
-        expect(useSettingsStore.getState().querySettings.maxResultRows).toBe(999);
-        // Persistence failed; error surfaced.
-        const err = useSettingsStore.getState().settingsStorageError;
-        expect(typeof err).toBe("string");
-        expect(err).toMatch(/quota/i);
-        expect(err).toMatch(/query settings/);
-        // Also logged via console.warn
-        expect(spyWarn).toHaveBeenCalled();
-      } finally {
-        window.localStorage.setItem = original;
-      }
+      // In-memory write still succeeded.
+      expect(useSettingsStore.getState().querySettings.maxResultRows).toBe(999);
+
+      const message = useStorageErrorStore.getState().errors["query-settings"];
+      expect(message).toMatch(/quota/i);
+      expect(message).toMatch(/query settings/);
+      expect(spyWarn).toHaveBeenCalled();
     });
 
-    it("setFormatterSettings sets settingsStorageError when localStorage throws SecurityError", async () => {
+    it("reports a blocked-storage failure for formatter settings", async () => {
       const { useSettingsStore } = await import("../settingsStore");
+      const { useStorageErrorStore } = await import("../storageErrorStore");
 
-      const throwSecurity = () => {
-        throw new DOMException("blocked", "SecurityError");
-      };
-      const original = window.localStorage.setItem;
-      // @ts-expect-error -- testing assignment to host-provided method
-      window.localStorage.setItem = throwSecurity;
-
-      try {
+      await withFailingSetItem(new DOMException("blocked", "SecurityError"), () => {
         useSettingsStore.getState().setFormatterSettings({
           ...defaultFormatterSettings,
           tabWidth: 4,
         });
+      });
 
-        const err = useSettingsStore.getState().settingsStorageError;
-        expect(typeof err).toBe("string");
-        expect(err).toMatch(/private mode|cookies|blocked/i);
-      } finally {
-        window.localStorage.setItem = original;
-      }
+      expect(useStorageErrorStore.getState().errors["formatter-settings"]).toMatch(
+        /private mode|cookies|blocked/i,
+      );
     });
 
-    it("clears settingsStorageError on a successful write after a prior failure", async () => {
+    it("clears the error on a later successful write", async () => {
       const { useSettingsStore } = await import("../settingsStore");
+      const { useStorageErrorStore } = await import("../storageErrorStore");
 
-      let calls = 0;
-      let storeOriginal: ((k: string, v: string) => void) | null = null;
-      storeOriginal = window.localStorage.setItem;
-      // @ts-expect-error -- testing
-      window.localStorage.setItem = (() => {
-        calls += 1;
-        if (calls === 1) {
-          throw new DOMException("quota", "QuotaExceededError");
-        }
-        // second call: real write
-        return storeOriginal!.call(window.localStorage, "k", "v");
-      }) as typeof window.localStorage.setItem;
+      await withFailingSetItem(new DOMException("quota", "QuotaExceededError"), () => {
+        useSettingsStore.getState().setQuerySettings({ maxResultRows: 1, limitEnabled: false });
+      });
+      expect(useStorageErrorStore.getState().errors["query-settings"]).toMatch(/quota/i);
 
-      try {
-        useSettingsStore.getState().setQuerySettings({
-          maxResultRows: 1,
-          limitEnabled: false,
+      useSettingsStore.getState().setQuerySettings({ maxResultRows: 2, limitEnabled: false });
+      expect(useStorageErrorStore.getState().errors["query-settings"]).toBeUndefined();
+    });
+
+    it("keeps the two settings errors independent (one key does not clear the other)", async () => {
+      const { useSettingsStore } = await import("../settingsStore");
+      const { useStorageErrorStore } = await import("../storageErrorStore");
+
+      await withFailingSetItem(new DOMException("quota", "QuotaExceededError"), () => {
+        useSettingsStore.getState().setFormatterSettings({
+          ...defaultFormatterSettings,
+          tabWidth: 4,
         });
-        expect(useSettingsStore.getState().settingsStorageError).toMatch(/quota/i);
+      });
+      expect(useStorageErrorStore.getState().errors["formatter-settings"]).toBeDefined();
 
-        useSettingsStore.getState().setQuerySettings({
-          maxResultRows: 2,
-          limitEnabled: false,
-        });
-        expect(useSettingsStore.getState().settingsStorageError).toBeNull();
-      } finally {
-        window.localStorage.setItem = storeOriginal;
-      }
+      // A successful *query* settings write must not wipe the formatter error.
+      useSettingsStore.getState().setQuerySettings({ maxResultRows: 5, limitEnabled: false });
+      expect(useStorageErrorStore.getState().errors["formatter-settings"]).toBeDefined();
     });
   });
 
