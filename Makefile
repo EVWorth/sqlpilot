@@ -3,7 +3,7 @@
 # Quick setup (install system deps + npm + check rust)
 setup:
 	@echo "Installing Tauri system dependencies (requires sudo)..."
-	sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libssl-dev
+	sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
 	@echo "Installing npm dependencies..."
 	npm install
 	@echo "Checking Rust toolchain..."

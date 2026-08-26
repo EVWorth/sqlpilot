@@ -150,7 +150,7 @@ Pre-built binaries are available on the [Releases](https://github.com/EVWorth/sq
 **Linux/WSL system dependencies** (for Tauri desktop builds):
 
 ```bash
-sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev libssl-dev
+sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
 ```
 
 ### Setup
