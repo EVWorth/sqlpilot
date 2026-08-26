@@ -163,16 +163,9 @@ export function AppLayout() {
           void useSettingsStore.getState().checkForUpdates();
           break;
         case "cycle-theme":
-          // Cycle Dark → Light → System, mirroring Toolbar.cycleTheme so
-          // macOS users get the same one-click action as everyone else.
-          // (refs #453)
-          {
-            const themeStore = useThemeStore.getState();
-            const themeOrder = ["dark", "light", "system"] as const;
-            const idx = themeOrder.indexOf(themeStore.theme);
-            const next = themeOrder[(idx + 1) % themeOrder.length];
-            themeStore.setTheme(next);
-          }
+          // Reaches here from the inline MenuBar (Windows/Linux) and from the
+          // native Help menu on macOS, which is the surface #453 was about.
+          useThemeStore.getState().cycleTheme();
           break;
         case "about":
           setHelpTab("about");

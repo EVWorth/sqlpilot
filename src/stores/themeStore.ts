@@ -6,7 +6,11 @@ interface ThemeState {
   theme: ThemeMode;
   effectiveTheme: "dark" | "light";
   setTheme: (theme: ThemeMode) => void;
+  cycleTheme: () => void;
 }
+
+/** Order the theme toggles step through: Dark → Light → System → Dark. */
+export const themeOrder: ThemeMode[] = ["dark", "light", "system"];
 
 function resolveEffective(theme: ThemeMode): "dark" | "light" {
   if (theme === "system") {
@@ -32,7 +36,7 @@ const stored = (() => {
 const initialEffective = resolveEffective(stored);
 applyTheme(initialEffective);
 
-export const useThemeStore = create<ThemeState>((set) => ({
+export const useThemeStore = create<ThemeState>((set, get) => ({
   theme: stored,
   effectiveTheme: initialEffective,
 
@@ -45,6 +49,11 @@ export const useThemeStore = create<ThemeState>((set) => ({
       // localStorage unavailable
     }
     set({ theme, effectiveTheme: effective });
+  },
+
+  cycleTheme: () => {
+    const idx = themeOrder.indexOf(get().theme);
+    get().setTheme(themeOrder[(idx + 1) % themeOrder.length]);
   },
 }));
 

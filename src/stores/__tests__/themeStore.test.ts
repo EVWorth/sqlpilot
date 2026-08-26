@@ -29,6 +29,23 @@ describe("themeStore", () => {
     expect(state.effectiveTheme).toBe("dark");
   });
 
+  it("cycleTheme steps dark → light → system → dark (refs #453)", () => {
+    const cycle = () => useThemeStore.getState().cycleTheme();
+
+    cycle();
+    expect(useThemeStore.getState().theme).toBe("light");
+    cycle();
+    expect(useThemeStore.getState().theme).toBe("system");
+    cycle();
+    expect(useThemeStore.getState().theme).toBe("dark");
+  });
+
+  it("cycleTheme persists and applies like setTheme does", () => {
+    useThemeStore.getState().cycleTheme();
+    expect(localStorage.getItem("theme")).toBe("light");
+    expect(document.documentElement.dataset.theme).toBe("light");
+  });
+
   it("persists theme to localStorage", () => {
     useThemeStore.getState().setTheme("light");
     expect(localStorage.getItem("theme")).toBe("light");

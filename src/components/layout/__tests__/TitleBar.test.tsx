@@ -75,6 +75,7 @@ let _connState = {
 
 let _themeState: any = { theme: "dark", effectiveTheme: "dark" };
 const mockSetTheme = vi.fn();
+const mockCycleTheme = vi.fn();
 
 vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: Object.assign(
@@ -85,7 +86,9 @@ vi.mock("../../../stores/connectionStore", () => ({
 
 vi.mock("../../../stores/themeStore", () => ({
   useThemeStore: Object.assign(
-    vi.fn((selector: (s: any) => any) => selector({ ..._themeState, setTheme: mockSetTheme })),
+    vi.fn((selector: (s: any) => any) =>
+      selector({ ..._themeState, setTheme: mockSetTheme, cycleTheme: mockCycleTheme })
+    ),
     {
       getState: vi.fn(() => _themeState),
       setState: vi.fn((partial: any) => {
@@ -117,6 +120,7 @@ describe("TitleBar", () => {
     };
     _themeState = { theme: "dark", effectiveTheme: "dark" };
     mockSetTheme.mockClear();
+    mockCycleTheme.mockClear();
   });
 
   it("renders the MenuBar", () => {
@@ -197,7 +201,7 @@ describe("TitleBar", () => {
     render(<TitleBar />);
     const themeBtn = screen.getByTitle(/Theme:/);
     fireEvent.click(themeBtn);
-    expect(mockSetTheme).toHaveBeenCalledWith("light");
+    expect(mockCycleTheme).toHaveBeenCalledTimes(1);
   });
 
   it("shows system context menu on right click", () => {

@@ -22,7 +22,6 @@ interface ToolbarProps {
   aiEnabled?: boolean;
 }
 
-const themeOrder: ThemeMode[] = ["dark", "light", "system"];
 const themeIcons: Record<ThemeMode, typeof Sun> = { dark: Moon, light: Sun, system: Monitor };
 const themeLabels: Record<ThemeMode, string> = { dark: "Dark", light: "Light", system: "System" };
 
@@ -31,7 +30,7 @@ export function Toolbar(
 ) {
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const theme = useThemeStore((s) => s.theme);
-  const setTheme = useThemeStore((s) => s.setTheme);
+  const cycleTheme = useThemeStore((s) => s.cycleTheme);
 
   const handleOpenAdmin = () => {
     if (!selectedConnectionId) return;
@@ -40,11 +39,6 @@ export function Toolbar(
 
   const handleOpenCompare = () => {
     useEditorStore.getState().addCompareTab();
-  };
-
-  const cycleTheme = () => {
-    const idx = themeOrder.indexOf(theme);
-    setTheme(themeOrder[(idx + 1) % themeOrder.length]);
   };
 
   const ThemeIcon = themeIcons[theme];

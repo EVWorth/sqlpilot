@@ -22,7 +22,6 @@ import { MenuBar } from "./MenuBar";
 
 const appWindow = getCurrentWindow();
 
-const themeOrder: ThemeMode[] = ["dark", "light", "system"];
 const themeIcons: Record<ThemeMode, typeof Sun> = { dark: Moon, light: Sun, system: Monitor };
 const themeLabels: Record<ThemeMode, string> = { dark: "Dark", light: "Light", system: "System" };
 
@@ -56,7 +55,7 @@ export function TitleBar(
 
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const theme = useThemeStore((s) => s.theme);
-  const setTheme = useThemeStore((s) => s.setTheme);
+  const cycleTheme = useThemeStore((s) => s.cycleTheme);
   const ThemeIcon = themeIcons[theme];
 
   const handleOpenAdmin = () => {
@@ -64,10 +63,6 @@ export function TitleBar(
     useEditorStore.getState().addAdminTab(selectedConnectionId);
   };
   const handleOpenCompare = () => useEditorStore.getState().addCompareTab();
-  const cycleTheme = () => {
-    const idx = themeOrder.indexOf(theme);
-    setTheme(themeOrder[(idx + 1) % themeOrder.length]);
-  };
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
