@@ -2,6 +2,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
+import { type StorageErrorKey, useStorageErrorStore } from "./storageErrorStore";
 
 export interface QuerySettings {
   maxResultRows: number;
@@ -108,6 +109,27 @@ function buildRpmUrl(version: string): string {
   return `https://github.com/EVWorth/sqlpilot/releases/download/v${version}/SQLPilot-${version}-1.x86_64.rpm`;
 }
 
+/**
+ * Write one settings blob to localStorage, routing any failure to the shared
+ * storage-error store so the StatusBar can show it. Quota exhaustion or a
+ * blocked store would otherwise revert the user's settings on next launch
+ * with no signal at all. (refs #454)
+ */
+function persist(
+  storageKey: string,
+  value: unknown,
+  errorKey: StorageErrorKey,
+  label: string,
+): void {
+  const { reportStorageError } = useStorageErrorStore.getState();
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(value));
+    reportStorageError(errorKey, null, label);
+  } catch (e) {
+    reportStorageError(errorKey, e, label);
+  }
+}
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   querySettings: loadQuerySettings(),
   formatterSettings: loadSettings(),
@@ -206,20 +228,12 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setUpdateError: (message) => set({ updateError: message }),
 
   setQuerySettings: (settings) => {
-    try {
-      localStorage.setItem(QUERY_SETTINGS_KEY, JSON.stringify(settings));
-    } catch {
-      // localStorage unavailable
-    }
+    persist(QUERY_SETTINGS_KEY, settings, "query-settings", "query settings");
     set({ querySettings: settings });
   },
 
   setFormatterSettings: (settings) => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
-    } catch {
-      // localStorage unavailable
-    }
+    persist(STORAGE_KEY, settings, "formatter-settings", "formatter settings");
     set({ formatterSettings: settings });
   },
 }));

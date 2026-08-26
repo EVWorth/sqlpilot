@@ -177,6 +177,102 @@ describe("settingsStore", () => {
     });
   });
 
+  describe("storage failure reporting (issue #454)", () => {
+    let spyWarn: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      vi.resetModules();
+      spyWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      spyWarn.mockRestore();
+      if (typeof window !== "undefined" && window.localStorage) {
+        window.localStorage.clear();
+      }
+    });
+
+    async function withFailingSetItem(err: DOMException, fn: () => void) {
+      const original = window.localStorage.setItem;
+      // jsdom keeps setItem as an own property; override the instance.
+      // @ts-expect-error -- testing assignment to a host-provided method
+      window.localStorage.setItem = () => {
+        throw err;
+      };
+      try {
+        fn();
+      } finally {
+        window.localStorage.setItem = original;
+      }
+    }
+
+    it("reports a quota failure for query settings", async () => {
+      const { useSettingsStore } = await import("../settingsStore");
+      const { useStorageErrorStore } = await import("../storageErrorStore");
+
+      await withFailingSetItem(new DOMException("quota", "QuotaExceededError"), () => {
+        useSettingsStore.getState().setQuerySettings({
+          maxResultRows: 999,
+          limitEnabled: true,
+        });
+      });
+
+      // In-memory write still succeeded.
+      expect(useSettingsStore.getState().querySettings.maxResultRows).toBe(999);
+
+      const message = useStorageErrorStore.getState().errors["query-settings"];
+      expect(message).toMatch(/quota/i);
+      expect(message).toMatch(/query settings/);
+      expect(spyWarn).toHaveBeenCalled();
+    });
+
+    it("reports a blocked-storage failure for formatter settings", async () => {
+      const { useSettingsStore } = await import("../settingsStore");
+      const { useStorageErrorStore } = await import("../storageErrorStore");
+
+      await withFailingSetItem(new DOMException("blocked", "SecurityError"), () => {
+        useSettingsStore.getState().setFormatterSettings({
+          ...defaultFormatterSettings,
+          tabWidth: 4,
+        });
+      });
+
+      expect(useStorageErrorStore.getState().errors["formatter-settings"]).toMatch(
+        /private mode|cookies|blocked/i,
+      );
+    });
+
+    it("clears the error on a later successful write", async () => {
+      const { useSettingsStore } = await import("../settingsStore");
+      const { useStorageErrorStore } = await import("../storageErrorStore");
+
+      await withFailingSetItem(new DOMException("quota", "QuotaExceededError"), () => {
+        useSettingsStore.getState().setQuerySettings({ maxResultRows: 1, limitEnabled: false });
+      });
+      expect(useStorageErrorStore.getState().errors["query-settings"]).toMatch(/quota/i);
+
+      useSettingsStore.getState().setQuerySettings({ maxResultRows: 2, limitEnabled: false });
+      expect(useStorageErrorStore.getState().errors["query-settings"]).toBeUndefined();
+    });
+
+    it("keeps the two settings errors independent (one key does not clear the other)", async () => {
+      const { useSettingsStore } = await import("../settingsStore");
+      const { useStorageErrorStore } = await import("../storageErrorStore");
+
+      await withFailingSetItem(new DOMException("quota", "QuotaExceededError"), () => {
+        useSettingsStore.getState().setFormatterSettings({
+          ...defaultFormatterSettings,
+          tabWidth: 4,
+        });
+      });
+      expect(useStorageErrorStore.getState().errors["formatter-settings"]).toBeDefined();
+
+      // A successful *query* settings write must not wipe the formatter error.
+      useSettingsStore.getState().setQuerySettings({ maxResultRows: 5, limitEnabled: false });
+      expect(useStorageErrorStore.getState().errors["formatter-settings"]).toBeDefined();
+    });
+  });
+
   describe("checkForUpdates", () => {
     beforeEach(() => {
       vi.clearAllMocks();

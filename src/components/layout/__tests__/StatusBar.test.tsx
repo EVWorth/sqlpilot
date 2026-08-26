@@ -6,6 +6,7 @@ import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
 import { useResultStore } from "../../../stores/resultStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { useStorageErrorStore } from "../../../stores/storageErrorStore";
 import { StatusBar } from "../StatusBar";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -21,6 +22,7 @@ describe("StatusBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
+    useStorageErrorStore.setState({ errors: {} });
 
     useConnectionStore.setState({
       activeConnections: [
@@ -128,6 +130,48 @@ describe("StatusBar", () => {
 
     renderStatusBar();
     expect(screen.getByText(/Syntax error/)).toBeInTheDocument();
+  });
+
+  describe("storage errors (issue #454 / #348)", () => {
+    it("surfaces a settings storage failure to the user", () => {
+      useStorageErrorStore.setState({
+        errors: { "query-settings": "Could not save query settings: quota exceeded." },
+      });
+      render(<StatusBar />);
+      expect(screen.getByText(/Could not save query settings/)).toBeInTheDocument();
+    });
+
+    it("surfaces a theme storage failure to the user", () => {
+      useStorageErrorStore.setState({
+        errors: { theme: "Could not save theme: storage blocked." },
+      });
+      render(<StatusBar />);
+      expect(screen.getByText(/Could not save theme/)).toBeInTheDocument();
+    });
+
+    it("shows one entry per failing key", () => {
+      useStorageErrorStore.setState({
+        errors: { theme: "Could not save theme: x", "query-settings": "Could not save query settings: y" },
+      });
+      render(<StatusBar />);
+      expect(screen.getByText(/Could not save theme/)).toBeInTheDocument();
+      expect(screen.getByText(/Could not save query settings/)).toBeInTheDocument();
+    });
+
+    it("dismisses an error when clicked", () => {
+      useStorageErrorStore.setState({ errors: { theme: "Could not save theme: x" } });
+      render(<StatusBar />);
+
+      fireEvent.click(screen.getByText(/Could not save theme/));
+
+      expect(useStorageErrorStore.getState().errors.theme).toBeUndefined();
+      expect(screen.queryByText(/Could not save theme/)).not.toBeInTheDocument();
+    });
+
+    it("renders nothing when there are no storage errors", () => {
+      render(<StatusBar />);
+      expect(screen.queryByText(/Could not save/)).not.toBeInTheDocument();
+    });
   });
 
   it("renders connection error when present", () => {

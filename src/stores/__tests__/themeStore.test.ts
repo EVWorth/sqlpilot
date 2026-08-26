@@ -29,6 +29,39 @@ describe("themeStore", () => {
     expect(state.effectiveTheme).toBe("dark");
   });
 
+  it("reports a failed theme persist instead of swallowing it (refs #348)", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { useStorageErrorStore } = await import("../storageErrorStore");
+    useStorageErrorStore.setState({ errors: {} });
+
+    const original = window.localStorage.setItem;
+    // @ts-expect-error -- testing assignment to a host-provided method
+    window.localStorage.setItem = () => {
+      throw new DOMException("quota", "QuotaExceededError");
+    };
+    try {
+      useThemeStore.getState().setTheme("light");
+    } finally {
+      window.localStorage.setItem = original;
+    }
+
+    // The theme still applied in-memory...
+    expect(useThemeStore.getState().theme).toBe("light");
+    // ...but the failure is now visible rather than silent.
+    expect(useStorageErrorStore.getState().errors.theme).toMatch(/quota/i);
+    expect(warn).toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it("clears a prior theme storage error once a write succeeds (refs #348)", async () => {
+    const { useStorageErrorStore } = await import("../storageErrorStore");
+    useStorageErrorStore.setState({ errors: { theme: "stale" } });
+
+    useThemeStore.getState().setTheme("light");
+
+    expect(useStorageErrorStore.getState().errors.theme).toBeUndefined();
+  });
+
   it("cycleTheme steps dark → light → system → dark (refs #453)", () => {
     const cycle = () => useThemeStore.getState().cycleTheme();
 

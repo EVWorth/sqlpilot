@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { useStorageErrorStore } from "./storageErrorStore";
 
 export type ThemeMode = "dark" | "light" | "system";
 
@@ -43,10 +44,14 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   setTheme: (theme) => {
     const effective = resolveEffective(theme);
     applyTheme(effective);
+    const { reportStorageError } = useStorageErrorStore.getState();
     try {
       localStorage.setItem("theme", theme);
-    } catch {
-      // localStorage unavailable
+      reportStorageError("theme", null, "theme");
+    } catch (e) {
+      // Swallowing this meant the theme silently reverted on next launch.
+      // (refs #348)
+      reportStorageError("theme", e, "theme");
     }
     set({ theme, effectiveTheme: effective });
   },
