@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useSchemaCache } from "../useSchemaCache";
+import { useSchemaCacheStore } from "../schemaCacheStore";
 
 vi.mock("../../lib/tauri-api", () => ({
   api: {
@@ -23,7 +23,7 @@ const mockGetTriggers = api.getTriggers as ReturnType<typeof vi.fn>;
 const mockGetColumns = api.getColumns as ReturnType<typeof vi.fn>;
 
 function doReset() {
-  useSchemaCache.setState({
+  useSchemaCacheStore.setState({
     connectionId: null,
     databases: [],
     tables: new Map(),
@@ -43,17 +43,17 @@ beforeEach(() => {
   doReset();
 });
 
-describe("useSchemaCache", () => {
+describe("useSchemaCacheStore", () => {
   describe("setConnection", () => {
     it("clears all caches when setting a new connection", () => {
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         databases: ["db1"],
         tables: new Map([["db1", ["table1"]]]),
       });
 
-      useSchemaCache.getState().setConnection("conn-2");
+      useSchemaCacheStore.getState().setConnection("conn-2");
 
-      const state = useSchemaCache.getState();
+      const state = useSchemaCacheStore.getState();
       expect(state.connectionId).toBe("conn-2");
       expect(state.databases).toEqual([]);
       expect(state.tables.size).toBe(0);
@@ -64,14 +64,14 @@ describe("useSchemaCache", () => {
     });
 
     it("does nothing when setting the same connection", () => {
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         connectionId: "conn-1",
         databases: ["db1", "db2"],
       });
 
-      useSchemaCache.getState().setConnection("conn-1");
+      useSchemaCacheStore.getState().setConnection("conn-1");
 
-      const state = useSchemaCache.getState();
+      const state = useSchemaCacheStore.getState();
       expect(state.databases).toEqual(["db1", "db2"]);
     });
 
@@ -82,27 +82,27 @@ describe("useSchemaCache", () => {
       ]);
       mockGetTables.mockResolvedValue([{ name: "users" }]);
 
-      useSchemaCache.getState().setConnection("conn-1");
+      useSchemaCacheStore.getState().setConnection("conn-1");
 
       await flushPromises();
 
       expect(mockGetDatabases).toHaveBeenCalledWith("conn-1");
-      expect(useSchemaCache.getState().databases).toEqual([
+      expect(useSchemaCacheStore.getState().databases).toEqual([
         "mydb",
         "testdb",
       ]);
     });
 
     it("clears caches when connection is set to null", () => {
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         connectionId: "conn-1",
         databases: ["db1"],
         tables: new Map([["db1", ["t1"]]]),
       });
 
-      useSchemaCache.getState().setConnection(null);
+      useSchemaCacheStore.getState().setConnection(null);
 
-      const state = useSchemaCache.getState();
+      const state = useSchemaCacheStore.getState();
       expect(state.connectionId).toBeNull();
       expect(state.databases).toEqual([]);
       expect(state.tables.size).toBe(0);
@@ -111,12 +111,12 @@ describe("useSchemaCache", () => {
 
   describe("fetchDatabases", () => {
     it("returns cached databases if available and connectionId matches", async () => {
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         connectionId: "conn-1",
         databases: ["cached_db"],
       });
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchDatabases("conn-1");
 
@@ -131,15 +131,15 @@ describe("useSchemaCache", () => {
       ]);
       mockGetTables.mockResolvedValue([]);
 
-      useSchemaCache.setState({ connectionId: "conn-1" });
+      useSchemaCacheStore.setState({ connectionId: "conn-1" });
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchDatabases("conn-1");
 
       expect(mockGetDatabases).toHaveBeenCalledWith("conn-1");
       expect(result).toEqual(["db1", "db2"]);
-      expect(useSchemaCache.getState().databases).toEqual([
+      expect(useSchemaCacheStore.getState().databases).toEqual([
         "db1",
         "db2",
       ]);
@@ -149,13 +149,13 @@ describe("useSchemaCache", () => {
       mockGetDatabases.mockResolvedValue([{ name: "db1" }]);
       mockGetTables.mockResolvedValue([]);
 
-      useSchemaCache.setState({ connectionId: "conn-1" });
+      useSchemaCacheStore.setState({ connectionId: "conn-1" });
 
-      const promise = useSchemaCache.getState().fetchDatabases("conn-1");
-      expect(useSchemaCache.getState().loading).toBe(true);
+      const promise = useSchemaCacheStore.getState().fetchDatabases("conn-1");
+      expect(useSchemaCacheStore.getState().loading).toBe(true);
 
       await promise;
-      expect(useSchemaCache.getState().loading).toBe(false);
+      expect(useSchemaCacheStore.getState().loading).toBe(false);
     });
 
     it("pre-fetches tables for all databases", async () => {
@@ -165,9 +165,9 @@ describe("useSchemaCache", () => {
       ]);
       mockGetTables.mockResolvedValue([{ name: "users" }]);
 
-      useSchemaCache.setState({ connectionId: "conn-1" });
+      useSchemaCacheStore.setState({ connectionId: "conn-1" });
 
-      await useSchemaCache.getState().fetchDatabases("conn-1");
+      await useSchemaCacheStore.getState().fetchDatabases("conn-1");
 
       expect(mockGetTables).toHaveBeenCalledWith("conn-1", "db1");
       expect(mockGetTables).toHaveBeenCalledWith("conn-1", "db2");
@@ -176,24 +176,24 @@ describe("useSchemaCache", () => {
     it("returns empty array and sets loading false on error", async () => {
       mockGetDatabases.mockRejectedValue(new Error("Network error"));
 
-      useSchemaCache.setState({ connectionId: "conn-1" });
+      useSchemaCacheStore.setState({ connectionId: "conn-1" });
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchDatabases("conn-1");
 
       expect(result).toEqual([]);
-      expect(useSchemaCache.getState().loading).toBe(false);
+      expect(useSchemaCacheStore.getState().loading).toBe(false);
     });
   });
 
   describe("fetchTables", () => {
     it("returns cached tables if available", async () => {
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         tables: new Map([["mydb", ["users", "orders"]]]),
       });
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchTables("conn-1", "mydb");
 
@@ -207,13 +207,13 @@ describe("useSchemaCache", () => {
         { name: "orders" },
       ]);
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchTables("conn-1", "mydb");
 
       expect(mockGetTables).toHaveBeenCalledWith("conn-1", "mydb");
       expect(result).toEqual(["users", "orders"]);
-      expect(useSchemaCache.getState().tables.get("mydb")).toEqual([
+      expect(useSchemaCacheStore.getState().tables.get("mydb")).toEqual([
         "users",
         "orders",
       ]);
@@ -222,22 +222,22 @@ describe("useSchemaCache", () => {
     it("returns empty array on error", async () => {
       mockGetTables.mockRejectedValue(new Error("DB error"));
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchTables("conn-1", "mydb");
 
       expect(result).toEqual([]);
-      expect(useSchemaCache.getState().loading).toBe(false);
+      expect(useSchemaCacheStore.getState().loading).toBe(false);
     });
   });
 
   describe("fetchViews", () => {
     it("returns cached views if available", async () => {
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         views: new Map([["mydb", ["user_view"]]]),
       });
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchViews("conn-1", "mydb");
 
@@ -248,13 +248,13 @@ describe("useSchemaCache", () => {
     it("fetches from API when not cached", async () => {
       mockGetViews.mockResolvedValue([{ name: "v1" }, { name: "v2" }]);
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchViews("conn-1", "mydb");
 
       expect(mockGetViews).toHaveBeenCalledWith("conn-1", "mydb");
       expect(result).toEqual(["v1", "v2"]);
-      expect(useSchemaCache.getState().views.get("mydb")).toEqual([
+      expect(useSchemaCacheStore.getState().views.get("mydb")).toEqual([
         "v1",
         "v2",
       ]);
@@ -263,7 +263,7 @@ describe("useSchemaCache", () => {
     it("returns empty array on error", async () => {
       mockGetViews.mockRejectedValue(new Error("DB error"));
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchViews("conn-1", "mydb");
 
@@ -273,11 +273,11 @@ describe("useSchemaCache", () => {
 
   describe("fetchRoutines", () => {
     it("returns cached routines if available", async () => {
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         routines: new Map([["mydb", ["proc1", "func1"]]]),
       });
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchRoutines("conn-1", "mydb");
 
@@ -291,21 +291,21 @@ describe("useSchemaCache", () => {
         { name: "my_func" },
       ]);
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchRoutines("conn-1", "mydb");
 
       expect(mockGetRoutines).toHaveBeenCalledWith("conn-1", "mydb");
       expect(result).toEqual(["my_proc", "my_func"]);
       expect(
-        useSchemaCache.getState().routines.get("mydb"),
+        useSchemaCacheStore.getState().routines.get("mydb"),
       ).toEqual(["my_proc", "my_func"]);
     });
 
     it("returns empty array on error", async () => {
       mockGetRoutines.mockRejectedValue(new Error("DB error"));
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchRoutines("conn-1", "mydb");
 
@@ -315,11 +315,11 @@ describe("useSchemaCache", () => {
 
   describe("fetchTriggers", () => {
     it("returns cached triggers if available", async () => {
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         triggers: new Map([["mydb", ["trg1"]]]),
       });
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchTriggers("conn-1", "mydb");
 
@@ -332,21 +332,21 @@ describe("useSchemaCache", () => {
         { name: "trg_before_insert" },
       ]);
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchTriggers("conn-1", "mydb");
 
       expect(mockGetTriggers).toHaveBeenCalledWith("conn-1", "mydb");
       expect(result).toEqual(["trg_before_insert"]);
       expect(
-        useSchemaCache.getState().triggers.get("mydb"),
+        useSchemaCacheStore.getState().triggers.get("mydb"),
       ).toEqual(["trg_before_insert"]);
     });
 
     it("returns empty array on error", async () => {
       mockGetTriggers.mockRejectedValue(new Error("DB error"));
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchTriggers("conn-1", "mydb");
 
@@ -359,11 +359,11 @@ describe("useSchemaCache", () => {
       const colInfo = [
         { name: "id", dataType: "int", nullable: false },
       ] as ColumnInfo[];
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         columns: new Map([["mydb.users", colInfo]]),
       });
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchColumns("conn-1", "mydb", "users");
 
@@ -377,21 +377,21 @@ describe("useSchemaCache", () => {
       ] as ColumnInfo[];
       mockGetColumns.mockResolvedValue(colInfo);
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchColumns("conn-1", "mydb", "users");
 
       expect(mockGetColumns).toHaveBeenCalledWith("conn-1", "mydb", "users");
       expect(result).toEqual(colInfo);
       expect(
-        useSchemaCache.getState().columns.get("mydb.users"),
+        useSchemaCacheStore.getState().columns.get("mydb.users"),
       ).toEqual(colInfo);
     });
 
     it("returns empty array on error", async () => {
       mockGetColumns.mockRejectedValue(new Error("DB error"));
 
-      const result = await useSchemaCache
+      const result = await useSchemaCacheStore
         .getState()
         .fetchColumns("conn-1", "mydb", "users");
 
@@ -406,7 +406,7 @@ describe("useSchemaCache", () => {
       ]);
       mockGetTables.mockResolvedValue([]);
 
-      useSchemaCache.setState({
+      useSchemaCacheStore.setState({
         connectionId: "conn-1",
         databases: ["old_db"],
         tables: new Map([["old_db", ["old_table"]]]),
@@ -416,9 +416,9 @@ describe("useSchemaCache", () => {
         columns: new Map([["old_db.old_table", []]]),
       });
 
-      await useSchemaCache.getState().refreshSchema();
+      await useSchemaCacheStore.getState().refreshSchema();
 
-      const state = useSchemaCache.getState();
+      const state = useSchemaCacheStore.getState();
       expect(state.databases).toEqual(["new_db"]);
       // After refresh, fetchDatabases eagerly fetches tables for all new databases,
       // so tables Map has an entry for "new_db" (even if empty result).
@@ -431,9 +431,9 @@ describe("useSchemaCache", () => {
     });
 
     it("does nothing when connectionId is null", async () => {
-      useSchemaCache.setState({ connectionId: null });
+      useSchemaCacheStore.setState({ connectionId: null });
 
-      await useSchemaCache.getState().refreshSchema();
+      await useSchemaCacheStore.getState().refreshSchema();
 
       expect(mockGetDatabases).not.toHaveBeenCalled();
     });

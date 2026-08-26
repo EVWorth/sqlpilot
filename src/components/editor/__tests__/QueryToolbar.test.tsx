@@ -45,8 +45,8 @@ vi.mock("../../../hooks/useQueryExecution", () => ({
 const mockRefreshSchema = vi.fn().mockResolvedValue(undefined);
 let mockSchemaLoading = false;
 
-vi.mock("../../../hooks/useSchemaCache", () => ({
-  useSchemaCache: vi.fn(() => ({
+vi.mock("../../../stores/schemaCacheStore", () => ({
+  useSchemaCacheStore: vi.fn(() => ({
     refreshSchema: mockRefreshSchema,
     loading: mockSchemaLoading,
     connectionId: "conn-1",

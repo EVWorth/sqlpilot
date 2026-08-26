@@ -134,8 +134,8 @@ vi.mock("../../../hooks/useKeyboardShortcuts", () => ({
 vi.mock("../../../hooks/useTheme", () => ({
   useTheme: vi.fn(),
 }));
-vi.mock("../../../hooks/useSchemaCache", () => ({
-  useSchemaCache: {
+vi.mock("../../../stores/schemaCacheStore", () => ({
+  useSchemaCacheStore: {
     getState: vi.fn(() => ({ refreshSchema: vi.fn() })),
   },
 }));
