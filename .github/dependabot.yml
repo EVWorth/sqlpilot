@@ -49,6 +49,12 @@ updates:
     ignore:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+      # monaco-editor is 0.x, so semver-minor is where it breaks: 0.56 added
+      # an `exports` map that stops the deep worker path in main.tsx from
+      # resolving. Held back entirely — moving to 0.56+ means migrating that
+      # import in the same change. Patches still flow normally.
+      - dependency-name: "monaco-editor"
+        update-types: ["version-update:semver-minor"]
     # Majors are split into their own PR. Grouped together with everything
     # else, one breaking major (react-table 8 → 9, jsdom 29 → 30, …) fails
     # the whole PR and holds ~24 routine patch bumps hostage behind a
