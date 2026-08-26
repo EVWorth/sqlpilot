@@ -120,14 +120,20 @@ let tableRows: any[] = [];
 let tableHeaders: any[] = [];
 
 vi.mock("@tanstack/react-table", () => ({
-  useReactTable: vi.fn(() => ({
+  useTable: vi.fn(() => ({
     getRowModel: () => ({ rows: tableRows }),
     getFlatHeaders: () => tableHeaders,
     setColumnSizing: vi.fn(),
     getState: () => ({ sorting: [], columnSizing: {} }),
   })),
-  getCoreRowModel: vi.fn(() => ({})),
-  getSortedRowModel: vi.fn(() => ({})),
+  // v9: features are declared up front; tableFeatures() just returns the
+  // registry object, so an identity mock is enough here.
+  tableFeatures: vi.fn((f: Record<string, unknown>) => f),
+  createSortedRowModel: vi.fn(() => ({})),
+  rowSortingFeature: {},
+  columnSizingFeature: {},
+  columnResizingFeature: {},
+  columnVisibilityFeature: {},
   flexRender: vi.fn((def: any, ctx: any) => {
     if (def.header) return def.header;
     return null;
