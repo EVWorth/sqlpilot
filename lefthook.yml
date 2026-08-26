@@ -24,8 +24,27 @@ pre-commit:
       glob: "package.json"
       run: |
         if ! git diff --cached --name-only | grep -q "package.json"; then exit 0; fi
+        # Only a dependency change can affect package-lock.json. Editing
+        # scripts or metadata cannot, so requiring a lockfile update for
+        # those is a false positive nothing can satisfy.
+        deps_changed=$(node -e '
+          const { execSync } = require("child_process");
+          const deps = (src) => {
+            try {
+              const p = JSON.parse(execSync(src, { encoding: "utf8" }));
+              return JSON.stringify([
+                p.dependencies, p.devDependencies,
+                p.optionalDependencies, p.peerDependencies,
+              ]);
+            } catch { return null; }
+          };
+          const before = deps("git show HEAD:package.json");
+          const after = deps("git show :package.json");
+          process.stdout.write(before === after ? "no" : "yes");
+        ')
+        if [ "$deps_changed" != "yes" ]; then exit 0; fi
         if ! git diff --cached --name-only | grep -q "package-lock.json"; then
-          echo "package.json changed but package-lock.json is not updated!"
+          echo "package.json dependencies changed but package-lock.json is not updated!"
           echo "Run: npm install"
           exit 1
         fi

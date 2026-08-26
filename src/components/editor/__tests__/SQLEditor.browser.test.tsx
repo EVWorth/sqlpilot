@@ -42,15 +42,15 @@ const m = vi.hoisted(() => {
   };
 });
 
-vi.mock("../../lib/sql-post-process", () => ({
+vi.mock("../../../lib/sql-post-process", () => ({
   postProcessSQL: vi.fn((sql: string) => sql),
 }));
 
-vi.mock("../../lib/schema-completion-provider", () => ({
+vi.mock("../../../lib/schema-completion-provider", () => ({
   createCompletionProvider: vi.fn(() => ({ provideCompletionItems: vi.fn() })),
 }));
 
-vi.mock("../../lib/tauri-api", () => ({ api: {} }));
+vi.mock("../../../lib/tauri-api", () => ({ api: {} }));
 
 vi.mock("@monaco-editor/react", () => ({
   useMonaco: () => m.mockMonaco,
@@ -100,7 +100,7 @@ vi.mock("@monaco-editor/react", () => ({
   },
 }));
 
-vi.mock("../../stores/editorStore", () => ({
+vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
     vi.fn((selector?: (s: object) => unknown) => {
       const state = {
@@ -136,7 +136,7 @@ vi.mock("../../stores/editorStore", () => ({
   ),
 }));
 
-vi.mock("../../stores/resultStore", () => ({
+vi.mock("../../../stores/resultStore", () => ({
   useResultStore: Object.assign(
     vi.fn((selector?: (s: object) => unknown) => {
       const state = {
@@ -156,8 +156,8 @@ vi.mock("../../stores/resultStore", () => ({
   ),
 }));
 
-vi.mock("../../stores/schemaCacheStore", () => ({
-  useSchemaCacheStore: vi.fn(() => ({
+vi.mock("../../../stores/schemaCacheStore", () => {
+  const state = {
     connectionId: "conn-1",
     databases: [],
     tables: [],
@@ -168,10 +168,18 @@ vi.mock("../../stores/schemaCacheStore", () => ({
     fetchColumns: vi.fn(),
     setConnection: vi.fn(),
     refreshSchema: m.mockRefreshSchema,
-  })),
-}));
+  };
+  return {
+    // SQLEditor's refresh-schema action reaches for .getState(), so the mock
+    // has to carry it the way the other store mocks here do.
+    useSchemaCacheStore: Object.assign(
+      vi.fn((selector?: (s: object) => unknown) => (selector ? selector(state) : state)),
+      { getState: vi.fn(() => state) },
+    ),
+  };
+});
 
-vi.mock("../../stores/connectionStore", () => ({
+vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: Object.assign(
     vi.fn((selector?: (s: object) => unknown) => {
       const state = { selectedConnectionId: "conn-1" };
@@ -185,7 +193,7 @@ vi.mock("../../stores/connectionStore", () => ({
   ),
 }));
 
-vi.mock("../../stores/settingsStore", () => ({
+vi.mock("../../../stores/settingsStore", () => ({
   useSettingsStore: vi.fn((selector?: (s: object) => unknown) => {
     const state = {
       formatterSettings: {
@@ -207,26 +215,9 @@ vi.mock("../../stores/settingsStore", () => ({
   }),
 }));
 
-vi.mock("../../stores/themeStore", () => ({
+vi.mock("../../../stores/themeStore", () => ({
   useThemeStore: vi.fn((selector?: (s: { effectiveTheme: string }) => unknown) => {
     const state = { effectiveTheme: "dark" as const };
-    return selector ? selector(state) : state;
-  }),
-}));
-
-vi.mock("../../stores/schemaCacheStore", () => ({
-  useSchemaCacheStore: vi.fn((selector?: (s: object) => unknown) => {
-    const state = {
-      connectionId: null,
-      databases: [],
-      tables: new Map(),
-      views: new Map(),
-      columns: new Map(),
-      fetchTables: vi.fn(),
-      fetchViews: vi.fn(),
-      fetchColumns: vi.fn(),
-      setConnection: vi.fn(),
-    };
     return selector ? selector(state) : state;
   }),
 }));
@@ -304,7 +295,15 @@ describe("SQLEditor (browser)", () => {
       expect(m.capturedActions.some((a) => a.id === "explain-analyze")).toBe(true);
     });
     const action = m.capturedActions.find((a) => a.id === "explain-analyze")!;
-    await action.run();
+    // Monaco hands the editor to run(); with an empty selection the action
+    // should fall back to the whole model's SQL.
+    await action.run({
+      getModel: () => ({
+        getValue: () => "SELECT 1",
+        getValueInRange: () => "SELECT 1 FROM users",
+      }),
+      getSelection: () => ({ isEmpty: () => true }),
+    });
     expect(m.mockExecuteExplainAnalyze).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined);
   });
 
