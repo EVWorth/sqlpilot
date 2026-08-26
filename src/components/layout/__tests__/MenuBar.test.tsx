@@ -160,4 +160,21 @@ describe("MenuBar", () => {
       expect.objectContaining({ detail: "check-for-updates" }),
     );
   });
+
+  it("includes a 'Cycle Theme' entry under the Help menu (refs #453)", () => {
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Help"));
+    expect(screen.getByText(/Cycle Theme/)).toBeInTheDocument();
+  });
+
+  it("dispatches 'cycle-theme' menu-action when the entry is clicked", () => {
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Help"));
+    fireEvent.click(screen.getByText(/Cycle Theme/));
+    expect(dispatchSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: "cycle-theme" }),
+    );
+  });
 });

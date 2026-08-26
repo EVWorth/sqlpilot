@@ -465,6 +465,38 @@ describe("AppLayout", () => {
       expect(dialog.getAttribute("data-tab")).toBe("about");
     });
 
+    it("cycles the theme on 'cycle-theme' from the inline MenuBar (refs #453)", async () => {
+      const { useThemeStore } = await import("../../../stores/themeStore");
+      useThemeStore.setState({ theme: "dark" });
+      render(<AppLayout />);
+
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent("menu-action", { detail: "cycle-theme" }),
+        );
+      });
+
+      expect(useThemeStore.getState().theme).toBe("light");
+    });
+
+    it("cycles the theme on 'cycle-theme' from the native macOS menu (refs #453)", async () => {
+      const { useThemeStore } = await import("../../../stores/themeStore");
+      useThemeStore.setState({ theme: "dark" });
+      render(<AppLayout />);
+
+      // menu.rs emits "menu-action" with the item id as payload; drive the
+      // handler AppLayout registered with listen() the way Tauri would.
+      const call = mockListen.mock.calls.find(([name]) => name === "menu-action");
+      expect(call).toBeDefined();
+      const handler = call![1] as (e: { payload: string }) => void;
+
+      await act(async () => {
+        handler({ payload: "cycle-theme" });
+      });
+
+      expect(useThemeStore.getState().theme).toBe("light");
+    });
+
     it("triggers checkForUpdates on 'check-for-updates' menu-action", async () => {
       const { useSettingsStore } = await import("../../../stores/settingsStore");
       const spy = vi.spyOn(useSettingsStore.getState(), "checkForUpdates");

@@ -10,6 +10,7 @@ import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useThemeStore } from "../../stores/themeStore";
 import { AIChatPanel } from "../ai/AIChatPanel";
 import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
@@ -160,6 +161,11 @@ export function AppLayout() {
           break;
         case "check-for-updates":
           void useSettingsStore.getState().checkForUpdates();
+          break;
+        case "cycle-theme":
+          // Reaches here from the inline MenuBar (Windows/Linux) and from the
+          // native Help menu on macOS, which is the surface #453 was about.
+          useThemeStore.getState().cycleTheme();
           break;
         case "about":
           setHelpTab("about");

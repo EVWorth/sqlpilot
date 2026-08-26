@@ -25,6 +25,7 @@ let _connState = {
 
 let _themeState: any = { theme: "dark", effectiveTheme: "dark" };
 const mockSetTheme = vi.fn();
+const mockCycleTheme = vi.fn();
 
 vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: Object.assign(
@@ -35,7 +36,9 @@ vi.mock("../../../stores/connectionStore", () => ({
 
 vi.mock("../../../stores/themeStore", () => ({
   useThemeStore: Object.assign(
-    vi.fn((selector: (s: any) => any) => selector({ ..._themeState, setTheme: mockSetTheme })),
+    vi.fn((selector: (s: any) => any) =>
+      selector({ ..._themeState, setTheme: mockSetTheme, cycleTheme: mockCycleTheme })
+    ),
     {
       getState: vi.fn(() => _themeState),
       setState: vi.fn((partial: any) => {
@@ -75,6 +78,7 @@ describe("Toolbar", () => {
     };
     _themeState = { theme: "dark", effectiveTheme: "dark" };
     mockSetTheme.mockClear();
+    mockCycleTheme.mockClear();
   });
 
   it("renders Compare button", () => {
@@ -143,27 +147,13 @@ describe("Toolbar", () => {
     expect(mockOnToggleAI).toHaveBeenCalledTimes(1);
   });
 
-  it("cycles theme from dark to light", () => {
+  // The dark → light → system order now lives in themeStore.cycleTheme and is
+  // covered by stores/__tests__/themeStore.test.ts; here we only assert the
+  // button is wired to it.
+  it("invokes cycleTheme when the theme button is clicked", () => {
     render(<Toolbar />);
-    const themeBtn = screen.getByTitle(/Theme:/);
-    fireEvent.click(themeBtn);
-    expect(mockSetTheme).toHaveBeenCalledWith("light");
-  });
-
-  it("cycles theme from light to system", () => {
-    _themeState = { theme: "light", effectiveTheme: "light" };
-    render(<Toolbar />);
-    const themeBtn = screen.getByTitle(/Theme:/);
-    fireEvent.click(themeBtn);
-    expect(mockSetTheme).toHaveBeenCalledWith("system");
-  });
-
-  it("cycles theme from system to dark", () => {
-    _themeState = { theme: "system", effectiveTheme: "system" };
-    render(<Toolbar />);
-    const themeBtn = screen.getByTitle(/Theme:/);
-    fireEvent.click(themeBtn);
-    expect(mockSetTheme).toHaveBeenCalledWith("dark");
+    fireEvent.click(screen.getByTitle(/Theme:/));
+    expect(mockCycleTheme).toHaveBeenCalledTimes(1);
   });
 
   it("calls addAdminTab when Admin is clicked", () => {

@@ -112,6 +112,14 @@ pub fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
     let help_menu = SubmenuBuilder::new(app, "Help")
         .item(&MenuItem::with_id(
             app,
+            "cycle-theme",
+            "Cycle Theme (Dark / Light / System)",
+            true,
+            None::<&str>,
+        )?)
+        .separator()
+        .item(&MenuItem::with_id(
+            app,
             "keyboard-shortcuts",
             "Keyboard Shortcuts",
             true,
