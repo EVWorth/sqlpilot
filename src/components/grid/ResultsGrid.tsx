@@ -1,10 +1,14 @@
 import {
   type ColumnDef,
+  columnResizingFeature,
+  columnSizingFeature,
+  columnVisibilityFeature,
+  createSortedRowModel,
   flexRender,
-  getCoreRowModel,
-  getSortedRowModel,
+  rowSortingFeature,
   type SortingState,
-  useReactTable,
+  tableFeatures,
+  useTable,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import {
@@ -44,6 +48,21 @@ import { CellViewerModal } from "./CellViewerModal";
 import { EditableCell } from "./EditableCell";
 import { EditToolbar } from "./EditToolbar";
 import { TruncatedCell } from "./TruncatedCell";
+
+/**
+ * v9 requires features to be declared up front rather than bundling every
+ * one. The grid only sorts and resizes columns, so opting in to just those
+ * keeps the rest (filtering, pagination, grouping, …) out of the bundle.
+ * Module scope: this must be a stable reference across renders.
+ */
+const gridFeatures = tableFeatures({
+  rowSortingFeature,
+  columnSizingFeature,
+  columnResizingFeature,
+  // Not for hiding columns — row.getVisibleCells() hangs off this feature.
+  columnVisibilityFeature,
+  sortedRowModel: createSortedRowModel(),
+});
 
 function downloadBlob(content: string, filename: string, mime: string) {
   const blob = new Blob([content], { type: mime });
@@ -351,7 +370,7 @@ export function ResultsGrid() {
     return lens;
   }, [activeResult]);
 
-  const columns = useMemo<ColumnDef<Record<string, unknown>>[]>(() => {
+  const columns = useMemo<ColumnDef<typeof gridFeatures, Record<string, unknown>>[]>(() => {
     if (!activeResult) return [];
 
     return activeResult.columns.map((col, colIdx) => ({
@@ -422,14 +441,13 @@ export function ResultsGrid() {
     });
   }, [activeResult]);
 
-  const table = useReactTable({
+  const table = useTable({
+    features: gridFeatures,
     data,
     columns,
     state: { sorting, columnSizing },
     onSortingChange: setSorting,
     onColumnSizingChange: setColumnSizing,
-    getCoreRowModel: getCoreRowModel(),
-    getSortedRowModel: getSortedRowModel(),
     enableColumnResizing: true,
     columnResizeMode: "onChange",
   });
