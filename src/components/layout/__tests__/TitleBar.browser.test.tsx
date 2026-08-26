@@ -93,6 +93,7 @@ type ThemeMode = "dark" | "light" | "system";
 
 function mockThemeStore(theme: ThemeMode) {
   const setThemeMock = vi.fn();
+  const cycleThemeMock = vi.fn();
   const state = theme === "system"
     ? { theme: "system" as const, effectiveTheme: "dark" as const }
     : { theme, effectiveTheme: theme as "dark" | "light" };
@@ -100,10 +101,11 @@ function mockThemeStore(theme: ThemeMode) {
     s({
       ...state,
       setTheme: setThemeMock,
+      cycleTheme: cycleThemeMock,
     })
   );
   (useThemeStore as any).getState = vi.fn(() => ({ ...state }));
-  return setThemeMock;
+  return cycleThemeMock;
 }
 
 beforeEach(() => {
@@ -255,25 +257,28 @@ describe("TitleBar", () => {
     expect(screen.getByText("Size").closest("button")).toBeDisabled();
   });
 
-  it("cycles theme from dark to light", () => {
-    const setThemeMock = mockThemeStore("dark");
+  // The dark → light → system order lives in themeStore.cycleTheme and is
+  // covered by stores/__tests__/themeStore.test.ts; these assert the button
+  // is wired to it and renders the right label for each theme.
+  it("invokes cycleTheme from the dark-theme button", () => {
+    const cycleThemeMock = mockThemeStore("dark");
     render(<TitleBar />);
-    fireEvent.click(screen.getByTitle(/Theme:/));
-    expect(setThemeMock).toHaveBeenCalledWith("light");
+    fireEvent.click(screen.getByTitle(/Theme: Dark/));
+    expect(cycleThemeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("cycles theme from light to system", () => {
-    const setThemeMock = mockThemeStore("light");
+  it("invokes cycleTheme from the light-theme button", () => {
+    const cycleThemeMock = mockThemeStore("light");
     render(<TitleBar />);
     fireEvent.click(screen.getByTitle(/Theme: Light/));
-    expect(setThemeMock).toHaveBeenCalledWith("system");
+    expect(cycleThemeMock).toHaveBeenCalledTimes(1);
   });
 
-  it("cycles theme from system to dark", () => {
-    const setThemeMock = mockThemeStore("system");
+  it("invokes cycleTheme from the system-theme button", () => {
+    const cycleThemeMock = mockThemeStore("system");
     render(<TitleBar />);
     fireEvent.click(screen.getByTitle(/Theme: System/));
-    expect(setThemeMock).toHaveBeenCalledWith("dark");
+    expect(cycleThemeMock).toHaveBeenCalledTimes(1);
   });
 
   it("disables connection-dependent buttons when no connection", () => {

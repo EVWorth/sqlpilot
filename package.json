@@ -13,6 +13,7 @@
     "type-check": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
+    "test:browser": "vitest run --config vitest.browser.config.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
