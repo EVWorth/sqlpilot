@@ -2,13 +2,13 @@ import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
 import type { editor, IDisposable } from "monaco-editor";
 import { useCallback, useEffect, useRef } from "react";
 import { format } from "sql-formatter";
-import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { postProcessSQL } from "../../lib/sql-post-process";
 import { getStatementAtCursor } from "../../lib/statement-at-cursor";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 

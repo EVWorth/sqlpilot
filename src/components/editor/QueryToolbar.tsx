@@ -16,12 +16,12 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { format } from "sql-formatter";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
-import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { postProcessSQL } from "../../lib/sql-post-process";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
