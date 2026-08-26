@@ -49,7 +49,20 @@ updates:
     ignore:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
+    # Majors are split into their own PR. Grouped together with everything
+    # else, one breaking major (react-table 8 → 9, jsdom 29 → 30, …) fails
+    # the whole PR and holds ~24 routine patch bumps hostage behind a
+    # migration. Split, the routine batch stays green and mergeable while
+    # the majors get looked at deliberately.
     groups:
       npm:
         patterns:
           - "*"
+        update-types:
+          - "minor"
+          - "patch"
+      npm-major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
