@@ -46,11 +46,28 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
         onClose();
       }
     };
+    // Scroll/resize/visibilitychange: the menu is anchored to absolute x,y
+    // coordinates from the original right-click. Any of these events means
+    // the menu is visually stale (offscreen while the user keeps scrolling,
+    // window resizes, or the OS hides the tab). Auto-close so the menu
+    // doesn't survive orphaned. (refs issue #455)
+    const handleScroll = () => onClose();
+    const handleResize = () => onClose();
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") onClose();
+    };
+
     document.addEventListener("keydown", handleKey);
     document.addEventListener("mousedown", handleClick);
+    document.addEventListener("scroll", handleScroll, true);
+    window.addEventListener("resize", handleResize);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
       document.removeEventListener("keydown", handleKey);
       document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("scroll", handleScroll, true);
+      window.removeEventListener("resize", handleResize);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [onClose]);
 
