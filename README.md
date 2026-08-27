@@ -27,7 +27,7 @@
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust" />
-  <img src="https://img.shields.io/badge/node-20%2B-brightgreen" alt="Node.js" />
+  <img src="https://img.shields.io/badge/node-24%2B-brightgreen" alt="Node.js" />
   <img src="https://img.shields.io/badge/tests-1488%2B%20passing-brightgreen" alt="Tests" />
 </p>
 
@@ -144,7 +144,7 @@ Pre-built binaries are available on the [Releases](https://github.com/EVWorth/sq
 | Tool                              | Version | Purpose                     |
 | --------------------------------- | ------- | --------------------------- |
 | [Rust](https://rustup.rs/)        | 1.75+   | Backend compilation         |
-| [Node.js](https://nodejs.org/)    | 20+     | Frontend tooling            |
+| [Node.js](https://nodejs.org/)    | 24+     | Frontend tooling            |
 | [Docker](https://www.docker.com/) | 24+     | Integration test containers |
 
 **Linux/WSL system dependencies** (for Tauri desktop builds):
