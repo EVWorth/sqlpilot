@@ -1,14 +1,9 @@
 .PHONY: dev dev-web build test test-rust test-frontend test-e2e lint fmt clean db-up db-down db-seed db-reset ssl-certs setup
 
-# Quick setup (install system deps + npm + check rust)
+# Quick setup — system deps, toolchains via mise, npm, git hooks, Playwright.
+# Single implementation lives in the script so there is one setup path, not two.
 setup:
-	@echo "Installing Tauri system dependencies (requires sudo)..."
-	sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
-	@echo "Installing npm dependencies..."
-	npm install
-	@echo "Checking Rust toolchain..."
-	rustup show
-	@echo "Setup complete! Run 'make dev' for desktop app or 'make dev-web' for browser preview."
+	./scripts/setup.sh
 
 # Development
 dev:
