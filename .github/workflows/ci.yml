@@ -59,10 +59,16 @@ jobs:
               - 'vitest.config.ts'
               - 'vitest.browser.config.ts'
               - 'eslint.config.js'
+              - '.node-version'
+              # Editing this workflow must exercise the jobs it defines,
+              # otherwise a broken change to them merges green.
+              - '.github/workflows/ci.yml'
             rust:
               - 'src-tauri/**'
               - 'src-tauri/Cargo.toml'
               - 'src-tauri/Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/ci.yml'
             npm:
               - 'package.json'
               - 'package-lock.json'
