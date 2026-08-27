@@ -3,73 +3,52 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 /**
- * Guards the Rust↔JS IPC seam.
+ * Finds Rust commands that nothing on the frontend calls.
  *
- * `tauri-api` is mocked in every other test file, so nothing else notices if a
- * command is renamed in Rust, dropped from the handler list, or invoked from
- * TypeScript under a name that no longer exists — the whole suite stays green
- * and the app breaks at runtime. These tests read both sides and compare.
+ * This test used to check both directions between `tauri-api.ts` and
+ * `generate_handler!`. Half of that is now enforced by construction: the
+ * command list is generated into `bindings.ts` from Rust, `tauri-api` calls
+ * `commands.*`, so a command that disappears from Rust fails `tsc` rather
+ * than a string comparison — and CI regenerates the bindings to catch a stale
+ * checked-in file.
  *
- * This checks command *names* only. Argument and return shapes are still
- * unverified; that needs generated bindings (tauri-specta), not string
- * matching.
+ * What generation does *not* catch is the opposite: a command registered in
+ * Rust that no longer has a caller. That is dead code plus dead surface area
+ * on the IPC boundary, so it is still worth flagging.
  */
 
 const repoRoot = resolve(__dirname, "../../..");
 
-function frontendCommands(): Set<string> {
+/** Command names exported by the generated bindings. */
+function generatedCommands(): Set<string> {
+  const src = readFileSync(resolve(repoRoot, "src/lib/bindings.ts"), "utf8");
+  const start = src.indexOf("export const commands = {");
+  expect(start, "commands object not found in generated bindings").toBeGreaterThan(-1);
+  const block = src.slice(start, src.indexOf("\n}", start));
+  return new Set([...block.matchAll(/^\t([a-zA-Z0-9]+):/gm)].map((m) => m[1]));
+}
+
+/** Commands actually reached from the api wrapper. */
+function calledCommands(): Set<string> {
   const src = readFileSync(resolve(repoRoot, "src/lib/tauri-api.ts"), "utf8");
-  // every call site looks like tauriInvoke<T>("command_name", …) or
-  // tauriInvoke("command_name")
-  const matches = src.matchAll(/tauriInvoke(?:<[^>]*>)?\(\s*"([a-z0-9_]+)"/g);
-  return new Set([...matches].map((m) => m[1]));
+  return new Set([...src.matchAll(/commands\.([a-zA-Z0-9]+)\(/g)].map((m) => m[1]));
 }
 
-function rustCommands(): Set<string> {
-  const src = readFileSync(resolve(repoRoot, "src-tauri/src/lib.rs"), "utf8");
+describe("Tauri command surface", () => {
+  const generated = generatedCommands();
+  const called = calledCommands();
 
-  // collect_commands! appears twice — once per beta-ai cfg branch — so union
-  // every block rather than assuming a single list.
-  const blocks = [...src.matchAll(/collect_commands!\[([\s\S]*?)\]/g)];
-  expect(
-    blocks.length,
-    "no collect_commands! block found in src-tauri/src/lib.rs",
-  ).toBeGreaterThan(0);
-
-  const names = new Set<string>();
-  for (const [, block] of blocks) {
-    for (const m of block.matchAll(/commands::(?:[a-z0-9_]+::)*([a-z0-9_]+)\s*,/g)) {
-      names.add(m[1]);
-    }
-  }
-  return names;
-}
-
-describe("Tauri command contract", () => {
-  const frontend = frontendCommands();
-  const rust = rustCommands();
-
-  it("finds commands on both sides (guards against the regexes silently breaking)", () => {
-    // If a refactor changes either file's shape, the parsers could return
-    // empty sets and every comparison below would trivially pass.
-    expect(frontend.size).toBeGreaterThan(20);
-    expect(rust.size).toBeGreaterThan(20);
+  it("parses both sides (guards against the regexes silently matching nothing)", () => {
+    expect(generated.size).toBeGreaterThan(20);
+    expect(called.size).toBeGreaterThan(20);
   });
 
-  it("every command the frontend invokes is registered in Rust", () => {
-    const missing = [...frontend].filter((c) => !rust.has(c)).sort();
+  it("every command Rust exposes has a caller", () => {
+    const orphaned = [...generated].filter((c) => !called.has(c)).sort();
     expect(
-      missing,
-      `invoked from tauri-api.ts but absent from generate_handler! — these fail at runtime: ${missing.join(", ")}`,
-    ).toEqual([]);
-  });
-
-  it("every command Rust registers is reachable from the frontend", () => {
-    const unused = [...rust].filter((c) => !frontend.has(c)).sort();
-    expect(
-      unused,
-      `registered in generate_handler! but never invoked — dead command or a missing tauri-api wrapper: ${
-        unused.join(", ")
+      orphaned,
+      `exposed on the IPC boundary but never called — remove the command or add a tauri-api wrapper: ${
+        orphaned.join(", ")
       }`,
     ).toEqual([]);
   });

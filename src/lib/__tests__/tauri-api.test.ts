@@ -82,10 +82,7 @@ describe("api (Tauri available)", () => {
   it("listConnectionProfiles calls invoke with no args", async () => {
     invokeMock.mockResolvedValue([]);
     const result = await api.listConnectionProfiles();
-    expect(invokeMock).toHaveBeenCalledWith(
-      "list_connection_profiles",
-      undefined,
-    );
+    expect(invokeMock).toHaveBeenCalledWith("list_connection_profiles");
     expect(result).toEqual([]);
   });
 
@@ -125,7 +122,7 @@ describe("api (Tauri available)", () => {
   it("listConnections calls invoke with no args", async () => {
     invokeMock.mockResolvedValue([]);
     const result = await api.listConnections();
-    expect(invokeMock).toHaveBeenCalledWith("list_connections", undefined);
+    expect(invokeMock).toHaveBeenCalledWith("list_connections");
     expect(result).toEqual([]);
   });
 
@@ -149,8 +146,8 @@ describe("api (Tauri available)", () => {
     expect(invokeMock).toHaveBeenCalledWith("execute_query", {
       connectionId: "conn-1",
       sql: "SELECT 1",
-      database: undefined,
-      limit: undefined,
+      database: null,
+      limit: null,
     });
   });
 
@@ -281,7 +278,7 @@ describe("api (Tauri available)", () => {
       "my_table",
     );
     expect(invokeMock).toHaveBeenCalledWith("export_results", {
-      result: queryResult,
+      result: { ...queryResult, total_rows_available: queryResult.total_rows_available ?? null },
       format: "csv",
       tableName: "my_table",
     });
@@ -291,9 +288,9 @@ describe("api (Tauri available)", () => {
   it("exportResults omits optional tableName", async () => {
     await api.exportResults(queryResult, "json");
     expect(invokeMock).toHaveBeenCalledWith("export_results", {
-      result: queryResult,
+      result: { ...queryResult, total_rows_available: queryResult.total_rows_available ?? null },
       format: "json",
-      tableName: undefined,
+      tableName: null,
     });
   });
 
@@ -392,15 +389,15 @@ describe("api (Tauri available)", () => {
       message: "hello",
       conversationId: "conv-1",
       mode: "chat",
-      connectionId: undefined,
-      database: undefined,
+      connectionId: null,
+      database: null,
     });
   });
 
   it("aiGetStatus calls invoke with no args", async () => {
     invokeMock.mockResolvedValue({ enabled: true });
     const result = await api.aiGetStatus();
-    expect(invokeMock).toHaveBeenCalledWith("ai_get_status", undefined);
+    expect(invokeMock).toHaveBeenCalledWith("ai_get_status");
     expect(result).toEqual({ enabled: true });
   });
 
@@ -447,7 +444,7 @@ describe("api (Tauri available)", () => {
   it("sqliteList calls invoke with no args", async () => {
     invokeMock.mockResolvedValue(["/tmp/a.db", "/tmp/b.db"]);
     const result = await api.sqliteList();
-    expect(invokeMock).toHaveBeenCalledWith("sqlite_list", undefined);
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_list");
     expect(result).toEqual(["/tmp/a.db", "/tmp/b.db"]);
   });
 
@@ -506,14 +503,14 @@ describe("api (Tauri available)", () => {
   it("isRpmOstree calls invoke with no args and returns true", async () => {
     invokeMock.mockResolvedValue(true);
     const result = await api.isRpmOstree();
-    expect(invokeMock).toHaveBeenCalledWith("is_rpm_ostree", undefined);
+    expect(invokeMock).toHaveBeenCalledWith("is_rpm_ostree");
     expect(result).toBe(true);
   });
 
   it("isRpmOstree returns false on non-atomic systems", async () => {
     invokeMock.mockResolvedValue(false);
     const result = await api.isRpmOstree();
-    expect(invokeMock).toHaveBeenCalledWith("is_rpm_ostree", undefined);
+    expect(invokeMock).toHaveBeenCalledWith("is_rpm_ostree");
     expect(result).toBe(false);
   });
 

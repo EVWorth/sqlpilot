@@ -8,6 +8,7 @@ mas-core = { path = "../mas-core" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true }
+specta-typescript = { workspace = true }
 sqlx = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }

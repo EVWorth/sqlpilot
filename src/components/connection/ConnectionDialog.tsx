@@ -37,9 +37,29 @@ const defaultProfile: Omit<
   connect_timeout_secs: 10,
   query_timeout_secs: 0,
   charset: "utf8mb4",
+  // Rust Options are required-but-nullable, so these are stated explicitly
+  // instead of being left off as they were with the hand-written type.
+  group: null,
+  color: null,
+  environment: null,
+  ssh_config: null,
+  ssl_config: null,
 };
 
 type TabId = "general" | "ssl" | "ssh" | "advanced";
+
+/**
+ * Drop keys whose value is `undefined`.
+ *
+ * The generated types spell optional fields `T | null` (Rust's Option), but
+ * `Partial<T>` spells them `T | undefined`. Spreading a Partial over a full
+ * object would therefore reintroduce `undefined` where only `null` is valid.
+ */
+function definedOnly<T extends object>(updates: Partial<T>): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(updates).filter(([, v]) => v !== undefined),
+  ) as Partial<T>;
+}
 
 const tabs: { id: TabId; label: string; icon: typeof Database }[] = [
   { id: "general", label: "General", icon: Database },
@@ -109,28 +129,31 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
   };
 
   const handleSSLChange = (updates: Partial<SSLConfig>) => {
-    setForm((prev) => ({
-      ...prev,
-      ssl_config: {
-        mode: "Disabled" as const,
-        ...prev.ssl_config,
-        ...updates,
-      },
-    }));
+    setForm((prev) => {
+      // Start from a complete SSLConfig: the generated type requires every
+      // field to be present (nullable, not optional), so spreading a possibly
+      // null prev.ssl_config directly would leave them optional.
+      const base: SSLConfig = prev.ssl_config ?? {
+        mode: "Disabled",
+        ca_cert_path: null,
+        client_cert_path: null,
+        client_key_path: null,
+      };
+      return { ...prev, ssl_config: { ...base, ...definedOnly(updates) } };
+    });
     setTestResult(null);
   };
 
   const handleSSHChange = (updates: Partial<SSHConfig>) => {
-    setForm((prev) => ({
-      ...prev,
-      ssh_config: {
+    setForm((prev) => {
+      const base: SSHConfig = prev.ssh_config ?? {
         host: "",
         port: 22,
         username: "",
-        ...prev.ssh_config,
-        ...updates,
-      },
-    }));
+        private_key_path: null,
+      };
+      return { ...prev, ssh_config: { ...base, ...definedOnly(updates) } };
+    });
     setTestResult(null);
   };
 
@@ -142,7 +165,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
       const result = await api.testConnection(profile);
       setTestResult(result);
     } catch (e) {
-      setTestResult({ success: false, message: String(e), latency_ms: 0 });
+      setTestResult({ success: false, message: String(e), server_version: null, latency_ms: 0 });
     }
     setTesting(false);
   };
@@ -151,25 +174,25 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
     const profile = { ...form };
     // Clear SSH config if disabled
     if (!sshEnabled) {
-      profile.ssh_config = undefined;
+      profile.ssh_config = null;
     } else if (profile.ssh_config) {
       // Clear irrelevant auth fields based on method
       if (sshAuthMethod === "password") {
         profile.ssh_config = {
           ...profile.ssh_config,
-          private_key_path: undefined,
-          passphrase: undefined,
+          private_key_path: null,
+          passphrase: null,
         };
       } else {
         profile.ssh_config = {
           ...profile.ssh_config,
-          password: undefined,
+          password: null,
         };
       }
     }
     // Clear SSL file paths if mode is Disabled
     if (!profile.ssl_config || profile.ssl_config.mode === "Disabled") {
-      profile.ssl_config = undefined;
+      profile.ssl_config = null;
     }
     return profile;
   };

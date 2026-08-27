@@ -149,7 +149,8 @@ async function doExecuteQuery(
   );
   const connectionName = conn?.name ?? "Unknown";
   // Explicit database selection takes precedence over the connection's default
-  const effectiveDatabase = database ?? conn?.database;
+  // conn.database is `string | null` from Rust; internal state uses undefined
+  const effectiveDatabase = database ?? conn?.database ?? undefined;
 
   // Compute row limit from settings
   const { limitEnabled, maxResultRows } = useSettingsStore.getState().querySettings;

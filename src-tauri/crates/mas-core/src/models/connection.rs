@@ -147,6 +147,6 @@ pub struct TestConnectionResult {
     // JSON already serialises this as a number and JS truncates past 2^53;
     // declaring it as f64 documents the existing behaviour rather than
     // changing it. Row counts, byte sizes, timings and ids never approach it.
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub latency_ms: u64,
 }

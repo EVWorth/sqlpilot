@@ -29,7 +29,7 @@ export const commands = {
 	exportResults: (result: QueryResult_Deserialize, format: string, tableName: string | null) => typedError<string, string>(__TAURI_INVOKE("export_results", { result, format, tableName })),
 	getProcessList: (connectionId: string) => typedError<ProcessInfo[], string>(__TAURI_INVOKE("get_process_list", { connectionId })),
 	getServerVariables: (connectionId: string) => typedError<ServerVariable[], string>(__TAURI_INVOKE("get_server_variables", { connectionId })),
-	killProcess: (connectionId: string, processId: number | null) => typedError<null, string>(__TAURI_INVOKE("kill_process", { connectionId, processId })),
+	killProcess: (connectionId: string, processId: ProcessId) => typedError<null, string>(__TAURI_INVOKE("kill_process", { connectionId, processId })),
 	readFileContents: (path: string) => typedError<string, string>(__TAURI_INVOKE("read_file_contents", { path })),
 	pickFile: (title: string, filters: ([string, string[]])[]) => typedError<string | null, string>(__TAURI_INVOKE("pick_file", { title, filters })),
 	writeFileContents: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file_contents", { path, contents })),
@@ -202,13 +202,24 @@ export type IndexInfo = {
 	index_type: string,
 };
 
+/**
+ *  A MySQL process id.
+ * 
+ *  A newtype purely so the TypeScript side gets a plain `number`: command
+ *  arguments cannot carry `#[specta(type = ...)]`, and a bare `f64` argument
+ *  would be exported as `number | null`, letting the frontend pass a null that
+ *  Rust then rejects at runtime. `#[serde(transparent)]` keeps the wire format
+ *  identical to the bare integer.
+ */
+export type ProcessId = number;
+
 export type ProcessInfo = {
-	id: number | null,
+	id: number,
 	user: string,
 	host: string,
 	db: string | null,
 	command: string,
-	time: number | null,
+	time: number,
 	state: string | null,
 	info: string | null,
 };
@@ -217,11 +228,11 @@ export type QueryResult = QueryResult_Serialize | QueryResult_Deserialize;
 
 export type QueryResult_Deserialize = {
 	query_id: string,
-	statement_index: number | null,
+	statement_index: number,
 	columns: ColumnMeta[],
 	rows: SqlValue[][],
-	rows_affected: number | null,
-	execution_time_ms: number | null,
+	rows_affected: number,
+	execution_time_ms: number,
 	warnings: string[],
 	rows_truncated: boolean,
 	total_rows_available: number | null,
@@ -229,11 +240,11 @@ export type QueryResult_Deserialize = {
 
 export type QueryResult_Serialize = {
 	query_id: string,
-	statement_index: number | null,
+	statement_index: number,
 	columns: ColumnMeta[],
 	rows: SqlValue[][],
-	rows_affected: number | null,
-	execution_time_ms: number | null,
+	rows_affected: number,
+	execution_time_ms: number,
 	warnings: string[],
 	rows_truncated: boolean,
 	total_rows_available?: number | null,
@@ -277,7 +288,7 @@ export type ServerVariable = {
 	value: string,
 };
 
-export type SqlValue = "Null" | boolean | number | null | string | number[];
+export type SqlValue = "Null" | boolean | number | number | null | string | number[];
 
 export type SqliteColumnInfo = {
 	name: string,
@@ -302,11 +313,11 @@ export type SqliteIndexInfo = {
 
 export type SqliteQueryResult = {
 	query_id: string,
-	statement_index: number | null,
+	statement_index: number,
 	columns: SqliteColumnMeta[],
 	rows: unknown[][],
-	rows_affected: number | null,
-	execution_time_ms: number | null,
+	rows_affected: number,
+	execution_time_ms: number,
 	warnings: string[],
 	rows_truncated: boolean,
 };
@@ -331,7 +342,7 @@ export type TestConnectionResult = {
 	success: boolean,
 	message: string,
 	server_version: string | null,
-	latency_ms: number | null,
+	latency_ms: number,
 };
 
 export type TriggerInfo = {

@@ -1,6 +1,6 @@
 use mas_core::connection::ConnectionManager;
 use mas_core::error::CoreError;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::Row;
 use std::sync::Arc;
 
@@ -8,18 +8,29 @@ pub struct AdminService {
     connection_manager: Arc<ConnectionManager>,
 }
 
+/// A MySQL process id.
+///
+/// A newtype purely so the TypeScript side gets a plain `number`: command
+/// arguments cannot carry `#[specta(type = ...)]`, and a bare `f64` argument
+/// would be exported as `number | null`, letting the frontend pass a null that
+/// Rust then rejects at runtime. `#[serde(transparent)]` keeps the wire format
+/// identical to the bare integer.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type)]
+#[serde(transparent)]
+pub struct ProcessId(#[specta(type = specta_typescript::Number)] pub i64);
+
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ProcessInfo {
     // JSON already serialises this as a number and JS truncates past 2^53;
     // declaring it as f64 documents the existing behaviour rather than
     // changing it. Row counts, byte sizes, timings and ids never approach it.
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub id: i64,
     pub user: String,
     pub host: String,
     pub db: Option<String>,
     pub command: String,
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub time: i64,
     pub state: Option<String>,
     pub info: Option<String>,
