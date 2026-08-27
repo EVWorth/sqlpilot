@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
-import type { ConnectionInfo, ConnectionProfile, ConnectionProfileSummary } from "../types";
+import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary } from "../types";
 
 interface ConnectionState {
   profiles: ConnectionProfileSummary[];
@@ -10,7 +10,7 @@ interface ConnectionState {
   error: string | null;
 
   loadProfiles: () => Promise<void>;
-  saveProfile: (profile: ConnectionProfile) => Promise<void>;
+  saveProfile: (profile: ConnectionProfileInput) => Promise<void>;
   deleteProfile: (id: string) => Promise<void>;
   connect: (profileId: string) => Promise<ConnectionInfo>;
   disconnect: (connectionId: string) => Promise<void>;

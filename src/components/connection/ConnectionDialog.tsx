@@ -2,7 +2,13 @@ import { CheckCircle2, Database, Loader2, Settings, Shield, Terminal, X, XCircle
 import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
-import type { ConnectionProfile, SSHConfig, SSLConfig, TestConnectionResult } from "../../types";
+import type {
+  ConnectionProfile,
+  ConnectionProfileInput,
+  SSHConfigInput,
+  SSLConfig,
+  TestConnectionResult,
+} from "../../types";
 
 const PRESET_COLORS = [
   "#3B82F6",
@@ -22,7 +28,7 @@ interface Props {
 }
 
 const defaultProfile: Omit<
-  ConnectionProfile,
+  ConnectionProfileInput,
   "id" | "created_at" | "updated_at"
 > = {
   name: "",
@@ -76,16 +82,32 @@ const sslModes: { value: SSLConfig["mode"]; label: string; description: string }
   { value: "VerifyIdentity", label: "Verify Identity", description: "Verify CA and server hostname" },
 ];
 
+/**
+ * Seed the editable form from a saved profile.
+ *
+ * A saved profile has no credentials — the backend never sends them back — so
+ * they start blank. That is the protocol save_connection_profile expects: an
+ * empty password means "keep the stored one".
+ */
+function toInput(profile: ConnectionProfile): ConnectionProfileInput {
+  return {
+    ...profile,
+    password: "",
+    ssh_config: profile.ssh_config ? { ...profile.ssh_config, password: null, passphrase: null } : null,
+  };
+}
+
 export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("general");
-  const [form, setForm] = useState(
+  const [form, setForm] = useState<ConnectionProfileInput>(
     editProfile
-      ?? ({
+      ? toInput(editProfile)
+      : {
         ...defaultProfile,
         id: crypto.randomUUID(),
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      } as ConnectionProfile),
+      },
   );
   const [sshEnabled, setSshEnabled] = useState(!!editProfile?.ssh_config);
   const [sshAuthMethod, setSshAuthMethod] = useState<"password" | "key">(
@@ -121,7 +143,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
   if (!isOpen) return null;
 
   const handleChange = (
-    field: keyof ConnectionProfile,
+    field: keyof ConnectionProfileInput,
     value: string | number | boolean | undefined,
   ) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -144,9 +166,9 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
     setTestResult(null);
   };
 
-  const handleSSHChange = (updates: Partial<SSHConfig>) => {
+  const handleSSHChange = (updates: Partial<SSHConfigInput>) => {
     setForm((prev) => {
-      const base: SSHConfig = prev.ssh_config ?? {
+      const base: SSHConfigInput = prev.ssh_config ?? {
         host: "",
         port: 22,
         username: "",
@@ -170,7 +192,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
     setTesting(false);
   };
 
-  const buildProfileForSave = (): ConnectionProfile => {
+  const buildProfileForSave = (): ConnectionProfileInput => {
     const profile = { ...form };
     // Clear SSH config if disabled
     if (!sshEnabled) {
