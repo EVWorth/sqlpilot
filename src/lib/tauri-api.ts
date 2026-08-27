@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-import type { AiConfig, AiMode, ConnectionProfile, QueryResult } from "../types";
+import type { AiConfig, AiMode, ConnectionProfileInput, QueryResult } from "../types";
 import { commands } from "./bindings";
 
 /**
@@ -47,7 +47,7 @@ const orNull = <T>(v: T | undefined): T | null => v ?? null;
 
 export const api = {
   // Connections
-  saveConnectionProfile: (profile: ConnectionProfile) =>
+  saveConnectionProfile: (profile: ConnectionProfileInput) =>
     unwrap("save_connection_profile", () => commands.saveConnectionProfile(profile)),
 
   listConnectionProfiles: () => unwrap("list_connection_profiles", () => commands.listConnectionProfiles()),
@@ -55,7 +55,8 @@ export const api = {
   deleteConnectionProfile: (profileId: string) =>
     unwrap("delete_connection_profile", () => commands.deleteConnectionProfile(profileId)),
 
-  testConnection: (profile: ConnectionProfile) => unwrap("test_connection", () => commands.testConnection(profile)),
+  testConnection: (profile: ConnectionProfileInput) =>
+    unwrap("test_connection", () => commands.testConnection(profile)),
 
   connect: (profileId: string) => unwrap("connect", () => commands.connect(profileId)),
 

@@ -35,16 +35,21 @@ export type {
 // building one to *send* should import the _Deserialize form from ../lib/bindings.
 export type { QueryResult_Serialize as QueryResult } from "../lib/bindings";
 
-// Read-only — nothing constructs one — so this can already come from Rust,
-// even while ConnectionProfile itself is still hand-written below.
+// Connection profiles are read and written in different shapes, because Rust
+// marks password / passphrase #[serde(skip_serializing)]: the backend accepts
+// them but never sends them back.
+//
+//   ConnectionProfile       — what you get back. No credentials, so reaching
+//                             for `.password` on one is a compile error.
+//   ConnectionProfileInput  — what you send. Carries credentials.
+//
+// Use the plain name unless you are actually building a profile to save.
 export type {
-  // _Deserialize is the superset: it carries password / passphrase, matching
-  // what the hand-written types allowed and what ConnectionDialog builds.
-  // Readers get credential fields they should not have — no worse than before,
-  // but the reason to split read from write usages in a follow-up.
-  ConnectionProfile_Deserialize as ConnectionProfile,
+  ConnectionProfile_Deserialize as ConnectionProfileInput,
+  ConnectionProfile_Serialize as ConnectionProfile,
   ConnectionProfileSummary_Serialize as ConnectionProfileSummary,
-  SSHConfig_Deserialize as SSHConfig,
+  SSHConfig_Deserialize as SSHConfigInput,
+  SSHConfig_Serialize as SSHConfig,
 } from "../lib/bindings";
 
 // Type guards and validators for SqlValue

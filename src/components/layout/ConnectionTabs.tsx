@@ -4,7 +4,7 @@ import { useContextMenu } from "../../hooks/useContextMenu";
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
-import type { ConnectionProfile } from "../../types";
+import type { ConnectionProfileSummary } from "../../types";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
 
 export function ConnectionTabs() {
@@ -20,12 +20,12 @@ export function ConnectionTabs() {
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [showDialog, setShowDialog] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<ConnectionProfile | undefined>();
+  const [editingProfile, setEditingProfile] = useState<ConnectionProfileSummary | undefined>();
   const popoverRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const { contextMenu, showContextMenu } = useContextMenu();
 
-  const openEdit = (profile: ConnectionProfile) => {
+  const openEdit = (profile: ConnectionProfileSummary) => {
     setPopoverOpen(false);
     setEditingProfile(profile);
     setShowDialog(true);
