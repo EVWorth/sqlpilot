@@ -73,7 +73,7 @@ make test-rust                # or: cd src-tauri && cargo test -p mas-core -p ma
 cd src-tauri && cargo test -p mas-core test_connect_mysql8
 
 # E2E tests (Playwright)
-make test-e2e                 # or: npx playwright test
+make test-browser             # or: npm run test:browser
 
 # Lint (Rust clippy + TypeScript type check)
 make lint

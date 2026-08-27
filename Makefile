@@ -1,4 +1,4 @@
-.PHONY: dev dev-web build test test-rust test-frontend test-e2e lint fmt clean db-up db-down db-seed db-reset ssl-certs setup
+.PHONY: dev dev-web build test test-rust test-frontend test-browser lint fmt clean db-up db-down db-seed db-reset ssl-certs setup
 
 # Quick setup — system deps, toolchains via mise, npm, git hooks, Playwright.
 # Single implementation lives in the script so there is one setup path, not two.
@@ -24,8 +24,8 @@ test-rust:
 test-frontend:
 	npx vitest run
 
-test-e2e: db-up
-	npx playwright test
+test-browser:
+	npm run test:browser
 
 test-all: db-up test
 

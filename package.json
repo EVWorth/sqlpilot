@@ -16,8 +16,7 @@
     "type-check": "tsc --noEmit",
     "test:unit": "vitest run",
     "test:unit:watch": "vitest",
-    "test:browser": "vitest run --config vitest.browser.config.ts",
-    "test:e2e": "playwright test"
+    "test:browser": "vitest run --config vitest.browser.config.ts"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -40,7 +39,6 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@playwright/test": "^1.62.1",
     "@tauri-apps/cli": "^2",
     "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
@@ -56,6 +54,7 @@
     "eslint-plugin-react-hooks": "^7.0.0",
     "jsdom": "^30.0.1",
     "lefthook": "^2.1.10",
+    "playwright": "^1.62.1",
     "postcss": "^8.5.26",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",

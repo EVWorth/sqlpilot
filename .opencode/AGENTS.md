@@ -117,7 +117,7 @@ CI mirrors these gates. Local failure = CI failure. Don't ship red.
 8. **Test MySQL** on port **13306** (not 3306). `make db-up` brings it up. CI uses service container, same port.
 9. **Lockfile discipline:** `package.json` change ⇒ `package-lock.json` change required. Lefthook blocks commit otherwise.
 10. **Dep age gate:** Dependabot PRs bumping packages <7 days old fail CI (`npm run deps:check`).
-11. **E2E disabled:** `test-e2e` job has `if: false` in `ci.yml`. Don't enable without team-lead approval.
+11. **No E2E suite:** removed — it never ran and could not work (it drove the vite dev server, but the app needs a Tauri window). The Rust↔JS command contract is covered by `src/lib/__tests__/tauri-command-contract.test.ts` instead.
 12. **Windows signing secrets** in `release.yml` are optional — workflow skips if absent. Don't assume they exist.
 13. **`bundle.createUpdaterArtifacts: true`** in `tauri.conf.json` makes the bundler sign artifacts during `tauri build` — the build step (not just the manifest step) needs `TAURI_SIGNING_PRIVATE_KEY`. Miss it and every build fails with `A public key has been found, but no private key.` See `docs/RELEASING.md` gotcha #2 (issue #243).
 
