@@ -8,8 +8,13 @@ chrono = { version = "0.4", features = ["serde"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# Pre-1.0: specta has been in RC since 2023. Pinned exactly (no caret) so an
+# RC bump cannot land unreviewed — the API changes between RCs.
+specta = { version = "=2.0.0-rc.25", features = ["derive", "chrono", "uuid", "serde_json"] }
+specta-typescript = "=0.0.12"
 sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "mysql", "chrono", "json", "uuid"] }
 tauri = { version = "2", features = [] }
+tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
@@ -37,10 +42,13 @@ mas-sqlite = { path = "crates/mas-sqlite" }
 rfd = "0.17"
 serde = { workspace = true }
 serde_json = { workspace = true }
+specta = { workspace = true }
+specta-typescript = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-process = "2.3.1"
 tauri-plugin-shell = "2"
 tauri-plugin-updater = "2.10.1"
+tauri-specta = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 tracing-appender = { workspace = true }

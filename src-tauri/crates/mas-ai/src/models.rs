@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum AiMode {
     Ask,
@@ -8,20 +8,20 @@ pub enum AiMode {
     Plan,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct AiStatus {
     pub provider: String,
     pub available: bool,
     pub model: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct AiConfig {
     pub model: Option<String>,
 }
 
 /// Structured events emitted to the frontend via Tauri events
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AiStreamEvent {
     TextDelta {
@@ -36,6 +36,9 @@ pub enum AiStreamEvent {
         conversation_id: String,
         tool_name: String,
         tool_call_id: String,
+        // Tool-call arguments are free-form JSON; `unknown` matches the
+        // hand-written type and avoids serde_json::Value's i64 arm.
+        #[specta(type = Option<specta_typescript::Unknown>)]
         arguments: Option<serde_json::Value>,
     },
     ToolComplete {
@@ -61,7 +64,7 @@ pub enum AiStreamEvent {
 }
 
 /// Kept for backward compat but prefer AiStreamEvent
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ChatMessage {
     pub role: String,
     pub content: String,

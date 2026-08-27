@@ -37,6 +37,7 @@ pub struct AppState {
 // Connection commands
 #[tauri::command]
 #[tracing::instrument(skip(state, profile), fields(profile_name = %profile.name))]
+#[specta::specta]
 pub async fn save_connection_profile(
     state: State<'_, AppState>,
     mut profile: ConnectionProfile,
@@ -57,6 +58,7 @@ pub async fn save_connection_profile(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn list_connection_profiles(
     state: State<'_, AppState>,
 ) -> Result<Vec<ConnectionProfileSummary>, String> {
@@ -70,6 +72,7 @@ pub async fn list_connection_profiles(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn delete_connection_profile(
     state: State<'_, AppState>,
     profile_id: String,
@@ -84,6 +87,7 @@ pub async fn delete_connection_profile(
 
 #[tauri::command]
 #[tracing::instrument(skip(state, profile), fields(profile_name = %profile.name, host = %profile.host, port = %profile.port))]
+#[specta::specta]
 pub async fn test_connection(
     state: State<'_, AppState>,
     mut profile: ConnectionProfile,
@@ -110,6 +114,7 @@ pub async fn test_connection(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn connect(
     state: State<'_, AppState>,
     profile_id: String,
@@ -132,6 +137,7 @@ pub async fn connect(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn disconnect(state: State<'_, AppState>, connection_id: String) -> Result<(), String> {
     state
         .connection_manager
@@ -147,6 +153,7 @@ pub async fn disconnect(state: State<'_, AppState>, connection_id: String) -> Re
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<ConnectionInfo>, String> {
     let connections = state.connection_manager.list_connections();
     tracing::info!(count = connections.len(), "Listed connections");
@@ -156,16 +163,19 @@ pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<Connecti
 // Query commands
 #[tauri::command]
 #[tracing::instrument(skip(state), fields(connection_id = %connection_id, sql_preview = %sql.chars().take(100).collect::<String>()))]
+#[specta::specta]
 pub async fn execute_query(
     state: State<'_, AppState>,
     connection_id: String,
     sql: String,
     database: Option<String>,
-    limit: Option<u64>,
+    // u32: specta forbids exporting u64, and a LIMIT above 4.29e9 is
+    // meaningless. Widened back for the executor below.
+    limit: Option<u32>,
 ) -> Result<Vec<QueryResult>, String> {
     let results = state
         .query_executor
-        .execute_owned(connection_id, sql, database, limit)
+        .execute_owned(connection_id, sql, database, limit.map(u64::from))
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Query execution failed");
@@ -183,6 +193,7 @@ pub async fn execute_query(
 // Schema commands
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_databases(
     state: State<'_, AppState>,
     connection_id: String,
@@ -201,6 +212,7 @@ pub async fn get_databases(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_tables(
     state: State<'_, AppState>,
     connection_id: String,
@@ -220,6 +232,7 @@ pub async fn get_tables(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_columns(
     state: State<'_, AppState>,
     connection_id: String,
@@ -240,6 +253,7 @@ pub async fn get_columns(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_indexes(
     state: State<'_, AppState>,
     connection_id: String,
@@ -260,6 +274,7 @@ pub async fn get_indexes(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_table_ddl(
     state: State<'_, AppState>,
     connection_id: String,
@@ -280,6 +295,7 @@ pub async fn get_table_ddl(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_views(
     state: State<'_, AppState>,
     connection_id: String,
@@ -299,6 +315,7 @@ pub async fn get_views(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_routines(
     state: State<'_, AppState>,
     connection_id: String,
@@ -318,6 +335,7 @@ pub async fn get_routines(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_triggers(
     state: State<'_, AppState>,
     connection_id: String,
@@ -337,6 +355,7 @@ pub async fn get_triggers(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_view_ddl(
     state: State<'_, AppState>,
     connection_id: String,
@@ -357,6 +376,7 @@ pub async fn get_view_ddl(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_routine_ddl(
     state: State<'_, AppState>,
     connection_id: String,
@@ -378,6 +398,7 @@ pub async fn get_routine_ddl(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_trigger_ddl(
     state: State<'_, AppState>,
     connection_id: String,
@@ -399,6 +420,7 @@ pub async fn get_trigger_ddl(
 // Export commands
 #[tauri::command]
 #[tracing::instrument(skip(result), fields(format = %format, rows = result.rows.len(), cols = result.columns.len()))]
+#[specta::specta]
 pub async fn export_results(
     result: QueryResult,
     format: String,
@@ -424,6 +446,7 @@ pub async fn export_results(
 // Admin commands
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_process_list(
     state: State<'_, AppState>,
     connection_id: String,
@@ -442,6 +465,7 @@ pub async fn get_process_list(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn get_server_variables(
     state: State<'_, AppState>,
     connection_id: String,
@@ -460,14 +484,18 @@ pub async fn get_server_variables(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn kill_process(
     state: State<'_, AppState>,
     connection_id: String,
-    process_id: i64,
+    // f64: specta forbids exporting i64, and the id arrives from JS as a JSON
+    // number anyway — ProcessInfo.id is exported the same way, so this matches
+    // exactly what the frontend already round-trips.
+    process_id: f64,
 ) -> Result<(), String> {
     state
         .admin_service
-        .kill_process(&connection_id, process_id)
+        .kill_process(&connection_id, process_id as i64)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to kill process");
@@ -488,6 +516,7 @@ pub async fn kill_process(
 // circuits without a runtime branch.
 #[tauri::command]
 #[tracing::instrument]
+#[specta::specta]
 pub async fn is_rpm_ostree() -> Result<bool, String> {
     #[cfg(target_os = "linux")]
     {
@@ -502,6 +531,7 @@ pub async fn is_rpm_ostree() -> Result<bool, String> {
 // File import commands
 #[tauri::command]
 #[tracing::instrument]
+#[specta::specta]
 pub async fn read_file_contents(path: String) -> Result<String, String> {
     let path_buf = PathBuf::from(&path)
         .canonicalize()
@@ -519,6 +549,7 @@ pub async fn read_file_contents(path: String) -> Result<String, String> {
 
 #[tauri::command]
 #[tracing::instrument]
+#[specta::specta]
 pub async fn pick_file(
     title: String,
     filters: Vec<(String, Vec<String>)>,
@@ -544,6 +575,7 @@ pub async fn pick_file(
 
 #[tauri::command]
 #[tracing::instrument(skip(contents), fields(path = %path, content_len = contents.len()))]
+#[specta::specta]
 pub async fn write_file_contents(path: String, contents: String) -> Result<(), String> {
     let path_buf = PathBuf::from(&path);
     // Canonicalize the parent directory so relative paths resolve, but
@@ -572,6 +604,7 @@ pub async fn write_file_contents(path: String, contents: String) -> Result<(), S
 
 #[tauri::command]
 #[tracing::instrument]
+#[specta::specta]
 pub async fn pick_save_file(
     title: String,
     default_name: String,

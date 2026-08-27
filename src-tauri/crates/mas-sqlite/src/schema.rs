@@ -3,15 +3,19 @@ use crate::error::SqliteError;
 use serde::Serialize;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct SqliteTableInfo {
     pub name: String,
     pub table_type: String,
+    // JSON already serialises this as a number and JS truncates past 2^53;
+    // declaring it as f64 documents the existing behaviour rather than
+    // changing it. Row counts, byte sizes, timings and ids never approach it.
+    #[specta(type = Option<f64>)]
     pub row_count: Option<i64>,
     pub sql: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct SqliteColumnInfo {
     pub name: String,
     pub data_type: String,
@@ -20,7 +24,7 @@ pub struct SqliteColumnInfo {
     pub is_primary_key: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct SqliteIndexInfo {
     pub name: String,
     pub columns: Vec<String>,

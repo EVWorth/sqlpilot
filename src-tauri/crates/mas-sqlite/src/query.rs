@@ -3,7 +3,7 @@ use crate::error::SqliteError;
 use serde::Serialize;
 use std::sync::Arc;
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct SqliteColumnMeta {
     pub name: String,
     pub data_type: String,
@@ -11,13 +11,23 @@ pub struct SqliteColumnMeta {
     pub is_primary_key: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct SqliteQueryResult {
     pub query_id: String,
+    // JSON already serialises this as a number and JS truncates past 2^53;
+    // declaring it as f64 documents the existing behaviour rather than
+    // changing it. Row counts, byte sizes, timings and ids never approach it.
+    #[specta(type = f64)]
     pub statement_index: usize,
     pub columns: Vec<SqliteColumnMeta>,
+    // SQLite is dynamically typed, so cell values are arbitrary JSON. Exported
+    // as `unknown[][]`, matching the hand-written type this replaces, and
+    // sidestepping serde_json::Value's i64 arm which specta refuses to export.
+    #[specta(type = Vec<Vec<specta_typescript::Unknown>>)]
     pub rows: Vec<Vec<serde_json::Value>>,
+    #[specta(type = f64)]
     pub rows_affected: u64,
+    #[specta(type = f64)]
     pub execution_time_ms: u64,
     pub warnings: Vec<String>,
     pub rows_truncated: bool,

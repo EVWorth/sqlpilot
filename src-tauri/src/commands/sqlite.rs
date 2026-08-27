@@ -4,6 +4,7 @@ use super::AppState;
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn sqlite_open(state: State<'_, AppState>, path: String) -> Result<String, String> {
     let id = uuid::Uuid::new_v4().to_string();
     state
@@ -16,6 +17,7 @@ pub async fn sqlite_open(state: State<'_, AppState>, path: String) -> Result<Str
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn sqlite_close(state: State<'_, AppState>, connection_id: String) -> Result<(), String> {
     state
         .sqlite_manager
@@ -27,12 +29,14 @@ pub async fn sqlite_close(state: State<'_, AppState>, connection_id: String) -> 
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn sqlite_list(state: State<'_, AppState>) -> Result<Vec<String>, String> {
     Ok(state.sqlite_manager.list())
 }
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn sqlite_execute(
     state: State<'_, AppState>,
     connection_id: String,
@@ -47,6 +51,7 @@ pub async fn sqlite_execute(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn sqlite_get_tables(
     state: State<'_, AppState>,
     connection_id: String,
@@ -60,6 +65,7 @@ pub async fn sqlite_get_tables(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn sqlite_get_columns(
     state: State<'_, AppState>,
     connection_id: String,
@@ -74,6 +80,7 @@ pub async fn sqlite_get_columns(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn sqlite_get_indexes(
     state: State<'_, AppState>,
     connection_id: String,
@@ -88,6 +95,7 @@ pub async fn sqlite_get_indexes(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn sqlite_get_table_ddl(
     state: State<'_, AppState>,
     connection_id: String,

@@ -1,4 +1,4 @@
-.PHONY: dev dev-web build test test-rust test-frontend test-browser lint fmt clean db-up db-down db-seed db-reset ssl-certs setup
+.PHONY: dev dev-web build test test-rust test-frontend test-browser bindings lint fmt clean db-up db-down db-seed db-reset ssl-certs setup
 
 # Quick setup — system deps, toolchains via mise, npm, git hooks, Playwright.
 # Single implementation lives in the script so there is one setup path, not two.
@@ -26,6 +26,11 @@ test-frontend:
 
 test-browser:
 	npm run test:browser
+
+# Regenerate src/lib/bindings.ts from the Rust command definitions.
+# --features beta-ai so the AI commands are present in the output.
+bindings:
+	cd src-tauri && cargo test --features beta-ai --test export_bindings
 
 test-all: db-up test
 

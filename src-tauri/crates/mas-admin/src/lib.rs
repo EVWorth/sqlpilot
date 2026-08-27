@@ -8,19 +8,24 @@ pub struct AdminService {
     connection_manager: Arc<ConnectionManager>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ProcessInfo {
+    // JSON already serialises this as a number and JS truncates past 2^53;
+    // declaring it as f64 documents the existing behaviour rather than
+    // changing it. Row counts, byte sizes, timings and ids never approach it.
+    #[specta(type = f64)]
     pub id: i64,
     pub user: String,
     pub host: String,
     pub db: Option<String>,
     pub command: String,
+    #[specta(type = f64)]
     pub time: i64,
     pub state: Option<String>,
     pub info: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ServerVariable {
     pub name: String,
     pub value: String,
