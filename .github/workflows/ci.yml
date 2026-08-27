@@ -241,6 +241,15 @@ jobs:
         run: mysql -h 127.0.0.1 -P 13306 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
+      - name: Check TypeScript bindings are up to date
+        run: |
+          cargo test --features beta-ai --test export_bindings
+          if ! git diff --quiet -- ../src/lib/bindings.ts; then
+            echo "::error::src/lib/bindings.ts is stale — the Rust commands changed but the generated TypeScript was not committed. Run 'make bindings'."
+            git diff -- ../src/lib/bindings.ts
+            exit 1
+          fi
+        working-directory: src-tauri
       - name: Run Rust tests with coverage
         run: cargo tarpaulin -p mas-core -p mas-export -p mas-admin --out Lcov --output-dir coverage/
         working-directory: src-tauri

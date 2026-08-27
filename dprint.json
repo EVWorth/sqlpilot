@@ -10,7 +10,8 @@
     "**/dist",
     "**/coverage",
     "**/*.lock",
-    "**/*.lockb"
+    "**/*.lockb",
+    "src/lib/bindings.ts"
   ],
   "plugins": [
     "https://plugins.dprint.dev/typescript-0.96.1.wasm",

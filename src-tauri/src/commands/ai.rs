@@ -6,6 +6,7 @@ use super::AppState;
 
 #[tauri::command]
 #[tracing::instrument(skip(state, app, message))]
+#[specta::specta]
 pub async fn ai_chat(
     state: State<'_, AppState>,
     app: AppHandle,
@@ -55,6 +56,7 @@ pub async fn ai_chat(
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn ai_get_status(state: State<'_, AppState>) -> Result<AiStatus, String> {
     let ai_service = match state.ai_service.as_ref() {
         Some(svc) => svc,
@@ -73,6 +75,7 @@ pub async fn ai_get_status(state: State<'_, AppState>) -> Result<AiStatus, Strin
 
 #[tauri::command]
 #[tracing::instrument(skip(state, config))]
+#[specta::specta]
 pub async fn ai_set_config(state: State<'_, AppState>, config: AiConfig) -> Result<(), String> {
     let ai_service = state
         .ai_service
@@ -88,6 +91,7 @@ pub async fn ai_set_config(state: State<'_, AppState>, config: AiConfig) -> Resu
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn ai_cancel(state: State<'_, AppState>, conversation_id: String) -> Result<(), String> {
     let ai_service = state
         .ai_service
@@ -103,6 +107,7 @@ pub async fn ai_cancel(state: State<'_, AppState>, conversation_id: String) -> R
 
 #[tauri::command]
 #[tracing::instrument(skip(state))]
+#[specta::specta]
 pub async fn ai_approve_permission(
     state: State<'_, AppState>,
     conversation_id: String,

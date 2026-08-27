@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub enum ConnectionEnvironment {
     #[serde(rename = "development")]
     Development,
@@ -21,7 +21,7 @@ impl std::fmt::Display for ConnectionEnvironment {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ConnectionProfile {
     pub id: String,
     pub name: String,
@@ -46,7 +46,7 @@ pub struct ConnectionProfile {
     pub updated_at: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ConnectionProfileSummary {
     pub id: String,
     pub name: String,
@@ -96,7 +96,7 @@ impl Default for ConnectionProfile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct SSHConfig {
     pub host: String,
     pub port: u16,
@@ -108,7 +108,7 @@ pub struct SSHConfig {
     pub passphrase: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct SSLConfig {
     pub mode: SSLMode,
     pub ca_cert_path: Option<String>,
@@ -116,7 +116,7 @@ pub struct SSLConfig {
     pub client_key_path: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub enum SSLMode {
     Disabled,
     Preferred,
@@ -125,7 +125,7 @@ pub enum SSLMode {
     VerifyIdentity,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct ConnectionInfo {
     pub id: String,
     pub profile_id: String,
@@ -139,10 +139,14 @@ pub struct ConnectionInfo {
     pub environment: Option<ConnectionEnvironment>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub struct TestConnectionResult {
     pub success: bool,
     pub message: String,
     pub server_version: Option<String>,
+    // JSON already serialises this as a number and JS truncates past 2^53;
+    // declaring it as f64 documents the existing behaviour rather than
+    // changing it. Row counts, byte sizes, timings and ids never approach it.
+    #[specta(type = f64)]
     pub latency_ms: u64,
 }

@@ -27,15 +27,22 @@ function frontendCommands(): Set<string> {
 
 function rustCommands(): Set<string> {
   const src = readFileSync(resolve(repoRoot, "src-tauri/src/lib.rs"), "utf8");
-  const start = src.indexOf("generate_handler![");
-  expect(start, "generate_handler! block not found in src-tauri/src/lib.rs").toBeGreaterThan(-1);
-  const end = src.indexOf("])", start);
-  const block = src.slice(start, end);
 
-  // entries are `commands::name,` or `commands::module::name,`, some behind
-  // a #[cfg(feature = "…")] attribute on the preceding line
-  const matches = block.matchAll(/commands::(?:[a-z0-9_]+::)*([a-z0-9_]+)\s*,/g);
-  return new Set([...matches].map((m) => m[1]));
+  // collect_commands! appears twice — once per beta-ai cfg branch — so union
+  // every block rather than assuming a single list.
+  const blocks = [...src.matchAll(/collect_commands!\[([\s\S]*?)\]/g)];
+  expect(
+    blocks.length,
+    "no collect_commands! block found in src-tauri/src/lib.rs",
+  ).toBeGreaterThan(0);
+
+  const names = new Set<string>();
+  for (const [, block] of blocks) {
+    for (const m of block.matchAll(/commands::(?:[a-z0-9_]+::)*([a-z0-9_]+)\s*,/g)) {
+      names.add(m[1]);
+    }
+  }
+  return names;
 }
 
 describe("Tauri command contract", () => {

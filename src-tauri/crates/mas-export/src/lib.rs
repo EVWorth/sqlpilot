@@ -1,7 +1,7 @@
 use mas_core::models::{QueryResult, SqlValue};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
 pub enum ExportFormat {
     Csv,
     Json,

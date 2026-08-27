@@ -72,6 +72,121 @@ fn augment_macos_path() {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// The single source of truth for which commands exist.
+///
+/// Used by `run()` for the live invoke handler and by the binding-export test,
+/// so the generated TypeScript and the runtime handler are built from one list
+/// and cannot drift apart.
+pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    // tauri-specta owns the command list, so the generated bindings and the
+    // runtime handler are built from the same source and cannot disagree.
+    //
+    // collect_commands! does not accept #[cfg] attributes the way
+    // generate_handler! does, so the beta-ai commands force two whole
+    // branches rather than a gate on individual entries. Keep them in sync;
+    // the command-contract test checks both against tauri-api.ts.
+    #[cfg(feature = "beta-ai")]
+    let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
+        // Serialize/Deserialize phases are kept deliberately. ConnectionProfile
+        // marks password, ssh password and passphrase #[serde(skip_serializing)]
+        // — the frontend sends them, the backend never sends them back. Phased
+        // types put that in the type system: ConnectionProfile_Deserialize has
+        // the credential fields, ConnectionProfile_Serialize does not, so code
+        // reading a profile cannot reach for a password that is never populated.
+        // (disable_serde_phases() also cannot represent skip_serializing_if.)
+        .commands(tauri_specta::collect_commands![
+            commands::save_connection_profile,
+            commands::list_connection_profiles,
+            commands::delete_connection_profile,
+            commands::test_connection,
+            commands::connect,
+            commands::disconnect,
+            commands::list_connections,
+            commands::execute_query,
+            commands::get_databases,
+            commands::get_tables,
+            commands::get_columns,
+            commands::get_indexes,
+            commands::get_table_ddl,
+            commands::get_views,
+            commands::get_routines,
+            commands::get_triggers,
+            commands::get_view_ddl,
+            commands::get_routine_ddl,
+            commands::get_trigger_ddl,
+            commands::export_results,
+            commands::get_process_list,
+            commands::get_server_variables,
+            commands::kill_process,
+            commands::read_file_contents,
+            commands::pick_file,
+            commands::write_file_contents,
+            commands::pick_save_file,
+            commands::is_rpm_ostree,
+            commands::sqlite::sqlite_open,
+            commands::sqlite::sqlite_close,
+            commands::sqlite::sqlite_list,
+            commands::sqlite::sqlite_execute,
+            commands::sqlite::sqlite_get_tables,
+            commands::sqlite::sqlite_get_columns,
+            commands::sqlite::sqlite_get_indexes,
+            commands::sqlite::sqlite_get_table_ddl,
+            commands::ai::ai_chat,
+            commands::ai::ai_get_status,
+            commands::ai::ai_set_config,
+            commands::ai::ai_cancel,
+            commands::ai::ai_approve_permission,
+        ]);
+    #[cfg(not(feature = "beta-ai"))]
+    let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
+        // Serialize/Deserialize phases are kept deliberately. ConnectionProfile
+        // marks password, ssh password and passphrase #[serde(skip_serializing)]
+        // — the frontend sends them, the backend never sends them back. Phased
+        // types put that in the type system: ConnectionProfile_Deserialize has
+        // the credential fields, ConnectionProfile_Serialize does not, so code
+        // reading a profile cannot reach for a password that is never populated.
+        // (disable_serde_phases() also cannot represent skip_serializing_if.)
+        .commands(tauri_specta::collect_commands![
+            commands::save_connection_profile,
+            commands::list_connection_profiles,
+            commands::delete_connection_profile,
+            commands::test_connection,
+            commands::connect,
+            commands::disconnect,
+            commands::list_connections,
+            commands::execute_query,
+            commands::get_databases,
+            commands::get_tables,
+            commands::get_columns,
+            commands::get_indexes,
+            commands::get_table_ddl,
+            commands::get_views,
+            commands::get_routines,
+            commands::get_triggers,
+            commands::get_view_ddl,
+            commands::get_routine_ddl,
+            commands::get_trigger_ddl,
+            commands::export_results,
+            commands::get_process_list,
+            commands::get_server_variables,
+            commands::kill_process,
+            commands::read_file_contents,
+            commands::pick_file,
+            commands::write_file_contents,
+            commands::pick_save_file,
+            commands::is_rpm_ostree,
+            commands::sqlite::sqlite_open,
+            commands::sqlite::sqlite_close,
+            commands::sqlite::sqlite_list,
+            commands::sqlite::sqlite_execute,
+            commands::sqlite::sqlite_get_tables,
+            commands::sqlite::sqlite_get_columns,
+            commands::sqlite::sqlite_get_indexes,
+            commands::sqlite::sqlite_get_table_ddl,
+        ]);
+    specta_builder
+}
+
 pub fn run() {
     #[cfg(target_os = "macos")]
     augment_macos_path();
@@ -139,6 +254,8 @@ pub fn run() {
         sqlite_manager.clone(),
     ));
 
+    let specta_builder = specta_builder();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
@@ -181,54 +298,7 @@ pub fn run() {
             sqlite_executor,
             sqlite_inspector,
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::save_connection_profile,
-            commands::list_connection_profiles,
-            commands::delete_connection_profile,
-            commands::test_connection,
-            commands::connect,
-            commands::disconnect,
-            commands::list_connections,
-            commands::execute_query,
-            commands::get_databases,
-            commands::get_tables,
-            commands::get_columns,
-            commands::get_indexes,
-            commands::get_table_ddl,
-            commands::get_views,
-            commands::get_routines,
-            commands::get_triggers,
-            commands::get_view_ddl,
-            commands::get_routine_ddl,
-            commands::get_trigger_ddl,
-            commands::export_results,
-            commands::get_process_list,
-            commands::get_server_variables,
-            commands::kill_process,
-            commands::read_file_contents,
-            commands::pick_file,
-            commands::write_file_contents,
-            commands::pick_save_file,
-            commands::is_rpm_ostree,
-            #[cfg(feature = "beta-ai")]
-            commands::ai::ai_chat,
-            #[cfg(feature = "beta-ai")]
-            commands::ai::ai_get_status,
-            #[cfg(feature = "beta-ai")]
-            commands::ai::ai_set_config,
-            #[cfg(feature = "beta-ai")]
-            commands::ai::ai_cancel,
-            #[cfg(feature = "beta-ai")]
-            commands::ai::ai_approve_permission,
-            commands::sqlite::sqlite_open,
-            commands::sqlite::sqlite_close,
-            commands::sqlite::sqlite_list,
-            commands::sqlite::sqlite_execute,
-            commands::sqlite::sqlite_get_tables,
-            commands::sqlite::sqlite_get_columns,
-            commands::sqlite::sqlite_get_indexes,
-            commands::sqlite::sqlite_get_table_ddl,
-        ])
+        .invoke_handler(specta_builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

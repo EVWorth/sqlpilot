@@ -8,24 +8,29 @@ pub struct SchemaInspector {
     connection_manager: Arc<ConnectionManager>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct DatabaseInfo {
     pub name: String,
     pub default_charset: String,
     pub default_collation: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct TableInfo {
     pub name: String,
     pub table_type: String, // "BASE TABLE" or "VIEW"
     pub engine: Option<String>,
+    // JSON already serialises this as a number and JS truncates past 2^53;
+    // declaring it as f64 documents the existing behaviour rather than
+    // changing it. Row counts, byte sizes, timings and ids never approach it.
+    #[specta(type = Option<f64>)]
     pub row_count: Option<i64>,
+    #[specta(type = Option<f64>)]
     pub data_size: Option<i64>,
     pub comment: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ColumnInfo {
     pub name: String,
     pub data_type: String,
@@ -37,7 +42,7 @@ pub struct ColumnInfo {
     pub comment: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct IndexInfo {
     pub name: String,
     pub columns: Vec<String>,
@@ -45,7 +50,7 @@ pub struct IndexInfo {
     pub index_type: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ForeignKeyInfo {
     pub name: String,
     pub column: String,
@@ -55,20 +60,20 @@ pub struct ForeignKeyInfo {
     pub on_delete: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ViewInfo {
     pub name: String,
     pub is_updatable: bool,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct RoutineInfo {
     pub name: String,
     pub routine_type: String,
     pub data_type: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct TriggerInfo {
     pub name: String,
     pub event: String,
