@@ -1,0 +1,17 @@
+# Optional. Gets a contributor Node + Rust in one command (`mise install`).
+#
+# CI does NOT depend on mise — it reads .node-version and rust-toolchain.toml
+# directly via actions/setup-node and dtolnay/rust-toolchain, so those two
+# files stay the source of truth and nothing here can drift from them.
+#
+# Note: mise can read those idiomatic files itself, but that is off by
+# default (idiomatic_version_file_enable_tools), so the versions are
+# restated here. Keep them in sync — scripts/setup.sh checks that they match.
+#
+# Deliberately absent: dprint, lefthook, typescript, vitest, playwright.
+# Those are pinned exactly by package-lock.json and installed by `npm ci`.
+# Listing them here too would create a second source of truth that can
+# silently disagree with the lockfile.
+[tools]
+node = "24"
+rust = "1.95.0"

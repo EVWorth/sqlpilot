@@ -26,7 +26,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
-  <img src="https://img.shields.io/badge/rust-1.75%2B-orange" alt="Rust" />
+  <img src="https://img.shields.io/badge/rust-1.95-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/node-24%2B-brightgreen" alt="Node.js" />
   <img src="https://img.shields.io/badge/tests-1488%2B%20passing-brightgreen" alt="Tests" />
 </p>
@@ -141,9 +141,12 @@ Pre-built binaries are available on the [Releases](https://github.com/EVWorth/sq
 
 ### Prerequisites
 
+Versions live in `.node-version` and `rust-toolchain.toml`, which rustup,
+CI and mise all read. `scripts/setup.sh` installs everything for you.
+
 | Tool                              | Version | Purpose                     |
 | --------------------------------- | ------- | --------------------------- |
-| [Rust](https://rustup.rs/)        | 1.75+   | Backend compilation         |
+| [Rust](https://rustup.rs/)        | 1.95.0  | Backend compilation         |
 | [Node.js](https://nodejs.org/)    | 24+     | Frontend tooling            |
 | [Docker](https://www.docker.com/) | 24+     | Integration test containers |
 
