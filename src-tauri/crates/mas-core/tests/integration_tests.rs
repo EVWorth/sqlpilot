@@ -837,3 +837,106 @@ async fn test_get_server_variables() {
 
     manager.disconnect(&info.id).await.unwrap();
 }
+
+// ── SSH credential persistence (issue #505) ──────────────────────────────
+//
+// SSHConfig marks password and passphrase #[serde(skip_serializing)] so they
+// never cross the IPC boundary. The same attribute also kept them out of the
+// JSON blob the store persists, and nothing put them in the keyring, so they
+// were silently dropped on save. These pin the round-trip.
+
+fn ssh_profile() -> ConnectionProfile {
+    let mut p = test_profile();
+    p.ssh_config = Some(mas_core::models::SSHConfig {
+        host: "bastion.example.com".to_string(),
+        port: 22,
+        username: "tunnel".to_string(),
+        password: Some("ssh_secret".to_string()),
+        private_key_path: None,
+        passphrase: Some("key_passphrase".to_string()),
+    });
+    p
+}
+
+#[test]
+fn ssh_credentials_survive_a_save_load_round_trip() {
+    setup_keyring();
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConnectionStore::new(&dir.path().join("ssh.db")).unwrap();
+
+    let profile = ssh_profile();
+    store.save(&profile).unwrap();
+
+    let loaded = store.get(&profile.id).unwrap();
+    let ssh = loaded.ssh_config.expect("ssh config should round-trip");
+    assert_eq!(ssh.password.as_deref(), Some("ssh_secret"));
+    assert_eq!(ssh.passphrase.as_deref(), Some("key_passphrase"));
+    // non-secret fields still come from the JSON column
+    assert_eq!(ssh.host, "bastion.example.com");
+    assert_eq!(ssh.username, "tunnel");
+}
+
+#[test]
+fn ssh_credentials_are_not_written_to_the_database_file() {
+    setup_keyring();
+    let dir = tempfile::tempdir().unwrap();
+    let db_path = dir.path().join("ssh_plaintext.db");
+    let store = ConnectionStore::new(&db_path).unwrap();
+
+    store.save(&ssh_profile()).unwrap();
+    drop(store);
+
+    // They belong in the keyring, not in the SQLite file.
+    let raw = std::fs::read(&db_path).unwrap();
+    let haystack = String::from_utf8_lossy(&raw);
+    assert!(
+        !haystack.contains("ssh_secret"),
+        "ssh password found in the database file"
+    );
+    assert!(
+        !haystack.contains("key_passphrase"),
+        "ssh passphrase found in the database file"
+    );
+}
+
+#[test]
+fn clearing_an_ssh_credential_removes_it() {
+    setup_keyring();
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConnectionStore::new(&dir.path().join("ssh_clear.db")).unwrap();
+
+    let mut profile = ssh_profile();
+    store.save(&profile).unwrap();
+
+    // An explicitly empty credential means clear, as opposed to an absent one
+    // which save_connection_profile treats as "keep the stored value".
+    profile.ssh_config.as_mut().unwrap().password = Some(String::new());
+    store.save(&profile).unwrap();
+
+    let loaded = store.get(&profile.id).unwrap();
+    let ssh = loaded.ssh_config.unwrap();
+    assert_eq!(ssh.password, None);
+    assert_eq!(ssh.passphrase.as_deref(), Some("key_passphrase"));
+}
+
+#[test]
+fn deleting_a_profile_removes_its_ssh_credentials() {
+    setup_keyring();
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConnectionStore::new(&dir.path().join("ssh_delete.db")).unwrap();
+
+    let profile = ssh_profile();
+    store.save(&profile).unwrap();
+    store.delete(&profile.id).unwrap();
+
+    // Re-saving under the same id must not inherit the deleted secrets.
+    let mut revived = profile.clone();
+    revived.ssh_config.as_mut().unwrap().password = None;
+    revived.ssh_config.as_mut().unwrap().passphrase = None;
+    store.save(&revived).unwrap();
+
+    let loaded = store.get(&revived.id).unwrap();
+    let ssh = loaded.ssh_config.unwrap();
+    assert_eq!(ssh.password, None, "deleted ssh password came back");
+    assert_eq!(ssh.passphrase, None, "deleted ssh passphrase came back");
+}

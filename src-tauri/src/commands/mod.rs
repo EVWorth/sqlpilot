@@ -42,10 +42,30 @@ pub async fn save_connection_profile(
     state: State<'_, AppState>,
     mut profile: ConnectionProfile,
 ) -> Result<String, String> {
-    // If the frontend omitted the password (edit mode), preserve the stored one
-    if profile.password.is_empty() {
+    // The frontend never receives credentials — they are
+    // #[serde(skip_serializing)] — so on edit it sends them back absent. Absent
+    // therefore means "keep what is stored", not "clear it". An explicitly
+    // empty SSH credential does mean clear, which is how one gets removed.
+    let needs_stored = profile.password.is_empty()
+        || profile
+            .ssh_config
+            .as_ref()
+            .is_some_and(|c| c.password.is_none() || c.passphrase.is_none());
+    if needs_stored {
         if let Ok(stored) = state.connection_store.get(&profile.id) {
-            profile.password = stored.password;
+            if profile.password.is_empty() {
+                profile.password = stored.password;
+            }
+            if let (Some(incoming), Some(stored_ssh)) =
+                (profile.ssh_config.as_mut(), stored.ssh_config)
+            {
+                if incoming.password.is_none() {
+                    incoming.password = stored_ssh.password;
+                }
+                if incoming.passphrase.is_none() {
+                    incoming.passphrase = stored_ssh.passphrase;
+                }
+            }
         }
     }
     state.connection_store.save(&profile).map_err(|e| {

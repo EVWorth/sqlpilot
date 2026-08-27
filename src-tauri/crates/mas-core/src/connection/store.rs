@@ -13,6 +13,18 @@ pub struct ConnectionStore {
 
 const KEYRING_SERVICE: &str = "sqlpilot.connection_profiles";
 
+/// Keyring slot suffixes for the SSH credentials.
+///
+/// The main database password is stored under the bare profile id and must
+/// stay that way — renaming it would orphan every already-stored password.
+/// These hang off the same id with a suffix.
+const SSH_PASSWORD_SLOT: &str = "ssh-password";
+const SSH_PASSPHRASE_SLOT: &str = "ssh-passphrase";
+
+fn slot_key(profile_id: &str, slot: &str) -> String {
+    format!("{profile_id}:{slot}")
+}
+
 impl ConnectionStore {
     pub fn new(path: &Path) -> Result<Self, CoreError> {
         let db = SqliteConn::open(path)?;
@@ -45,6 +57,25 @@ impl ConnectionStore {
         } else {
             self.set_password(&profile.id, &profile.password)?;
         }
+
+        // SSH credentials are #[serde(skip_serializing)], so they never reach
+        // the JSON below. Store them in the keyring like the main password.
+        self.set_ssh_secret(
+            &profile.id,
+            SSH_PASSWORD_SLOT,
+            profile
+                .ssh_config
+                .as_ref()
+                .and_then(|c| c.password.as_deref()),
+        )?;
+        self.set_ssh_secret(
+            &profile.id,
+            SSH_PASSPHRASE_SLOT,
+            profile
+                .ssh_config
+                .as_ref()
+                .and_then(|c| c.passphrase.as_deref()),
+        )?;
 
         let db = self
             .db
@@ -213,6 +244,12 @@ impl ConnectionStore {
         drop(stmt);
         drop(db);
 
+        // The stored JSON never contains these, so put them back from the keyring.
+        if let Some(ssh) = profile.ssh_config.as_mut() {
+            ssh.password = self.get_ssh_secret(id, SSH_PASSWORD_SLOT)?;
+            ssh.passphrase = self.get_ssh_secret(id, SSH_PASSPHRASE_SLOT)?;
+        }
+
         let legacy_password = profile.password.clone();
         if let Some(password) = self.get_password(id)? {
             profile.password = password;
@@ -243,48 +280,68 @@ impl ConnectionStore {
         db.execute("DELETE FROM connection_profiles WHERE id = ?1", params![id])?;
         drop(db);
         self.delete_password(id)?;
+        self.delete_password(&slot_key(id, SSH_PASSWORD_SLOT))?;
+        self.delete_password(&slot_key(id, SSH_PASSPHRASE_SLOT))?;
         tracing::debug!("Connection profile deleted");
         Ok(())
     }
 
-    fn keyring_entry(&self, profile_id: &str) -> Result<Entry, CoreError> {
-        Entry::new(KEYRING_SERVICE, profile_id).map_err(|e| {
+    fn keyring_entry(&self, key: &str) -> Result<Entry, CoreError> {
+        Entry::new(KEYRING_SERVICE, key).map_err(|e| {
             CoreError::Storage(format!(
-                "Failed to initialize keyring entry for profile {}: {}",
-                profile_id, e
+                "Failed to initialize keyring entry for {}: {}",
+                key, e
             ))
         })
     }
 
-    fn set_password(&self, profile_id: &str, password: &str) -> Result<(), CoreError> {
-        let entry = self.keyring_entry(profile_id)?;
+    /// Write one SSH secret, or remove it when absent/empty.
+    fn set_ssh_secret(
+        &self,
+        profile_id: &str,
+        slot: &str,
+        value: Option<&str>,
+    ) -> Result<(), CoreError> {
+        let key = slot_key(profile_id, slot);
+        match value.filter(|v| !v.is_empty()) {
+            Some(v) => self.set_password(&key, v),
+            None => self.delete_password(&key),
+        }
+    }
+
+    fn get_ssh_secret(&self, profile_id: &str, slot: &str) -> Result<Option<String>, CoreError> {
+        self.get_password(&slot_key(profile_id, slot))
+    }
+
+    fn set_password(&self, key: &str, password: &str) -> Result<(), CoreError> {
+        let entry = self.keyring_entry(key)?;
         entry.set_password(password).map_err(|e| {
             CoreError::Storage(format!(
-                "Failed to store password in keyring for profile {}: {}",
-                profile_id, e
+                "Failed to store password in keyring for {}: {}",
+                key, e
             ))
         })
     }
 
-    fn get_password(&self, profile_id: &str) -> Result<Option<String>, CoreError> {
-        let entry = self.keyring_entry(profile_id)?;
+    fn get_password(&self, key: &str) -> Result<Option<String>, CoreError> {
+        let entry = self.keyring_entry(key)?;
         match entry.get_password() {
             Ok(password) => Ok(Some(password)),
             Err(KeyringError::NoEntry) => Ok(None),
             Err(e) => Err(CoreError::Storage(format!(
-                "Failed to read password from keyring for profile {}: {}",
-                profile_id, e
+                "Failed to read password from keyring for {}: {}",
+                key, e
             ))),
         }
     }
 
-    fn delete_password(&self, profile_id: &str) -> Result<(), CoreError> {
-        let entry = self.keyring_entry(profile_id)?;
+    fn delete_password(&self, key: &str) -> Result<(), CoreError> {
+        let entry = self.keyring_entry(key)?;
         match entry.delete_credential() {
             Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
             Err(e) => Err(CoreError::Storage(format!(
-                "Failed to delete password from keyring for profile {}: {}",
-                profile_id, e
+                "Failed to delete password from keyring for {}: {}",
+                key, e
             ))),
         }
     }
