@@ -189,7 +189,7 @@ describe("aiStore", () => {
       await useAiStore.getState().checkStatus();
 
       expect(useAiStore.getState().aiEnabled).toBe(false);
-      expect(useAiStore.getState().status).toEqual({ provider: "none", available: false });
+      expect(useAiStore.getState().status).toEqual({ provider: "none", available: false, model: null });
     });
   });
 

@@ -488,14 +488,11 @@ pub async fn get_server_variables(
 pub async fn kill_process(
     state: State<'_, AppState>,
     connection_id: String,
-    // f64: specta forbids exporting i64, and the id arrives from JS as a JSON
-    // number anyway — ProcessInfo.id is exported the same way, so this matches
-    // exactly what the frontend already round-trips.
-    process_id: f64,
+    process_id: mas_admin::ProcessId,
 ) -> Result<(), String> {
     state
         .admin_service
-        .kill_process(&connection_id, process_id as i64)
+        .kill_process(&connection_id, process_id.0)
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Failed to kill process");

@@ -1,88 +1,51 @@
-// Connection types
-export type ConnectionEnvironment = "development" | "staging" | "production";
+import type { SqlValue } from "../lib/bindings";
 
-export interface ConnectionProfile {
-  id: string;
-  name: string;
-  group?: string;
-  color?: string;
-  environment?: ConnectionEnvironment;
-  host: string;
-  port: number;
-  username: string;
-  password?: string;
-  default_database?: string;
-  ssh_config?: SSHConfig;
-  ssl_config?: SSLConfig;
-  pool_min: number;
-  pool_max: number;
-  read_only: boolean;
-  connect_timeout_secs?: number;
-  query_timeout_secs?: number;
-  charset?: string;
-  created_at: string;
-  updated_at: string;
-}
+// Types crossing the Tauri boundary are generated from Rust by tauri-specta
+// (src/lib/bindings.ts, regenerate with `make bindings`). Re-exported here so
+// existing imports keep working and the definitions cannot drift from Rust.
+export type {
+  AiConfig,
+  AiMode,
+  AiStatus,
+  ColumnInfo,
+  ColumnMeta,
+  ConnectionEnvironment,
+  ConnectionInfo,
+  DatabaseInfo,
+  IndexInfo,
+  ProcessInfo,
+  RoutineInfo,
+  ServerVariable,
+  SqliteColumnInfo,
+  SqliteColumnMeta,
+  SqliteIndexInfo,
+  SqliteQueryResult,
+  SqliteTableInfo,
+  SqlValue,
+  SSLConfig,
+  TableInfo,
+  TestConnectionResult,
+  TriggerInfo,
+  ViewInfo,
+} from "../lib/bindings";
 
-export type ConnectionProfileSummary = Omit<ConnectionProfile, "password">;
+// Phase-split: Rust marks some fields #[serde(skip_serializing)], so what the
+// backend returns differs from what it accepts. These alias the _Serialize
+// phase — the shape you get back — since that is what consumers handle. Code
+// building one to *send* should import the _Deserialize form from ../lib/bindings.
+export type { QueryResult_Serialize as QueryResult } from "../lib/bindings";
 
-export interface SSHConfig {
-  host: string;
-  port: number;
-  username: string;
-  password?: string;
-  private_key_path?: string;
-  passphrase?: string;
-}
-
-export interface SSLConfig {
-  mode: "Disabled" | "Preferred" | "Required" | "VerifyCA" | "VerifyIdentity";
-  ca_cert_path?: string;
-  client_cert_path?: string;
-  client_key_path?: string;
-}
-
-export interface ConnectionInfo {
-  id: string;
-  profile_id: string;
-  name: string;
-  host: string;
-  port: number;
-  database?: string;
-  server_version: string;
-  connected_at: string;
-  color?: string;
-  environment?: ConnectionEnvironment;
-}
-
-export interface TestConnectionResult {
-  success: boolean;
-  message: string;
-  server_version?: string;
-  latency_ms: number;
-}
-
-// Query types
-export interface QueryResult {
-  query_id: string;
-  statement_index: number;
-  columns: ColumnMeta[];
-  rows: SqlValue[][];
-  rows_affected: number;
-  execution_time_ms: number;
-  warnings: string[];
-  rows_truncated: boolean;
-  total_rows_available?: number;
-}
-
-export interface ColumnMeta {
-  name: string;
-  data_type: string;
-  nullable: boolean;
-  is_primary_key: boolean;
-}
-
-export type SqlValue = null | boolean | number | string | number[];
+// Read-only — nothing constructs one — so this can already come from Rust,
+// even while ConnectionProfile itself is still hand-written below.
+export type {
+  // _Deserialize is the superset: it carries password / passphrase, matching
+  // what the hand-written types allowed and what ConnectionDialog builds.
+  // Readers get credential fields they should not have — no worse than before,
+  // but the reason to split read from write usages in a follow-up.
+  ConnectionProfile_Deserialize as ConnectionProfile,
+  ConnectionProfileSummary_Serialize as ConnectionProfileSummary,
+  SSHConfig_Deserialize as SSHConfig,
+} from "../lib/bindings";
 
 // Type guards and validators for SqlValue
 function isNull(val: unknown): val is null {
@@ -154,75 +117,6 @@ export const SqlValueGuard = {
   toSqlLiteral,
 } as const;
 
-// Schema types
-export interface DatabaseInfo {
-  name: string;
-  default_charset: string;
-  default_collation: string;
-}
-
-export interface TableInfo {
-  name: string;
-  table_type: string;
-  engine?: string;
-  row_count?: number;
-  data_size?: number;
-  comment: string;
-}
-
-export interface ColumnInfo {
-  name: string;
-  data_type: string;
-  column_type: string;
-  nullable: boolean;
-  default_value?: string;
-  is_primary_key: boolean;
-  extra: string;
-  comment: string;
-}
-
-export interface IndexInfo {
-  name: string;
-  columns: string[];
-  is_unique: boolean;
-  index_type: string;
-}
-
-export interface ViewInfo {
-  name: string;
-  is_updatable: boolean;
-}
-
-export interface RoutineInfo {
-  name: string;
-  routine_type: string;
-  data_type: string;
-}
-
-export interface TriggerInfo {
-  name: string;
-  event: string;
-  table: string;
-  timing: string;
-}
-
-// Admin types
-export interface ProcessInfo {
-  id: number;
-  user: string;
-  host: string;
-  db?: string;
-  command: string;
-  time: number;
-  state?: string;
-  info?: string;
-}
-
-export interface ServerVariable {
-  name: string;
-  value: string;
-}
-
 // Editor types
 export interface EditorTab {
   id: string;
@@ -236,19 +130,6 @@ export interface EditorTab {
   routineType?: string;
   type?: "query" | "structure" | "admin" | "compare" | "designer" | "routine";
   isDirty: boolean;
-}
-
-// AI types
-export type AiMode = "ask" | "agent" | "plan";
-
-export interface AiStatus {
-  provider: string;
-  available: boolean;
-  model?: string;
-}
-
-export interface AiConfig {
-  model?: string;
 }
 
 export type AiStreamEvent =
@@ -304,44 +185,4 @@ export interface Conversation {
   messages: ChatMessage[];
   title: string;
   createdAt: string;
-}
-
-// SQLite types
-export interface SqliteQueryResult {
-  query_id: string;
-  statement_index: number;
-  columns: SqliteColumnMeta[];
-  rows: unknown[][];
-  rows_affected: number;
-  execution_time_ms: number;
-  warnings: string[];
-  rows_truncated: boolean;
-}
-
-export interface SqliteColumnMeta {
-  name: string;
-  data_type: string;
-  nullable: boolean;
-  is_primary_key: boolean;
-}
-
-export interface SqliteTableInfo {
-  name: string;
-  table_type: string;
-  row_count: number | null;
-  sql: string | null;
-}
-
-export interface SqliteColumnInfo {
-  name: string;
-  data_type: string;
-  nullable: boolean;
-  default_value: string | null;
-  is_primary_key: boolean;
-}
-
-export interface SqliteIndexInfo {
-  name: string;
-  columns: string[];
-  is_unique: boolean;
 }

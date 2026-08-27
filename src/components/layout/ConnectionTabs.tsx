@@ -113,7 +113,7 @@ export function ConnectionTabs() {
       // Propagate the connection's auto-selected database to the active editor tab
       const { activeTabId, setTabConnection } = useEditorStore.getState();
       if (activeTabId) {
-        setTabConnection(activeTabId, conn.id, conn.database, conn.profile_id);
+        setTabConnection(activeTabId, conn.id, conn.database ?? undefined, conn.profile_id);
       }
     } catch {
       // Error is captured in connectionStore.error and shown in StatusBar

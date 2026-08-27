@@ -89,7 +89,7 @@ export const useAiStore = create<AiState>((set, get) => ({
       set({ status, aiEnabled: true });
     } catch {
       set({
-        status: { provider: "none", available: false },
+        status: { provider: "none", available: false, model: null },
         aiEnabled: false,
       });
     }

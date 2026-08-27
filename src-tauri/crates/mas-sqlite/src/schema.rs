@@ -10,7 +10,7 @@ pub struct SqliteTableInfo {
     // JSON already serialises this as a number and JS truncates past 2^53;
     // declaring it as f64 documents the existing behaviour rather than
     // changing it. Row counts, byte sizes, timings and ids never approach it.
-    #[specta(type = Option<f64>)]
+    #[specta(type = Option<specta_typescript::Number>)]
     pub row_count: Option<i64>,
     pub sql: Option<String>,
 }

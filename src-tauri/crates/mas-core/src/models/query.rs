@@ -6,18 +6,18 @@ pub struct QueryResult {
     // JSON already serialises this as a number and JS truncates past 2^53;
     // declaring it as f64 documents the existing behaviour rather than
     // changing it. Row counts, byte sizes, timings and ids never approach it.
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub statement_index: usize,
     pub columns: Vec<ColumnMeta>,
     pub rows: Vec<Vec<SqlValue>>,
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub rows_affected: u64,
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub execution_time_ms: u64,
     pub warnings: Vec<String>,
     pub rows_truncated: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    #[specta(type = Option<f64>)]
+    #[specta(type = Option<specta_typescript::Number>)]
     pub total_rows_available: Option<u64>,
 }
 
@@ -37,9 +37,9 @@ pub enum SqlValue {
     // BIGINT cell values: serde_json already emits these as JSON numbers and
     // JS truncates past 2^53. Declaring f64 documents the existing lossy
     // round-trip rather than introducing it. See issue for a lossless fix.
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     Int(i64),
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     UInt(u64),
     Float(f64),
     String(String),

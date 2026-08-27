@@ -17,7 +17,7 @@ pub struct SqliteQueryResult {
     // JSON already serialises this as a number and JS truncates past 2^53;
     // declaring it as f64 documents the existing behaviour rather than
     // changing it. Row counts, byte sizes, timings and ids never approach it.
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub statement_index: usize,
     pub columns: Vec<SqliteColumnMeta>,
     // SQLite is dynamically typed, so cell values are arbitrary JSON. Exported
@@ -25,9 +25,9 @@ pub struct SqliteQueryResult {
     // sidestepping serde_json::Value's i64 arm which specta refuses to export.
     #[specta(type = Vec<Vec<specta_typescript::Unknown>>)]
     pub rows: Vec<Vec<serde_json::Value>>,
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub rows_affected: u64,
-    #[specta(type = f64)]
+    #[specta(type = specta_typescript::Number)]
     pub execution_time_ms: u64,
     pub warnings: Vec<String>,
     pub rows_truncated: bool,
