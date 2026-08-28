@@ -7,6 +7,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
+import type { PendingKind } from "../../stores/resultStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -25,6 +26,27 @@ import { TitleBar } from "./TitleBar";
 import { Toolbar } from "./Toolbar";
 
 const isMac = navigator.platform.toLowerCase().includes("mac");
+
+/**
+ * Wording for the production confirmation, chosen by what is pending.
+ *
+ * EXPLAIN ANALYZE gets its own copy because the risk is different: the query is
+ * not necessarily destructive, it is that ANALYZE runs what it measures (#412).
+ */
+const CONFIRM_COPY: Record<PendingKind, { title: string; message: string; confirm: string }> = {
+  "query": {
+    title: "⚠️ Destructive Query on Production",
+    message:
+      "You are about to run a destructive query (DROP, DELETE, TRUNCATE, or ALTER) on a PRODUCTION database. Are you sure you want to proceed?",
+    confirm: "Execute Anyway",
+  },
+  "explain-analyze": {
+    title: "⚠️ EXPLAIN ANALYZE on Production",
+    message:
+      "EXPLAIN ANALYZE measures the query by running it. This is a PRODUCTION database, so the statement will really execute and consume real resources.\n\nUse plain EXPLAIN to see the plan without running anything.",
+    confirm: "Run It Anyway",
+  },
+};
 
 export function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -299,9 +321,9 @@ export function AppLayout() {
       />
       <ConfirmDialog
         isOpen={!!confirmDialog?.isOpen}
-        title="⚠️ Destructive Query on Production"
-        message="You are about to run a destructive query (DROP, DELETE, TRUNCATE, or ALTER) on a PRODUCTION database. Are you sure you want to proceed?"
-        confirmLabel="Execute Anyway"
+        title={CONFIRM_COPY[confirmDialog?.kind ?? "query"].title}
+        message={CONFIRM_COPY[confirmDialog?.kind ?? "query"].message}
+        confirmLabel={CONFIRM_COPY[confirmDialog?.kind ?? "query"].confirm}
         cancelLabel="Cancel"
         danger
         onConfirm={confirmExecution}

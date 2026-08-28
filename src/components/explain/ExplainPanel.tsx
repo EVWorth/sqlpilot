@@ -1,4 +1,4 @@
-import { GitBranch, Table2 } from "lucide-react";
+import { AlertTriangle, GitBranch, Table2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useResultStore } from "../../stores/resultStore";
 import type { QueryResult, SqlValue } from "../../types";
@@ -479,9 +479,23 @@ function AnalyzeView({ result }: { result: QueryResult }) {
   );
 }
 
+/**
+ * Shown when ANALYZE was asked for but the backend planned instead — the user
+ * needs to know the timings are missing on purpose, not that ANALYZE failed.
+ */
+function DowngradeNotice({ notice }: { notice: string }) {
+  return (
+    <div className="flex items-start gap-2 border-b border-[var(--color-border)] bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
+      <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-400" />
+      <span>{notice}</span>
+    </div>
+  );
+}
+
 export function ExplainPanel() {
   const explainResult = useResultStore((s) => s.explainResult);
   const explainAnalyze = useResultStore((s) => s.explainAnalyze);
+  const explainNotice = useResultStore((s) => s.explainNotice);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
 
   if (!explainResult) {
@@ -500,6 +514,7 @@ export function ExplainPanel() {
             EXPLAIN ANALYZE
           </span>
         </div>
+        {explainNotice && <DowngradeNotice notice={explainNotice} />}
         <AnalyzeView result={explainResult} />
       </div>
     );
@@ -551,6 +566,8 @@ export function ExplainPanel() {
           <span className="ml-1 opacity-60">worst → best</span>
         </div>
       </div>
+
+      {explainNotice && <DowngradeNotice notice={explainNotice} />}
 
       {viewMode === "table" ? <ExplainTable result={explainResult} /> : <ExplainTreeView result={explainResult} />}
     </div>

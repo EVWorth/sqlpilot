@@ -15,6 +15,21 @@ export const commands = {
 	disconnect: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("disconnect", { connectionId })),
 	listConnections: () => typedError<ConnectionInfo[], string>(__TAURI_INVOKE("list_connections")),
 	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null) => typedError<QueryResult_Serialize[], string>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit })),
+	/**
+	 *  Plan a single statement.
+	 * 
+	 *  Separate from `execute_query` because `EXPLAIN ANALYZE` executes what it
+	 *  measures: the decision to downgrade a write to a plain EXPLAIN has to sit
+	 *  behind the IPC boundary, not in the caller (#412).
+	 */
+	explainQuery: (connectionId: string, sql: string, database: string | null, analyze: boolean) => typedError<ExplainResponse_Serialize, string>(__TAURI_INVOKE("explain_query", { connectionId, sql, database, analyze })),
+	/**
+	 *  Stop whatever is running on this connection.
+	 * 
+	 *  Issues `KILL QUERY` server-side — dropping the client future alone would
+	 *  leave the statement running to completion (#420).
+	 */
+	cancelQuery: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("cancel_query", { connectionId })),
 	getDatabases: (connectionId: string) => typedError<DatabaseInfo[], string>(__TAURI_INVOKE("get_databases", { connectionId })),
 	getTables: (connectionId: string, database: string) => typedError<TableInfo[], string>(__TAURI_INVOKE("get_tables", { connectionId, database })),
 	getColumns: (connectionId: string, database: string, table: string) => typedError<ColumnInfo[], string>(__TAURI_INVOKE("get_columns", { connectionId, database, table })),
@@ -62,6 +77,13 @@ export type AiStatus = {
 	available: boolean,
 	model: string | null,
 };
+
+/**  Why a requested ANALYZE was not performed. */
+export type AnalyzeRefusal = 
+/**  The statement writes. Running it to time it would apply the write. */
+"would_mutate" | 
+/**  The connection's profile is marked read-only. */
+"read_only_connection";
 
 export type ColumnInfo = {
 	name: string,
@@ -193,6 +215,40 @@ export type DatabaseInfo = {
 	name: string,
 	default_charset: string,
 	default_collation: string,
+};
+
+export type ExplainResponse = ExplainResponse_Serialize | ExplainResponse_Deserialize;
+
+export type ExplainResponse_Deserialize = {
+	result: QueryResult_Deserialize,
+	/**  True when the output is ANALYZE-shaped (actual timings), false for a plan. */
+	analyzed: boolean,
+	/**
+	 *  Set when ANALYZE was asked for and deliberately not run. The caller shows
+	 *  this to the user; `result` holds the plain EXPLAIN performed instead.
+	 */
+	refusal: AnalyzeRefusal | null,
+	/**
+	 *  True when the plan came back in MariaDB's tabular ANALYZE shape rather
+	 *  than MySQL's single-column TREE text (#422).
+	 */
+	tabular: boolean,
+};
+
+export type ExplainResponse_Serialize = {
+	result: QueryResult_Serialize,
+	/**  True when the output is ANALYZE-shaped (actual timings), false for a plan. */
+	analyzed: boolean,
+	/**
+	 *  Set when ANALYZE was asked for and deliberately not run. The caller shows
+	 *  this to the user; `result` holds the plain EXPLAIN performed instead.
+	 */
+	refusal: AnalyzeRefusal | null,
+	/**
+	 *  True when the plan came back in MariaDB's tabular ANALYZE shape rather
+	 *  than MySQL's single-column TREE text (#422).
+	 */
+	tabular: boolean,
 };
 
 export type IndexInfo = {

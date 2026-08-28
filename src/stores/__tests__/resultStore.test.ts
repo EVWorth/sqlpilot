@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { executeQueryMock } = vi.hoisted(() => ({
+const { executeQueryMock, explainQueryMock, cancelQueryMock } = vi.hoisted(() => ({
   executeQueryMock: vi.fn().mockResolvedValue([]),
+  explainQueryMock: vi.fn(),
+  cancelQueryMock: vi.fn().mockResolvedValue(undefined),
 }));
 
 const addEntryMock = vi.hoisted(() => vi.fn());
@@ -15,7 +17,11 @@ let settingsStoreState = {
 };
 
 vi.mock("../../lib/tauri-api", () => ({
-  api: { executeQuery: executeQueryMock },
+  api: {
+    executeQuery: executeQueryMock,
+    explainQuery: explainQueryMock,
+    cancelQuery: cancelQueryMock,
+  },
 }));
 
 vi.mock("../historyStore", () => ({
@@ -39,6 +45,16 @@ vi.mock("../settingsStore", () => ({
 }));
 
 import { useResultStore } from "../resultStore";
+
+function makeExplainResponse(overrides: Partial<any> = {}) {
+  return {
+    result: makeQueryResult({ query_id: "explain1" }),
+    analyzed: false,
+    refusal: null,
+    tabular: true,
+    ...overrides,
+  };
+}
 
 function makeQueryResult(overrides: Partial<any> = {}) {
   return {
@@ -64,9 +80,12 @@ describe("resultStore", () => {
       error: null,
       explainResult: null,
       explainAnalyze: false,
+      explainTabular: false,
+      explainNotice: null,
       showExplain: false,
       confirmDialog: null,
     });
+    explainQueryMock.mockResolvedValue(makeExplainResponse());
     executeQueryMock.mockResolvedValue([]);
     connectionStoreState = {
       activeConnections: [],
@@ -234,6 +253,7 @@ describe("resultStore", () => {
       const dialog = useResultStore.getState().confirmDialog;
       expect(dialog).toEqual({
         isOpen: true,
+        kind: "query",
         connectionId: "conn-1",
         sql: "DROP TABLE users",
         database: undefined,
@@ -253,6 +273,7 @@ describe("resultStore", () => {
       const dialog = useResultStore.getState().confirmDialog;
       expect(dialog).toEqual({
         isOpen: true,
+        kind: "query",
         connectionId: "conn-1",
         sql: "DELETE FROM users",
         database: "mydb",
@@ -394,81 +415,134 @@ describe("resultStore", () => {
   });
 
   describe("executeExplain", () => {
-    it("executes EXPLAIN query successfully", async () => {
-      const explainResult = makeQueryResult({ query_id: "explain1" });
-      executeQueryMock.mockResolvedValue([explainResult]);
+    it("asks the backend to plan without analyzing", async () => {
+      const response = makeExplainResponse();
+      explainQueryMock.mockResolvedValue(response);
 
       await useResultStore.getState().executeExplain("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "EXPLAIN SELECT 1", undefined);
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", false, undefined);
       const state = useResultStore.getState();
-      expect(state.explainResult).toEqual(explainResult);
+      expect(state.explainResult).toEqual(response.result);
       expect(state.explainAnalyze).toBe(false);
       expect(state.showExplain).toBe(true);
       expect(state.isExecuting).toBe(false);
     });
 
-    it("handles EXPLAIN error", async () => {
-      executeQueryMock.mockRejectedValue(new Error("explain failed"));
+    it("passes the raw editor text through — the backend normalizes it", async () => {
+      // Trailing semicolons and multi-statement rejection are the backend's
+      // job now, so the store must not pre-chew the SQL (#418).
+      await useResultStore.getState().executeExplain("conn-1", "SELECT 1;", "mydb");
+
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1;", false, "mydb");
+    });
+
+    it("surfaces a backend rejection as an error", async () => {
+      explainQueryMock.mockRejectedValue(new Error("EXPLAIN supports a single statement"));
+
+      await useResultStore.getState().executeExplain("conn-1", "SELECT 1; SELECT 2;");
+
+      expect(useResultStore.getState().error).toContain("single statement");
+      expect(useResultStore.getState().isExecuting).toBe(false);
+    });
+
+    it("records whether the plan is tabular", async () => {
+      explainQueryMock.mockResolvedValue(makeExplainResponse({ tabular: false }));
 
       await useResultStore.getState().executeExplain("conn-1", "SELECT 1");
 
-      expect(useResultStore.getState().error).toContain("explain failed");
-      expect(useResultStore.getState().isExecuting).toBe(false);
+      expect(useResultStore.getState().explainTabular).toBe(false);
     });
   });
 
   describe("executeExplainAnalyze", () => {
-    it("uses ANALYZE prefix for MariaDB", async () => {
-      connectionStoreState.activeConnections = [
-        { id: "conn-1", profile_id: "p1", server_version: "10.6.5-MariaDB" },
-      ];
-      const result = makeQueryResult({ query_id: "analyze1" });
-      executeQueryMock.mockResolvedValue([result]);
+    it("asks the backend to analyze", async () => {
+      explainQueryMock.mockResolvedValue(makeExplainResponse({ analyzed: true }));
 
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "ANALYZE SELECT 1", undefined);
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined);
       const state = useResultStore.getState();
-      expect(state.explainResult).toEqual(result);
       expect(state.explainAnalyze).toBe(true);
+      expect(state.explainNotice).toBeNull();
       expect(state.showExplain).toBe(true);
-      expect(state.isExecuting).toBe(false);
     });
 
-    it("uses EXPLAIN ANALYZE prefix for MySQL", async () => {
-      connectionStoreState.activeConnections = [
-        { id: "conn-1", profile_id: "p1", server_version: "8.0.35" },
-      ];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+    it("explains why a write was planned instead of analyzed", async () => {
+      explainQueryMock.mockResolvedValue(
+        makeExplainResponse({ analyzed: false, refusal: "would_mutate" }),
+      );
+
+      await useResultStore.getState().executeExplainAnalyze("conn-1", "DELETE FROM users");
+
+      const state = useResultStore.getState();
+      expect(state.explainAnalyze).toBe(false);
+      expect(state.explainNotice).toContain("executes the statement");
+      expect(state.showExplain).toBe(true);
+    });
+
+    it("explains a refusal on a read-only connection", async () => {
+      explainQueryMock.mockResolvedValue(
+        makeExplainResponse({ analyzed: false, refusal: "read_only_connection" }),
+      );
 
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "EXPLAIN ANALYZE SELECT 1", undefined);
+      expect(useResultStore.getState().explainNotice).toContain("read-only");
     });
 
-    it("uses EXPLAIN ANALYZE prefix when server_version is undefined", async () => {
-      connectionStoreState.activeConnections = [
-        { id: "conn-1", profile_id: "p1" },
-      ];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+    it("clears a stale notice on the next run", async () => {
+      useResultStore.setState({ explainNotice: "old news" });
+      explainQueryMock.mockResolvedValue(makeExplainResponse({ analyzed: true }));
 
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "EXPLAIN ANALYZE SELECT 1", undefined);
+      expect(useResultStore.getState().explainNotice).toBeNull();
     });
 
-    it("uses EXPLAIN ANALYZE when connection not found", async () => {
-      connectionStoreState.activeConnections = [];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+    it("confirms before analyzing on a production connection", async () => {
+      connectionStoreState.activeConnections = [{ id: "conn-1", profile_id: "p1" }];
+      connectionStoreState.profiles = [{ id: "p1", environment: "production" }];
 
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "EXPLAIN ANALYZE SELECT 1", undefined);
+      // ANALYZE runs the query for real, so production is gated even for a read.
+      expect(explainQueryMock).not.toHaveBeenCalled();
+      expect(useResultStore.getState().confirmDialog).toMatchObject({
+        isOpen: true,
+        kind: "explain-analyze",
+        connectionId: "conn-1",
+        sql: "SELECT 1",
+      });
+    });
+
+    it("analyzes once the production confirmation is accepted", async () => {
+      connectionStoreState.activeConnections = [{ id: "conn-1", profile_id: "p1" }];
+      connectionStoreState.profiles = [{ id: "p1", environment: "production" }];
+      explainQueryMock.mockResolvedValue(makeExplainResponse({ analyzed: true }));
+
+      await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
+      await useResultStore.getState().confirmExecution();
+
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined);
+      expect(useResultStore.getState().confirmDialog).toBeNull();
+      expect(useResultStore.getState().explainAnalyze).toBe(true);
+    });
+
+    it("runs nothing when the production confirmation is declined", async () => {
+      connectionStoreState.activeConnections = [{ id: "conn-1", profile_id: "p1" }];
+      connectionStoreState.profiles = [{ id: "p1", environment: "production" }];
+
+      await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
+      useResultStore.getState().cancelExecution();
+
+      expect(explainQueryMock).not.toHaveBeenCalled();
+      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(useResultStore.getState().confirmDialog).toBeNull();
     });
 
     it("handles ANALYZE error", async () => {
-      executeQueryMock.mockRejectedValue(new Error("analyze failed"));
+      explainQueryMock.mockRejectedValue(new Error("analyze failed"));
 
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
 
@@ -478,18 +552,77 @@ describe("resultStore", () => {
   });
 
   describe("cancelActiveQuery", () => {
-    it("sets isExecuting to false", () => {
+    it("sets isExecuting to false", async () => {
       useResultStore.setState({ isExecuting: true });
 
-      useResultStore.getState().cancelActiveQuery();
+      await useResultStore.getState().cancelActiveQuery();
 
       expect(useResultStore.getState().isExecuting).toBe(false);
     });
 
-    it("sets error message", () => {
-      useResultStore.getState().cancelActiveQuery();
+    it("sets error message", async () => {
+      await useResultStore.getState().cancelActiveQuery();
 
       expect(useResultStore.getState().error).toBe("Query cancelled by user");
+    });
+
+    it("tells the server to stop the statement it is running", async () => {
+      let resolveQuery: (value: any) => void;
+      executeQueryMock.mockReturnValue(
+        new Promise((r) => {
+          resolveQuery = r;
+        }),
+      );
+
+      const pending = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(60)");
+      await useResultStore.getState().cancelActiveQuery();
+
+      // Dropping the promise alone would leave SLEEP(60) running server-side.
+      expect(cancelQueryMock).toHaveBeenCalledWith("conn-1");
+
+      resolveQuery!([]);
+      await pending;
+    });
+
+    it("cancels the connection an EXPLAIN ANALYZE is running on", async () => {
+      let resolveExplain: (value: any) => void;
+      explainQueryMock.mockReturnValue(
+        new Promise((r) => {
+          resolveExplain = r;
+        }),
+      );
+
+      const pending = useResultStore.getState().executeExplainAnalyze("conn-9", "SELECT SLEEP(60)");
+      await useResultStore.getState().cancelActiveQuery();
+
+      expect(cancelQueryMock).toHaveBeenCalledWith("conn-9");
+
+      resolveExplain!(makeExplainResponse());
+      await pending;
+    });
+
+    it("does not call the server when nothing is in flight", async () => {
+      await useResultStore.getState().cancelActiveQuery();
+
+      expect(cancelQueryMock).not.toHaveBeenCalled();
+    });
+
+    it("reports a cancel the server would not confirm", async () => {
+      cancelQueryMock.mockRejectedValue(new Error("connection lost"));
+      let resolveQuery: (value: any) => void;
+      executeQueryMock.mockReturnValue(
+        new Promise((r) => {
+          resolveQuery = r;
+        }),
+      );
+
+      const pending = useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+      await useResultStore.getState().cancelActiveQuery();
+
+      expect(useResultStore.getState().error).toContain("did not confirm");
+
+      resolveQuery!([]);
+      await pending;
     });
 
     it("does not apply results after cancellation", async () => {
