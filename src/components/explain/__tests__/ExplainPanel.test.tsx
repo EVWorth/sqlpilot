@@ -419,4 +419,58 @@ describe("ExplainPanel", () => {
       }
     });
   });
+
+  describe("cancel affordance", () => {
+    it("offers Cancel on the plan panel while a statement is running", () => {
+      const cancel = vi.fn();
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({
+          explainResult: makeExplainResult([[...baseExplainRow]]),
+          explainAnalyze: false,
+          isExecuting: true,
+          cancelActiveQuery: cancel,
+        })
+      );
+      render(<ExplainPanel />);
+      fireEvent.click(screen.getByText("Cancel"));
+      expect(cancel).toHaveBeenCalled();
+    });
+
+    it("offers Cancel on the ANALYZE panel too", () => {
+      const cancel = vi.fn();
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({
+          explainResult: {
+            query_id: "a",
+            statement_index: 0,
+            columns: [{ name: "EXPLAIN", data_type: "text", nullable: true, is_primary_key: false }],
+            rows: [["-> Table scan"]],
+            rows_affected: 0,
+            execution_time_ms: 1,
+            warnings: [],
+            rows_truncated: false,
+          } as QueryResult,
+          explainAnalyze: true,
+          explainTabular: false,
+          isExecuting: true,
+          cancelActiveQuery: cancel,
+        })
+      );
+      render(<ExplainPanel />);
+      fireEvent.click(screen.getByText("Cancel"));
+      expect(cancel).toHaveBeenCalled();
+    });
+
+    it("hides Cancel when nothing is running", () => {
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({
+          explainResult: makeExplainResult([[...baseExplainRow]]),
+          explainAnalyze: false,
+          isExecuting: false,
+        })
+      );
+      render(<ExplainPanel />);
+      expect(screen.queryByText("Cancel")).not.toBeInTheDocument();
+    });
+  });
 });
