@@ -235,83 +235,101 @@ impl QueryExecutor {
     }
 }
 
+/// Decode one cell.
+///
+/// Every arm goes through `decoded`, which distinguishes three outcomes that
+/// the previous `.ok().flatten()` collapsed into one:
+///
+///   * a genuine SQL NULL      -> SqlValue::Null
+///   * a successful decode     -> the typed value
+///   * a *failed* decode       -> fall back to the raw text and warn
+///
+/// Conflating the third with the first is what made every DECIMAL and YEAR
+/// column render as NULL (#508). A type this function does not understand
+/// should degrade to text, never vanish.
 fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> SqlValue {
     let t = type_name.to_uppercase();
     let t = t.trim();
 
     match t {
-        "BOOLEAN" | "TINYINT(1)" | "BOOL" => row
-            .try_get::<Option<bool>, _>(index)
-            .ok()
-            .flatten()
-            .map(SqlValue::Bool)
-            .unwrap_or(SqlValue::Null),
-        "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => row
-            .try_get::<Option<i64>, _>(index)
-            .ok()
-            .flatten()
-            .map(SqlValue::Int)
-            .unwrap_or(SqlValue::Null),
-        "TINYINT UNSIGNED" | "SMALLINT UNSIGNED" | "MEDIUMINT UNSIGNED" | "INT UNSIGNED"
-        | "BIGINT UNSIGNED" => row
-            .try_get::<Option<u64>, _>(index)
-            .ok()
-            .flatten()
-            .map(SqlValue::UInt)
-            .unwrap_or(SqlValue::Null),
-        "FLOAT" | "DOUBLE" | "DECIMAL" | "REAL" => row
-            .try_get::<Option<f64>, _>(index)
-            .ok()
-            .flatten()
-            .map(SqlValue::Float)
-            .unwrap_or(SqlValue::Null),
-        "JSON" => row
-            .try_get::<Option<serde_json::Value>, _>(index)
-            .ok()
-            .flatten()
-            .map(|v| SqlValue::String(v.to_string()))
-            .unwrap_or(SqlValue::Null),
-        "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => row
-            .try_get::<Option<Vec<u8>>, _>(index)
-            .ok()
-            .flatten()
-            .map(SqlValue::Bytes)
-            .unwrap_or(SqlValue::Null),
-        "BIT" => row
-            .try_get::<Option<u64>, _>(index)
-            .ok()
-            .flatten()
-            .map(SqlValue::UInt)
-            .unwrap_or(SqlValue::Null),
-        "DATE" | "DATETIME" | "TIMESTAMP" | "TIME" | "YEAR" => {
-            let val = row
-                .try_get::<chrono::DateTime<chrono::Utc>, _>(index)
-                .ok()
-                .map(|dt| SqlValue::String(dt.format("%Y-%m-%d %H:%M:%S").to_string()))
-                .or_else(|| {
-                    row.try_get::<chrono::NaiveDateTime, _>(index)
-                        .ok()
-                        .map(|dt| SqlValue::String(dt.to_string()))
-                })
-                .or_else(|| {
-                    row.try_get::<chrono::NaiveDate, _>(index)
-                        .ok()
-                        .map(|d| SqlValue::String(d.to_string()))
-                })
-                .or_else(|| {
-                    row.try_get::<chrono::NaiveTime, _>(index)
-                        .ok()
-                        .map(|t| SqlValue::String(t.to_string()))
-                });
-            val.unwrap_or(SqlValue::Null)
+        "BOOLEAN" | "TINYINT(1)" | "BOOL" => {
+            decode_or_text::<bool, _>(row, index, t, SqlValue::Bool)
         }
-        _ => row
-            .try_get::<Option<String>, _>(index)
-            .ok()
-            .flatten()
-            .map(SqlValue::String)
-            .unwrap_or(SqlValue::Null),
+        "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => {
+            decode_or_text::<i64, _>(row, index, t, SqlValue::Int)
+        }
+        "TINYINT UNSIGNED" | "SMALLINT UNSIGNED" | "MEDIUMINT UNSIGNED" | "INT UNSIGNED"
+        | "BIGINT UNSIGNED" | "BIT" => decode_or_text::<u64, _>(row, index, t, SqlValue::UInt),
+        // YEAR is an integer, not a timestamp. Asking for a DateTime here is
+        // what silently nulled it. (#508)
+        "YEAR" => decode_or_text::<u64, _>(row, index, t, SqlValue::UInt),
+        "FLOAT" | "DOUBLE" | "REAL" => decode_or_text::<f64, _>(row, index, t, SqlValue::Float),
+        // DECIMAL deliberately does NOT go through f64. sqlx refuses to decode
+        // it as a number at all without the rust_decimal/bigdecimal feature,
+        // and f64 would defeat the exactness the column type exists to give.
+        // MySQL sends it as text, so keep the text.
+        "DECIMAL" | "NUMERIC" => raw_text(row, index).map(SqlValue::String),
+        "JSON" => decode_or_text::<serde_json::Value, _>(row, index, t, |v| {
+            SqlValue::String(v.to_string())
+        }),
+        "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => {
+            decode_or_text::<Vec<u8>, _>(row, index, t, SqlValue::Bytes)
+        }
+        "DATE" | "DATETIME" | "TIMESTAMP" => {
+            decode_or_text::<chrono::DateTime<chrono::Utc>, _>(row, index, t, |dt| {
+                SqlValue::String(dt.format("%Y-%m-%d %H:%M:%S").to_string())
+            })
+        }
+        _ => decode_or_text::<String, _>(row, index, t, SqlValue::String),
     }
+    .unwrap_or(SqlValue::Null)
+}
+
+/// Decode as `T`, or fall back to the raw text if sqlx refuses.
+///
+/// The three outcomes are kept distinct on purpose:
+///   * `Ok(Some(v))` — a value
+///   * `Ok(None)`    — a genuine SQL NULL
+///   * `Err(_)`      — sqlx cannot decode this column into `T`. Previously
+///     discarded, which is how #508 hid whole columns. Now the raw bytes are
+///     shown and the gap is logged.
+fn decode_or_text<'r, T, F>(
+    row: &'r sqlx::mysql::MySqlRow,
+    index: usize,
+    type_name: &str,
+    to_value: F,
+) -> Option<SqlValue>
+where
+    T: sqlx::Decode<'r, sqlx::MySql> + sqlx::Type<sqlx::MySql>,
+    F: FnOnce(T) -> SqlValue,
+{
+    match row.try_get::<Option<T>, _>(index) {
+        Ok(Some(v)) => Some(to_value(v)),
+        Ok(None) => None,
+        Err(e) => {
+            tracing::warn!(
+                column_type = %type_name,
+                error = %e,
+                "could not decode column into its mapped type; falling back to raw text"
+            );
+            raw_text(row, index).map(SqlValue::String)
+        }
+    }
+}
+
+/// Read a column as the text MySQL sent, bypassing the type-compatibility
+/// check `try_get` performs. Returns `None` for a real NULL, or when the bytes
+/// are not valid UTF-8 — which happens for values the binary protocol sends as
+/// raw integers rather than text.
+fn raw_text(row: &sqlx::mysql::MySqlRow, index: usize) -> Option<String> {
+    use sqlx::ValueRef;
+    let raw = row.try_get_raw(index).ok()?;
+    if raw.is_null() {
+        return None;
+    }
+    <&str as sqlx::Decode<sqlx::MySql>>::decode(raw)
+        .ok()
+        .map(|s| s.to_string())
 }
 
 fn split_statements(sql: &str) -> Vec<String> {
