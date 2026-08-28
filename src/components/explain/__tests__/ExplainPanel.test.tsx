@@ -326,4 +326,97 @@ describe("ExplainPanel", () => {
       expect(screen.getByText("1,000")).toBeInTheDocument();
     });
   });
+
+  describe("ANALYZE output shape", () => {
+    // MySQL answers EXPLAIN ANALYZE with one column of TREE text; MariaDB
+    // answers ANALYZE with the same columns as EXPLAIN. Joining the latter with
+    // newlines produced a wall of one word per line (#422).
+    function makeTreeTextResult(text: string): QueryResult {
+      return {
+        query_id: "analyze-1",
+        statement_index: 0,
+        columns: [{ name: "EXPLAIN", data_type: "text", nullable: true, is_primary_key: false }],
+        rows: [[text]],
+        rows_affected: 0,
+        execution_time_ms: 5,
+        warnings: [],
+        rows_truncated: false,
+      } as QueryResult;
+    }
+
+    it("renders MySQL TREE text in the raw-text view", () => {
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({
+          explainResult: makeTreeTextResult("-> Table scan on users  (actual time=0.1..0.2 rows=5 loops=1)"),
+          explainAnalyze: true,
+          explainTabular: false,
+        })
+      );
+      render(<ExplainPanel />);
+      expect(screen.getByText(/Table scan on users/)).toBeInTheDocument();
+      // No table header, because this is text output.
+      expect(screen.queryByText("select_type")).not.toBeInTheDocument();
+    });
+
+    it("renders MariaDB tabular ANALYZE in the table view", () => {
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({
+          explainResult: makeExplainResult([[...baseExplainRow]]),
+          explainAnalyze: true,
+          explainTabular: true,
+        })
+      );
+      render(<ExplainPanel />);
+      expect(screen.getByText("select_type")).toBeInTheDocument();
+      expect(screen.getByText("ANALYZE")).toBeInTheDocument();
+    });
+  });
+
+  describe("downgrade notice", () => {
+    it("explains why a plan was shown instead of timings", () => {
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({
+          explainResult: makeExplainResult([[...baseExplainRow]]),
+          explainAnalyze: false,
+          explainNotice: "EXPLAIN ANALYZE executes the statement, which would apply this write",
+        })
+      );
+      render(<ExplainPanel />);
+      expect(screen.getByText(/would apply this write/)).toBeInTheDocument();
+    });
+
+    it("shows nothing when there is no notice", () => {
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({
+          explainResult: makeExplainResult([[...baseExplainRow]]),
+          explainAnalyze: false,
+          explainNotice: null,
+        })
+      );
+      render(<ExplainPanel />);
+      expect(screen.queryByText(/would apply/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("access type legend", () => {
+    it("colours an index_merge badge instead of leaving it grey", () => {
+      const row = [1, "SIMPLE", "users", null, "index_merge", null, "idx_a,idx_b", null, null, 10, 100.0];
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({ explainResult: makeExplainResult([row]), explainAnalyze: false })
+      );
+      render(<ExplainPanel />);
+      const badges = screen.getAllByText("index_merge");
+      expect(badges.some((b) => !b.className.includes("bg-gray-600"))).toBe(true);
+    });
+
+    it("lists the less common access types in the legend", () => {
+      useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+        s({ explainResult: makeExplainResult([[...baseExplainRow]]), explainAnalyze: false })
+      );
+      render(<ExplainPanel />);
+      for (const type of ["index_merge", "fulltext", "spatial", "ref_or_null"]) {
+        expect(screen.getByText(type)).toBeInTheDocument();
+      }
+    });
+  });
 });

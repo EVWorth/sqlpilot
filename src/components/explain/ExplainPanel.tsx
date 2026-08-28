@@ -5,33 +5,39 @@ import type { QueryResult, SqlValue } from "../../types";
 
 type ViewMode = "table" | "tree";
 
-const TYPE_RANK: Record<string, number> = {
-  ALL: 0,
-  index: 1,
-  range: 2,
-  ref: 3,
-  eq_ref: 4,
-  const: 5,
-  system: 6,
-  NULL: 7,
-};
+/**
+ * Every access type MySQL's EXPLAIN can report, worst to best.
+ *
+ * One ordered list rather than parallel rank and colour maps: the legend, the
+ * ordering and the badge colour all have to agree, and keeping them in three
+ * places is what left index_merge and friends rendering as an unexplained grey
+ * badge with no legend entry (#426).
+ */
+const ACCESS_TYPES: ReadonlyArray<{ type: string; color: string }> = [
+  { type: "ALL", color: "bg-red-600/80 text-white" },
+  { type: "index", color: "bg-yellow-600/80 text-white" },
+  { type: "index_merge", color: "bg-yellow-700/80 text-white" },
+  { type: "range", color: "bg-yellow-500/70 text-white" },
+  { type: "index_subquery", color: "bg-lime-600/80 text-white" },
+  { type: "unique_subquery", color: "bg-lime-500/80 text-white" },
+  { type: "ref_or_null", color: "bg-green-700/80 text-white" },
+  { type: "fulltext", color: "bg-purple-600/80 text-white" },
+  { type: "spatial", color: "bg-pink-600/80 text-white" },
+  { type: "ref", color: "bg-green-600/80 text-white" },
+  { type: "eq_ref", color: "bg-green-500/80 text-white" },
+  { type: "const", color: "bg-blue-500/80 text-white" },
+  { type: "system", color: "bg-blue-500/80 text-white" },
+];
 
-const TYPE_COLORS: Record<string, string> = {
-  ALL: "bg-red-600/80 text-white",
-  index: "bg-yellow-600/80 text-white",
-  range: "bg-yellow-500/70 text-white",
-  ref: "bg-green-600/80 text-white",
-  eq_ref: "bg-green-500/80 text-white",
-  const: "bg-blue-500/80 text-white",
-  system: "bg-blue-500/80 text-white",
-  NULL: "bg-blue-400/80 text-white",
-};
+const TYPE_COLORS: Record<string, string> = Object.fromEntries(
+  ACCESS_TYPES.map(({ type, color }) => [type, color]),
+);
 
 function getTypeColor(type: string): string {
   return TYPE_COLORS[type] ?? "bg-gray-600/80 text-white";
 }
 
-interface ExplainRow {
+export interface ExplainRow {
   id: SqlValue;
   select_type: string;
   table: string;
@@ -46,7 +52,7 @@ interface ExplainRow {
   Extra: string;
 }
 
-function parseExplainRows(result: QueryResult): ExplainRow[] {
+export function parseExplainRows(result: QueryResult): ExplainRow[] {
   const colNames = result.columns.map((c) => c.name.toLowerCase());
   return result.rows.map((row) => {
     const get = (name: string): string => {
@@ -262,7 +268,7 @@ function ExplainTable({ result }: { result: QueryResult }) {
   );
 }
 
-interface TreeNode {
+export interface TreeNode {
   table: string;
   type: string;
   rows: number;
@@ -273,8 +279,36 @@ interface TreeNode {
   children: TreeNode[];
 }
 
-function buildTree(result: QueryResult): TreeNode[] {
-  const rows = parseExplainRows(result);
+/**
+ * The ids a synthetic table name refers to.
+ *
+ * MySQL names the inputs it materialises: `<union1,2>` on a UNION RESULT row,
+ * `<derived2>` for a materialised derived table, `<subquery3>` for a
+ * materialised subquery. These are explicit parent→child edges — far better
+ * evidence than guessing from id ordering.
+ */
+export function referencedIds(table: string): number[] {
+  const match = /^<(?:union|derived|subquery)(\d+(?:,\d+)*)>$/i.exec(table.trim());
+  if (!match) return [];
+  return match[1].split(",").map(Number);
+}
+
+/**
+ * Rebuild the plan tree from tabular EXPLAIN rows.
+ *
+ * Two rules, in order of how much MySQL tells us:
+ *
+ *   1. Rows sharing an `id` belong to one SELECT — they are the join order for
+ *      that block, and stay siblings.
+ *   2. A row naming `<union1,2>`/`<derivedN>` adopts those id groups as its
+ *      children. Otherwise a group nests under the nearest preceding group with
+ *      a lower id, which is the standard reading of EXPLAIN's numbering.
+ *
+ * The previous version made every later id group a child of the first group's
+ * last node, which flattened UNIONs into unrelated top-level nodes and lost the
+ * UNION RESULT that ties them together (#423).
+ */
+export function buildTree(rows: ExplainRow[]): TreeNode[] {
   const nodes: TreeNode[] = rows.map((r) => ({
     table: r.table,
     type: r.type,
@@ -285,33 +319,64 @@ function buildTree(result: QueryResult): TreeNode[] {
     extra: r.Extra,
     children: [],
   }));
-
-  // Group by id — subqueries nest under their parent
   if (nodes.length <= 1) return nodes;
 
-  const explainRows = parseExplainRows(result);
-  const ids = explainRows.map((r) => (r.id === null ? 0 : Number(r.id)));
-  const root: TreeNode[] = [];
-  const idGroups = new Map<number, TreeNode[]>();
-
-  ids.forEach((id, i) => {
-    if (!idGroups.has(id)) idGroups.set(id, []);
-    idGroups.get(id)!.push(nodes[i]);
+  // A UNION RESULT row carries no id of its own on MySQL 5.7. Give it one just
+  // past its members so it sorts after them but before the next real group.
+  const explicitChildren = new Map<number, number[]>();
+  const ids: number[] = rows.map((r, i) => {
+    const refs = referencedIds(rows[i].table);
+    if (r.id !== null && r.id !== "") return Number(r.id);
+    return refs.length ? Math.max(...refs) + 0.5 : 0;
+  });
+  rows.forEach((r, i) => {
+    const refs = referencedIds(r.table);
+    if (refs.length) explicitChildren.set(ids[i], refs);
   });
 
-  const sortedIds = [...new Set(ids)].sort((a, b) => a - b);
-  if (sortedIds.length === 1) return nodes;
+  const groups = new Map<number, TreeNode[]>();
+  ids.forEach((id, i) => {
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id)!.push(nodes[i]);
+  });
 
-  // First id group becomes root; subsequent groups are children of the last node in prior group
-  sortedIds.forEach((id, gi) => {
-    const group = idGroups.get(id)!;
-    if (gi === 0) {
+  // An id claimed as someone's explicit child must not also be placed by the
+  // id-ordering fallback, or it would appear twice.
+  const claimed = new Set<number>();
+  for (const refs of explicitChildren.values()) {
+    refs.forEach((id) => claimed.add(id));
+  }
+
+  const sortedIds = [...groups.keys()].sort((a, b) => a - b);
+  const root: TreeNode[] = [];
+
+  for (const id of sortedIds) {
+    const group = groups.get(id)!;
+    if (claimed.has(id)) continue;
+
+    // Nearest preceding group that is itself placed in the tree.
+    const parentId = sortedIds
+      .filter((candidate) => candidate < id && !claimed.has(candidate))
+      .pop();
+    if (parentId === undefined) {
       root.push(...group);
     } else {
-      const parent = root[root.length - 1];
-      parent.children.push(...group);
+      const siblings = groups.get(parentId)!;
+      siblings[siblings.length - 1].children.push(...group);
     }
-  });
+  }
+
+  // Attach explicit children last, so a UNION RESULT owns its branches wherever
+  // it ended up.
+  for (const [ownerId, refs] of explicitChildren) {
+    const owner = groups.get(ownerId);
+    if (!owner) continue;
+    const target = owner[owner.length - 1];
+    for (const refId of refs) {
+      const child = groups.get(refId);
+      if (child) target.children.push(...child);
+    }
+  }
 
   return root;
 }
@@ -397,11 +462,9 @@ function TreeNodeView({
 }
 
 function ExplainTreeView({ result }: { result: QueryResult }) {
-  const tree = useMemo(() => buildTree(result), [result]);
-  const maxRows = useMemo(() => {
-    const rows = parseExplainRows(result);
-    return Math.max(...rows.map((r) => r.rows), 1);
-  }, [result]);
+  const rows = useMemo(() => parseExplainRows(result), [result]);
+  const tree = useMemo(() => buildTree(rows), [rows]);
+  const maxRows = useMemo(() => Math.max(...rows.map((r) => r.rows), 1), [rows]);
 
   return (
     <div className="flex-1 overflow-auto p-4">
@@ -496,6 +559,7 @@ export function ExplainPanel() {
   const explainResult = useResultStore((s) => s.explainResult);
   const explainAnalyze = useResultStore((s) => s.explainAnalyze);
   const explainNotice = useResultStore((s) => s.explainNotice);
+  const explainTabular = useResultStore((s) => s.explainTabular);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
 
   if (!explainResult) {
@@ -506,7 +570,11 @@ export function ExplainPanel() {
     );
   }
 
-  if (explainAnalyze) {
+  // MySQL's EXPLAIN ANALYZE answers with one column of TREE text, which the
+  // raw-text view is built for. MariaDB's ANALYZE answers with the same columns
+  // as EXPLAIN — joining those with newlines produced a wall of one word per
+  // line, so it belongs in the normal views (#422).
+  if (explainAnalyze && !explainTabular) {
     return (
       <div className="flex h-full flex-col">
         <div className="flex items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
@@ -524,7 +592,7 @@ export function ExplainPanel() {
     <div className="flex h-full flex-col">
       <div className="flex items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
         <span className="mr-2 text-[10px] font-medium text-[var(--color-text-secondary)]">
-          EXPLAIN
+          {explainAnalyze ? "ANALYZE" : "EXPLAIN"}
         </span>
         <button
           onClick={() => setViewMode("table")}
@@ -552,17 +620,14 @@ export function ExplainPanel() {
         {/* Legend for type badges */}
         <div className="ml-auto flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
           <span>Access type:</span>
-          {Object.entries(TYPE_RANK)
-            .sort((a, b) => a[1] - b[1])
-            .filter(([k]) => k !== "NULL")
-            .map(([type]) => (
-              <span
-                key={type}
-                className={`rounded px-1 py-0.5 text-[9px] font-semibold ${getTypeColor(type)}`}
-              >
-                {type}
-              </span>
-            ))}
+          {ACCESS_TYPES.map(({ type, color }) => (
+            <span
+              key={type}
+              className={`rounded px-1 py-0.5 text-[9px] font-semibold ${color}`}
+            >
+              {type}
+            </span>
+          ))}
           <span className="ml-1 opacity-60">worst → best</span>
         </div>
       </div>
