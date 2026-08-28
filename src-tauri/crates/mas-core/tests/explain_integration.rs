@@ -177,6 +177,93 @@ async fn planning_a_delete_does_not_delete() {
     manager.disconnect(&info.id).await.unwrap();
 }
 
+/// #412 again — a write hidden behind a CTE.
+///
+/// `WITH ... DELETE` is valid MySQL 8 and really deletes. Reading only the
+/// leading keyword called it a WITH and let ANALYZE execute it, which is the
+/// same failure #412 describes wearing a different hat.
+#[tokio::test]
+async fn planning_a_cte_prefixed_delete_does_not_delete() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    for stmt in [
+        "DROP TABLE IF EXISTS cte_canary",
+        "CREATE TABLE cte_canary (id INT)",
+        "INSERT INTO cte_canary VALUES (1), (2), (3)",
+    ] {
+        executor
+            .execute(&info.id, stmt, Some("test_db".to_string()), None)
+            .await
+            .unwrap();
+    }
+
+    let response = explain(
+        &manager,
+        &executor,
+        info.id.clone(),
+        "WITH doomed AS (SELECT id FROM cte_canary) DELETE FROM cte_canary WHERE id IN (SELECT id FROM doomed)"
+            .to_string(),
+        Some("test_db".to_string()),
+        true,
+    )
+    .await
+    .expect("should downgrade to a plain EXPLAIN");
+
+    assert!(!response.analyzed, "must not have run the DELETE");
+    assert_eq!(response.refusal, Some(AnalyzeRefusal::WouldMutate));
+
+    let after = executor
+        .execute(
+            &info.id,
+            "SELECT COUNT(*) FROM cte_canary",
+            Some("test_db".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(scalar_int(&after[0]), 3, "the rows should still be there");
+
+    executor
+        .execute(
+            &info.id,
+            "DROP TABLE cte_canary",
+            Some("test_db".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+/// A read behind a CTE is still worth analyzing — the fix must not overshoot.
+#[tokio::test]
+async fn a_cte_prefixed_read_is_still_analyzed() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let response = explain(
+        &manager,
+        &executor,
+        info.id.clone(),
+        "WITH recent AS (SELECT id FROM users) SELECT * FROM recent".to_string(),
+        Some("test_db".to_string()),
+        true,
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        response.analyzed,
+        "a CTE-prefixed SELECT is safe to analyze"
+    );
+    assert!(response.refusal.is_none());
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
 /// #412 — a read-only profile refuses ANALYZE even for a harmless SELECT,
 /// because ANALYZE executes.
 #[tokio::test]

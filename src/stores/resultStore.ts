@@ -66,11 +66,20 @@ interface ResultState {
 let cancelGeneration = 0;
 
 /**
- * Connection the in-flight statement is running on, so cancel knows which
- * server-side thread to KILL. Module-level rather than store state because it
- * is bookkeeping, not something a component renders.
+ * The execution cancel would act on, so it knows which connection to tell the
+ * server about. Module-level rather than store state because it is bookkeeping,
+ * not something a component renders.
+ *
+ * Tagged with the generation that opened it: a slower execution finishing must
+ * not clear the entry a newer one has already installed, or cancel would find
+ * nothing and silently leave the query running.
  */
-let executingConnectionId: string | null = null;
+let activeExecution: { generation: number; connectionId: string } | null = null;
+
+/** Release the slot only if this execution still owns it. */
+function endExecution(generation: number) {
+  if (activeExecution?.generation === generation) activeExecution = null;
+}
 
 function isProductionConnection(connectionId: string): boolean {
   const state = useConnectionStore.getState();
@@ -123,7 +132,8 @@ export const useResultStore = create<ResultState>((set, get) => ({
     // statement keeps running — and holding locks — until the server is told to
     // stop, which is what cancelQuery does (#420).
     cancelGeneration++;
-    const connectionId = executingConnectionId;
+    const connectionId = activeExecution?.connectionId ?? null;
+    activeExecution = null;
     set({ isExecuting: false, error: "Query cancelled by user" });
     if (!connectionId) return;
     try {
@@ -170,11 +180,12 @@ async function doExplain(
   set: (partial: Partial<ResultState>) => void,
   database?: string,
 ) {
+  cancelGeneration++;
+  const myGeneration = cancelGeneration;
+  activeExecution = { generation: myGeneration, connectionId };
+
   try {
     set({ isExecuting: true, error: null, explainNotice: null });
-    cancelGeneration++;
-    const myGeneration = cancelGeneration;
-    executingConnectionId = connectionId;
 
     // Statement normalization (trailing `;`, multi-statement) and the
     // ANALYZE-safety decision both happen backend-side (#412, #418).
@@ -190,9 +201,13 @@ async function doExplain(
       isExecuting: false,
     });
   } catch (e) {
+    // A cancel kills the statement server-side, so the in-flight call rejects
+    // with the server's interrupt error. Reporting it would overwrite the
+    // "cancelled" message the user just asked for.
+    if (cancelGeneration !== myGeneration) return;
     set({ error: String(e), isExecuting: false });
   } finally {
-    executingConnectionId = null;
+    endExecution(myGeneration);
   }
 }
 
@@ -216,11 +231,12 @@ async function doExecuteQuery(
   const { limitEnabled, maxResultRows } = useSettingsStore.getState().querySettings;
   const rowLimit = limitEnabled ? maxResultRows : undefined;
 
+  cancelGeneration++;
+  const myGeneration = cancelGeneration;
+  activeExecution = { generation: myGeneration, connectionId };
+
   try {
     set({ isExecuting: true, error: null });
-    cancelGeneration++;
-    const myGeneration = cancelGeneration;
-    executingConnectionId = connectionId;
     const results = await api.executeQuery(connectionId, sql, effectiveDatabase, rowLimit);
     if (cancelGeneration !== myGeneration) return;
     set({ results, activeResultIndex: 0, isExecuting: false });
@@ -237,6 +253,11 @@ async function doExecuteQuery(
       status: "success",
     });
   } catch (e) {
+    // A cancel kills the statement server-side, so this rejects with the
+    // server's interrupt error. Reporting it would replace the "cancelled"
+    // message with a raw database error and log the user's own cancellation
+    // to history as a failed query.
+    if (cancelGeneration !== myGeneration) return;
     set({ error: String(e), isExecuting: false, results: [] });
 
     useHistoryStore.getState().addEntry({
@@ -251,6 +272,6 @@ async function doExecuteQuery(
       error: String(e),
     });
   } finally {
-    executingConnectionId = null;
+    endExecution(myGeneration);
   }
 }

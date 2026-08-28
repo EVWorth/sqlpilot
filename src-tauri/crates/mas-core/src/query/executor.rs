@@ -4,28 +4,41 @@ use crate::models::{ColumnMeta, QueryResult, SqlValue};
 use dashmap::DashMap;
 use futures::StreamExt;
 use sqlx::{AssertSqlSafe, Column, Either, Row, TypeInfo};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 pub struct QueryExecutor {
     connection_manager: Arc<ConnectionManager>,
-    /// MySQL thread id of the statement batch currently in flight on each
-    /// connection. Cancelling or timing out a query means issuing `KILL QUERY`
-    /// against that thread from a *second* pool connection — dropping the
-    /// future on this side would leave the server churning (#420).
-    in_flight: Arc<DashMap<String, u64>>,
+    /// Server thread id -> the connection it belongs to, for every statement
+    /// batch currently running. Cancelling or timing out means issuing `KILL
+    /// QUERY` against that thread from a *second* pool connection — dropping
+    /// the future on this side would leave the server churning (#420).
+    ///
+    /// Keyed by thread id rather than by connection because several statements
+    /// can be in flight on one connection at once: a dozen callers reach the
+    /// executor without going through the editor's single-query gate. Keying by
+    /// connection let the shorter one's completion deregister the longer one,
+    /// and let a timeout kill whichever thread happened to be registered last.
+    in_flight: Arc<DashMap<u64, String>>,
 }
 
-/// Removes the in-flight thread id however the execution ends — normal return,
-/// `?` on a decode error, or an early return on timeout.
+/// Deregisters this execution's thread however it ends — normal return, `?` on
+/// a decode error, or an early return on timeout.
+///
+/// Holds the id in a shared cell because it is only known once the server has
+/// answered the prelude, which is after the guard has to exist.
 struct InFlightGuard {
-    in_flight: Arc<DashMap<String, u64>>,
-    connection_id: String,
+    in_flight: Arc<DashMap<u64, String>>,
+    thread_id: Arc<AtomicU64>,
 }
 
 impl Drop for InFlightGuard {
     fn drop(&mut self) {
-        self.in_flight.remove(&self.connection_id);
+        let id = self.thread_id.load(Ordering::Relaxed);
+        if id != 0 {
+            self.in_flight.remove(&id);
+        }
     }
 }
 
@@ -37,18 +50,38 @@ impl QueryExecutor {
         }
     }
 
-    /// Ask the server to abort whatever this connection is running.
+    /// Ask the server to abort what this connection is running.
     ///
     /// `KILL QUERY` terminates the statement but leaves the session alive, so
     /// the pool connection stays usable. A no-op when nothing is in flight.
+    ///
+    /// Cancels every statement in flight on the connection, because the caller
+    /// asks by connection and the executor has no way to tell which of several
+    /// concurrent statements the user meant.
     #[tracing::instrument(skip(self))]
     pub async fn cancel(&self, connection_id: &str) -> Result<(), CoreError> {
-        let Some(thread_id) = self.in_flight.get(connection_id).map(|e| *e.value()) else {
+        let thread_ids: Vec<u64> = self
+            .in_flight
+            .iter()
+            .filter(|entry| entry.value() == connection_id)
+            .map(|entry| *entry.key())
+            .collect();
+        if thread_ids.is_empty() {
             tracing::debug!(connection_id, "Cancel requested with no query in flight");
             return Ok(());
-        };
+        }
         let pool = self.connection_manager.get_pool(connection_id)?;
-        kill_query(&pool, thread_id).await
+        let mut last_err = None;
+        for thread_id in thread_ids {
+            if let Err(e) = kill_query(&pool, thread_id).await {
+                tracing::warn!(error = %e, thread_id, "Failed to cancel query");
+                last_err = Some(e);
+            }
+        }
+        match last_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     #[tracing::instrument(skip(self), fields(connection_id = %connection_id, statement_count))]
@@ -142,9 +175,11 @@ impl QueryExecutor {
         let deadline = query_timeout.map(|d| tokio::time::Instant::now() + d);
         let mut timed_out = false;
 
+        // Zero means "not yet known"; a real MySQL thread id is never zero.
+        let my_thread_id = Arc::new(AtomicU64::new(0));
         let _guard = InFlightGuard {
             in_flight: Arc::clone(&self.in_flight),
-            connection_id: connection_id.clone(),
+            thread_id: Arc::clone(&my_thread_id),
         };
 
         let mut stream = sqlx::raw_sql(AssertSqlSafe(combined_sql)).fetch_many(&pool);
@@ -171,7 +206,8 @@ impl QueryExecutor {
                     // cancel/timeout can reach this thread.
                     if stmt_idx == -(prelude_count as isize) {
                         if let Ok(thread_id) = row.try_get::<u64, _>(0) {
-                            self.in_flight.insert(connection_id.clone(), thread_id);
+                            my_thread_id.store(thread_id, Ordering::Relaxed);
+                            self.in_flight.insert(thread_id, connection_id.clone());
                             tracing::debug!(connection_id = %connection_id, thread_id, "Query in flight");
                         }
                     }
@@ -284,7 +320,10 @@ impl QueryExecutor {
         // so tell the server to stop before reporting the timeout.
         if timed_out {
             drop(stream);
-            if let Some(thread_id) = self.in_flight.get(&connection_id).map(|e| *e.value()) {
+            // This execution's own thread, not whatever is registered for the
+            // connection — a concurrent statement must not be killed instead.
+            let thread_id = my_thread_id.load(Ordering::Relaxed);
+            if thread_id != 0 {
                 if let Err(e) = kill_query(&pool, thread_id).await {
                     tracing::warn!(error = %e, thread_id, "Failed to kill timed-out query");
                 }

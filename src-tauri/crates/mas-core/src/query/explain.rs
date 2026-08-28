@@ -14,6 +14,7 @@ use crate::connection::ConnectionManager;
 use crate::error::CoreError;
 use crate::models::QueryResult;
 use crate::query::executor::{split_statements, QueryExecutor};
+use crate::query::statement::{effective_verb, is_blank_or_comment_only};
 
 /// Why a requested ANALYZE was not performed.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize, specta::Type)]
@@ -43,41 +44,18 @@ pub struct ExplainResponse {
 /// An allowlist rather than a list of dangerous verbs: an unrecognised verb
 /// downgrades to a plain EXPLAIN, which is the harmless outcome. A blocklist
 /// fails the other way — anything it forgets gets executed.
-const ANALYZABLE_VERBS: [&str; 4] = ["SELECT", "WITH", "TABLE", "VALUES"];
+/// `WITH` is deliberately absent: `effective_verb` resolves a CTE to the
+/// statement it prefixes, so a WITH reaching the check means the clause could
+/// not be parsed through and what it wraps is unknown.
+const ANALYZABLE_VERBS: [&str; 3] = ["SELECT", "TABLE", "VALUES"];
 
 /// Whether running `sql` to time it would be free of side effects.
+///
+/// Reads the verb that decides what the statement does, not its first word:
+/// `WITH doomed AS (...) DELETE FROM t` is a DELETE, and treating the leading
+/// WITH as safe is how EXPLAIN ANALYZE ended up executing writes.
 pub fn is_analyzable(sql: &str) -> bool {
-    let verb = leading_verb(sql);
-    ANALYZABLE_VERBS.contains(&verb.as_str())
-}
-
-/// First bare word of a statement, uppercased, skipping leading comments and
-/// any `(` that opens a parenthesised SELECT.
-fn leading_verb(sql: &str) -> String {
-    let mut rest = sql.trim_start();
-    loop {
-        if let Some(after) = rest.strip_prefix("--") {
-            rest = after
-                .split_once('\n')
-                .map(|(_, t)| t)
-                .unwrap_or("")
-                .trim_start();
-        } else if let Some(after) = rest.strip_prefix("/*") {
-            rest = after
-                .split_once("*/")
-                .map(|(_, t)| t)
-                .unwrap_or("")
-                .trim_start();
-        } else if let Some(after) = rest.strip_prefix('(') {
-            rest = after.trim_start();
-        } else {
-            break;
-        }
-    }
-    rest.split(|c: char| !c.is_alphanumeric() && c != '_')
-        .next()
-        .unwrap_or("")
-        .to_uppercase()
+    ANALYZABLE_VERBS.contains(&effective_verb(sql).as_str())
 }
 
 /// Reduce editor content to the single statement EXPLAIN can accept.
@@ -85,7 +63,12 @@ fn leading_verb(sql: &str) -> String {
 /// The splitter drops the trailing `;` as a side effect of splitting, which is
 /// what stops `EXPLAIN ANALYZE SELECT 1;;` reaching the server (#418).
 pub fn normalize_explain_target(sql: &str) -> Result<String, CoreError> {
-    let statements = split_statements(sql);
+    // A trailing `-- note` splits off as its own entry. Counting it would tell
+    // someone with one commented statement to go and split their script.
+    let statements: Vec<String> = split_statements(sql)
+        .into_iter()
+        .filter(|s| !is_blank_or_comment_only(s))
+        .collect();
     match statements.len() {
         0 => Err(CoreError::Query("Nothing to explain".to_string())),
         1 => Ok(statements.into_iter().next().unwrap()),
@@ -220,6 +203,46 @@ mod tests {
         ] {
             assert!(!is_analyzable(sql), "should refuse to ANALYZE: {sql}");
         }
+    }
+
+    #[test]
+    fn refuses_to_analyze_a_write_hidden_behind_a_cte() {
+        // MySQL 8 runs `WITH ... DELETE` as a DELETE. Reading only the leading
+        // keyword called it a WITH and let EXPLAIN ANALYZE execute it.
+        assert!(!is_analyzable(
+            "WITH doomed AS (SELECT id FROM t) DELETE FROM t WHERE id IN (SELECT id FROM doomed)"
+        ));
+        assert!(!is_analyzable("WITH x AS (SELECT 1) UPDATE t SET a = 1"));
+        assert!(!is_analyzable(
+            "WITH a AS (SELECT 1), b AS (SELECT 2) DELETE FROM t"
+        ));
+        // A read behind a CTE is still fine to analyze.
+        assert!(is_analyzable("WITH x AS (SELECT 1) SELECT * FROM x"));
+        assert!(is_analyzable(
+            "WITH RECURSIVE t (n) AS (SELECT 1 UNION ALL SELECT n+1 FROM t WHERE n < 5) SELECT * FROM t"
+        ));
+    }
+
+    #[test]
+    fn keeps_a_statement_that_merely_carries_a_comment() {
+        // The splitter emits a trailing comment as its own entry; counting it
+        // rejected perfectly ordinary SQL as a multi-statement script.
+        assert_eq!(
+            normalize_explain_target("SELECT 1; -- why").unwrap(),
+            "SELECT 1"
+        );
+        assert_eq!(
+            normalize_explain_target("SELECT 1;\n-- trailing note").unwrap(),
+            "SELECT 1"
+        );
+        assert_eq!(
+            normalize_explain_target("SELECT 1; /* block */").unwrap(),
+            "SELECT 1"
+        );
+        // A leading comment stays attached to the statement.
+        assert!(normalize_explain_target("-- lead\nSELECT 1;").is_ok());
+        // Genuinely two statements are still refused.
+        assert!(normalize_explain_target("SELECT 1; -- c\nSELECT 2;").is_err());
     }
 
     #[test]

@@ -607,6 +607,64 @@ describe("resultStore", () => {
       expect(cancelQueryMock).not.toHaveBeenCalled();
     });
 
+    it("keeps the cancellation message when the killed query rejects", async () => {
+      // KILL QUERY makes the in-flight call reject with the server's interrupt
+      // error. Surfacing that would bury the message the user asked for.
+      let rejectQuery: (e: unknown) => void;
+      executeQueryMock.mockReturnValue(
+        new Promise((_, reject) => {
+          rejectQuery = reject;
+        }),
+      );
+
+      const pending = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(60)");
+      await useResultStore.getState().cancelActiveQuery();
+      rejectQuery!(new Error("Query execution was interrupted"));
+      await pending;
+
+      expect(useResultStore.getState().error).toBe("Query cancelled by user");
+      expect(addEntryMock).not.toHaveBeenCalled();
+    });
+
+    it("does not log a cancelled query to history as a failure", async () => {
+      let rejectQuery: (e: unknown) => void;
+      executeQueryMock.mockReturnValue(
+        new Promise((_, reject) => {
+          rejectQuery = reject;
+        }),
+      );
+
+      const pending = useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+      await useResultStore.getState().cancelActiveQuery();
+      rejectQuery!(new Error("Query execution was interrupted"));
+      await pending;
+
+      const errorEntries = addEntryMock.mock.calls.filter(([e]) => e.status === "error");
+      expect(errorEntries).toHaveLength(0);
+    });
+
+    it("still cancels the newer query when an older one finishes first", async () => {
+      // The slot is tagged with the generation that opened it, so a slower
+      // earlier execution settling must not deregister the current one.
+      let resolveFirst: (v: unknown) => void;
+      executeQueryMock.mockReturnValueOnce(
+        new Promise((r) => {
+          resolveFirst = r;
+        }),
+      );
+      const first = useResultStore.getState().executeQuery("conn-old", "SELECT 1");
+
+      explainQueryMock.mockReturnValue(new Promise(() => {}));
+      void useResultStore.getState().executeExplain("conn-new", "SELECT 2");
+
+      // The earlier execution completes after the newer one took the slot.
+      resolveFirst!([]);
+      await first;
+
+      await useResultStore.getState().cancelActiveQuery();
+      expect(cancelQueryMock).toHaveBeenCalledWith("conn-new");
+    });
+
     it("reports a cancel the server would not confirm", async () => {
       cancelQueryMock.mockRejectedValue(new Error("connection lost"));
       let resolveQuery: (value: any) => void;
