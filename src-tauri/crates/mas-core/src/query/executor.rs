@@ -1,18 +1,87 @@
 use crate::connection::ConnectionManager;
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue};
+use dashmap::DashMap;
 use futures::StreamExt;
 use sqlx::{AssertSqlSafe, Column, Either, Row, TypeInfo};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 pub struct QueryExecutor {
     connection_manager: Arc<ConnectionManager>,
+    /// Server thread id -> the connection it belongs to, for every statement
+    /// batch currently running. Cancelling or timing out means issuing `KILL
+    /// QUERY` against that thread from a *second* pool connection — dropping
+    /// the future on this side would leave the server churning (#420).
+    ///
+    /// Keyed by thread id rather than by connection because several statements
+    /// can be in flight on one connection at once: a dozen callers reach the
+    /// executor without going through the editor's single-query gate. Keying by
+    /// connection let the shorter one's completion deregister the longer one,
+    /// and let a timeout kill whichever thread happened to be registered last.
+    in_flight: Arc<DashMap<u64, String>>,
+}
+
+/// Deregisters this execution's thread however it ends — normal return, `?` on
+/// a decode error, or an early return on timeout.
+///
+/// Holds the id in a shared cell because it is only known once the server has
+/// answered the prelude, which is after the guard has to exist.
+struct InFlightGuard {
+    in_flight: Arc<DashMap<u64, String>>,
+    thread_id: Arc<AtomicU64>,
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        let id = self.thread_id.load(Ordering::Relaxed);
+        if id != 0 {
+            self.in_flight.remove(&id);
+        }
+    }
 }
 
 impl QueryExecutor {
     pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
-        Self { connection_manager }
+        Self {
+            connection_manager,
+            in_flight: Arc::new(DashMap::new()),
+        }
+    }
+
+    /// Ask the server to abort what this connection is running.
+    ///
+    /// `KILL QUERY` terminates the statement but leaves the session alive, so
+    /// the pool connection stays usable. A no-op when nothing is in flight.
+    ///
+    /// Cancels every statement in flight on the connection, because the caller
+    /// asks by connection and the executor has no way to tell which of several
+    /// concurrent statements the user meant.
+    #[tracing::instrument(skip(self))]
+    pub async fn cancel(&self, connection_id: &str) -> Result<(), CoreError> {
+        let thread_ids: Vec<u64> = self
+            .in_flight
+            .iter()
+            .filter(|entry| entry.value() == connection_id)
+            .map(|entry| *entry.key())
+            .collect();
+        if thread_ids.is_empty() {
+            tracing::debug!(connection_id, "Cancel requested with no query in flight");
+            return Ok(());
+        }
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let mut last_err = None;
+        for thread_id in thread_ids {
+            if let Err(e) = kill_query(&pool, thread_id).await {
+                tracing::warn!(error = %e, thread_id, "Failed to cancel query");
+                last_err = Some(e);
+            }
+        }
+        match last_err {
+            Some(e) => Err(e),
+            None => Ok(()),
+        }
     }
 
     #[tracing::instrument(skip(self), fields(connection_id = %connection_id, statement_count))]
@@ -83,26 +152,65 @@ impl QueryExecutor {
         //
         // raw_sql uses the text protocol (COM_QUERY) which supports USE, SHOW CREATE,
         // CALL, etc. — commands that MySQL rejects over the prepared-statement protocol.
-        let combined_sql = if let Some(db) = &database {
+        //
+        // `SELECT CONNECTION_ID()` leads every batch so a timeout or an explicit
+        // cancel has a thread id to KILL. It rides along in the same COM_QUERY —
+        // no extra round trip — and the pool holds one connection for the whole
+        // batch, so the id it returns is the one running the user's statements.
+        let mut prelude: Vec<String> = vec!["SELECT CONNECTION_ID()".to_string()];
+        if let Some(db) = &database {
             let escaped_db = db.replace('`', "``");
             tracing::debug!(database = %db, "Switching database context");
-            format!("USE `{}`;\n{}", escaped_db, statements.join("; "))
-        } else {
-            statements.join("; ")
-        };
+            prelude.push(format!("USE `{}`", escaped_db));
+        }
+        let prelude_count = prelude.len();
+        let combined_sql = format!("{}; {}", prelude.join("; "), statements.join("; "));
 
-        // If USE db was prepended, skip its result (the first Either::Left).
-        let mut stmt_idx: isize = if database.is_some() { -1 } else { 0 };
+        // Prelude results are consumed and discarded; user statements start at 0.
+        let mut stmt_idx: isize = -(prelude_count as isize);
+
+        // Absolute deadline, so the bound is on total query time rather than on
+        // the gap between two rows.
+        let query_timeout = self.connection_manager.get_query_timeout(&connection_id);
+        let deadline = query_timeout.map(|d| tokio::time::Instant::now() + d);
+        let mut timed_out = false;
+
+        // Zero means "not yet known"; a real MySQL thread id is never zero.
+        let my_thread_id = Arc::new(AtomicU64::new(0));
+        let _guard = InFlightGuard {
+            in_flight: Arc::clone(&self.in_flight),
+            thread_id: Arc::clone(&my_thread_id),
+        };
 
         let mut stream = sqlx::raw_sql(AssertSqlSafe(combined_sql)).fetch_many(&pool);
         let mut results = Vec::new();
         let mut current_rows: Vec<sqlx::mysql::MySqlRow> = Vec::new();
         let mut start = Instant::now();
 
-        while let Some(item) = stream.next().await {
+        loop {
+            let next = match deadline {
+                Some(dl) => match tokio::time::timeout_at(dl, stream.next()).await {
+                    Ok(next) => next,
+                    Err(_) => {
+                        timed_out = true;
+                        break;
+                    }
+                },
+                None => stream.next().await,
+            };
+            let Some(item) = next else { break };
             let item = item.map_err(|e| CoreError::Query(e.to_string()))?;
             match item {
                 Either::Right(row) => {
+                    // The first prelude row carries CONNECTION_ID(). Record it so
+                    // cancel/timeout can reach this thread.
+                    if stmt_idx == -(prelude_count as isize) {
+                        if let Ok(thread_id) = row.try_get::<u64, _>(0) {
+                            my_thread_id.store(thread_id, Ordering::Relaxed);
+                            self.in_flight.insert(thread_id, connection_id.clone());
+                            tracing::debug!(connection_id = %connection_id, thread_id, "Query in flight");
+                        }
+                    }
                     // SELECT/SHOW/DESCRIBE/EXPLAIN row — accumulate until trailing Left.
                     if stmt_idx >= 0 {
                         // Check memory every 1000 rows to prevent OOM
@@ -208,6 +316,26 @@ impl QueryExecutor {
             }
         }
 
+        // Abandoning the stream would leave the statement running on the server,
+        // so tell the server to stop before reporting the timeout.
+        if timed_out {
+            drop(stream);
+            // This execution's own thread, not whatever is registered for the
+            // connection — a concurrent statement must not be killed instead.
+            let thread_id = my_thread_id.load(Ordering::Relaxed);
+            if thread_id != 0 {
+                if let Err(e) = kill_query(&pool, thread_id).await {
+                    tracing::warn!(error = %e, thread_id, "Failed to kill timed-out query");
+                }
+            }
+            let secs = query_timeout.map(|d| d.as_secs()).unwrap_or(0);
+            tracing::warn!(connection_id = %connection_id, timeout_secs = secs, "Query timed out");
+            return Err(CoreError::Timeout(format!(
+                "Query exceeded the {}s timeout for this connection and was cancelled",
+                secs
+            )));
+        }
+
         // If memory guard triggered mid-stream, process accumulated rows for current statement
         if mem_guard.triggered() && stmt_idx >= 0 && !current_rows.is_empty() {
             let idx = stmt_idx as usize;
@@ -233,6 +361,21 @@ impl QueryExecutor {
 
         Ok(results)
     }
+}
+
+/// Abort the statement running on `thread_id` without dropping its session.
+///
+/// This needs a connection of its own — the one being killed is busy — so a
+/// pool with `pool_max = 1` cannot cancel. That surfaces as an acquire timeout
+/// rather than a hang.
+async fn kill_query(pool: &sqlx::MySqlPool, thread_id: u64) -> Result<(), CoreError> {
+    // thread_id is a u64 read back from the server, not user input.
+    sqlx::query(AssertSqlSafe(format!("KILL QUERY {}", thread_id)))
+        .execute(pool)
+        .await
+        .map_err(|e| CoreError::Query(format!("Failed to cancel query: {}", e)))?;
+    tracing::info!(thread_id, "Sent KILL QUERY");
+    Ok(())
 }
 
 /// Decode one cell.
@@ -343,7 +486,7 @@ fn raw_text(row: &sqlx::mysql::MySqlRow, index: usize) -> Option<String> {
         .map(|s| s.to_string())
 }
 
-fn split_statements(sql: &str) -> Vec<String> {
+pub(crate) fn split_statements(sql: &str) -> Vec<String> {
     let mut statements = Vec::new();
     let mut current = String::new();
     let mut in_string = false;

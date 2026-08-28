@@ -10,6 +10,11 @@ use std::time::Instant;
 pub struct ActiveConnection {
     pub info: ConnectionInfo,
     pub pool: MySqlPool,
+    /// Copied off the profile at connect time. The profile can be edited while
+    /// a connection is live; the limits a query runs under are the ones that
+    /// were in force when it was opened.
+    pub query_timeout_secs: Option<u32>,
+    pub read_only: bool,
 }
 
 pub struct ConnectionManager {
@@ -127,6 +132,8 @@ impl ConnectionManager {
             ActiveConnection {
                 info: info.clone(),
                 pool,
+                query_timeout_secs: profile.query_timeout_secs,
+                read_only: profile.read_only,
             },
         );
 
@@ -232,6 +239,32 @@ impl ConnectionManager {
                 tracing::debug!(connection_id = %connection_id, "Pool not found");
                 CoreError::NotFound(format!("Connection not found: {}", connection_id))
             })
+    }
+
+    /// Query timeout in force for a live connection. `None` (and a stored `0`)
+    /// both mean "no limit" — that is the profile default.
+    pub fn get_query_timeout(&self, connection_id: &str) -> Option<std::time::Duration> {
+        self.connections
+            .get(connection_id)
+            .and_then(|conn| conn.query_timeout_secs)
+            .filter(|secs| *secs > 0)
+            .map(|secs| std::time::Duration::from_secs(secs as u64))
+    }
+
+    /// Server version banner for a live connection, used to tell MariaDB's
+    /// `ANALYZE` dialect from MySQL's `EXPLAIN ANALYZE`.
+    pub fn get_server_version(&self, connection_id: &str) -> Option<String> {
+        self.connections
+            .get(connection_id)
+            .map(|conn| conn.info.server_version.clone())
+    }
+
+    /// Whether the profile behind a live connection forbids writes.
+    pub fn is_read_only(&self, connection_id: &str) -> bool {
+        self.connections
+            .get(connection_id)
+            .map(|conn| conn.read_only)
+            .unwrap_or(false)
     }
 
     #[tracing::instrument(skip(self))]

@@ -214,10 +214,16 @@ export function QueryToolbar() {
             </button>
             <button
               onClick={handleExplainAnalyze}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]"
+              title="Measures the plan by running the statement"
+              className="flex w-full items-start gap-2 px-3 py-1.5 text-xs text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]"
             >
-              <ListTree className="h-3 w-3" />
-              EXPLAIN ANALYZE
+              <ListTree className="mt-0.5 h-3 w-3 shrink-0" />
+              <span className="flex flex-col items-start">
+                EXPLAIN ANALYZE
+                <span className="text-[10px] text-[var(--color-text-muted)]">
+                  runs the query
+                </span>
+              </span>
             </button>
           </div>
         )}

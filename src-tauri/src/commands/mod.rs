@@ -7,7 +7,7 @@ use mas_core::connection::{ConnectionManager, ConnectionStore};
 use mas_core::models::{
     ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, TestConnectionResult,
 };
-use mas_core::query::QueryExecutor;
+use mas_core::query::{ExplainResponse, QueryExecutor};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, IndexInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo,
 };
@@ -208,6 +208,54 @@ pub async fn execute_query(
         "Query executed"
     );
     Ok(results)
+}
+
+/// Plan a single statement.
+///
+/// Separate from `execute_query` because `EXPLAIN ANALYZE` executes what it
+/// measures: the decision to downgrade a write to a plain EXPLAIN has to sit
+/// behind the IPC boundary, not in the caller (#412).
+#[tauri::command]
+#[tracing::instrument(skip(state, sql))]
+#[specta::specta]
+pub async fn explain_query(
+    state: State<'_, AppState>,
+    connection_id: String,
+    sql: String,
+    database: Option<String>,
+    analyze: bool,
+) -> Result<ExplainResponse, String> {
+    mas_core::query::explain(
+        &state.connection_manager,
+        &state.query_executor,
+        connection_id,
+        sql,
+        database,
+        analyze,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "EXPLAIN failed");
+        e.to_string()
+    })
+}
+
+/// Stop whatever is running on this connection.
+///
+/// Issues `KILL QUERY` server-side — dropping the client future alone would
+/// leave the statement running to completion (#420).
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn cancel_query(state: State<'_, AppState>, connection_id: String) -> Result<(), String> {
+    state
+        .query_executor
+        .cancel(&connection_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Cancel failed");
+            e.to_string()
+        })
 }
 
 // Schema commands

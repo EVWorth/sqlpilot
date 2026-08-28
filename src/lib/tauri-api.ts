@@ -68,6 +68,14 @@ export const api = {
   executeQuery: (connectionId: string, sql: string, database?: string, limit?: number) =>
     unwrap("execute_query", () => commands.executeQuery(connectionId, sql, orNull(database), orNull(limit))),
 
+  // EXPLAIN goes through its own command rather than executeQuery: ANALYZE runs
+  // the statement it measures, so the decision to downgrade a write to a plain
+  // EXPLAIN lives behind the IPC boundary.
+  explainQuery: (connectionId: string, sql: string, analyze: boolean, database?: string) =>
+    unwrap("explain_query", () => commands.explainQuery(connectionId, sql, orNull(database), analyze)),
+
+  cancelQuery: (connectionId: string) => unwrap("cancel_query", () => commands.cancelQuery(connectionId)),
+
   // Schema
   getDatabases: (connectionId: string) => unwrap("get_databases", () => commands.getDatabases(connectionId)),
 
