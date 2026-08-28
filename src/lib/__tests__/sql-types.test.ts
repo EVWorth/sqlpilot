@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { baseSqlType, isNumericLiteral, isNumericSqlType } from "../sql-types";
+import {
+  baseSqlType,
+  isBooleanSqlType,
+  isExactNumericType,
+  isLongTextSqlType,
+  isNumericLiteral,
+  isNumericSqlType,
+} from "../sql-types";
 
 describe("baseSqlType", () => {
   it("strips precision and scale", () => {
@@ -48,5 +55,62 @@ describe("isNumericLiteral", () => {
     for (const v of ["", "abc", "1; DROP TABLE users", "1 OR 1=1", "0x10", "NaN", " 1 2 "]) {
       expect(isNumericLiteral(v), v).toBe(false);
     }
+  });
+});
+
+describe("consolidated predicate fixes the substring matcher it replaced", () => {
+  // EditableCell used /int|decimal|numeric|float|double|real|bit/ against the
+  // lowercased type, so "po·int" matched and YEAR did not.
+  it("does not treat spatial types as numeric", () => {
+    expect(isNumericSqlType("POINT")).toBe(false);
+    expect(isNumericSqlType("MULTIPOINT")).toBe(false);
+    expect(isNumericSqlType("GEOMETRY")).toBe(false);
+  });
+
+  it("does treat YEAR as numeric", () => {
+    expect(isNumericSqlType("YEAR")).toBe(true);
+  });
+});
+
+describe("isExactNumericType", () => {
+  it("flags the types that cannot round-trip through a JS number", () => {
+    for (const t of ["BIGINT", "BIGINT UNSIGNED", "DECIMAL(20,4)", "numeric"]) {
+      expect(isExactNumericType(t), t).toBe(true);
+    }
+  });
+
+  it("leaves types that fit in a double alone", () => {
+    for (const t of ["INT", "SMALLINT", "FLOAT", "DOUBLE", "YEAR", "BIT"]) {
+      expect(isExactNumericType(t), t).toBe(false);
+    }
+  });
+
+  it("is a subset of isNumericSqlType", () => {
+    for (const t of ["BIGINT", "DECIMAL(10,2)", "NUMERIC"]) {
+      expect(isNumericSqlType(t), t).toBe(true);
+    }
+  });
+});
+
+describe("isBooleanSqlType", () => {
+  it("matches only the boolean spellings", () => {
+    for (const t of ["BOOL", "boolean", "TINYINT(1)"]) expect(isBooleanSqlType(t), t).toBe(true);
+    for (const t of ["TINYINT", "TINYINT(4)", "INT", "BIT"]) {
+      expect(isBooleanSqlType(t), t).toBe(false);
+    }
+  });
+});
+
+describe("isLongTextSqlType", () => {
+  it("matches the wide types, on the base name", () => {
+    for (const t of ["TEXT", "LONGTEXT", "mediumblob", "JSON", "BLOB"]) {
+      expect(isLongTextSqlType(t), t).toBe(true);
+    }
+  });
+
+  it("does not match on a substring", () => {
+    // the old regex tested /text|blob|json/ anywhere in the string
+    expect(isLongTextSqlType("VARCHAR(20)")).toBe(false);
+    expect(isLongTextSqlType("INT")).toBe(false);
   });
 });

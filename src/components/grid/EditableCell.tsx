@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isBooleanSqlType, isExactNumericType, isLongTextSqlType, isNumericSqlType } from "../../lib/sql-types";
 import type { SqlValue } from "../../types";
 import { SqlValueGuard } from "../../types";
 
@@ -8,20 +9,6 @@ interface EditableCellProps {
   isEdited: boolean;
   onCommit: (newValue: SqlValue) => void;
   onTab?: (shiftKey: boolean) => void;
-}
-
-function isNumericType(dt: string): boolean {
-  const t = dt.toLowerCase();
-  return /int|decimal|numeric|float|double|real|bit/.test(t);
-}
-
-function isBooleanType(dt: string): boolean {
-  return /^(bool|boolean|tinyint\(1\))$/i.test(dt);
-}
-
-function isLongTextType(dt: string): boolean {
-  const t = dt.toLowerCase();
-  return /text|blob|json|mediumtext|longtext/.test(t);
 }
 
 export function EditableCell({
@@ -72,7 +59,13 @@ export function EditableCell({
     if (rawValue === "") {
       return "";
     }
-    if (isNumericType(dataType)) {
+    // BIGINT and DECIMAL keep their digits as text: Number() would drop the
+    // last digit of a large id or the exactness of a decimal, corrupting the
+    // row on save. The SQL generator emits them unquoted from the column type.
+    if (isExactNumericType(dataType)) {
+      return rawValue;
+    }
+    if (isNumericSqlType(dataType)) {
       const n = Number(rawValue);
       if (!isNaN(n) && isFinite(n)) {
         return n;
@@ -112,7 +105,7 @@ export function EditableCell({
   }, [value, onCommit]);
 
   // Boolean checkbox
-  if (isBooleanType(dataType) && !editing) {
+  if (isBooleanSqlType(dataType) && !editing) {
     return (
       <div
         className={`flex items-center gap-1 ${isEdited ? "border-l-2 border-amber-400 pl-1" : ""}`}
@@ -152,7 +145,7 @@ export function EditableCell({
   }
 
   // Edit mode: textarea for long text
-  if (isLongTextType(dataType)) {
+  if (isLongTextSqlType(dataType)) {
     return (
       <div className="relative flex items-center gap-0.5">
         <textarea
@@ -186,7 +179,8 @@ export function EditableCell({
     <div className="relative flex items-center gap-0.5">
       <input
         ref={inputRef as React.RefObject<HTMLInputElement>}
-        type={isNumericType(dataType) ? "number" : "text"}
+        type={isNumericSqlType(dataType) && !isExactNumericType(dataType) ? "number" : "text"}
+        inputMode={isNumericSqlType(dataType) ? "numeric" : undefined}
         value={editValue}
         onChange={(e) => setEditValue(e.target.value)}
         onKeyDown={handleKeyDown}
