@@ -235,6 +235,22 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 10
+      # MariaDB spells EXPLAIN ANALYZE as `ANALYZE` and answers in a different
+      # shape, so the explain tests need a real one to run against (#422).
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: test_root_password
+          MARIADB_DATABASE: test_db
+          MARIADB_USER: test_user
+          MARIADB_PASSWORD: test_password
+        ports:
+          - 13308:3306
+        options: >-
+          --health-cmd "mariadb-admin ping -h localhost -u root -ptest_root_password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Read pinned Rust version
@@ -246,8 +262,10 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
-      - name: Seed test database
-        run: mysql -h 127.0.0.1 -P 13306 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
+      - name: Seed test databases
+        run: |
+          mysql -h 127.0.0.1 -P 13306 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
+          mysql -h 127.0.0.1 -P 13308 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
       - name: Run Rust tests with coverage
