@@ -29,7 +29,7 @@ pub struct ColumnMeta {
     pub is_primary_key: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 #[serde(untagged)]
 pub enum SqlValue {
     Null,
