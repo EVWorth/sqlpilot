@@ -211,7 +211,7 @@ impl QueryExecutor {
                             tracing::debug!(connection_id = %connection_id, thread_id, "Query in flight");
                         }
                     }
-                    // SELECT/SHOW/DESCRIBE/EXPLAIN row — accumulate until trailing Left.
+                    // Result-set row — accumulate until the trailing Left.
                     if stmt_idx >= 0 {
                         // Check memory every 1000 rows to prevent OOM
                         if !current_rows.is_empty()
@@ -245,10 +245,7 @@ impl QueryExecutor {
                         tracing::trace!(query_id = %query_id, sql = %stmt, "Full statement SQL");
 
                         let upper = stmt.to_uppercase();
-                        let is_select = upper.starts_with("SELECT")
-                            || upper.starts_with("SHOW")
-                            || upper.starts_with("DESCRIBE")
-                            || upper.starts_with("EXPLAIN");
+                        let is_select = returns_rows(&upper);
 
                         if is_select {
                             let row_count = current_rows.len() as u64;
@@ -343,10 +340,7 @@ impl QueryExecutor {
             let execution_time = start.elapsed().as_millis() as u64;
 
             let upper = stmt.to_uppercase();
-            let is_select = upper.starts_with("SELECT")
-                || upper.starts_with("SHOW")
-                || upper.starts_with("DESCRIBE")
-                || upper.starts_with("EXPLAIN");
+            let is_select = returns_rows(&upper);
 
             if is_select {
                 results.push(build_select_result(
@@ -484,6 +478,29 @@ fn raw_text(row: &sqlx::mysql::MySqlRow, index: usize) -> Option<String> {
     <&str as sqlx::Decode<sqlx::MySql>>::decode(raw)
         .ok()
         .map(|s| s.to_string())
+}
+
+/// Whether a statement answers with a result set rather than a row count.
+///
+/// Getting this wrong discards the rows: the executor accumulates them either
+/// way, then throws them out and reports `rows_affected` instead. `ANALYZE` was
+/// missing, which is why MariaDB's `ANALYZE <stmt>` — its spelling of EXPLAIN
+/// ANALYZE — came back completely empty (#422). `WITH`, `TABLE` and `VALUES`
+/// were missing for the same reason.
+///
+/// Takes an already-uppercased, trimmed statement.
+fn returns_rows(upper: &str) -> bool {
+    const ROW_RETURNING: [&str; 10] = [
+        "SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "ANALYZE", "TABLE", "VALUES",
+        "CHECKSUM",
+    ];
+    ROW_RETURNING.iter().any(|verb| {
+        upper.strip_prefix(verb).is_some_and(|rest| {
+            // A prefix match must end the word, so DESCRIBE is not read as DESC
+            // and a table called SELECTION is not read as SELECT.
+            rest.is_empty() || !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_')
+        })
+    })
 }
 
 pub(crate) fn split_statements(sql: &str) -> Vec<String> {
@@ -805,6 +822,50 @@ mod tests {
         let sql = "SELECT 1; -- this is a comment;\nSELECT 2";
         let stmts = split_statements(sql);
         assert_eq!(stmts.len(), 2);
+    }
+
+    #[test]
+    fn returns_rows_recognises_result_returning_statements() {
+        for sql in [
+            "SELECT 1",
+            "WITH X AS (SELECT 1) SELECT * FROM X",
+            "SHOW TABLES",
+            "DESCRIBE USERS",
+            "DESC USERS",
+            "EXPLAIN SELECT 1",
+            "EXPLAIN ANALYZE SELECT 1",
+            // MariaDB's spelling of EXPLAIN ANALYZE (#422).
+            "ANALYZE SELECT 1",
+            "ANALYZE TABLE USERS",
+            "TABLE USERS",
+            "VALUES ROW(1)",
+        ] {
+            assert!(returns_rows(sql), "should return rows: {sql}");
+        }
+    }
+
+    #[test]
+    fn returns_rows_recognises_statements_that_only_report_a_count() {
+        for sql in [
+            "INSERT INTO T VALUES (1)",
+            "UPDATE T SET A = 1",
+            "DELETE FROM T",
+            "CREATE TABLE T (A INT)",
+            "DROP TABLE T",
+            "SET NAMES UTF8MB4",
+            "USE TEST_DB",
+        ] {
+            assert!(!returns_rows(sql), "should not return rows: {sql}");
+        }
+    }
+
+    #[test]
+    fn returns_rows_matches_whole_words_only() {
+        // A statement touching a table whose name merely starts with a verb.
+        assert!(!returns_rows("INSERT INTO SELECTIONS VALUES (1)"));
+        assert!(!returns_rows("UPDATE TABLES SET A = 1"));
+        // DESCRIBE must not be mistaken for DESC plus a word.
+        assert!(returns_rows("DESCRIBE USERS"));
     }
 
     #[test]
