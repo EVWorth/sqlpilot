@@ -80,7 +80,11 @@ services:
       --ssl-cert=/etc/mysql/ssl/server-cert.pem
       --ssl-key=/etc/mysql/ssl/server-key.pem
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--protocol=TCP", "-u", "root", "-ptest_root_password"]
+      # require-secure-transport rejects an unencrypted TCP ping, so this one
+      # service stays on the unix socket, which is exempt. It has no seed
+      # script, so the temporary-server race the TCP checks avoid cannot
+      # arise here.
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptest_root_password"]
       interval: 5s
       timeout: 3s
       retries: 30

@@ -244,8 +244,7 @@ impl QueryExecutor {
                         );
                         tracing::trace!(query_id = %query_id, sql = %stmt, "Full statement SQL");
 
-                        let upper = stmt.to_uppercase();
-                        let is_select = returns_rows(&upper);
+                        let is_select = returns_rows(stmt);
 
                         if is_select {
                             let row_count = current_rows.len() as u64;
@@ -339,8 +338,7 @@ impl QueryExecutor {
             let stmt = &statements[idx];
             let execution_time = start.elapsed().as_millis() as u64;
 
-            let upper = stmt.to_uppercase();
-            let is_select = returns_rows(&upper);
+            let is_select = returns_rows(stmt);
 
             if is_select {
                 results.push(build_select_result(
@@ -485,22 +483,18 @@ fn raw_text(row: &sqlx::mysql::MySqlRow, index: usize) -> Option<String> {
 /// Getting this wrong discards the rows: the executor accumulates them either
 /// way, then throws them out and reports `rows_affected` instead. `ANALYZE` was
 /// missing, which is why MariaDB's `ANALYZE <stmt>` — its spelling of EXPLAIN
-/// ANALYZE — came back completely empty (#422). `WITH`, `TABLE` and `VALUES`
-/// were missing for the same reason.
+/// ANALYZE — came back completely empty (#422). `TABLE` and `VALUES` were
+/// missing for the same reason.
 ///
-/// Takes an already-uppercased, trimmed statement.
-fn returns_rows(upper: &str) -> bool {
-    const ROW_RETURNING: [&str; 10] = [
-        "SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "ANALYZE", "TABLE", "VALUES",
-        "CHECKSUM",
+/// Reads the verb that decides what the statement does, so a CTE is followed
+/// through to what it prefixes: `WITH x AS (...) SELECT` returns rows and
+/// `WITH x AS (...) DELETE` reports a count, where matching the bare leading
+/// WITH would have called both of them result sets.
+fn returns_rows(sql: &str) -> bool {
+    const ROW_RETURNING: [&str; 8] = [
+        "SELECT", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "ANALYZE", "TABLE", "VALUES",
     ];
-    ROW_RETURNING.iter().any(|verb| {
-        upper.strip_prefix(verb).is_some_and(|rest| {
-            // A prefix match must end the word, so DESCRIBE is not read as DESC
-            // and a table called SELECTION is not read as SELECT.
-            rest.is_empty() || !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_')
-        })
-    })
+    ROW_RETURNING.contains(&crate::query::statement::effective_verb(sql).as_str())
 }
 
 pub(crate) fn split_statements(sql: &str) -> Vec<String> {
@@ -828,17 +822,19 @@ mod tests {
     fn returns_rows_recognises_result_returning_statements() {
         for sql in [
             "SELECT 1",
-            "WITH X AS (SELECT 1) SELECT * FROM X",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
             "SHOW TABLES",
-            "DESCRIBE USERS",
-            "DESC USERS",
+            "DESCRIBE users",
+            "DESC users",
             "EXPLAIN SELECT 1",
             "EXPLAIN ANALYZE SELECT 1",
             // MariaDB's spelling of EXPLAIN ANALYZE (#422).
             "ANALYZE SELECT 1",
-            "ANALYZE TABLE USERS",
-            "TABLE USERS",
+            "ANALYZE TABLE users",
+            "TABLE users",
             "VALUES ROW(1)",
+            "(SELECT 1)",
+            "-- a note\nSELECT 1",
         ] {
             assert!(returns_rows(sql), "should return rows: {sql}");
         }
@@ -847,25 +843,35 @@ mod tests {
     #[test]
     fn returns_rows_recognises_statements_that_only_report_a_count() {
         for sql in [
-            "INSERT INTO T VALUES (1)",
-            "UPDATE T SET A = 1",
-            "DELETE FROM T",
-            "CREATE TABLE T (A INT)",
-            "DROP TABLE T",
-            "SET NAMES UTF8MB4",
-            "USE TEST_DB",
+            "INSERT INTO t VALUES (1)",
+            "UPDATE t SET a = 1",
+            "DELETE FROM t",
+            "CREATE TABLE t (a INT)",
+            "DROP TABLE t",
+            "SET NAMES utf8mb4",
+            "USE test_db",
         ] {
             assert!(!returns_rows(sql), "should not return rows: {sql}");
         }
     }
 
     #[test]
+    fn returns_rows_follows_a_cte_to_what_it_prefixes() {
+        // A CTE-prefixed write reports rows_affected, not an empty result set.
+        // Matching the leading WITH reported "0 rows" for a DELETE that had
+        // just removed data.
+        assert!(!returns_rows(
+            "WITH doomed AS (SELECT id FROM t) DELETE FROM t WHERE id IN (SELECT id FROM doomed)"
+        ));
+        assert!(!returns_rows("WITH x AS (SELECT 1) UPDATE t SET a = 1"));
+        assert!(returns_rows("WITH x AS (SELECT 1) SELECT * FROM x"));
+    }
+
+    #[test]
     fn returns_rows_matches_whole_words_only() {
-        // A statement touching a table whose name merely starts with a verb.
-        assert!(!returns_rows("INSERT INTO SELECTIONS VALUES (1)"));
-        assert!(!returns_rows("UPDATE TABLES SET A = 1"));
-        // DESCRIBE must not be mistaken for DESC plus a word.
-        assert!(returns_rows("DESCRIBE USERS"));
+        assert!(!returns_rows("INSERT INTO selections VALUES (1)"));
+        assert!(!returns_rows("UPDATE tables SET a = 1"));
+        assert!(returns_rows("DESCRIBE users"));
     }
 
     #[test]
