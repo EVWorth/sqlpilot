@@ -45,37 +45,63 @@ fmt:
 	npx dprint fmt
 
 # Database Management (works with or without docker compose)
+#
+# Bind mounts carry :z so the seed files are relabelled for SELinux hosts
+# (Fedora and friends) — without it the container cannot read them and the
+# database comes up empty, or in MariaDB's case fails to start at all.
 db-up:
 	@if command -v docker compose >/dev/null 2>&1; then \
-		docker compose -f docker-compose.test.yml up -d mysql-8; \
+		docker compose -f docker-compose.test.yml up -d mysql-8 mariadb-11; \
 	elif command -v docker-compose >/dev/null 2>&1; then \
-		docker-compose -f docker-compose.test.yml up -d mysql-8; \
+		docker-compose -f docker-compose.test.yml up -d mysql-8 mariadb-11; \
 	else \
-		echo "Starting MySQL 8 container directly..."; \
+		echo "Starting containers directly..."; \
 		docker run -d --name mas-mysql-8 \
 			-e MYSQL_ROOT_PASSWORD=test_root_password \
 			-e MYSQL_DATABASE=test_db \
 			-e MYSQL_USER=test_user \
 			-e MYSQL_PASSWORD=test_password \
 			-p 13306:3306 \
-			-v $$(pwd)/tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql \
+			-v $$(pwd)/tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro,z \
 			mysql:8.0 \
 			--default-authentication-plugin=mysql_native_password \
 			--character-set-server=utf8mb4 \
 			--collation-server=utf8mb4_unicode_ci; \
+		docker run -d --name mas-mariadb-11 \
+			-e MYSQL_ROOT_PASSWORD=test_root_password \
+			-e MYSQL_DATABASE=test_db \
+			-e MYSQL_USER=test_user \
+			-e MYSQL_PASSWORD=test_password \
+			-p 13308:3306 \
+			-v $$(pwd)/tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro,z \
+			mariadb:11; \
 	fi
-	@echo "Waiting for MySQL 8 to be ready..."
-	@for i in $$(seq 1 60); do \
-		docker exec mas-mysql-8 mysqladmin ping -h localhost -u root -ptest_root_password 2>/dev/null && break; \
-		sleep 2; \
+	@# Wait on the container health status, not a bare ping. While the seed
+	@# scripts run, MySQL serves a temporary local-only server and then
+	@# restarts — a ping answers during that window, so anything that connects
+	@# on the strength of it is met with an EOF moments later.
+	@for name in mas-mysql-8 mas-mariadb-11; do \
+		echo "Waiting for $$name to be ready..."; \
+		ok=""; \
+		for i in $$(seq 1 90); do \
+			status=$$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' $$name 2>/dev/null); \
+			if [ "$$status" = "healthy" ]; then ok=1; break; fi; \
+			if [ "$$status" = "none" ]; then \
+				docker exec $$name sh -c 'mariadb-admin ping -h127.0.0.1 -uroot -ptest_root_password 2>/dev/null || mysqladmin ping -h127.0.0.1 -uroot -ptest_root_password 2>/dev/null' >/dev/null 2>&1 && ok=1 && break; \
+			fi; \
+			sleep 2; \
+		done; \
+		if [ -z "$$ok" ]; then echo "$$name did not become ready"; exit 1; fi; \
 	done
-	@echo "MySQL 8 ready on port 13306!"
+	@echo "MySQL 8 ready on 13306, MariaDB 11 on 13308!"
 
 db-down:
 	@docker rm -f mas-mysql-8 2>/dev/null || true
+	@docker rm -f mas-mariadb-11 2>/dev/null || true
 
 db-seed:
 	docker exec -i mas-mysql-8 mysql -u root -ptest_root_password < tests/fixtures/sql/seed.sql
+	docker exec -i mas-mariadb-11 mariadb -u root -ptest_root_password < tests/fixtures/sql/seed.sql
 
 db-reset: db-down db-up
 
