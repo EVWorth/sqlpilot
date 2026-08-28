@@ -1,5 +1,6 @@
 import { Maximize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { isLongTextSqlType } from "../../lib/sql-types";
 
 interface Props {
   value: unknown;
@@ -9,19 +10,24 @@ interface Props {
 }
 
 const TEXT_TYPE_MIN_LENGTH = 20;
-const TEXT_TYPE_PATTERN = /text|blob|json|mediumtext|longtext/i;
+
+/**
+ * A real NULL and a string containing the text "NULL" formatted identically,
+ * so the grid could not tell an absent value from the word. It is now styled
+ * distinctly instead — which also means numeric columns can keep one
+ * alignment for the whole column rather than letting NULLs break the run of
+ * digits.
+ */
+function isNullish(val: unknown): boolean {
+  return val === null || val === undefined;
+}
 
 function formatValue(val: unknown): string {
-  if (val === null || val === undefined) return "NULL";
+  if (isNullish(val)) return "NULL";
   if (typeof val === "string") return val;
   if (typeof val === "boolean") return val ? "true" : "false";
   if (typeof val === "number") return String(val);
   return String(val);
-}
-
-function isLongTextType(dataType?: string): boolean {
-  if (!dataType) return false;
-  return TEXT_TYPE_PATTERN.test(dataType);
 }
 
 export function TruncatedCell({
@@ -31,7 +37,8 @@ export function TruncatedCell({
   onViewFull,
 }: Props) {
   const formatted = formatValue(value);
-  const isTextType = isLongTextType(dataType);
+  const isNull = isNullish(value);
+  const isTextType = isLongTextSqlType(dataType);
   const showForTextType = isTextType
     && value !== null
     && value !== undefined
@@ -67,7 +74,7 @@ export function TruncatedCell({
     <div className="group flex min-w-0 items-center gap-1">
       <div
         ref={textRef}
-        className="min-w-0 truncate"
+        className={`min-w-0 truncate ${isNull ? "italic text-[var(--color-text-muted)]" : ""}`}
         onDoubleClick={showIcon ? openViewer : undefined}
         title={showForTextType ? "View full content" : undefined}
       >

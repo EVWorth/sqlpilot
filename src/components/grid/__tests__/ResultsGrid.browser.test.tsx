@@ -591,6 +591,36 @@ describe("ResultsGrid (browser)", () => {
     expect(screen.getByText("name")).toBeInTheDocument();
   });
 
+  // ── Numeric alignment (driven by column type, not value type) ──────────
+  //
+  // BIGINT and DECIMAL arrive as strings so the value's JS type says nothing;
+  // alignment comes from ColumnMeta.data_type, as SQLyog does with IS_NUM.
+
+  it("right-aligns cells in a numeric column and not in a text column", () => {
+    resultState.results = [makeResult()];
+    render(<ResultsGrid />);
+
+    const cells = screen.getAllByTestId("truncated-cell");
+    // fixture columns are [id int, name varchar], two rows
+    const idCell = cells[0].closest("td, div[class*=border-b]");
+    const nameCell = cells[1].closest("td, div[class*=border-b]");
+
+    expect(idCell?.className).toContain("text-right");
+    expect(idCell?.className).toContain("tabular-nums");
+    expect(nameCell?.className).not.toContain("text-right");
+  });
+
+  it("aligns the header with its column so the two agree", () => {
+    resultState.results = [makeResult()];
+    render(<ResultsGrid />);
+
+    const idHeader = screen.getByText("id").closest("th, div[class*=cursor-pointer]");
+    const nameHeader = screen.getByText("name").closest("th, div[class*=cursor-pointer]");
+
+    expect(idHeader?.className).toContain("text-right");
+    expect(nameHeader?.className).toContain("text-left");
+  });
+
   it("renders data cells for each row", () => {
     resultState.results = [makeResult()];
     render(<ResultsGrid />);

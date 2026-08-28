@@ -49,6 +49,46 @@ export function isNumericSqlType(dataType: string | undefined): boolean {
 }
 
 /**
+ * Numeric types whose values cannot round-trip through a JavaScript number.
+ *
+ * BIGINT exceeds 2^53 and DECIMAL is exact by definition, so both are carried
+ * as text from Rust. Anything that turns user input back into a value must
+ * leave these as strings — `Number("9007199254740993")` loses the last digit,
+ * which would corrupt the row on save. (#502)
+ */
+const EXACT_NUMERIC_TYPES = new Set(["BIGINT", "DECIMAL", "NUMERIC"]);
+
+export function isExactNumericType(dataType: string | undefined): boolean {
+  if (!dataType) return false;
+  return EXACT_NUMERIC_TYPES.has(baseSqlType(dataType));
+}
+
+/** Columns rendered as a checkbox rather than a text field. */
+export function isBooleanSqlType(dataType: string | undefined): boolean {
+  if (!dataType) return false;
+  const base = baseSqlType(dataType);
+  return base === "BOOL" || base === "BOOLEAN" || /^tinyint\(1\)$/i.test(dataType.trim());
+}
+
+/** Columns wide enough to want the full-content viewer. */
+const LONG_TEXT_TYPES = new Set([
+  "TEXT",
+  "TINYTEXT",
+  "MEDIUMTEXT",
+  "LONGTEXT",
+  "BLOB",
+  "TINYBLOB",
+  "MEDIUMBLOB",
+  "LONGBLOB",
+  "JSON",
+]);
+
+export function isLongTextSqlType(dataType: string | undefined): boolean {
+  if (!dataType) return false;
+  return LONG_TEXT_TYPES.has(baseSqlType(dataType));
+}
+
+/**
  * Values carried as strings to survive JSON must still be emitted unquoted in
  * SQL. Verify the text really is a number first: trusting the column type alone
  * would splice arbitrary text into a statement unquoted if the two ever

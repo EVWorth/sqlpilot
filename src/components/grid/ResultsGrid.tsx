@@ -38,6 +38,7 @@ import {
   generateUpdate,
   getWhereColumns,
 } from "../../lib/sql-generator";
+import { isNumericSqlType } from "../../lib/sql-types";
 import { api } from "../../lib/tauri-api";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -181,6 +182,23 @@ export function ResultsGrid() {
       }
     },
     [activeResult, showToast],
+  );
+
+  /**
+   * Columns holding numbers, by name.
+   *
+   * Driven by the declared column type rather than the value's JavaScript
+   * type, because BIGINT and DECIMAL arrive as strings. Same reason SQLyog
+   * aligns from IS_NUM(field->type).
+   */
+  const numericColumns = useMemo(
+    () =>
+      new Set(
+        (activeResult?.columns ?? [])
+          .filter((c) => isNumericSqlType(c.data_type))
+          .map((c) => c.name),
+      ),
+    [activeResult],
   );
 
   /** Column name -> SQL type, so numeric-but-stringified values stay unquoted. */
@@ -635,7 +653,9 @@ export function ResultsGrid() {
                     <div
                       key={header.id}
                       onClick={header.column.getToggleSortingHandler()}
-                      className="relative flex cursor-pointer select-none items-center gap-1 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-left font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+                      className={`relative flex cursor-pointer select-none items-center gap-1 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] ${
+                        numericColumns.has(header.column.id) ? "justify-end text-right" : "text-left"
+                      }`}
                       style={{ flex: `1 1 ${header.getSize()}px`, minWidth: minW }}
                     >
                       {flexRender(header.column.columnDef.header, header.getContext())}
@@ -759,7 +779,9 @@ export function ResultsGrid() {
                       return (
                         <div
                           key={cell.id}
-                          className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-primary)] ${rowBg}`}
+                          className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-primary)] ${rowBg} ${
+                            numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
+                          }`}
                           style={{ flex: `1 1 ${cell.column.getSize()}px`, minWidth: minW }}
                         >
                           {flexRender(
@@ -785,10 +807,16 @@ export function ResultsGrid() {
                     <th
                       key={header.id}
                       onClick={header.column.getToggleSortingHandler()}
-                      className="relative cursor-pointer select-none border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-left font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)]"
+                      className={`relative cursor-pointer select-none border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] ${
+                        numericColumns.has(header.column.id) ? "text-right" : "text-left"
+                      }`}
                       style={{ width: header.getSize() }}
                     >
-                      <div className="flex items-center gap-1">
+                      <div
+                        className={`flex items-center gap-1 ${
+                          numericColumns.has(header.column.id) ? "justify-end" : ""
+                        }`}
+                      >
                         {flexRender(header.column.columnDef.header, header.getContext())}
                         {header.column.getIsSorted() === "asc" && <ArrowUp className="h-3 w-3" />}
                         {header.column.getIsSorted() === "desc" && <ArrowDown className="h-3 w-3" />}
@@ -845,7 +873,9 @@ export function ResultsGrid() {
                       {row.getVisibleCells().map((cell) => (
                         <td
                           key={cell.id}
-                          className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
+                          className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)] ${
+                            numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
+                          }`}
                         >
                           {flexRender(
                             cell.column.columnDef.cell,
