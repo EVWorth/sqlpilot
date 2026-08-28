@@ -1,7 +1,7 @@
 //! EXPLAIN, timeout and cancellation against a real MySQL 8 server.
 //!
 //! Prerequisites:
-//!   docker compose -f docker-compose.test.yml up -d mysql-8
+//!   make db-up
 //!
 //! These cover the parts of #412/#418/#420 that unit tests cannot: whether the
 //! server actually accepts the statement we build, and whether a timeout really
@@ -426,6 +426,97 @@ async fn a_plain_explain_returns_a_tabular_plan() {
         .map(|c| c.name.to_lowercase())
         .collect();
     assert!(columns.contains(&"select_type".to_string()), "{columns:?}");
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+// --- MariaDB (port 13308) -------------------------------------------------
+//
+// MariaDB spells EXPLAIN ANALYZE as `ANALYZE <stmt>` and answers in the same
+// tabular shape as EXPLAIN, with measured r_rows/r_filtered columns alongside
+// the estimates — not MySQL's single column of TREE text (#422).
+
+fn mariadb_profile() -> ConnectionProfile {
+    ConnectionProfile {
+        name: "Test MariaDB 11".to_string(),
+        port: 13308,
+        ..test_profile()
+    }
+}
+
+#[tokio::test]
+async fn mariadb_analyze_comes_back_tabular_with_measured_columns() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&mariadb_profile()).await.unwrap();
+    assert!(
+        info.server_version.to_lowercase().contains("mariadb"),
+        "expected MariaDB on 13308, got {}",
+        info.server_version
+    );
+
+    let response = explain(
+        &manager,
+        &executor,
+        info.id.clone(),
+        "SELECT * FROM users LIMIT 1".to_string(),
+        Some("test_db".to_string()),
+        true,
+    )
+    .await
+    .unwrap();
+
+    assert!(response.analyzed);
+    assert!(
+        response.tabular,
+        "MariaDB ANALYZE is tabular, so it must not render as TREE text"
+    );
+
+    let columns: Vec<String> = response
+        .result
+        .columns
+        .iter()
+        .map(|c| c.name.to_lowercase())
+        .collect();
+    assert!(columns.contains(&"select_type".to_string()), "{columns:?}");
+    // The measured columns are the reason to run ANALYZE at all.
+    assert!(columns.contains(&"r_rows".to_string()), "{columns:?}");
+    assert!(columns.contains(&"r_filtered".to_string()), "{columns:?}");
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+/// #412 on MariaDB too — the dialect differs, the refusal must not.
+#[tokio::test]
+async fn mariadb_planning_a_delete_does_not_delete() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&mariadb_profile()).await.unwrap();
+
+    let response = explain(
+        &manager,
+        &executor,
+        info.id.clone(),
+        "DELETE FROM users WHERE 1=1".to_string(),
+        Some("test_db".to_string()),
+        true,
+    )
+    .await
+    .unwrap();
+
+    assert!(!response.analyzed);
+    assert_eq!(response.refusal, Some(AnalyzeRefusal::WouldMutate));
+
+    let after = executor
+        .execute(
+            &info.id,
+            "SELECT COUNT(*) FROM users",
+            Some("test_db".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+    assert!(scalar_int(&after[0]) > 0, "users should still be there");
 
     manager.disconnect(&info.id).await.unwrap();
 }

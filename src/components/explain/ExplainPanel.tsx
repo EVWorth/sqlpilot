@@ -49,6 +49,13 @@ export interface ExplainRow {
   ref: string;
   rows: number;
   filtered: number;
+  /**
+   * Measured counterparts to `rows`/`filtered`, present only in MariaDB's
+   * ANALYZE output. Null when the server did not report them — the whole point
+   * of running ANALYZE is the gap between the estimate and these.
+   */
+  r_rows: number | null;
+  r_filtered: number | null;
   Extra: string;
 }
 
@@ -65,6 +72,12 @@ export function parseExplainRows(result: QueryResult): ExplainRow[] {
       const v = get(name);
       return v ? Number(v) : 0;
     };
+    // Distinguishes "column absent" from "column present and zero".
+    const getOptionalNum = (name: string): number | null => {
+      if (!colNames.includes(name.toLowerCase())) return null;
+      const v = get(name);
+      return v === "" ? null : Number(v);
+    };
     return {
       id: row[colNames.indexOf("id")] ?? null,
       select_type: get("select_type"),
@@ -77,6 +90,8 @@ export function parseExplainRows(result: QueryResult): ExplainRow[] {
       ref: get("ref"),
       rows: getNum("rows"),
       filtered: getNum("filtered"),
+      r_rows: getOptionalNum("r_rows"),
+      r_filtered: getOptionalNum("r_filtered"),
       Extra: get("extra"),
     };
   });
@@ -184,6 +199,9 @@ function ExplainTable({ result }: { result: QueryResult }) {
     () => Math.max(...rows.map((r) => r.rows), 1),
     [rows],
   );
+  // MariaDB's ANALYZE reports what actually happened alongside the estimate.
+  // Show those columns only when the server sent them (#422).
+  const hasMeasured = rows.some((r) => r.r_rows !== null || r.r_filtered !== null);
 
   return (
     <div className="flex-1 overflow-auto">
@@ -200,7 +218,9 @@ function ExplainTable({ result }: { result: QueryResult }) {
               "key_len",
               "ref",
               "rows",
+              ...(hasMeasured ? ["r_rows"] : []),
               "filtered",
+              ...(hasMeasured ? ["r_filtered"] : []),
               "Extra",
             ].map(
               (col) => (
@@ -254,9 +274,19 @@ function ExplainTable({ result }: { result: QueryResult }) {
               <td className="border-b border-r border-[var(--color-border)] px-2 py-1.5 text-[var(--color-text-primary)] min-w-[180px]">
                 <RowsBar rows={row.rows} maxRows={maxRows} />
               </td>
+              {hasMeasured && (
+                <td className="border-b border-r border-[var(--color-border)] px-2 py-1.5 text-right tabular-nums text-[var(--color-text-primary)]">
+                  {row.r_rows === null ? "—" : row.r_rows.toLocaleString()}
+                </td>
+              )}
               <td className="border-b border-r border-[var(--color-border)] px-2 py-1.5 text-[var(--color-text-muted)]">
                 {row.filtered ? `${row.filtered}%` : "—"}
               </td>
+              {hasMeasured && (
+                <td className="border-b border-r border-[var(--color-border)] px-2 py-1.5 text-right tabular-nums text-[var(--color-text-muted)]">
+                  {row.r_filtered === null ? "—" : `${row.r_filtered}%`}
+                </td>
+              )}
               <td className="border-b border-r border-[var(--color-border)] px-2 py-1.5 text-[var(--color-text-primary)]">
                 <ExtraHighlight text={row.Extra} />
               </td>
