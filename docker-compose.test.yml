@@ -10,14 +10,14 @@ services:
     ports:
       - "13306:3306"
     volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
-      - ./tests/fixtures/sql/seed_large.sql:/docker-entrypoint-initdb.d/02-seed-large.sql
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro,z
+      - ./tests/fixtures/sql/seed_large.sql:/docker-entrypoint-initdb.d/02-seed-large.sql:ro,z
     command: >
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
       --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptest_root_password"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--protocol=TCP", "-u", "root", "-ptest_root_password"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -34,9 +34,9 @@ services:
     ports:
       - "13307:3306"
     volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro,z
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptest_root_password"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--protocol=TCP", "-u", "root", "-ptest_root_password"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -53,9 +53,9 @@ services:
     ports:
       - "13308:3306"
     volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
+      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro,z
     healthcheck:
-      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "--protocol=TCP", "-u", "root", "-ptest_root_password"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -70,16 +70,20 @@ services:
     ports:
       - "13309:3306"
     volumes:
-      - ./tests/fixtures/ssl/server-cert.pem:/etc/mysql/ssl/server-cert.pem
-      - ./tests/fixtures/ssl/server-key.pem:/etc/mysql/ssl/server-key.pem
-      - ./tests/fixtures/ssl/ca-cert.pem:/etc/mysql/ssl/ca-cert.pem
-      - ./tests/fixtures/ssl/my.cnf:/etc/mysql/conf.d/ssl.cnf
+      - ./tests/fixtures/ssl/server-cert.pem:/etc/mysql/ssl/server-cert.pem:ro,z
+      - ./tests/fixtures/ssl/server-key.pem:/etc/mysql/ssl/server-key.pem:ro,z
+      - ./tests/fixtures/ssl/ca-cert.pem:/etc/mysql/ssl/ca-cert.pem:ro,z
+      - ./tests/fixtures/ssl/my.cnf:/etc/mysql/conf.d/ssl.cnf:ro,z
     command: >
       --require-secure-transport=ON
       --ssl-ca=/etc/mysql/ssl/ca-cert.pem
       --ssl-cert=/etc/mysql/ssl/server-cert.pem
       --ssl-key=/etc/mysql/ssl/server-key.pem
     healthcheck:
+      # require-secure-transport rejects an unencrypted TCP ping, so this one
+      # service stays on the unix socket, which is exempt. It has no seed
+      # script, so the temporary-server race the TCP checks avoid cannot
+      # arise here.
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-ptest_root_password"]
       interval: 5s
       timeout: 3s
