@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
 import {
+  columnTypesOf,
   extractTableName,
   generateDelete,
   generateInsert,
@@ -182,9 +183,17 @@ export function ResultsGrid() {
     [activeResult, showToast],
   );
 
-  const formatSqlVal = useCallback((val: SqlValue): string => {
-    return SqlValueGuard.toSqlLiteral(val);
-  }, []);
+  /** Column name -> SQL type, so numeric-but-stringified values stay unquoted. */
+  const columnTypes = useMemo(
+    () => (activeResult ? columnTypesOf(activeResult.columns) : {}),
+    [activeResult],
+  );
+
+  const formatSqlVal = useCallback(
+    (val: SqlValue, columnName?: string): string =>
+      SqlValueGuard.toSqlLiteral(val, columnName ? columnTypes[columnName] : undefined),
+    [columnTypes],
+  );
 
   const handleRowContextMenu = useCallback(
     (e: React.MouseEvent<HTMLElement>, rowIdx: number) => {
@@ -210,7 +219,7 @@ export function ResultsGrid() {
         .join("\t");
 
       const insertCols = colNames.map((n) => `\`${n}\``).join(", ");
-      const insertVals = row.map((v) => formatSqlVal(v)).join(", ");
+      const insertVals = row.map((v, i) => formatSqlVal(v, colNames[i])).join(", ");
       const insertStmt = `INSERT INTO your_table (${insertCols}) VALUES (${insertVals});`;
 
       const allRowsTsv = [
@@ -317,6 +326,7 @@ export function ResultsGrid() {
             whereInfo.columns,
             originalRow,
             changes.map((c) => ({ column: c.column, newValue: c.newValue })),
+            columnTypes,
           ),
         );
       }
@@ -324,14 +334,14 @@ export function ResultsGrid() {
       // Generate INSERT statements
       for (const insertRow of editing.inserts) {
         const cols = activeResult.columns.map((c) => c.name);
-        statements.push(generateInsert(tableName, cols, insertRow));
+        statements.push(generateInsert(tableName, cols, insertRow, columnTypes));
       }
 
       // Generate DELETE statements
       for (const rowIdx of editing.deletes) {
         const originalRow = getOriginalRow(rowIdx);
         statements.push(
-          generateDelete(tableName, whereInfo.columns, originalRow),
+          generateDelete(tableName, whereInfo.columns, originalRow, columnTypes),
         );
       }
 
@@ -351,7 +361,7 @@ export function ResultsGrid() {
     } finally {
       setIsSaving(false);
     }
-  }, [activeResult, editing, getOriginalRow, whereInfo, showToast]);
+  }, [activeResult, editing, getOriginalRow, whereInfo, showToast, columnTypes]);
 
   const maxContentLen = useMemo<Record<string, number>>(() => {
     if (!activeResult) return {};

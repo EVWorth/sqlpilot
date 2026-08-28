@@ -1,4 +1,5 @@
 import type { SqlValue } from "../lib/bindings";
+import { isNumericLiteral, isNumericSqlType } from "../lib/sql-types";
 
 // Types crossing the Tauri boundary are generated from Rust by tauri-specta
 // (src/lib/bindings.ts, regenerate with `make bindings`). Re-exported here so
@@ -100,11 +101,23 @@ function toStr(val: SqlValue): string {
   return String(_exhaustive);
 }
 
-function toSqlLiteral(val: SqlValue): string {
+/**
+ * Render a cell as a SQL literal.
+ *
+ * `dataType` is needed because BIGINT and DECIMAL are carried as strings to
+ * survive JSON, so a value's JavaScript type no longer says whether it is a
+ * number. Given the column type, a numeric-looking string is emitted unquoted.
+ */
+function toSqlLiteral(val: SqlValue, dataType?: string): string {
   if (val === null) return "NULL";
   if (typeof val === "boolean") return val ? "1" : "0";
   if (typeof val === "number") return String(val);
-  if (typeof val === "string") return `'${val.replace(/'/g, "''")}'`;
+  if (typeof val === "string") {
+    // Both conditions matter: the column must claim to be numeric and the text
+    // must actually be one, or arbitrary text could land in SQL unquoted.
+    if (isNumericSqlType(dataType) && isNumericLiteral(val)) return val;
+    return `'${val.replace(/'/g, "''")}'`;
+  }
   if (Array.isArray(val)) return `'${JSON.stringify(val).replace(/'/g, "''")}'`;
   const _exhaustive: never = val;
   return String(_exhaustive);

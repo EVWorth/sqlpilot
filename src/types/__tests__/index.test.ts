@@ -551,3 +551,27 @@ describe("SqlValueGuard.toSqlLiteral", () => {
     expect(typeof SqlValueGuard.toSqlLiteral(badVal)).toBe("string");
   });
 });
+
+describe("SqlValueGuard.toSqlLiteral with column types (#502)", () => {
+  it("emits a stringified BIGINT unquoted", () => {
+    expect(SqlValueGuard.toSqlLiteral("9007199254740993", "bigint")).toBe("9007199254740993");
+  });
+
+  it("emits a stringified DECIMAL unquoted", () => {
+    expect(SqlValueGuard.toSqlLiteral("2.50", "DECIMAL(10,2)")).toBe("2.50");
+  });
+
+  it("still quotes a string column that happens to hold digits", () => {
+    expect(SqlValueGuard.toSqlLiteral("9007199254740993", "varchar(64)")).toBe(
+      "'9007199254740993'",
+    );
+  });
+
+  it("still quotes when no column type is supplied", () => {
+    expect(SqlValueGuard.toSqlLiteral("42")).toBe("'42'");
+  });
+
+  it("quotes a numeric column whose value is not a number", () => {
+    expect(SqlValueGuard.toSqlLiteral("oops", "bigint")).toBe("'oops'");
+  });
+});
