@@ -105,9 +105,22 @@ async fn a_real_null_is_still_null() {
 }
 
 #[tokio::test]
+async fn bigint_keeps_every_digit() {
+    // 9007199254740993 is 2^53 + 1: the smallest integer a JSON number cannot
+    // represent. Carried as text so the last digit survives to the grid. (#502)
+    let row = probe("tc_bigint", "big").await;
+    assert_eq!(row[0], SqlValue::String("9007199254740993".into()));
+
+    // and it must still be exact after a JSON round-trip, which is where the
+    // truncation actually happened
+    let json = serde_json::to_string(&row[0]).unwrap();
+    assert_eq!(json, "\"9007199254740993\"");
+}
+
+#[tokio::test]
 async fn common_types_are_unaffected() {
     let row = probe("tc_common", "big, f, j, dt, tm, bl, vc").await;
-    assert_eq!(row[0], SqlValue::Int(9007199254740993));
+    assert_eq!(row[0], SqlValue::String("9007199254740993".into()));
     assert_eq!(row[1], SqlValue::Float(3.5));
     assert!(matches!(&row[2], SqlValue::String(s) if s.contains("\"k\"")));
     assert!(matches!(&row[3], SqlValue::String(s) if s.starts_with("2026-01-01")));

@@ -199,3 +199,74 @@ describe("sql-generator", () => {
     });
   });
 });
+
+// ── Numeric columns carried as strings (#502) ────────────────────────────
+//
+// BIGINT and DECIMAL arrive as strings so JSON cannot truncate them, which
+// means `typeof value === "number"` no longer identifies a number. Quoting has
+// to come from the column type instead.
+
+describe("formatSqlValue with column types", () => {
+  it("emits a stringified BIGINT unquoted", () => {
+    // 2^53 + 1 — the value JSON.parse cannot represent
+    expect(formatSqlValue("9007199254740993", "bigint")).toBe("9007199254740993");
+    expect(formatSqlValue("18446744073709551615", "BIGINT UNSIGNED")).toBe("18446744073709551615");
+  });
+
+  it("emits a stringified DECIMAL unquoted, keeping every digit", () => {
+    expect(formatSqlValue("12345678901234.5678", "DECIMAL(20,4)")).toBe("12345678901234.5678");
+  });
+
+  it("still quotes an ordinary string column", () => {
+    expect(formatSqlValue("9007199254740993", "varchar(64)")).toBe("'9007199254740993'");
+  });
+
+  it("still quotes when the column type is unknown", () => {
+    expect(formatSqlValue("42")).toBe("'42'");
+  });
+
+  it("quotes a numeric column whose value is not actually a number", () => {
+    // Safety: the column type alone must not be enough to unquote, or a
+    // mismatch would splice raw text into the statement.
+    expect(formatSqlValue("1; DROP TABLE users", "bigint")).toBe("'1; DROP TABLE users'");
+    expect(formatSqlValue("", "bigint")).toBe("''");
+  });
+
+  it("leaves the existing non-string behaviour alone", () => {
+    expect(formatSqlValue(null, "bigint")).toBe("NULL");
+    expect(formatSqlValue(42, "bigint")).toBe("42");
+    expect(formatSqlValue(true, "tinyint")).toBe("1");
+  });
+});
+
+describe("generated statements keep BIGINT unquoted", () => {
+  const types = { id: "bigint", name: "varchar(20)" };
+
+  it("INSERT", () => {
+    expect(generateInsert("t", ["id", "name"], { id: "9007199254740993", name: "x" }, types))
+      .toBe("INSERT INTO `t` (`id`, `name`) VALUES (9007199254740993, 'x');");
+  });
+
+  it("UPDATE, in both SET and WHERE", () => {
+    const sql = generateUpdate(
+      "t",
+      ["id"],
+      { id: "9007199254740993" },
+      [{ column: "id", newValue: "9007199254740994" }],
+      types,
+    );
+    expect(sql).toBe(
+      "UPDATE `t` SET `id` = 9007199254740994 WHERE `id` = 9007199254740993 LIMIT 1;",
+    );
+  });
+
+  it("DELETE", () => {
+    expect(generateDelete("t", ["id"], { id: "9007199254740993" }, types))
+      .toBe("DELETE FROM `t` WHERE `id` = 9007199254740993 LIMIT 1;");
+  });
+
+  it("without column types the id would be quoted — the bug this prevents", () => {
+    expect(generateDelete("t", ["id"], { id: "9007199254740993" }))
+      .toBe("DELETE FROM `t` WHERE `id` = '9007199254740993' LIMIT 1;");
+  });
+});

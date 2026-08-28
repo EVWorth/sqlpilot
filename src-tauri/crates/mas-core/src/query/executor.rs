@@ -255,11 +255,22 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
         "BOOLEAN" | "TINYINT(1)" | "BOOL" => {
             decode_or_text::<bool, _>(row, index, t, SqlValue::Bool)
         }
-        "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" | "BIGINT" => {
+        // Up to 32 bits every value fits in a JSON number exactly, so these
+        // stay numeric.
+        "TINYINT" | "SMALLINT" | "MEDIUMINT" | "INT" => {
             decode_or_text::<i64, _>(row, index, t, SqlValue::Int)
         }
         "TINYINT UNSIGNED" | "SMALLINT UNSIGNED" | "MEDIUMINT UNSIGNED" | "INT UNSIGNED"
-        | "BIGINT UNSIGNED" | "BIT" => decode_or_text::<u64, _>(row, index, t, SqlValue::UInt),
+        | "BIT" => decode_or_text::<u64, _>(row, index, t, SqlValue::UInt),
+        // 64-bit values do not. JSON.parse truncates past 2^53, so a BIGINT id
+        // would arrive at the grid with a silently wrong final digit — and get
+        // pasted into another query from copy-as-INSERT. Carry the exact digits
+        // as text; the frontend uses ColumnMeta to know it is still a number.
+        // (#502)
+        "BIGINT" => decode_or_text::<i64, _>(row, index, t, |v| SqlValue::String(v.to_string())),
+        "BIGINT UNSIGNED" => {
+            decode_or_text::<u64, _>(row, index, t, |v| SqlValue::String(v.to_string()))
+        }
         // YEAR is an integer, not a timestamp. Asking for a DateTime here is
         // what silently nulled it. (#508)
         "YEAR" => decode_or_text::<u64, _>(row, index, t, SqlValue::UInt),

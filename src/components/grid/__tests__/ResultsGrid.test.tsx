@@ -91,6 +91,7 @@ vi.mock("../../../hooks/useGridEditing", () => ({
 
 vi.mock("../../../lib/tauri-api", () => ({ api: { exportResults: vi.fn(), executeQuery: vi.fn() } }));
 vi.mock("../../../lib/sql-generator", () => ({
+  columnTypesOf: vi.fn(() => ({})),
   generateUpdate: vi.fn(() => "UPDATE ..."),
   generateInsert: vi.fn(() => "INSERT ..."),
   generateDelete: vi.fn(() => "DELETE ..."),

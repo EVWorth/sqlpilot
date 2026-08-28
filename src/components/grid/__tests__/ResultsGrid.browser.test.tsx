@@ -110,6 +110,7 @@ vi.mock("../../../lib/tauri-api", () => ({
 
 // ─── SQL generator mock ──────────────────────────────────────
 vi.mock("../../../lib/sql-generator", () => ({
+  columnTypesOf: vi.fn(() => ({})),
   generateUpdate: vi.fn(() => "UPDATE ..."),
   generateInsert: vi.fn(() => "INSERT ..."),
   generateDelete: vi.fn(() => "DELETE ..."),
