@@ -1,4 +1,4 @@
-import { AlertTriangle, GitBranch, Table2 } from "lucide-react";
+import { AlertTriangle, GitBranch, Square, Table2 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useResultStore } from "../../stores/resultStore";
 import type { QueryResult, SqlValue } from "../../types";
@@ -193,12 +193,7 @@ function RowsBar({ rows, maxRows }: { rows: number; maxRows: number }) {
   );
 }
 
-function ExplainTable({ result }: { result: QueryResult }) {
-  const rows = useMemo(() => parseExplainRows(result), [result]);
-  const maxRows = useMemo(
-    () => Math.max(...rows.map((r) => r.rows), 1),
-    [rows],
-  );
+function ExplainTable({ rows, maxRows }: { rows: ExplainRow[]; maxRows: number }) {
   // MariaDB's ANALYZE reports what actually happened alongside the estimate.
   // Show those columns only when the server sent them (#422).
   const hasMeasured = rows.some((r) => r.r_rows !== null || r.r_filtered !== null);
@@ -491,10 +486,8 @@ function TreeNodeView({
   );
 }
 
-function ExplainTreeView({ result }: { result: QueryResult }) {
-  const rows = useMemo(() => parseExplainRows(result), [result]);
+function ExplainTreeView({ rows, maxRows }: { rows: ExplainRow[]; maxRows: number }) {
   const tree = useMemo(() => buildTree(rows), [rows]);
-  const maxRows = useMemo(() => Math.max(...rows.map((r) => r.rows), 1), [rows]);
 
   return (
     <div className="flex-1 overflow-auto p-4">
@@ -585,12 +578,45 @@ function DowngradeNotice({ notice }: { notice: string }) {
   );
 }
 
+/**
+ * Cancel affordance for the plan panel.
+ *
+ * ANALYZE runs the statement, so a slow one leaves the user watching a spinner.
+ * The toolbar has a Cancel button, but not while attention is on this panel
+ * (#427). Cancellation is real — it issues KILL QUERY server-side.
+ */
+function CancelButton() {
+  const cancelActiveQuery = useResultStore((s) => s.cancelActiveQuery);
+  return (
+    <button
+      onClick={() => void cancelActiveQuery()}
+      title="Cancel the running statement"
+      className="ml-2 flex items-center gap-1 rounded bg-red-600/90 px-1.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-red-500"
+    >
+      <Square className="h-2.5 w-2.5 fill-current" />
+      Cancel
+    </button>
+  );
+}
+
 export function ExplainPanel() {
   const explainResult = useResultStore((s) => s.explainResult);
   const explainAnalyze = useResultStore((s) => s.explainAnalyze);
   const explainNotice = useResultStore((s) => s.explainNotice);
   const explainTabular = useResultStore((s) => s.explainTabular);
+  const isExecuting = useResultStore((s) => s.isExecuting);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
+
+  // Parsed once here and passed down. Each view used to parse the result for
+  // itself, so a single render walked every row three times (#425).
+  const rows = useMemo(
+    () => (explainResult ? parseExplainRows(explainResult) : []),
+    [explainResult],
+  );
+  const maxRows = useMemo(
+    () => Math.max(...rows.map((r) => r.rows), 1),
+    [rows],
+  );
 
   if (!explainResult) {
     return (
@@ -611,6 +637,7 @@ export function ExplainPanel() {
           <span className="text-[10px] font-medium text-[var(--color-text-secondary)]">
             EXPLAIN ANALYZE
           </span>
+          {isExecuting && <CancelButton />}
         </div>
         {explainNotice && <DowngradeNotice notice={explainNotice} />}
         <AnalyzeView result={explainResult} />
@@ -624,6 +651,7 @@ export function ExplainPanel() {
         <span className="mr-2 text-[10px] font-medium text-[var(--color-text-secondary)]">
           {explainAnalyze ? "ANALYZE" : "EXPLAIN"}
         </span>
+        {isExecuting && <CancelButton />}
         <button
           onClick={() => setViewMode("table")}
           className={`flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] transition-colors ${
@@ -664,7 +692,9 @@ export function ExplainPanel() {
 
       {explainNotice && <DowngradeNotice notice={explainNotice} />}
 
-      {viewMode === "table" ? <ExplainTable result={explainResult} /> : <ExplainTreeView result={explainResult} />}
+      {viewMode === "table"
+        ? <ExplainTable rows={rows} maxRows={maxRows} />
+        : <ExplainTreeView rows={rows} maxRows={maxRows} />}
     </div>
   );
 }
