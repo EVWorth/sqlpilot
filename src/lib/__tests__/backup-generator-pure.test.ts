@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { escapeIdentifier, escapeValue } from "../backup-generator";
+import { escapeValue } from "../backup-generator";
 
 describe("escapeValue", () => {
   it("returns NULL for null", () => {
@@ -44,15 +44,5 @@ describe("escapeValue", () => {
 
   it("wraps strings in quotes", () => {
     expect(escapeValue("hello")).toBe("'hello'");
-  });
-});
-
-describe("escapeIdentifier", () => {
-  it("wraps identifier in backticks", () => {
-    expect(escapeIdentifier("my_table")).toBe("`my_table`");
-  });
-
-  it("doubles backticks inside names", () => {
-    expect(escapeIdentifier("a`b")).toBe("`a``b`");
   });
 });

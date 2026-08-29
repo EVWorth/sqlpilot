@@ -59,10 +59,6 @@ export interface ParsedGrant {
   grantOption: boolean;
 }
 
-export function escapeIdentifier(value: string): string {
-  return `'${value.replace(/'/g, "''")}'`;
-}
-
 export function parseGrantStatements(grants: string[]): ParsedGrant[] {
   const parsed: ParsedGrant[] = [];
   for (const grant of grants) {

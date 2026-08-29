@@ -1,7 +1,7 @@
 import { Code, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useState } from "react";
+import { quoteStringLiteral } from "../../lib/sql-quote";
 import { api } from "../../lib/tauri-api";
-import { escapeIdentifier } from "./userPrivileges";
 
 interface Props {
   isOpen: boolean;
@@ -38,8 +38,8 @@ export function CreateUserDialog({
 
   function buildSql(): string {
     const parts = [
-      `CREATE USER ${escapeIdentifier(username)}@${escapeIdentifier(effectiveHost)}`,
-      `IDENTIFIED WITH ${authPlugin} BY ${escapeIdentifier(password)}`,
+      `CREATE USER ${quoteStringLiteral(username)}@${quoteStringLiteral(effectiveHost)}`,
+      `IDENTIFIED WITH ${authPlugin} BY ${quoteStringLiteral(password)}`,
     ];
     const maxConn = parseInt(maxConnections, 10);
     if (!isNaN(maxConn) && maxConn > 0) {

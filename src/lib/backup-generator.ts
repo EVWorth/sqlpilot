@@ -1,4 +1,5 @@
 import type { SqlValue } from "../types";
+import { quoteIdentifier } from "./sql-quote";
 import { api } from "./tauri-api";
 
 export interface BackupOptions {
@@ -61,10 +62,6 @@ export function escapeValue(val: SqlValue): string {
   );
 }
 
-export function escapeIdentifier(name: string): string {
-  return "`" + name.replace(/`/g, "``") + "`";
-}
-
 export async function generateBackup(
   connectionId: string,
   database: string,
@@ -94,8 +91,8 @@ export async function generateBackup(
   parts.push("");
 
   if (options.includeCreateDatabase) {
-    parts.push(`CREATE DATABASE IF NOT EXISTS ${escapeIdentifier(database)};`);
-    parts.push(`USE ${escapeIdentifier(database)};`);
+    parts.push(`CREATE DATABASE IF NOT EXISTS ${quoteIdentifier(database)};`);
+    parts.push(`USE ${quoteIdentifier(database)};`);
     parts.push("");
   }
 
@@ -116,13 +113,13 @@ export async function generateBackup(
     });
 
     parts.push(`--`);
-    parts.push(`-- Table: ${escapeIdentifier(tableName)}`);
+    parts.push(`-- Table: ${quoteIdentifier(tableName)}`);
     parts.push(`--`);
     parts.push("");
 
     if (options.includeStructure) {
       if (options.dropTableIfExists) {
-        parts.push(`DROP TABLE IF EXISTS ${escapeIdentifier(tableName)};`);
+        parts.push(`DROP TABLE IF EXISTS ${quoteIdentifier(tableName)};`);
       }
 
       let ddl = await api.getTableDdl(connectionId, database, tableName);
@@ -135,7 +132,7 @@ export async function generateBackup(
 
     if (options.includeData) {
       if (options.addTableLocks) {
-        parts.push(`LOCK TABLES ${escapeIdentifier(tableName)} WRITE;`);
+        parts.push(`LOCK TABLES ${quoteIdentifier(tableName)} WRITE;`);
       }
 
       let offset = 0;
@@ -146,8 +143,8 @@ export async function generateBackup(
       while (true) {
         if (cancelRef.current) break;
 
-        const sql = `SELECT * FROM ${escapeIdentifier(database)}.${
-          escapeIdentifier(tableName)
+        const sql = `SELECT * FROM ${quoteIdentifier(database)}.${
+          quoteIdentifier(tableName)
         } LIMIT ${batchFetch} OFFSET ${offset}`;
         const results = await api.executeQuery(connectionId, sql);
         const result = results[0];
@@ -157,8 +154,8 @@ export async function generateBackup(
           columnNames = result.columns.map((c) => c.name);
         }
 
-        const escapedTable = escapeIdentifier(tableName);
-        const escapedCols = columnNames.map(escapeIdentifier).join(", ");
+        const escapedTable = quoteIdentifier(tableName);
+        const escapedCols = columnNames.map(quoteIdentifier).join(", ");
 
         if (options.multiRowInserts) {
           for (let j = 0; j < result.rows.length; j += options.insertBatchSize) {
@@ -226,7 +223,7 @@ export async function generateBackup(
         try {
           const ddl = await api.getViewDdl(connectionId, database, view.name);
           if (options.dropTableIfExists) {
-            parts.push(`DROP VIEW IF EXISTS ${escapeIdentifier(view.name)};`);
+            parts.push(`DROP VIEW IF EXISTS ${quoteIdentifier(view.name)};`);
           }
           parts.push(ddl + ";");
           parts.push("");
@@ -266,7 +263,7 @@ export async function generateBackup(
             routine.routine_type,
           );
           const typeLabel = routine.routine_type === "PROCEDURE" ? "PROCEDURE" : "FUNCTION";
-          parts.push(`DROP ${typeLabel} IF EXISTS ${escapeIdentifier(routine.name)};`);
+          parts.push(`DROP ${typeLabel} IF EXISTS ${quoteIdentifier(routine.name)};`);
           parts.push("DELIMITER ;;");
           parts.push(ddl + " ;;");
           parts.push("DELIMITER ;");
@@ -301,7 +298,7 @@ export async function generateBackup(
 
         try {
           const ddl = await api.getTriggerDdl(connectionId, database, trigger.name);
-          parts.push(`DROP TRIGGER IF EXISTS ${escapeIdentifier(trigger.name)};`);
+          parts.push(`DROP TRIGGER IF EXISTS ${quoteIdentifier(trigger.name)};`);
           parts.push("DELIMITER ;;");
           parts.push(ddl + " ;;");
           parts.push("DELIMITER ;");

@@ -1,15 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { categorizeGrants, escapeIdentifier, parseGrantStatements } from "../userPrivileges";
-
-describe("escapeIdentifier", () => {
-  it("escapes single quotes in identifier", () => {
-    expect(escapeIdentifier("it's")).toBe("'it''s'");
-  });
-
-  it("wraps simple names in quotes", () => {
-    expect(escapeIdentifier("my_table")).toBe("'my_table'");
-  });
-});
+import { categorizeGrants, parseGrantStatements } from "../userPrivileges";
 
 describe("parseGrantStatements", () => {
   it("parses simple grant", () => {
