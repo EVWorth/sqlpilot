@@ -66,6 +66,8 @@ export const commands = {
 	writeFileContents: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file_contents", { path, contents })),
 	pickSaveFile: (title: string, defaultName: string, filters: ([string, string[]])[]) => typedError<string | null, string>(__TAURI_INVOKE("pick_save_file", { title, defaultName, filters })),
 	isRpmOstree: () => typedError<boolean, string>(__TAURI_INVOKE("is_rpm_ostree")),
+	/**  Whether connection passwords can be stored between sessions. */
+	keyringAvailable: () => __TAURI_INVOKE<boolean>("keyring_available"),
 	sqliteOpen: (path: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_open", { path })),
 	sqliteClose: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("sqlite_close", { connectionId })),
 	sqliteList: () => typedError<string[], string>(__TAURI_INVOKE("sqlite_list")),

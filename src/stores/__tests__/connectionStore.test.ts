@@ -69,6 +69,7 @@ describe("connectionStore", () => {
       selectedConnectionId: null,
       loading: false,
       error: null,
+      pendingDisconnects: [],
     });
   });
 
@@ -287,6 +288,9 @@ describe("connectionStore", () => {
 
     it("handles disconnect error", async () => {
       vi.mocked(api.disconnect).mockRejectedValue(new Error("Disconnect failed"));
+      // The backend is only asked about connections this side knows about, so
+      // seed one — otherwise the cancel path applies and nothing is called.
+      useConnectionStore.setState({ activeConnections: [mockConnectionInfo] });
 
       await useConnectionStore.getState().disconnect("conn-1");
 
@@ -372,31 +376,38 @@ describe("connectionStore", () => {
   });
 
   describe("connect + disconnect race", () => {
-    it("disconnect issued before connect resolves leaves the connection in activeConnections after both settle", async () => {
-      // The user's "Cancel" click path: connect starts, user immediately
-      // disconnects the (not-yet-existing) id. After connect resolves,
-      // the entry IS present even though disconnect was issued first.
-      // (No cancellation hook exists in the current implementation.)
+    it("disconnect issued before connect resolves closes it on the server too", async () => {
+      // The Cancel path. Dropping the client reference is not enough: the
+      // pool is real on the server, so a connection nothing can reach would
+      // survive until the app restarts (#280).
       const connectDeferred = deferred<ConnectionInfo>();
-      const disconnectDeferred = deferred<void>();
 
       vi.mocked(api.connect).mockReturnValueOnce(connectDeferred.promise);
-      vi.mocked(api.disconnect).mockReturnValueOnce(disconnectDeferred.promise);
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
 
       const connectPromise = useConnectionStore.getState().connect("profile-1");
-      const disconnectPromise = useConnectionStore.getState().disconnect("conn-1");
-
-      // Connect resolves AFTER disconnect was issued.
-      disconnectDeferred.resolve();
-      await disconnectPromise;
+      // Cancel arrives before the connection exists on this side.
+      await useConnectionStore.getState().disconnect("conn-1");
 
       connectDeferred.resolve({ ...mockConnectionInfo, id: "conn-1", profile_id: "profile-1" });
-      await connectPromise;
+      await expect(connectPromise).rejects.toThrow(/cancelled/i);
 
       const state = useConnectionStore.getState();
-      // Documenting current behavior: connect wins because disconnect
-      // ran before the connection was added to activeConnections.
-      expect(state.activeConnections.map((c) => c.id)).toContain("conn-1");
+      expect(state.activeConnections.map((c) => c.id)).not.toContain("conn-1");
+      // The server is told to close it, rather than the reference merely
+      // being dropped.
+      expect(api.disconnect).toHaveBeenCalledWith("conn-1");
+    });
+
+    it("does not call the backend for a disconnect of something not connected", async () => {
+      // Previously this produced a "connection not found" error toast for
+      // what is an ordinary cancel.
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+
+      await useConnectionStore.getState().disconnect("never-connected");
+
+      expect(api.disconnect).not.toHaveBeenCalled();
+      expect(useConnectionStore.getState().error).toBeNull();
     });
 
     it("disconnect issued after connect resolves removes the entry normally", async () => {

@@ -196,4 +196,8 @@ export const api = {
 
   // Platform detection
   isRpmOstree: () => unwrap("is_rpm_ostree", () => commands.isRpmOstree()),
+
+  // False when no OS credential store was available at startup, so the UI can
+  // say passwords will not be remembered rather than letting the user find out.
+  keyringAvailable: () => commands.keyringAvailable(),
 };

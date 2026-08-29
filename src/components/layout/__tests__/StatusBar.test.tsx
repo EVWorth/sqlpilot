@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
 import { useResultStore } from "../../../stores/resultStore";
@@ -13,6 +14,7 @@ vi.mock("../../../lib/tauri-api", () => ({
   api: {
     getAppVersion: vi.fn().mockResolvedValue("2.1.0"),
     isRpmOstree: vi.fn().mockResolvedValue(false),
+    keyringAvailable: vi.fn().mockResolvedValue(true),
   },
 }));
 
@@ -479,5 +481,26 @@ describe("StatusBar", () => {
         "rpm-ostree install https://github.com/EVWorth/sqlpilot/releases/download/v0.4.1/SQLPilot-0.4.1-1.x86_64.rpm",
       );
     });
+  });
+});
+
+describe("keyring availability (#278)", () => {
+  it("warns when no credential store was available at startup", async () => {
+    // The app now starts without a keyring instead of panicking, so it has to
+    // say that passwords are only kept for this session — otherwise the user
+    // finds out when the next launch has forgotten them.
+    // The surrounding beforeEach already puts an active connection in place.
+    vi.mocked(api.keyringAvailable).mockResolvedValue(false);
+
+    render(<StatusBar />);
+    expect(await screen.findByText("Passwords not saved")).toBeDefined();
+  });
+
+  it("says nothing when the credential store is working", async () => {
+    vi.mocked(api.keyringAvailable).mockResolvedValue(true);
+
+    render(<StatusBar />);
+    await screen.findByText(/MySQL/);
+    expect(screen.queryByText("Passwords not saved")).toBeNull();
   });
 });

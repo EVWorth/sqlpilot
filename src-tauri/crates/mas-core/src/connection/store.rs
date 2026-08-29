@@ -393,8 +393,25 @@ impl ConnectionStore {
         drop(db);
 
         for (id, password) in rows {
-            self.set_password(&id, &password)?;
-            self.clear_plaintext_password(&id)?;
+            // A keyring that will not answer must not stop the app opening.
+            // This ran from ConnectionStore::new, whose caller `.expect()`s,
+            // so a locked Secret Service or a sandbox without one made the
+            // app unlaunchable for anyone with a saved profile (#278). The
+            // plaintext row is left alone so the migration can be retried on
+            // a later launch, once the keyring works.
+            if let Err(e) = self.set_password(&id, &password) {
+                tracing::warn!(
+                    profile_id = %id,
+                    error = %e,
+                    "Could not move a stored password into the keyring; leaving it in place \
+                     and continuing. It will be migrated on a later launch."
+                );
+                continue;
+            }
+            if let Err(e) = self.clear_plaintext_password(&id) {
+                tracing::warn!(profile_id = %id, error = %e, "Migrated password but could not clear the old copy");
+                continue;
+            }
             tracing::info!(profile_id = %id, "Migrated plaintext password to keyring");
         }
 

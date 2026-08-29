@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   ExternalLink,
+  KeyRound,
   Loader2,
   RefreshCw,
   Terminal,
@@ -49,6 +50,15 @@ export function StatusBar() {
     (s) => s.selectedConnectionId,
   );
   const connectionError = useConnectionStore((s) => s.error);
+  // Undefined until the check answers; only `false` shows the warning, so a
+  // slow reply never flashes it at someone whose keyring is fine.
+  const [keyringAvailable, setKeyringAvailable] = useState<boolean | undefined>();
+
+  useEffect(() => {
+    api.keyringAvailable().then(setKeyringAvailable).catch(() => {
+      // The check itself failing says nothing about the keyring; stay quiet.
+    });
+  }, []);
   const storageErrors = useStorageErrorStore((s) => s.errors);
   const dismissStorageError = useStorageErrorStore((s) => s.dismissStorageError);
   const clearConnectionError = useConnectionStore((s) => s.clearError);
@@ -207,6 +217,15 @@ export function StatusBar() {
               <span className="text-[10px] text-[var(--color-text-muted)]">
                 MySQL {activeConn.server_version}
               </span>
+              {keyringAvailable === false && (
+                <span
+                  title="No OS credential store was available at startup, so connection passwords are kept only for this session."
+                  className="flex items-center gap-1 rounded bg-yellow-500/15 px-1.5 py-0.5 text-[9px] font-medium text-yellow-400"
+                >
+                  <KeyRound className="h-2.5 w-2.5" />
+                  Passwords not saved
+                </span>
+              )}
             </>
           )
           : (
