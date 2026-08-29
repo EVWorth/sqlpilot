@@ -570,6 +570,30 @@ pub async fn kill_process(
     Ok(())
 }
 
+/// Abort the statement a session is running, without dropping the session.
+///
+/// The proportionate response to a long-running query: `kill_process` drops
+/// the whole connection and its transaction with it (#430).
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn kill_query(
+    state: State<'_, AppState>,
+    connection_id: String,
+    process_id: mas_admin::ProcessId,
+) -> Result<(), String> {
+    state
+        .admin_service
+        .kill_query(&connection_id, process_id.0)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to kill query");
+            e.to_string()
+        })?;
+    tracing::info!("Query killed");
+    Ok(())
+}
+
 /// Server thread ids belonging to SQLPilot's own pool for this connection.
 ///
 /// The process list shows every session on the server, including the ones the

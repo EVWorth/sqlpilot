@@ -46,6 +46,13 @@ export const commands = {
 	getServerVariables: (connectionId: string) => typedError<ServerVariable[], string>(__TAURI_INVOKE("get_server_variables", { connectionId })),
 	killProcess: (connectionId: string, processId: ProcessId) => typedError<null, string>(__TAURI_INVOKE("kill_process", { connectionId, processId })),
 	/**
+	 *  Abort the statement a session is running, without dropping the session.
+	 * 
+	 *  The proportionate response to a long-running query: `kill_process` drops
+	 *  the whole connection and its transaction with it (#430).
+	 */
+	killQuery: (connectionId: string, processId: ProcessId) => typedError<null, string>(__TAURI_INVOKE("kill_query", { connectionId, processId })),
+	/**
 	 *  Server thread ids belonging to SQLPilot's own pool for this connection.
 	 * 
 	 *  The process list shows every session on the server, including the ones the

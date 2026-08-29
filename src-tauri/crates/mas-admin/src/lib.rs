@@ -8,6 +8,15 @@ pub struct AdminService {
     connection_manager: Arc<ConnectionManager>,
 }
 
+/// How much of a session to terminate.
+#[derive(Debug, Clone, Copy)]
+enum KillScope {
+    /// `KILL QUERY` — abort the running statement, keep the session.
+    Query,
+    /// `KILL` — drop the session entirely.
+    Connection,
+}
+
 /// A MySQL process id.
 ///
 /// A newtype purely so the TypeScript side gets a plain `number`: command
@@ -109,13 +118,34 @@ impl AdminService {
         Ok(variables)
     }
 
+    /// Abort the statement a session is running, leaving the session alive.
+    ///
+    /// `KILL QUERY` is the proportionate tool for a long-running SELECT:
+    /// `KILL` drops the whole connection, discarding its transaction, prepared
+    /// statements and session variables along with the query (#430).
+    #[tracing::instrument(skip(self))]
+    pub async fn kill_query(&self, connection_id: &str, process_id: i64) -> Result<(), CoreError> {
+        self.kill(connection_id, process_id, KillScope::Query).await
+    }
+
+    /// Disconnect a session entirely.
     #[tracing::instrument(skip(self))]
     pub async fn kill_process(
         &self,
         connection_id: &str,
         process_id: i64,
     ) -> Result<(), CoreError> {
-        tracing::info!(process_id = process_id, "Killing MySQL process");
+        self.kill(connection_id, process_id, KillScope::Connection)
+            .await
+    }
+
+    async fn kill(
+        &self,
+        connection_id: &str,
+        process_id: i64,
+        scope: KillScope,
+    ) -> Result<(), CoreError> {
+        tracing::info!(process_id = process_id, scope = ?scope, "Killing MySQL process");
 
         // Refuse to kill the application's own sessions. Killing the last one
         // exhausted the pool and reported "pool timed out", which does not
@@ -140,10 +170,13 @@ impl AdminService {
         // 0xf3", masking the actual KILL failure with a protocol error.
         // process_id comes from a trusted integer column, no injection risk.
         // raw_sql requires AssertSqlSafe; SQL is a literal we control.
-        let sql = sqlx::AssertSqlSafe(format!("KILL {}", process_id));
+        let sql = sqlx::AssertSqlSafe(match scope {
+            KillScope::Query => format!("KILL QUERY {}", process_id),
+            KillScope::Connection => format!("KILL {}", process_id),
+        });
         match sqlx::raw_sql(sql).execute(&pool).await {
             Ok(_) => {
-                tracing::info!(process_id = process_id, "Process killed successfully");
+                tracing::info!(process_id = process_id, scope = ?scope, "Kill succeeded");
                 Ok(())
             }
             Err(e) => {
