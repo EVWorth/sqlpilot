@@ -61,6 +61,7 @@ fn root_profile() -> ConnectionProfile {
 // ====== CONNECTION TESTS ======
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_connect_mysql8() {
     let manager = ConnectionManager::new();
     let profile = test_profile();
@@ -71,6 +72,7 @@ async fn test_connect_mysql8() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_connect_invalid_credentials() {
     let manager = ConnectionManager::new();
     let mut profile = test_profile();
@@ -80,6 +82,7 @@ async fn test_connect_invalid_credentials() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_connect_invalid_host() {
     let manager = ConnectionManager::new();
     let mut profile = test_profile();
@@ -89,6 +92,7 @@ async fn test_connect_invalid_host() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_test_connection_success() {
     let profile = test_profile();
     let result = ConnectionManager::test_connection(&profile).await.unwrap();
@@ -98,6 +102,7 @@ async fn test_test_connection_success() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_test_connection_failure() {
     let mut profile = test_profile();
     profile.password = "wrong".to_string();
@@ -115,6 +120,7 @@ async fn test_test_connection_failure() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_disconnect_cleanup() {
     let manager = ConnectionManager::new();
     let profile = test_profile();
@@ -125,6 +131,7 @@ async fn test_disconnect_cleanup() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_disconnect_nonexistent() {
     let manager = ConnectionManager::new();
     let result = manager.disconnect("nonexistent").await;
@@ -132,6 +139,7 @@ async fn test_disconnect_nonexistent() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_concurrent_connections() {
     let manager = ConnectionManager::new();
     let profile1 = test_profile();
@@ -150,6 +158,7 @@ async fn test_concurrent_connections() {
 // ====== CONNECTION STORE TESTS ======
 
 #[test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn test_connection_store_crud() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -173,6 +182,7 @@ fn test_connection_store_crud() {
 }
 
 #[test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn test_connection_store_get_nonexistent() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -182,6 +192,7 @@ fn test_connection_store_get_nonexistent() {
 }
 
 #[test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn test_connection_store_update() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -203,6 +214,7 @@ fn test_connection_store_update() {
 // ====== QUERY TESTS ======
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_execute_select() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -222,6 +234,7 @@ async fn test_execute_select() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_execute_select_from_table() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -248,6 +261,7 @@ async fn test_execute_select_from_table() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_execute_insert_update_delete() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -294,6 +308,7 @@ async fn test_execute_insert_update_delete() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_execute_multi_statement() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -314,6 +329,7 @@ async fn test_execute_multi_statement() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_execute_show_commands() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -337,6 +353,7 @@ async fn test_execute_show_commands() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_execute_with_error() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -351,6 +368,7 @@ async fn test_execute_with_error() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_execute_ddl() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -397,6 +415,7 @@ async fn test_execute_ddl() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_null_handling() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -423,6 +442,7 @@ async fn test_null_handling() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_data_types() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -448,6 +468,7 @@ async fn test_data_types() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_unicode_data() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -482,6 +503,7 @@ async fn test_unicode_data() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_json_data() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -515,6 +537,7 @@ async fn test_json_data() {
 // ====== SCHEMA TESTS ======
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_list_databases() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -537,6 +560,7 @@ async fn test_list_databases() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_list_tables() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -569,6 +593,7 @@ async fn test_list_tables() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_list_views() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -595,6 +620,7 @@ async fn test_list_views() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_list_columns() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -627,6 +653,7 @@ async fn test_list_columns() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_list_indexes() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -649,6 +676,7 @@ async fn test_list_indexes() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_get_table_ddl() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -670,6 +698,7 @@ async fn test_get_table_ddl() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_schema_empty_database() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -687,6 +716,7 @@ async fn test_schema_empty_database() {
 // ====== EXPORT TESTS ======
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_export_csv() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -720,6 +750,7 @@ async fn test_export_csv() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_export_json() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -744,6 +775,7 @@ async fn test_export_json() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_export_sql_insert() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -775,6 +807,7 @@ async fn test_export_sql_insert() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_export_markdown() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -807,6 +840,7 @@ async fn test_export_markdown() {
 // ====== ADMIN TESTS ======
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_get_process_list() {
     let manager = Arc::new(ConnectionManager::new());
     let admin = mas_admin::AdminService::new(manager.clone());
@@ -823,6 +857,7 @@ async fn test_get_process_list() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_get_server_variables() {
     let manager = Arc::new(ConnectionManager::new());
     let admin = mas_admin::AdminService::new(manager.clone());
@@ -859,6 +894,7 @@ fn ssh_profile() -> ConnectionProfile {
 }
 
 #[test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn ssh_credentials_survive_a_save_load_round_trip() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -877,6 +913,7 @@ fn ssh_credentials_survive_a_save_load_round_trip() {
 }
 
 #[test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn ssh_credentials_are_not_written_to_the_database_file() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -900,6 +937,7 @@ fn ssh_credentials_are_not_written_to_the_database_file() {
 }
 
 #[test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn clearing_an_ssh_credential_removes_it() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -920,6 +958,7 @@ fn clearing_an_ssh_credential_removes_it() {
 }
 
 #[test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn deleting_a_profile_removes_its_ssh_credentials() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();

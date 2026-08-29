@@ -80,6 +80,7 @@ async fn probe(table: &str, select_list: &str) -> Vec<SqlValue> {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn decimal_survives_with_full_precision() {
     // Was SqlValue::Null: sqlx cannot decode DECIMAL as f64 and the error was
     // discarded. Read as text so the exactness the type exists for is kept.
@@ -89,6 +90,7 @@ async fn decimal_survives_with_full_precision() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn year_is_a_number_not_a_timestamp() {
     // Was SqlValue::Null: matched in the DATE/DATETIME arm and asked to decode
     // as a chrono timestamp, which a bare year is not.
@@ -97,6 +99,7 @@ async fn year_is_a_number_not_a_timestamp() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn a_real_null_is_still_null() {
     // The counterpart to the two above: distinguishing decode failure from NULL
     // must not turn genuine NULLs into something else.
@@ -105,6 +108,7 @@ async fn a_real_null_is_still_null() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn bigint_keeps_every_digit() {
     // 9007199254740993 is 2^53 + 1: the smallest integer a JSON number cannot
     // represent. Carried as text so the last digit survives to the grid. (#502)
@@ -118,6 +122,7 @@ async fn bigint_keeps_every_digit() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn common_types_are_unaffected() {
     let row = probe("tc_common", "big, f, j, dt, tm, bl, vc").await;
     assert_eq!(row[0], SqlValue::String("9007199254740993".into()));

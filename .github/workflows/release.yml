@@ -33,12 +33,83 @@ jobs:
           echo "Validating tag v${TAG} against working tree manifests..."
           bash scripts/check-release-readiness.sh "${TAG}"
 
+  # The tests that need a live server. They are #[ignore]d so ordinary CI stays
+  # container-free, which means this job is the only thing that runs them —
+  # `build` depends on it, so a database regression blocks the release rather
+  # than shipping. Coverage is produced here too, for the same reason.
+  integration-db:
+    name: Database integration tests
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: test_root_password
+          MYSQL_DATABASE: test_db
+          MYSQL_USER: test_user
+          MYSQL_PASSWORD: test_password
+        ports:
+          - 13306:3306
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 --protocol=TCP -u root -ptest_root_password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      # MariaDB spells EXPLAIN ANALYZE as `ANALYZE` and answers in a different
+      # shape, so the explain tests need a real one to run against (#422).
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: test_root_password
+          MARIADB_DATABASE: test_db
+          MARIADB_USER: test_user
+          MARIADB_PASSWORD: test_password
+        ports:
+          - 13308:3306
+        options: >-
+          --health-cmd "mariadb-admin ping -h 127.0.0.1 --protocol=TCP -u root -ptest_root_password"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Read pinned Rust version
+        id: rust-toolchain-file
+        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.0.0
+        with:
+          toolchain: ${{ steps.rust-toolchain-file.outputs.channel }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: src-tauri
+      - name: Seed test databases
+        run: |
+          mysql -h 127.0.0.1 -P 13306 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
+          mysql -h 127.0.0.1 -P 13308 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
+      - name: Run database integration tests
+        run: cargo test -p mas-core -p mas-admin -- --ignored
+        working-directory: src-tauri
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+      - name: Run full suite with coverage
+        run: cargo tarpaulin -p mas-core -p mas-export -p mas-admin --out Lcov --output-dir coverage/ -- --include-ignored
+        working-directory: src-tauri
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rust-coverage
+          path: src-tauri/coverage/
+
   # Build only — does NOT create a release. Each matrix job produces platform
   # bundles and uploads them as workflow artifacts. The `upload` job
   # below is the single source of release creation, eliminating the
   # tauri-action@v1.0.0 race that produced duplicate GitHub Releases.
   build:
-    needs: validate
+    needs: [validate, integration-db]
     strategy:
       fail-fast: false
       matrix:

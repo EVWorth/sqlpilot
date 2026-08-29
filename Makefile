@@ -1,4 +1,4 @@
-.PHONY: dev dev-web build test test-rust test-frontend test-browser bindings lint fmt clean db-up db-down db-seed db-reset ssl-certs setup
+.PHONY: dev dev-web build test test-rust test-integration test-frontend test-browser bindings lint fmt clean db-up db-down db-seed db-reset ssl-certs setup
 
 # Quick setup — system deps, toolchains via mise, npm, git hooks, Playwright.
 # Single implementation lives in the script so there is one setup path, not two.
@@ -18,8 +18,15 @@ build:
 # Testing
 test: test-rust test-frontend
 
+# Unit tests only — no database required. Mirrors what CI runs per PR.
 test-rust:
-	cd src-tauri && cargo test -p mas-core -p mas-export -p mas-admin --verbose
+	cd src-tauri && cargo test -p mas-core -p mas-export -p mas-admin -p mas-sqlite --verbose
+
+# The tests that need a live server. They are #[ignore]d so the default run
+# stays container-free; CI runs these only at release time, so this is the way
+# to exercise them before pushing. Needs `make db-up` first.
+test-integration:
+	cd src-tauri && cargo test -p mas-core -p mas-admin -- --ignored
 
 test-frontend:
 	npx vitest run
@@ -32,7 +39,7 @@ test-browser:
 bindings:
 	cd src-tauri && cargo test --features beta-ai --test export_bindings
 
-test-all: db-up test
+test-all: db-up test test-integration
 
 # Linting & Formatting
 lint:

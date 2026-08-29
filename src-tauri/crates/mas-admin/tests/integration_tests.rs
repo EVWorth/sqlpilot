@@ -41,6 +41,7 @@ fn test_profile() -> ConnectionProfile {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn kill_process_terminates_a_real_connection() {
     let manager = Arc::new(ConnectionManager::new());
     let service = AdminService::new(manager.clone());
@@ -87,6 +88,7 @@ async fn kill_process_terminates_a_real_connection() {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn kill_process_with_bogus_id_returns_error() {
     let manager = Arc::new(ConnectionManager::new());
     let service = AdminService::new(manager.clone());

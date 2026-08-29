@@ -55,6 +55,7 @@ fn test_profile() -> ConnectionProfile {
 /// #418 — the editor sends the trailing `;` along, and `EXPLAIN ANALYZE x;;` is
 /// a syntax error. Ask the server, rather than trusting the string.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn analyzes_a_statement_that_still_has_its_semicolon() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -81,6 +82,7 @@ async fn analyzes_a_statement_that_still_has_its_semicolon() {
 /// #418 — a script of several statements gets one clear message instead of a
 /// raw ERROR 1064 from the server.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn refuses_a_multi_statement_script() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -104,6 +106,7 @@ async fn refuses_a_multi_statement_script() {
 
 /// #412 — the headline case. `EXPLAIN ANALYZE DELETE ...` must not delete.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn planning_a_delete_does_not_delete() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -183,6 +186,7 @@ async fn planning_a_delete_does_not_delete() {
 /// leading keyword called it a WITH and let ANALYZE execute it, which is the
 /// same failure #412 describes wearing a different hat.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn planning_a_cte_prefixed_delete_does_not_delete() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -239,6 +243,7 @@ async fn planning_a_cte_prefixed_delete_does_not_delete() {
 
 /// A read behind a CTE is still worth analyzing — the fix must not overshoot.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn a_cte_prefixed_read_is_still_analyzed() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -267,6 +272,7 @@ async fn a_cte_prefixed_read_is_still_analyzed() {
 /// #412 — a read-only profile refuses ANALYZE even for a harmless SELECT,
 /// because ANALYZE executes.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn a_read_only_profile_refuses_to_analyze() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -295,6 +301,7 @@ async fn a_read_only_profile_refuses_to_analyze() {
 /// stops server-side. The second half is what distinguishes a real timeout from
 /// dropping the future.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn a_slow_query_times_out_and_stops_running_on_the_server() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -345,6 +352,7 @@ async fn a_slow_query_times_out_and_stops_running_on_the_server() {
 
 /// #420 — an explicit cancel reaches the server too.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn cancel_stops_a_running_query() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = Arc::new(QueryExecutor::new(manager.clone()));
@@ -388,6 +396,7 @@ async fn cancel_stops_a_running_query() {
 
 /// Cancelling when nothing is running is harmless.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn cancel_is_a_no_op_when_idle() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -401,6 +410,7 @@ async fn cancel_is_a_no_op_when_idle() {
 /// A plan for a SELECT still comes back in the tabular shape the table view
 /// expects, with no timeout configured.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn a_plain_explain_returns_a_tabular_plan() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -445,6 +455,7 @@ fn mariadb_profile() -> ConnectionProfile {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn mariadb_analyze_comes_back_tabular_with_measured_columns() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -488,6 +499,7 @@ async fn mariadb_analyze_comes_back_tabular_with_measured_columns() {
 
 /// #412 on MariaDB too — the dialect differs, the refusal must not.
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn mariadb_planning_a_delete_does_not_delete() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
