@@ -1,4 +1,5 @@
-# Optional. Gets a contributor Node + Rust in one command (`mise install`).
+# Toolchains and dev tools, so `mise install` is the one command a new
+# contributor runs before `just <task>`.
 #
 # CI does NOT depend on mise — it reads .node-version and rust-toolchain.toml
 # directly via actions/setup-node and dtolnay/rust-toolchain, so those two
@@ -15,3 +16,7 @@
 [tools]
 node = "24"
 rust = "1.95.0"
+# The task runner. Every task lives in the justfile; `just --list` is the
+# discovery path. Pinned to a major so recipe syntax cannot shift underneath
+# the repo on a contributor's fresh install.
+just = "1"

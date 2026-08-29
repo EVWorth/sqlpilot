@@ -61,15 +61,15 @@ Displays all three versions + agreement status.
 
 ### 3. Bump
 
-Delegate to `make bump <type>` (which has Y/n confirmation):
+Delegate to `just bump <type>` (which has Y/n confirmation):
 
 ```bash
-make bump patch    # 0.3.4 → 0.3.5
-make bump minor    # 0.3.4 → 0.4.0
-make bump major    # 0.3.4 → 1.0.0
+just bump patch    # 0.3.4 → 0.3.5
+just bump minor    # 0.3.4 → 0.4.0
+just bump major    # 0.3.4 → 1.0.0
 ```
 
-`make bump` updates all three files atomically.
+`just bump` updates all three files atomically.
 
 ### 4. Verify Bump
 
@@ -131,7 +131,7 @@ Terse reports. State facts, list commands.
 - Don't push without user approval (even with confirmation)
 - Don't amend commits
 - Don't delete remote tags
-- Don't bypass `make bump` (it has the safety prompt)
+- Don't bypass `just bump` (it has the safety prompt)
 - Don't skip version consistency check
 - Don't run release workflow manually (tag push triggers it)
 - Don't touch code or non-version config

@@ -65,8 +65,8 @@ echo
 if [ "$JS_VER" != "$RS_VER" ] || [ "$JS_VER" != "$TA_VER" ]; then
   echo "FAIL: manifests disagree"
   echo "  All three must match before any release cut."
-  echo "  Drift (mismatched versions) won't be fixed by 'make bump' — that only increments."
-  echo "  Manually align package.json, Cargo.toml, tauri.conf.json to the same version, OR run 'make bump <type>' to bump all three together."
+  echo "  Drift (mismatched versions) won't be fixed by 'just bump' — that only increments."
+  echo "  Manually align package.json, Cargo.toml, tauri.conf.json to the same version, OR run 'just bump <type>' to bump all three together."
   exit 1
 fi
 

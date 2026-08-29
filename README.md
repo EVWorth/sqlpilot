@@ -163,22 +163,26 @@ sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-de
 git clone https://github.com/EVWorth/sqlpilot.git
 cd sqlpilot
 
-# One-command setup (installs system deps + npm deps + checks Rust)
-make setup
+# Toolchains: Node, Rust and the just task runner
+mise install
 
-# Or manually:
-npm install
+# Everything else: system deps, npm deps, git hooks, Playwright
+just setup
 ```
+
+`just` with no arguments lists every task. `mise install` is what pins the
+toolchain versions, so prefer it over whatever `node` and `cargo` happen to be
+on your `PATH`.
 
 ### Running
 
 ```bash
 # Full desktop app (native window via Tauri)
-make dev
+just dev
 # or: npx tauri dev
 
 # Web preview in browser (no system deps needed, great for UI work)
-make dev-web
+just dev-web
 # Then open http://localhost:1420
 ```
 
@@ -189,21 +193,21 @@ dialog while compiling, then opens the app window automatically.
 
 ```bash
 # Run everything
-make test
+just test
 
 # Frontend unit tests (stores, parsers, generators, diff engine)
-make test-frontend
+just test-frontend
 # or: npx vitest run
 
 # Rust unit tests — no database needed
-make test-rust
+just test-rust
 
 # Rust integration tests against real servers (59 tests).
-# These are #[ignore]d by default, so `make test-rust` stays container-free;
+# These are #[ignore]d by default, so `just test-rust` stays container-free;
 # CI runs them at release time, so run them locally before touching the
 # query executor, connection manager or admin service.
-make db-up              # MySQL 8 on 13306, MariaDB 11 on 13308
-make test-integration
+just db-up              # MySQL 8 on 13306, MariaDB 11 on 13308
+just test-integration
 
 # Type checking
 npx tsc --noEmit                    # TypeScript
@@ -244,22 +248,22 @@ cat ~/.tauri/sqlpilot-updater.key.pub
 
 The `TAURI_SIGNING_PRIVATE_KEY` secret must exist for the `generate-update-manifest` job to succeed. Without it, releases will build but the update manifest won't be signed.
 
-### Make Commands
+### Tasks
+
+Tasks live in the `justfile`. Run `just` to list them all with descriptions —
+that listing is the source of truth, so this table is only an orientation.
 
 | Command                 | Description                                 |
 | ----------------------- | ------------------------------------------- |
-| `make dev`              | Run desktop app in development mode         |
-| `make dev-web`          | Run browser preview on `localhost:1420`     |
-| `make build`            | Build production desktop binary             |
-| `make test`             | Run all tests (Rust + frontend)             |
-| `make test-rust`        | Run Rust unit tests (no database needed)    |
-| `make test-integration` | Run Rust tests needing a live MySQL/MariaDB |
-| `make test-frontend`    | Run frontend unit tests (Vitest)            |
-| `make lint`             | Run clippy + TypeScript type checking       |
-| `make db-up`            | Start MySQL 8 (13306) + MariaDB 11 (13308)  |
-| `make db-down`          | Stop and remove test containers             |
-| `make db-reset`         | Restart containers fresh                    |
-| `make setup`            | Install all dependencies                    |
+| `just dev`              | Run desktop app in development mode         |
+| `just test`             | Run all tests (Rust + frontend), no DB      |
+| `just test-integration` | Run Rust tests needing a live MySQL/MariaDB |
+| `just lint`             | Run clippy + TypeScript type checking       |
+| `just db-up`            | Start MySQL 8 (13306) + MariaDB 11 (13308)  |
+| `just bump minor`       | Bump the version across all manifests       |
+
+The `Makefile` forwards to `just` and is deprecated; it will be removed after
+one release cycle.
 
 ### Environment Variables
 
@@ -360,9 +364,9 @@ sqlpilot/
 We welcome contributions! Here's how to get started:
 
 1. **Fork** the repository and create a feature branch from `main`
-2. **Set up** the dev environment: `make setup`
+2. **Set up** the dev environment: `mise install && just setup`
 3. **Make your changes** with clear, focused commits
-4. **Test** your changes: `make test && make lint`
+4. **Test** your changes: `just test && just lint`
 5. **Submit a pull request** with a clear description of what and why
 
 ### Guidelines

@@ -95,7 +95,7 @@ npm run lint && npm run type-check
 cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings
 
 # Version drift check (always):
-make -n bump patch   # dry-run, just verify makefile parses
+just --dry-run bump patch   # dry-run, verify the justfile parses
 ```
 
 ### 7. Output review

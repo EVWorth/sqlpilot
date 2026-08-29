@@ -84,7 +84,7 @@ Verdict: <one line>
 
 ```
 Cause: package.json != Cargo.toml != tauri.conf.json
-Fix:   make bump patch   # or manual sync
+Fix:   just bump patch   # or manual sync
 ```
 
 ### Dep age gate (`deps-age`)

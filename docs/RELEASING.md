@@ -14,7 +14,7 @@ git checkout main && git pull
 # If a release prep PR is open (e.g. release/0.4.0), merge it first.
 
 # Bump the version
-BUMP_TYPE=minor make bump
+just bump minor
 # confirm with `y`; or automate via the recipe in Makefile
 
 # Commit

@@ -9,7 +9,7 @@ permission:
     "cargo *": allow
     "rustup *": allow
     "npx dprint *": allow
-    "make *": allow
+    "just *": allow
     "git *": ask
     "*": ask
 ---
@@ -111,7 +111,7 @@ mod tests {
 
 - **Integration tests** in `crates/<crate>/tests/` against real MySQL 8 (port 13306).
 - **Unit tests** co-located in `mod tests` blocks.
-- Run via `make test-rust` or scoped to one crate: `cargo test -p mas-core`.
+- Run via `just test-rust` or scoped to one crate: `cargo test -p mas-core`.
 
 ## Conventions
 
