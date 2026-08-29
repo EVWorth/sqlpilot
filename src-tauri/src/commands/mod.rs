@@ -570,6 +570,27 @@ pub async fn kill_process(
     Ok(())
 }
 
+/// Server thread ids belonging to SQLPilot's own pool for this connection.
+///
+/// The process list shows every session on the server, including the ones the
+/// app is using to read that very list. The UI needs to tell them apart so it
+/// can present its own as un-killable rather than letting the user disconnect
+/// the app from the server it is managing (#433).
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn get_own_thread_ids(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<mas_admin::ProcessId>, String> {
+    Ok(state
+        .connection_manager
+        .own_thread_ids(&connection_id)
+        .into_iter()
+        .map(|id| mas_admin::ProcessId(id as i64))
+        .collect())
+}
+
 // Platform detection
 //
 // `tauri-plugin-updater` shells out to `rpm -U` on Linux, which is a no-op

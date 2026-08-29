@@ -32,6 +32,9 @@ pub enum CoreError {
     #[error("Cancelled")]
     Cancelled,
 
+    #[error("Read-only connection: {0}")]
+    ReadOnly(String),
+
     #[error("Out of memory: {0}")]
     OutOfMemory(String),
 

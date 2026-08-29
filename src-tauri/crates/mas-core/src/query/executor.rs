@@ -133,6 +133,29 @@ impl QueryExecutor {
             statements
         };
 
+        // A profile marked read-only must not be able to change anything —
+        // not data, not schema, not privileges. The flag was stored and
+        // enforced nowhere but EXPLAIN ANALYZE, so "read-only" protected a
+        // connection from exactly one button (#429). Refuse before the batch
+        // is assembled, so a script is rejected whole rather than half-run.
+        if self.connection_manager.is_read_only(&connection_id) {
+            if let Some(offending) = statements
+                .iter()
+                .find(|stmt| crate::query::statement::is_write_statement(stmt))
+            {
+                let preview: String = offending.chars().take(120).collect();
+                tracing::warn!(
+                    connection_id = %connection_id,
+                    sql_preview = %preview,
+                    "Refused a write on a read-only connection"
+                );
+                return Err(CoreError::ReadOnly(format!(
+                    "This connection is marked read-only, so it will not run: {}",
+                    preview
+                )));
+            }
+        }
+
         // Memory guard: detect OOM before the OS kills us
         let mut mem_guard = MemoryGuard::new();
 
@@ -284,10 +307,18 @@ impl QueryExecutor {
                                     "Slow statement detected"
                                 );
                             }
+                            // Writes carry the actor, so an audit trail can
+                            // answer who changed what and not only what
+                            // changed (#429).
                             tracing::info!(
                                 query_id = %query_id,
                                 rows_affected,
                                 time_ms = execution_time,
+                                actor = %self
+                                    .connection_manager
+                                    .get_actor(&connection_id)
+                                    .unwrap_or_else(|| "unknown".to_string()),
+                                sql_preview = %preview,
                                 "Statement executed"
                             );
 

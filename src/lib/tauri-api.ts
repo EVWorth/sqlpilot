@@ -130,6 +130,10 @@ export const api = {
   killProcess: (connectionId: string, processId: number) =>
     unwrap("kill_process", () => commands.killProcess(connectionId, processId)),
 
+  // Which PROCESSLIST rows are SQLPilot's own sessions, so the UI can present
+  // them as un-killable rather than letting the user disconnect the app.
+  getOwnThreadIds: (connectionId: string) => unwrap("get_own_thread_ids", () => commands.getOwnThreadIds(connectionId)),
+
   // File import
   readFileContents: (path: string) => unwrap("read_file_contents", () => commands.readFileContents(path)),
 

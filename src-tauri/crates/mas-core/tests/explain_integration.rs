@@ -532,3 +532,131 @@ async fn mariadb_planning_a_delete_does_not_delete() {
 
     manager.disconnect(&info.id).await.unwrap();
 }
+
+// --- read-only enforcement (#429) -----------------------------------------
+//
+// `read_only` was stored on the profile and enforced nowhere except EXPLAIN
+// ANALYZE, so the flag protected a connection from one button and nothing
+// else. These run against the server to prove refusal happens before anything
+// reaches it.
+
+fn read_only_profile() -> ConnectionProfile {
+    ConnectionProfile {
+        name: "Test MySQL 8 (read-only)".to_string(),
+        read_only: true,
+        ..test_profile()
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_read_only_connection_still_reads() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&read_only_profile()).await.unwrap();
+
+    for sql in [
+        "SELECT 1",
+        "SHOW TABLES",
+        "DESCRIBE users",
+        "EXPLAIN SELECT * FROM users",
+        "WITH x AS (SELECT 1 AS n) SELECT * FROM x",
+    ] {
+        executor
+            .execute(&info.id, sql, Some("test_db".to_string()), None)
+            .await
+            .unwrap_or_else(|e| panic!("read should be allowed: {sql} — {e}"));
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_read_only_connection_refuses_writes() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&read_only_profile()).await.unwrap();
+
+    for sql in [
+        "CREATE TABLE ro_probe (id INT)",
+        "INSERT INTO users (username) VALUES ('x')",
+        "UPDATE users SET username = 'x'",
+        "DELETE FROM users",
+        "DROP TABLE users",
+        "GRANT ALL ON *.* TO 'someone'@'%'",
+        "CREATE USER 'someone'@'%' IDENTIFIED BY 'p'",
+        // The bypass: leading verb is EXPLAIN, but ANALYZE runs the DELETE.
+        "EXPLAIN ANALYZE DELETE FROM users",
+        // A CTE does not launder a write either.
+        "WITH doomed AS (SELECT id FROM users) DELETE FROM users WHERE id IN (SELECT id FROM doomed)",
+    ] {
+        let err = executor
+            .execute(&info.id, sql, Some("test_db".to_string()), None)
+            .await
+            .expect_err(&format!("write should be refused: {sql}"));
+        assert!(
+            err.to_string().contains("read-only"),
+            "expected a read-only refusal for {sql}, got: {err}"
+        );
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_read_only_refusal_leaves_the_data_alone() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+
+    // A writable connection sets the scene and checks the aftermath.
+    let writer = manager.connect(&test_profile()).await.unwrap();
+    for stmt in [
+        "DROP TABLE IF EXISTS ro_canary",
+        "CREATE TABLE ro_canary (id INT)",
+        "INSERT INTO ro_canary VALUES (1), (2), (3)",
+    ] {
+        executor
+            .execute(&writer.id, stmt, Some("test_db".to_string()), None)
+            .await
+            .unwrap();
+    }
+
+    let reader = manager.connect(&read_only_profile()).await.unwrap();
+    // A script whose first statement reads and whose second writes must be
+    // refused whole — not half-applied.
+    let err = executor
+        .execute(
+            &reader.id,
+            "SELECT COUNT(*) FROM ro_canary; DELETE FROM ro_canary",
+            Some("test_db".to_string()),
+            None,
+        )
+        .await
+        .expect_err("a script containing a write should be refused");
+    assert!(err.to_string().contains("read-only"), "{err}");
+
+    let after = executor
+        .execute(
+            &writer.id,
+            "SELECT COUNT(*) FROM ro_canary",
+            Some("test_db".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(scalar_int(&after[0]), 3, "the rows should still be there");
+
+    executor
+        .execute(
+            &writer.id,
+            "DROP TABLE ro_canary",
+            Some("test_db".to_string()),
+            None,
+        )
+        .await
+        .unwrap();
+    manager.disconnect(&reader.id).await.unwrap();
+    manager.disconnect(&writer.id).await.unwrap();
+}

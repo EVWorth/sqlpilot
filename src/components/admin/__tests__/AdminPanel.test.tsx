@@ -5,6 +5,7 @@ import { AdminPanel } from "../AdminPanel";
 vi.mock("../../../lib/tauri-api", () => ({
   api: {
     getProcessList: vi.fn(),
+    getOwnThreadIds: vi.fn(),
     killProcess: vi.fn(),
     executeQuery: vi.fn(),
     getServerVariables: vi.fn(),
@@ -26,6 +27,7 @@ describe("AdminPanel", () => {
     vi.clearAllMocks();
     // Provide default resolved values so tabs don't crash on mount
     vi.mocked(api.getProcessList).mockResolvedValue([]);
+    vi.mocked(api.getOwnThreadIds).mockResolvedValue([]);
     vi.mocked(api.getServerVariables).mockResolvedValue([]);
     vi.mocked(api.executeQuery).mockResolvedValue([]);
   });
@@ -95,6 +97,34 @@ describe("ProcessListTab", () => {
     vi.clearAllMocks();
     vi.mocked(api.getProcessList).mockResolvedValue(mockProcesses);
     vi.mocked(api.killProcess).mockResolvedValue(undefined);
+    // clearAllMocks resets calls but not implementations, so a test that marks
+    // a process as our own would otherwise leak into the ones after it.
+    vi.mocked(api.getOwnThreadIds).mockResolvedValue([]);
+  });
+
+  it("presents SQLPilot's own connection as un-killable", async () => {
+    // PROCESSLIST includes the sessions the panel is using to read it.
+    // Killing the last one exhausted the pool and reported "pool timed out",
+    // which never told the user they had disconnected themselves (#433).
+    vi.mocked(api.getOwnThreadIds).mockResolvedValue([mockProcesses[0].id]);
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    await screen.findByText("root");
+
+    const buttons = screen.getAllByTitle(/Kill process|own connection/);
+    const ownButton = buttons.find((b) => b.getAttribute("title")?.includes("own connection"));
+    expect(ownButton).toBeDefined();
+    expect((ownButton as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("leaves other sessions killable", async () => {
+    vi.mocked(api.getOwnThreadIds).mockResolvedValue([mockProcesses[0].id]);
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    await screen.findByText("root");
+
+    const killable = screen
+      .getAllByTitle(/Kill process/)
+      .filter((b) => !(b as HTMLButtonElement).disabled);
+    expect(killable.length).toBeGreaterThan(0);
   });
 
   it("shows loading state initially", async () => {

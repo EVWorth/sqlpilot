@@ -190,6 +190,67 @@ pub fn effective_verb(sql: &str) -> String {
     word_at(&chars, i)
 }
 
+/// Statements that cannot change anything on the server.
+///
+/// An allowlist, so an unrecognised verb is treated as a write and refused on
+/// a read-only connection. The opposite default would let anything this list
+/// forgot straight through.
+const READ_ONLY_VERBS: [&str; 9] = [
+    "SELECT", "SHOW", "DESCRIBE", "DESC", "TABLE", "VALUES", "USE", "HELP", "CHECKSUM",
+];
+
+/// Whether running `sql` could change data, schema, privileges or server state.
+///
+/// Used to enforce a connection profile's read-only flag. Three cases need
+/// care beyond the leading keyword:
+///
+///   * `WITH ... DELETE` is a DELETE — handled by `effective_verb`.
+///   * `EXPLAIN ANALYZE <stmt>` *executes* `<stmt>`, so it is a write whenever
+///     the statement it measures is. Plain `EXPLAIN` only plans, and is safe
+///     whatever it is planning.
+///   * `SET GLOBAL` / `SET PERSIST` change server configuration, where a plain
+///     session `SET` does not.
+pub fn is_write_statement(sql: &str) -> bool {
+    let inner = statement_after_cte(sql);
+    let verb = effective_verb(&inner);
+
+    match verb.as_str() {
+        "EXPLAIN" => {
+            // Only the ANALYZE form runs what it is given.
+            let rest = strip_word(&inner, "EXPLAIN");
+            let chars: Vec<char> = rest.chars().collect();
+            let i = skip_trivia(&chars, 0);
+            if match_word(&chars, i, "ANALYZE") {
+                is_write_statement(&chars[i + 7..].iter().collect::<String>())
+            } else {
+                false
+            }
+        }
+        // MariaDB spells EXPLAIN ANALYZE as `ANALYZE <stmt>`, and `ANALYZE
+        // TABLE` rewrites index statistics. Neither belongs on a read-only
+        // connection.
+        "ANALYZE" => true,
+        "SET" => {
+            let rest = strip_word(&inner, "SET").trim_start().to_uppercase();
+            rest.starts_with("GLOBAL")
+                || rest.starts_with("PERSIST")
+                || rest.contains("@@GLOBAL")
+                || rest.contains("@@PERSIST")
+        }
+        other => !READ_ONLY_VERBS.contains(&other),
+    }
+}
+
+/// Everything after a leading `word`, or the input unchanged if absent.
+fn strip_word(sql: &str, word: &str) -> String {
+    let chars: Vec<char> = sql.chars().collect();
+    let i = skip_trivia(&chars, 0);
+    if match_word(&chars, i, word) {
+        return chars[i + word.chars().count()..].iter().collect();
+    }
+    sql.to_string()
+}
+
 /// Whether a statement carries nothing but whitespace and comments.
 ///
 /// The statement splitter emits a trailing `-- note` as its own entry, which
@@ -289,6 +350,89 @@ mod tests {
         assert_eq!(effective_verb("WITH"), "WITH");
         assert_eq!(effective_verb("WITH x"), "WITH");
         assert_eq!(effective_verb(""), "");
+    }
+
+    #[test]
+    fn reads_are_not_writes() {
+        for sql in [
+            "SELECT 1",
+            "select * from users",
+            "SHOW TABLES",
+            "DESCRIBE users",
+            "DESC users",
+            "TABLE users",
+            "VALUES ROW(1)",
+            "USE test_db",
+            "SET NAMES utf8mb4",
+            "SET autocommit = 1",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            "(SELECT 1)",
+            "-- note\nSELECT 1",
+        ] {
+            assert!(!is_write_statement(sql), "should be read-only: {sql}");
+        }
+    }
+
+    #[test]
+    fn writes_are_writes() {
+        for sql in [
+            "INSERT INTO t VALUES (1)",
+            "UPDATE t SET a = 1",
+            "DELETE FROM t",
+            "REPLACE INTO t VALUES (1)",
+            "TRUNCATE t",
+            "DROP TABLE t",
+            "CREATE TABLE t (a INT)",
+            "ALTER TABLE t ADD c INT",
+            "RENAME TABLE a TO b",
+            "CREATE USER 'u'@'%' IDENTIFIED BY 'p'",
+            "DROP USER 'u'@'%'",
+            "GRANT ALL ON *.* TO 'u'@'%'",
+            "REVOKE ALL ON *.* FROM 'u'@'%'",
+            "FLUSH PRIVILEGES",
+            "CALL some_proc()",
+            "LOCK TABLES t WRITE",
+            // A CTE does not make a write into a read.
+            "WITH doomed AS (SELECT id FROM t) DELETE FROM t WHERE id IN (SELECT id FROM doomed)",
+        ] {
+            assert!(is_write_statement(sql), "should be a write: {sql}");
+        }
+    }
+
+    #[test]
+    fn plain_explain_is_read_only_whatever_it_plans() {
+        // EXPLAIN only plans, so it is safe even for a DELETE.
+        assert!(!is_write_statement("EXPLAIN SELECT 1"));
+        assert!(!is_write_statement("EXPLAIN DELETE FROM t"));
+        assert!(!is_write_statement("EXPLAIN FORMAT=JSON SELECT 1"));
+    }
+
+    #[test]
+    fn explain_analyze_inherits_the_statement_it_runs() {
+        // EXPLAIN ANALYZE executes what it measures, so it is a write exactly
+        // when that statement is. Classifying it by its leading keyword let a
+        // write reach a read-only connection through the Run button.
+        assert!(is_write_statement("EXPLAIN ANALYZE DELETE FROM t"));
+        assert!(is_write_statement("EXPLAIN ANALYZE UPDATE t SET a = 1"));
+        assert!(!is_write_statement("EXPLAIN ANALYZE SELECT 1"));
+        // MariaDB's spelling runs the statement too.
+        assert!(is_write_statement("ANALYZE SELECT 1"));
+        assert!(is_write_statement("ANALYZE TABLE users"));
+    }
+
+    #[test]
+    fn a_session_set_is_read_only_but_a_global_one_is_not() {
+        assert!(!is_write_statement("SET autocommit = 0"));
+        assert!(is_write_statement("SET GLOBAL max_connections = 100"));
+        assert!(is_write_statement("SET PERSIST max_connections = 100"));
+        assert!(is_write_statement("SET @@global.max_connections = 100"));
+    }
+
+    #[test]
+    fn an_unknown_verb_is_treated_as_a_write() {
+        assert!(is_write_statement("FLUSH LOGS"));
+        assert!(is_write_statement("KILL 12"));
+        assert!(is_write_statement(""));
     }
 
     #[test]

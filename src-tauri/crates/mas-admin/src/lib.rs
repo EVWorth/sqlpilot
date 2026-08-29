@@ -116,6 +116,23 @@ impl AdminService {
         process_id: i64,
     ) -> Result<(), CoreError> {
         tracing::info!(process_id = process_id, "Killing MySQL process");
+
+        // Refuse to kill the application's own sessions. Killing the last one
+        // exhausted the pool and reported "pool timed out", which does not
+        // tell the user they had just disconnected themselves (#433).
+        if process_id >= 0
+            && self
+                .connection_manager
+                .is_own_thread(connection_id, process_id as u64)
+        {
+            return Err(CoreError::Query(format!(
+                "Process {} is one of SQLPilot's own connections to this server. \
+                 Killing it would disconnect the app from the server it is \
+                 managing.",
+                process_id
+            )));
+        }
+
         let pool = self.connection_manager.get_pool(connection_id)?;
         // Use raw_sql (text protocol) instead of prepared statements. MySQL
         // 8 returns a non-standard OK packet for KILL that sqlx's prepared-
@@ -132,6 +149,17 @@ impl AdminService {
             Err(e) => {
                 let msg = e.to_string();
                 tracing::error!(process_id = process_id, error = %msg, "Failed to kill process");
+                // PROCESSLIST is visible to everyone, so a user without the
+                // PROCESS privilege can see threads they cannot kill and gets
+                // ERROR 1095, which does not say what is missing (#433).
+                if msg.contains("not owner of thread") || msg.contains("1095") {
+                    return Err(CoreError::Query(format!(
+                        "Not permitted to kill process {}. Killing another \
+                         user's connection needs the PROCESS privilege (or \
+                         CONNECTION_ADMIN on MySQL 8).",
+                        process_id
+                    )));
+                }
                 Err(CoreError::Query(msg))
             }
         }
