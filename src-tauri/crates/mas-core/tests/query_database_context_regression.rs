@@ -30,6 +30,7 @@ fn test_profile() -> ConnectionProfile {
 }
 
 #[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_execute_select_with_explicit_database_context() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());

@@ -191,14 +191,19 @@ dialog while compiling, then opens the app window automatically.
 # Run everything
 make test
 
-# Frontend unit tests (1488 tests — stores, parsers, generators, diff engine)
+# Frontend unit tests (stores, parsers, generators, diff engine)
 make test-frontend
 # or: npx vitest run
 
-# Rust integration tests against Docker MySQL 8 (45 tests)
-make db-up          # Start MySQL 8 on port 13306
+# Rust unit tests — no database needed
 make test-rust
-# or: cd src-tauri && cargo test -p mas-core -p mas-export -p mas-admin
+
+# Rust integration tests against real servers (59 tests).
+# These are #[ignore]d by default, so `make test-rust` stays container-free;
+# CI runs them at release time, so run them locally before touching the
+# query executor, connection manager or admin service.
+make db-up              # MySQL 8 on 13306, MariaDB 11 on 13308
+make test-integration
 
 # Type checking
 npx tsc --noEmit                    # TypeScript
@@ -241,19 +246,20 @@ The `TAURI_SIGNING_PRIVATE_KEY` secret must exist for the `generate-update-manif
 
 ### Make Commands
 
-| Command              | Description                                     |
-| -------------------- | ----------------------------------------------- |
-| `make dev`           | Run desktop app in development mode             |
-| `make dev-web`       | Run browser preview on `localhost:1420`         |
-| `make build`         | Build production desktop binary                 |
-| `make test`          | Run all tests (Rust + frontend)                 |
-| `make test-rust`     | Run Rust integration tests against Docker MySQL |
-| `make test-frontend` | Run frontend unit tests (Vitest)                |
-| `make lint`          | Run clippy + TypeScript type checking           |
-| `make db-up`         | Start MySQL 8 Docker container (port 13306)     |
-| `make db-down`       | Stop and remove test containers                 |
-| `make db-reset`      | Restart containers fresh                        |
-| `make setup`         | Install all dependencies                        |
+| Command                 | Description                                 |
+| ----------------------- | ------------------------------------------- |
+| `make dev`              | Run desktop app in development mode         |
+| `make dev-web`          | Run browser preview on `localhost:1420`     |
+| `make build`            | Build production desktop binary             |
+| `make test`             | Run all tests (Rust + frontend)             |
+| `make test-rust`        | Run Rust unit tests (no database needed)    |
+| `make test-integration` | Run Rust tests needing a live MySQL/MariaDB |
+| `make test-frontend`    | Run frontend unit tests (Vitest)            |
+| `make lint`             | Run clippy + TypeScript type checking       |
+| `make db-up`            | Start MySQL 8 (13306) + MariaDB 11 (13308)  |
+| `make db-down`          | Stop and remove test containers             |
+| `make db-reset`         | Restart containers fresh                    |
+| `make setup`            | Install all dependencies                    |
 
 ### Environment Variables
 
@@ -293,11 +299,11 @@ RUST_LOG=debug
 
 ### Testing
 
-| Technology                                     | Purpose                                                |
-| ---------------------------------------------- | ------------------------------------------------------ |
-| [Vitest](https://vitest.dev/)                  | Frontend unit tests (1488 tests)                       |
-| [cargo test](https://doc.rust-lang.org/cargo/) | Rust integration tests against Docker MySQL (45 tests) |
-| [Docker](https://www.docker.com/)              | MySQL 8, MySQL 5.7, MariaDB 11 test containers         |
+| Technology                                     | Purpose                                                        |
+| ---------------------------------------------- | -------------------------------------------------------------- |
+| [Vitest](https://vitest.dev/)                  | Frontend unit tests (1488 tests)                               |
+| [cargo test](https://doc.rust-lang.org/cargo/) | Rust unit tests, plus 59 integration tests run at release time |
+| [Docker](https://www.docker.com/)              | MySQL 8, MySQL 5.7, MariaDB 11 test containers                 |
 
 ## 📁 Project Structure
 
