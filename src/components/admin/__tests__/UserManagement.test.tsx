@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { UserManagement } from "../UserManagement";
 
@@ -179,5 +179,135 @@ describe("UserManagement", () => {
     render(<UserManagement connectionId="conn-1" />);
     await screen.findByText("root");
     expect(screen.getByText("2 users")).toBeDefined();
+  });
+});
+
+describe("degraded user status (#440)", () => {
+  it("marks lock and expiry as unknown when the full query fails", async () => {
+    // MariaDB and restricted grants lack some of those columns. The fallback
+    // fills them with null, which rendered as "no badge" — indistinguishable
+    // from an account that is genuinely fine. A locked account looking
+    // unremarkable is the dangerous reading on an admin screen.
+    vi.mocked(api.executeQuery).mockImplementation((_conn: string, sql: string) => {
+      if (sql.includes("account_locked")) {
+        return Promise.reject(new Error("Unknown column 'account_locked'"));
+      }
+      return Promise.resolve([
+        {
+          query_id: "q1",
+          statement_index: 0,
+          columns: [
+            { name: "User", data_type: "VARCHAR", nullable: false, is_primary_key: false },
+            { name: "Host", data_type: "VARCHAR", nullable: false, is_primary_key: false },
+          ],
+          rows: [["alice", "%"]],
+          rows_affected: 0,
+          execution_time_ms: 1,
+          warnings: [],
+          rows_truncated: false,
+        },
+      ]) as never;
+    });
+
+    render(<UserManagement connectionId="c1" />);
+    expect(await screen.findByText("alice")).toBeDefined();
+    expect(screen.getByText("unknown")).toBeDefined();
+  });
+
+  it("shows no unknown marker when the full query succeeds", async () => {
+    vi.mocked(api.executeQuery).mockResolvedValue(
+      mockUserResults([{ User: "alice", Host: "%" }]) as never,
+    );
+
+    render(<UserManagement connectionId="c1" />);
+    expect(await screen.findByText("alice")).toBeDefined();
+    expect(screen.queryByText("unknown")).toBeNull();
+  });
+});
+
+describe("per-database privilege edits (#441)", () => {
+  /** SHOW GRANTS / user-list / database-list responses for the editor. */
+  function wireEditor() {
+    vi.mocked(api.getDatabases).mockResolvedValue([{ name: "db1" }, { name: "db2" }] as never);
+    vi.mocked(api.executeQuery).mockImplementation((_conn: string, sql: string) => {
+      if (sql.startsWith("SHOW GRANTS")) {
+        return Promise.resolve([
+          {
+            query_id: "g",
+            statement_index: 0,
+            columns: [{ name: "Grants", data_type: "VARCHAR", nullable: false, is_primary_key: false }],
+            rows: [["GRANT USAGE ON *.* TO 'alice'@'%'"]],
+            rows_affected: 0,
+            execution_time_ms: 1,
+            warnings: [],
+            rows_truncated: false,
+          },
+        ]) as never;
+      }
+      return Promise.resolve(mockUserResults([{ User: "alice", Host: "%" }])) as never;
+    });
+  }
+
+  async function openPrivileges() {
+    render(<UserManagement connectionId="c1" />);
+    fireEvent.click(await screen.findByText("alice"));
+    fireEvent.click(await screen.findByText("Privileges"));
+    const select = await screen.findByRole("combobox");
+    // The database list loads asynchronously; changing the select before its
+    // options exist silently does nothing.
+    await screen.findByRole("option", { name: /db1/ });
+    return select;
+  }
+
+  /**
+   * The database section only. The global privilege checkboxes come first in
+   * the DOM, so an unscoped getAllByRole("checkbox")[0] is a *global* toggle —
+   * which would persist across a database switch no matter what, and make this
+   * test pass for the wrong reason.
+   */
+  function dbSection() {
+    return within(screen.getByTestId("db-privileges"));
+  }
+
+  it("keeps edits when switching to another database and back", async () => {
+    // Toggling on db1, switching to db2, then back used to reload db1 fresh
+    // and silently discard the edit.
+    wireEditor();
+    const select = await openPrivileges();
+
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "db1" } });
+    });
+    await act(async () => {
+      fireEvent.click(dbSection().getAllByRole("checkbox")[0]);
+    });
+    expect((dbSection().getAllByRole("checkbox")[0] as HTMLInputElement).checked).toBe(true);
+
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "db2" } });
+    });
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "db1" } });
+    });
+
+    expect((dbSection().getAllByRole("checkbox")[0] as HTMLInputElement).checked).toBe(true);
+  });
+
+  it("says which databases have unapplied changes", async () => {
+    wireEditor();
+    const select = await openPrivileges();
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "db1" } });
+    });
+    await act(async () => {
+      fireEvent.click(dbSection().getAllByRole("checkbox")[0]);
+    });
+    await act(async () => {
+      fireEvent.change(select, { target: { value: "db2" } });
+    });
+
+    // The edit is on a database that is no longer on screen, so the UI has to
+    // say so — otherwise Apply sends changes the user cannot see.
+    expect(await screen.findByText(/unapplied changes on db1/)).toBeDefined();
   });
 });

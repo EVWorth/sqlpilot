@@ -51,8 +51,12 @@ export function UserManagement({ connectionId }: UserManagementProps) {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
   const [confirmDrop, setConfirmDrop] = useState(false);
+  // True when the lock/expiry columns could not be read, so the UI can say so
+  // rather than showing every account as unremarkable (#440).
+  const [statusUnavailable, setStatusUnavailable] = useState(false);
 
   const fetchUsers = useCallback(async () => {
+    let degraded = false;
     try {
       const results = await api.executeQuery(
         connectionId,
@@ -69,10 +73,17 @@ export function UserManagement({ connectionId }: UserManagementProps) {
           })),
         );
         setError(null);
+        setStatusUnavailable(false);
         return;
       }
-    } catch {
-      // Fallback for MariaDB / older MySQL
+    } catch (e) {
+      // Fallback for MariaDB / older MySQL, which do not have all of those
+      // columns — and for a grant that exposes only some of them. Recorded
+      // rather than discarded: the fallback cannot tell whether an account is
+      // locked, and rendering that as "not locked" is the dangerous reading
+      // on an admin screen (#440).
+      console.warn("Full mysql.user query failed, falling back", e);
+      degraded = true;
     }
     try {
       const results = await api.executeQuery(
@@ -90,6 +101,7 @@ export function UserManagement({ connectionId }: UserManagementProps) {
           })),
         );
         setError(null);
+        setStatusUnavailable(degraded);
       }
     } catch (e) {
       setError(String(e));
@@ -219,6 +231,14 @@ export function UserManagement({ connectionId }: UserManagementProps) {
                     </td>
                     <td className="px-3 py-1.5">
                       <div className="flex gap-1">
+                        {statusUnavailable && (
+                          <span
+                            title="This server did not expose account_locked / password_expired, so lock and expiry state is unknown"
+                            className="inline-flex items-center rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-text-muted)]"
+                          >
+                            unknown
+                          </span>
+                        )}
                         {u.accountLocked === "Y" && (
                           <span className="inline-flex items-center rounded bg-yellow-500/20 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
                             <Lock className="mr-0.5 h-2.5 w-2.5" />
@@ -558,6 +578,15 @@ function GrantSection({
 
 // ─── Privileges Editor ────────────────────────────────────────────────────
 
+/** One database's granted privileges, and the pending edit of them. */
+interface DbPrivState {
+  current: Set<string>;
+  edited: Set<string>;
+}
+
+/** Shared empty set, so a database with nothing selected has a stable identity. */
+const EMPTY_PRIVS: Set<string> = new Set();
+
 function PrivilegesEditor({
   connectionId,
   user,
@@ -583,9 +612,25 @@ function PrivilegesEditor({
   // Database privileges
   const [databases, setDatabases] = useState<string[]>([]);
   const [selectedDb, setSelectedDb] = useState<string>("");
-  const [currentDbPrivs, setCurrentDbPrivs] = useState<Set<string>>(new Set());
-  const [editedDbPrivs, setEditedDbPrivs] = useState<Set<string>>(new Set());
+  // Keyed by database, so switching away and back does not throw away edits
+  // that were never applied (#441). Holding a single pair of sets meant the
+  // reload for the newly-selected database overwrote the previous one's
+  // pending changes, silently.
+  const [dbPrivs, setDbPrivs] = useState<Map<string, DbPrivState>>(new Map());
   const [dbLoading, setDbLoading] = useState(false);
+
+  const selectedDbPrivs = selectedDb ? dbPrivs.get(selectedDb) : undefined;
+  const currentDbPrivs = selectedDbPrivs?.current ?? EMPTY_PRIVS;
+  const editedDbPrivs = selectedDbPrivs?.edited ?? EMPTY_PRIVS;
+
+  /** Databases whose privileges have been edited but not applied. */
+  const dirtyDbs = useMemo(
+    () =>
+      [...dbPrivs.entries()]
+        .filter(([, state]) => !setsEqual(state.current, state.edited))
+        .map(([db]) => db),
+    [dbPrivs],
+  );
 
   // Load grants
   const loadGrants = useCallback(async () => {
@@ -648,11 +693,9 @@ function PrivilegesEditor({
 
   // Load database-specific privileges
   useEffect(() => {
-    if (!selectedDb) {
-      setCurrentDbPrivs(new Set());
-      setEditedDbPrivs(new Set());
-      return;
-    }
+    if (!selectedDb) return;
+    // Already held — including any unapplied edits — so leave it alone.
+    if (dbPrivs.has(selectedDb)) return;
     setDbLoading(true);
     api
       .executeQuery(
@@ -673,13 +716,18 @@ function PrivilegesEditor({
               dbGrant.privileges.forEach((p) => privs.add(p.toUpperCase()));
             }
           }
-          setCurrentDbPrivs(new Set(privs));
-          setEditedDbPrivs(new Set(privs));
+          setDbPrivs((prev) => {
+            // A concurrent load may have filled this in; never overwrite.
+            if (prev.has(selectedDb)) return prev;
+            const next = new Map(prev);
+            next.set(selectedDb, { current: new Set(privs), edited: new Set(privs) });
+            return next;
+          });
         }
       })
-      .catch((e) => console.error("Failed to load grants", e))
+      .catch((e) => setError(`Failed to load privileges for ${selectedDb}: ${e}`))
       .finally(() => setDbLoading(false));
-  }, [connectionId, user, host, selectedDb]);
+  }, [connectionId, user, host, selectedDb, dbPrivs]);
 
   const toggleGlobalPriv = (priv: string) => {
     setEditedGlobalPrivs((prev) => {
@@ -695,13 +743,18 @@ function PrivilegesEditor({
   };
 
   const toggleDbPriv = (priv: string) => {
-    setEditedDbPrivs((prev) => {
-      const next = new Set(prev);
-      if (next.has(priv)) {
-        next.delete(priv);
+    if (!selectedDb) return;
+    setDbPrivs((prev) => {
+      const entry = prev.get(selectedDb);
+      if (!entry) return prev;
+      const edited = new Set(entry.edited);
+      if (edited.has(priv)) {
+        edited.delete(priv);
       } else {
-        next.add(priv);
+        edited.add(priv);
       }
+      const next = new Map(prev);
+      next.set(selectedDb, { ...entry, edited });
       return next;
     });
     setSuccessMsg(null);
@@ -709,7 +762,7 @@ function PrivilegesEditor({
 
   const hasGlobalChanges = !setsEqual(currentGlobalPrivs, editedGlobalPrivs)
     || hasGrantOption !== editedGrantOption;
-  const hasDbChanges = selectedDb && !setsEqual(currentDbPrivs, editedDbPrivs);
+  const hasDbChanges = dirtyDbs.length > 0;
   const hasChanges = hasGlobalChanges || hasDbChanges;
 
   const applyChanges = async () => {
@@ -749,15 +802,14 @@ function PrivilegesEditor({
       }
     }
 
-    // Database privilege changes
-    if (hasDbChanges && selectedDb) {
-      const toGrant = [...editedDbPrivs].filter(
-        (p) => !currentDbPrivs.has(p),
-      );
-      const toRevoke = [...currentDbPrivs].filter(
-        (p) => !editedDbPrivs.has(p),
-      );
-      const dbScope = `${quoteIdentifier(selectedDb)}.*`;
+    // Database privilege changes, for every database with pending edits —
+    // not only the one currently on screen (#441).
+    for (const db of dirtyDbs) {
+      const entry = dbPrivs.get(db);
+      if (!entry) continue;
+      const toGrant = [...entry.edited].filter((p) => !entry.current.has(p));
+      const toRevoke = [...entry.current].filter((p) => !entry.edited.has(p));
+      const dbScope = `${quoteIdentifier(db)}.*`;
 
       if (toRevoke.length > 0) {
         statements.push(
@@ -780,6 +832,10 @@ function PrivilegesEditor({
         await api.executeQuery(connectionId, sql);
       }
       setSuccessMsg("Privileges updated successfully");
+      // The cached per-database grants are now stale; drop them so the
+      // selected database reloads from the server rather than showing the
+      // optimistic edit as if it were the server's state.
+      setDbPrivs(new Map());
       await loadGrants();
     } catch (e) {
       setError(String(e));
@@ -877,16 +933,30 @@ function PrivilegesEditor({
               <option value="">Select a database…</option>
               {databases.map((db) => (
                 <option key={db} value={db}>
-                  {db}
+                  {
+                    /* Edits on a database you have switched away from are kept
+                      and will be applied, so say which those are. */
+                  }
+                  {dirtyDbs.includes(db) ? `${db} •` : db}
                 </option>
               ))}
             </select>
             {dbLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-text-muted)]" />}
+            {dirtyDbs.length > 0 && (
+              <span className="text-[10px] text-yellow-400">
+                {dirtyDbs.length === 1
+                  ? `unapplied changes on ${dirtyDbs[0]}`
+                  : `unapplied changes on ${dirtyDbs.length} databases`}
+              </span>
+            )}
           </div>
 
           {selectedDb
             ? (
-              <div className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3 lg:grid-cols-4">
+              <div
+                data-testid="db-privileges"
+                className="grid grid-cols-2 gap-x-4 gap-y-1 sm:grid-cols-3 lg:grid-cols-4"
+              >
                 {DATABASE_PRIVILEGES.map((priv) => (
                   <label
                     key={priv}
@@ -935,7 +1005,16 @@ function PrivilegesEditor({
             onClick={() => {
               setEditedGlobalPrivs(new Set(currentGlobalPrivs));
               setEditedGrantOption(hasGrantOption);
-              setEditedDbPrivs(new Set(currentDbPrivs));
+              // Every database, not only the one on screen — otherwise Reset
+              // leaves edits behind on databases the user has switched away
+              // from, and Apply would still send them.
+              setDbPrivs((prev) => {
+                const next = new Map(prev);
+                for (const [db, entry] of prev) {
+                  next.set(db, { current: entry.current, edited: new Set(entry.current) });
+                }
+                return next;
+              });
               setSuccessMsg(null);
             }}
             className="flex items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
