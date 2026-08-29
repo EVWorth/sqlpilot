@@ -15,6 +15,15 @@ pub struct ActiveConnection {
     /// were in force when it was opened.
     pub query_timeout_secs: Option<u32>,
     pub read_only: bool,
+    /// Who the server sees this connection as, for the audit line on a write.
+    pub actor: String,
+    /// Server thread ids this pool has opened.
+    ///
+    /// Recorded so the process list can tell the application's own sessions
+    /// apart from everyone else's, and refuse to kill them (#433). An id stays
+    /// after its connection is recycled, which only ever means declining to
+    /// kill a thread that no longer exists.
+    pub own_threads: Arc<dashmap::DashSet<u64>>,
 }
 
 pub struct ConnectionManager {
@@ -62,6 +71,8 @@ impl ConnectionManager {
         tracing::debug!(connection_id = %conn_id, "Connecting to MySQL server");
 
         let charset_for_after_connect = charset.clone();
+        let own_threads: Arc<dashmap::DashSet<u64>> = Arc::new(dashmap::DashSet::new());
+        let own_threads_for_after_connect = Arc::clone(&own_threads);
         let pool = MySqlPoolOptions::new()
             .min_connections(profile.pool_min)
             .max_connections(profile.pool_max)
@@ -71,10 +82,18 @@ impl ConnectionManager {
             .idle_timeout(std::time::Duration::from_secs(300))
             .after_connect(move |conn, _meta| {
                 let charset = charset_for_after_connect.clone();
+                let own_threads = Arc::clone(&own_threads_for_after_connect);
                 Box::pin(async move {
                     sqlx::query(AssertSqlSafe(format!("SET NAMES {}", charset)))
                         .execute(&mut *conn)
                         .await?;
+                    // Note which server thread this pooled connection is, so
+                    // the admin panel can refuse to kill the application out
+                    // from under itself.
+                    let (thread_id,): (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
+                        .fetch_one(&mut *conn)
+                        .await?;
+                    own_threads.insert(thread_id);
                     Ok(())
                 })
             })
@@ -134,6 +153,8 @@ impl ConnectionManager {
                 pool,
                 query_timeout_secs: profile.query_timeout_secs,
                 read_only: profile.read_only,
+                actor: format!("{}@{}:{}", profile.username, profile.host, profile.port),
+                own_threads: Arc::clone(&own_threads),
             },
         );
 
@@ -257,6 +278,31 @@ impl ConnectionManager {
         self.connections
             .get(connection_id)
             .map(|conn| conn.info.server_version.clone())
+    }
+
+    /// The account a connection authenticates as, as `user@host:port`.
+    ///
+    /// A statement that changes something should be attributable to someone;
+    /// the executor's log line recorded the SQL but never who ran it (#429).
+    pub fn get_actor(&self, connection_id: &str) -> Option<String> {
+        self.connections
+            .get(connection_id)
+            .map(|conn| conn.actor.clone())
+    }
+
+    /// Whether `thread_id` is one of this application's own server sessions.
+    pub fn is_own_thread(&self, connection_id: &str, thread_id: u64) -> bool {
+        self.connections
+            .get(connection_id)
+            .is_some_and(|conn| conn.own_threads.contains(&thread_id))
+    }
+
+    /// The server threads this connection's pool has opened.
+    pub fn own_thread_ids(&self, connection_id: &str) -> Vec<u64> {
+        self.connections
+            .get(connection_id)
+            .map(|conn| conn.own_threads.iter().map(|id| *id).collect())
+            .unwrap_or_default()
     }
 
     /// Whether the profile behind a live connection forbids writes.

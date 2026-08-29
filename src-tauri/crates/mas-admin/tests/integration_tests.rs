@@ -197,3 +197,78 @@ fn urlencoding_encode(s: &str) -> String {
         })
         .collect()
 }
+
+/// The admin panel must not be able to disconnect the app from the server it
+/// is managing.
+///
+/// PROCESSLIST includes the sessions SQLPilot itself is using to read that
+/// very list. Killing one worked; killing the last exhausted the pool and
+/// surfaced "pool timed out", which does not tell the user that they had just
+/// cut their own connection (#433).
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn kill_process_refuses_the_apps_own_connection() {
+    let manager = Arc::new(ConnectionManager::new());
+    let service = AdminService::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.expect("connect");
+
+    let own = manager.own_thread_ids(&info.id);
+    assert!(
+        !own.is_empty(),
+        "the pool should have recorded at least one server thread of its own"
+    );
+
+    for thread_id in &own {
+        let err = service
+            .kill_process(&info.id, *thread_id as i64)
+            .await
+            .expect_err("killing our own session should be refused");
+        assert!(
+            err.to_string().contains("own connection"),
+            "expected a self-protection message, got: {err}"
+        );
+    }
+
+    // The connection is still usable, which is the whole point.
+    let processes = service
+        .get_process_list(&info.id)
+        .await
+        .expect("connection still works after the refusal");
+    assert!(!processes.is_empty());
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+/// Somebody else's session is still killable — the guard must not be a blanket
+/// refusal.
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn kill_process_still_kills_a_foreign_connection() {
+    use sqlx::mysql::MySqlConnection;
+    use sqlx::Connection;
+
+    let manager = Arc::new(ConnectionManager::new());
+    let service = AdminService::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.expect("connect");
+
+    let mut victim =
+        MySqlConnection::connect("mysql://test_user:test_password@127.0.0.1:13306/test_db")
+            .await
+            .expect("open a separate connection");
+    let victim_id: (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
+        .fetch_one(&mut victim)
+        .await
+        .expect("read victim thread id");
+
+    assert!(
+        !manager.is_own_thread(&info.id, victim_id.0),
+        "a connection opened outside the pool must not be treated as ours"
+    );
+
+    service
+        .kill_process(&info.id, victim_id.0 as i64)
+        .await
+        .expect("killing another session should be allowed");
+
+    manager.disconnect(&info.id).await.unwrap();
+}

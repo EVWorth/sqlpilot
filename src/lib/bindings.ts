@@ -45,6 +45,15 @@ export const commands = {
 	getProcessList: (connectionId: string) => typedError<ProcessInfo[], string>(__TAURI_INVOKE("get_process_list", { connectionId })),
 	getServerVariables: (connectionId: string) => typedError<ServerVariable[], string>(__TAURI_INVOKE("get_server_variables", { connectionId })),
 	killProcess: (connectionId: string, processId: ProcessId) => typedError<null, string>(__TAURI_INVOKE("kill_process", { connectionId, processId })),
+	/**
+	 *  Server thread ids belonging to SQLPilot's own pool for this connection.
+	 * 
+	 *  The process list shows every session on the server, including the ones the
+	 *  app is using to read that very list. The UI needs to tell them apart so it
+	 *  can present its own as un-killable rather than letting the user disconnect
+	 *  the app from the server it is managing (#433).
+	 */
+	getOwnThreadIds: (connectionId: string) => typedError<ProcessId[], string>(__TAURI_INVOKE("get_own_thread_ids", { connectionId })),
 	readFileContents: (path: string) => typedError<string, string>(__TAURI_INVOKE("read_file_contents", { path })),
 	pickFile: (title: string, filters: ([string, string[]])[]) => typedError<string | null, string>(__TAURI_INVOKE("pick_file", { title, filters })),
 	writeFileContents: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file_contents", { path, contents })),

@@ -76,12 +76,21 @@ function ProcessListTab({ connectionId }: { connectionId: string }) {
   const [refreshInterval, setRefreshInterval] = useState<RefreshInterval>(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [confirmKillId, setConfirmKillId] = useState<number | null>(null);
+  // The process list includes the sessions this panel is itself using. Killing
+  // one disconnects the app from the server it is managing, and killing the
+  // last exhausted the pool and reported "pool timed out" — which does not
+  // tell the user what they just did (#433).
+  const [ownThreadIds, setOwnThreadIds] = useState<Set<number>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchProcesses = useCallback(async () => {
     try {
-      const data = await api.getProcessList(connectionId);
+      const [data, own] = await Promise.all([
+        api.getProcessList(connectionId),
+        api.getOwnThreadIds(connectionId),
+      ]);
       setProcesses(data);
+      setOwnThreadIds(new Set(own));
       setError(null);
     } catch (e) {
       setError(String(e));
@@ -250,8 +259,11 @@ function ProcessListTab({ connectionId }: { connectionId: string }) {
                     : (
                       <button
                         onClick={() => setConfirmKillId(p.id)}
-                        title={`Kill process ${p.id}`}
-                        className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/20 hover:text-red-400 transition-colors"
+                        disabled={ownThreadIds.has(p.id)}
+                        title={ownThreadIds.has(p.id)
+                          ? "This is SQLPilot's own connection to the server — killing it would disconnect the app"
+                          : `Kill process ${p.id}`}
+                        className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-500/20 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-muted)]"
                       >
                         <Skull className="h-3.5 w-3.5" />
                       </button>
