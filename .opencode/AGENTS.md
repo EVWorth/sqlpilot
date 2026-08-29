@@ -101,7 +101,7 @@ npx dprint check --list-different
 **Version check** (lefthook auto-runs):
 
 - `package.json`, `src-tauri/Cargo.toml`, `src-tauri/tauri.conf.json` must share version
-- Drift? `make bump [patch|minor|major]` updates all three atomically
+- Drift? `just bump [patch|minor|major]` updates all three atomically
 
 CI mirrors these gates. Local failure = CI failure. Don't ship red.
 
@@ -114,7 +114,7 @@ CI mirrors these gates. Local failure = CI failure. Don't ship red.
 5. **Tests co-located** in `__tests__/` next to source. Vitest + jsdom + RTL.
 6. **Path alias:** `@/` → `src/`. Configured in `vite.config.ts` + `vitest.config.ts`.
 7. **CSP:** Monaco forces `unsafe-eval` + `unsafe-inline` styles. Don't try to "fix" — see `docs/SECURITY.md`.
-8. **Test MySQL** on port **13306** (not 3306). `make db-up` brings it up. CI uses service container, same port.
+8. **Test MySQL** on port **13306** (not 3306). `just db-up` brings it up. CI uses service container, same port.
 9. **Lockfile discipline:** `package.json` change ⇒ `package-lock.json` change required. Lefthook blocks commit otherwise.
 10. **Dep age gate:** Dependabot PRs bumping packages <7 days old fail CI (`npm run deps:check`).
 11. **No E2E suite:** removed — it never ran and could not work (it drove the vite dev server, but the app needs a Tauri window). The Rust↔JS command contract is covered by `src/lib/__tests__/tauri-command-contract.test.ts` instead.
@@ -220,7 +220,7 @@ Or use `/review-prs` to do all of the above in one command.
 
 0. **Pre-flight** (from a clean main checkout): `bash scripts/check-release-readiness.sh --strict`
    - Verifies manifests agree, tree clean, on main
-1. `make bump [patch|minor|major]` — updates 3 version files atomically
+1. `just bump [patch|minor|major]` — updates 3 version files atomically
 2. Commit the bump (no tag yet) — push triggers CI on the bump commit
 3. **Local re-check** before tagging: `bash scripts/check-release-readiness.sh <new-version>`
    - Confirms manifests match the version you're about to tag

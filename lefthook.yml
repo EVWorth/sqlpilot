@@ -59,6 +59,6 @@ pre-commit:
           echo "  package.json:       $jsver"
           echo "  Cargo.toml:         $rsver"
           echo "  tauri.conf.json:    $taver"
-          echo "Run: make bump"
+          echo "Run: just bump <major|minor|patch>"
           exit 1
         fi

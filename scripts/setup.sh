@@ -6,9 +6,9 @@
 #
 # Installs, in order:
 #   1. Tauri's Linux system libraries (apt, needs sudo)
-#   2. mise, if absent, then Node + Rust per mise.toml
+#   2. mise, if absent, then Node + Rust + just per mise.toml
 #   3. npm dependencies (npm ci) and lefthook's git hooks
-#   4. Playwright's chromium, needed by `npm run test:browser`
+#   4. Playwright's chromium, needed by `just test-browser`
 #
 # Flags:
 #   --skip-system   don't touch apt (for non-Debian hosts or CI)
@@ -92,18 +92,32 @@ else
   command -v mise > /dev/null 2>&1 \
     || die "mise installed but not on PATH — add ~/.local/bin to PATH and re-run"
 
-  info "installing Node + Rust per mise.toml"
+  info "installing Node, Rust and just per mise.toml"
   mise install
   # Subsequent commands in THIS script still use the outer shell's PATH, so
   # ask mise to place shims where later steps can see them.
   eval "$(mise activate bash --shims)"
 fi
 
-command -v node > /dev/null 2>&1 || die "node not found — run without --skip-mise, or install Node $(cat .node-version)"
-command -v cargo > /dev/null 2>&1 || warn "cargo not found — Rust builds and the cargo git hooks will not work"
+# When mise ran, it was asked for node, rust and just — a missing one means
+# `mise install` did not do what it was told, and quietly carrying on would
+# hide that. Only --skip-mise makes them the contributor's own problem.
+require_tool() {
+  local tool=$1 why=$2
+  command -v "$tool" > /dev/null 2>&1 && return 0
+  if [ "$SKIP_MISE" -eq 1 ]; then
+    warn "$tool not found — $why"
+  else
+    die "$tool not found after 'mise install' — check [tools] in mise.toml"
+  fi
+}
+require_tool node "install Node $(tr -d '[:space:]' < .node-version) yourself"
+require_tool cargo "Rust builds and the cargo git hooks will not work"
+require_tool just "tasks live in the justfile; see https://just.systems"
 
 info "node $(node --version), npm $(npm --version)"
 command -v cargo > /dev/null 2>&1 && info "cargo $(cargo --version | cut -d' ' -f2)"
+command -v just > /dev/null 2>&1 && info "just $(just --version | cut -d' ' -f2)"
 
 # ── 3. npm dependencies + git hooks ──
 info "installing npm dependencies"
@@ -120,12 +134,12 @@ npx playwright install --with-deps chromium
 
 cat <<'DONE'
 
-Setup complete.
+Setup complete. `just` with no arguments lists every task.
 
-  make dev            desktop app (Tauri)
-  make dev-web        browser preview
-  npm run test:unit   unit tests
-  npm run test:browser browser-mode tests
-  make db-up          MySQL 8 test container
+  just dev              desktop app (Tauri)
+  just dev-web          browser preview
+  just test             unit tests, no database needed
+  just db-up            MySQL 8 + MariaDB 11 test containers
+  just test-integration tests that need those containers
 
 DONE

@@ -1,5 +1,5 @@
 ---
-description: Cut a new release version. Updates package.json + Cargo.toml + tauri.conf.json atomically, runs make bump, reports next steps.
+description: Cut a new release version. Updates package.json + Cargo.toml + tauri.conf.json atomically, runs just bump, reports next steps.
 agent: build
 ---
 
@@ -18,11 +18,11 @@ Cut a new release version for SQLPilot. Updates all three version files atomical
    node -p "require('./src-tauri/tauri.conf.json').version"
    ```
 2. Confirm they're consistent. If not, ABORT and tell user to fix drift manually.
-3. Compute new version (delegates to `make bump <type>` which has confirmation prompt):
+3. Compute new version (delegates to `just bump <type>` which has confirmation prompt):
    - `patch`: 0.3.4 → 0.3.5
    - `minor`: 0.3.4 → 0.4.0
    - `major`: 0.3.4 → 1.0.0
-4. Suggest running `make bump <type>` — explain it has a Y/n confirmation prompt.
+4. Suggest running `just bump <type>` — explain it has a Y/n confirmation prompt.
 5. After bump, run version check to confirm consistency:
    ```bash
    jsver=$(node -p "require('./package.json').version")

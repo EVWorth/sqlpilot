@@ -55,38 +55,38 @@ All common commands are in the `Makefile`. Rust tests require a running MySQL 8 
 
 ```bash
 # Start MySQL 8 test container (port 13306)
-make db-up
+just db-up
 
 # Run all tests (Rust integration + frontend unit)
-make test
+just test
 
 # Run only frontend unit tests
-make test-frontend            # or: npx vitest run
+just test-frontend            # or: npx vitest run
 
 # Run a single frontend test file
 npx vitest run src/stores/__tests__/editorStore.test.ts
 
 # Run only Rust tests (requires Docker MySQL on 13306)
-make test-rust                # or: cd src-tauri && cargo test -p mas-core -p mas-export -p mas-admin
+just test-rust                # or: cd src-tauri && cargo test -p mas-core -p mas-export -p mas-admin -p mas-sqlite
 
 # Run a single Rust test by name
 cd src-tauri && cargo test -p mas-core test_connect_mysql8
 
 # E2E tests (Playwright)
-make test-browser             # or: npm run test:browser
+just test-browser             # or: npm run test:browser
 
 # Lint (Rust clippy + TypeScript type check)
-make lint
+just lint
 
 # Format
-make fmt                      # Rust
+just fmt                      # Rust
 npm run format                # TypeScript/CSS (Prettier)
 
 # Full desktop dev (requires Tauri system deps)
-make dev
+just dev
 
 # Browser-only frontend dev (no system deps needed)
-make dev-web
+just dev-web
 ```
 
 ## Architecture

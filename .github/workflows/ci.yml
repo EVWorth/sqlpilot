@@ -209,7 +209,7 @@ jobs:
         run: |
           cargo test --features beta-ai --test export_bindings
           if ! git diff --quiet -- ../src/lib/bindings.ts; then
-            echo "::error::src/lib/bindings.ts is stale — the Rust commands changed but the generated TypeScript was not committed. Run 'make bindings'."
+            echo "::error::src/lib/bindings.ts is stale — the Rust commands changed but the generated TypeScript was not committed. Run 'just bindings'."
             git diff -- ../src/lib/bindings.ts
             exit 1
           fi
