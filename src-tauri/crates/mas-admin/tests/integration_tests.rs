@@ -110,3 +110,90 @@ async fn kill_process_with_bogus_id_returns_error() {
 
     manager.disconnect(&conn_id).await.ok();
 }
+
+/// A password containing a backslash must survive being written into SQL and
+/// come back out intact.
+///
+/// The admin panel builds `CREATE USER` / `ALTER USER` as text, and its quoting
+/// helper doubled single quotes but left backslashes alone. MySQL treats a
+/// backslash as an escape inside a string literal unless NO_BACKSLASH_ESCAPES
+/// is set — off by default — so `pa\ss` written as `'pa\ss'` is stored as
+/// `pass`: the account gets a password the user never typed and cannot log in
+/// with, and nothing reports an error.
+///
+/// This pins the server-side rule that `quoteStringLiteral` implements. The
+/// frontend unit tests cover the escaping itself; this proves the escaping is
+/// the one the server actually needs.
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_password_containing_a_backslash_round_trips() {
+    use sqlx::mysql::MySqlConnection;
+    use sqlx::Connection;
+
+    let manager = Arc::new(ConnectionManager::new());
+    // root, because creating users needs more than test_user has.
+    let mut admin =
+        MySqlConnection::connect("mysql://root:test_root_password@127.0.0.1:13306/test_db")
+            .await
+            .expect("connect as root");
+
+    let typed_password = r"pa\ss";
+    // What quoteStringLiteral produces for that input: backslash doubled.
+    let quoted = r"'pa\\ss'";
+
+    sqlx::raw_sql(sqlx::AssertSqlSafe(
+        "DROP USER IF EXISTS 'bsprobe'@'%'".to_string(),
+    ))
+    .execute(&mut admin)
+    .await
+    .expect("drop any leftover");
+
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE USER 'bsprobe'@'%' IDENTIFIED BY {}",
+        quoted
+    )))
+    .execute(&mut admin)
+    .await
+    .expect("create user");
+
+    // The account must accept exactly what was typed.
+    // No database in the URL: the account has no grants, and a "no access to
+    // that schema" error (1044) would otherwise look like a pass when what is
+    // being tested is authentication (1045).
+    let typed_ok = MySqlConnection::connect(&format!(
+        "mysql://bsprobe:{}@127.0.0.1:13306",
+        urlencoding_encode(typed_password)
+    ))
+    .await;
+
+    // And must NOT accept the mangled form the old quoting would have stored.
+    let mangled_ok = MySqlConnection::connect("mysql://bsprobe:pass@127.0.0.1:13306").await;
+
+    sqlx::raw_sql(sqlx::AssertSqlSafe("DROP USER 'bsprobe'@'%'".to_string()))
+        .execute(&mut admin)
+        .await
+        .expect("cleanup");
+
+    assert!(
+        typed_ok.is_ok(),
+        "the password the user typed should authenticate: {:?}",
+        typed_ok.err()
+    );
+    assert!(
+        mangled_ok.is_err(),
+        "the backslash-stripped password must NOT authenticate — that would mean \
+         the escaping collapsed and the stored password is not the typed one"
+    );
+
+    drop(manager);
+}
+
+/// Percent-encode the few characters that would otherwise break a connection URL.
+fn urlencoding_encode(s: &str) -> String {
+    s.chars()
+        .map(|c| match c {
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => c.to_string(),
+            other => format!("%{:02X}", other as u32),
+        })
+        .collect()
+}

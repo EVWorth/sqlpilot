@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { quoteIdentifier, quoteStringLiteral } from "../../lib/sql-quote";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
@@ -22,7 +23,6 @@ import { CreateUserDialog } from "./CreateUserDialog";
 import {
   categorizeGrants,
   DATABASE_PRIVILEGES,
-  escapeIdentifier,
   GLOBAL_PRIVILEGES,
   type ParsedGrant,
   parseGrantStatements,
@@ -113,7 +113,7 @@ export function UserManagement({ connectionId }: UserManagementProps) {
     try {
       await api.executeQuery(
         connectionId,
-        `DROP USER ${escapeIdentifier(selectedUser.user)}@${escapeIdentifier(selectedUser.host)}`,
+        `DROP USER ${quoteStringLiteral(selectedUser.user)}@${quoteStringLiteral(selectedUser.host)}`,
       );
       setSelectedUser(null);
       setConfirmDrop(false);
@@ -426,7 +426,7 @@ function GrantsView({
     api
       .executeQuery(
         connectionId,
-        `SHOW GRANTS FOR ${escapeIdentifier(user)}@${escapeIdentifier(host)}`,
+        `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
       )
       .then((results) => {
         if (results.length > 0) {
@@ -594,7 +594,7 @@ function PrivilegesEditor({
     try {
       const results = await api.executeQuery(
         connectionId,
-        `SHOW GRANTS FOR ${escapeIdentifier(user)}@${escapeIdentifier(host)}`,
+        `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
       );
       if (results.length > 0) {
         const rawGrants = results[0].rows.map((row) => String(row[0] ?? ""));
@@ -657,7 +657,7 @@ function PrivilegesEditor({
     api
       .executeQuery(
         connectionId,
-        `SHOW GRANTS FOR ${escapeIdentifier(user)}@${escapeIdentifier(host)}`,
+        `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
       )
       .then((results) => {
         if (results.length > 0) {
@@ -716,7 +716,7 @@ function PrivilegesEditor({
     setApplying(true);
     setError(null);
     setSuccessMsg(null);
-    const userSpec = `${escapeIdentifier(user)}@${escapeIdentifier(host)}`;
+    const userSpec = `${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`;
     const statements: string[] = [];
 
     // Global privilege changes
@@ -757,7 +757,7 @@ function PrivilegesEditor({
       const toRevoke = [...currentDbPrivs].filter(
         (p) => !editedDbPrivs.has(p),
       );
-      const dbScope = `\`${selectedDb}\`.*`;
+      const dbScope = `${quoteIdentifier(selectedDb)}.*`;
 
       if (toRevoke.length > 0) {
         statements.push(

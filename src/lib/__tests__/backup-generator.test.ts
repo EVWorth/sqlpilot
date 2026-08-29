@@ -3,7 +3,6 @@ import {
   type BackupOptions,
   type BackupProgress,
   defaultBackupOptions,
-  escapeIdentifier,
   escapeValue,
   generateBackup,
 } from "../backup-generator";
@@ -689,15 +688,5 @@ describe("escapeValue", () => {
     expect(escapeValue("a\rb")).toBe("'a\\rb'");
     expect(escapeValue("a\x00b")).toBe("'a\\0b'");
     expect(escapeValue("a\x1ab")).toBe("'a\\Zb'");
-  });
-});
-
-describe("escapeIdentifier", () => {
-  it("wraps in backticks", () => {
-    expect(escapeIdentifier("users")).toBe("`users`");
-  });
-
-  it("doubles backticks inside", () => {
-    expect(escapeIdentifier("a`b")).toBe("`a``b`");
   });
 });
