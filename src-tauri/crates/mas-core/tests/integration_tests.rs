@@ -158,7 +158,6 @@ async fn test_concurrent_connections() {
 // ====== CONNECTION STORE TESTS ======
 
 #[test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn test_connection_store_crud() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -182,7 +181,6 @@ fn test_connection_store_crud() {
 }
 
 #[test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn test_connection_store_get_nonexistent() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -192,7 +190,6 @@ fn test_connection_store_get_nonexistent() {
 }
 
 #[test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 fn test_connection_store_update() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -978,4 +975,72 @@ fn deleting_a_profile_removes_its_ssh_credentials() {
     let ssh = loaded.ssh_config.unwrap();
     assert_eq!(ssh.password, None, "deleted ssh password came back");
     assert_eq!(ssh.passphrase, None, "deleted ssh passphrase came back");
+}
+
+/// A profile that has never been saved is not the same thing as a keyring that
+/// will not answer.
+///
+/// `save_connection_profile` fills in credentials the frontend did not send by
+/// reading the stored profile. It used `if let Ok(..)`, which treated a locked
+/// or unavailable keyring exactly like "no password stored", left the field
+/// empty, and let the save delete the credential while reporting success
+/// (#274). `get_existing` makes the two outcomes different types so the call
+/// site has to choose.
+#[test]
+fn get_existing_reports_a_missing_profile_as_none() {
+    setup_keyring();
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConnectionStore::new(&dir.path().join("test.db")).unwrap();
+
+    assert!(
+        store.get_existing("never-saved").unwrap().is_none(),
+        "a profile that does not exist is None, not an error"
+    );
+}
+
+#[test]
+fn get_existing_returns_a_saved_profile_with_its_password() {
+    setup_keyring();
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConnectionStore::new(&dir.path().join("test.db")).unwrap();
+
+    let mut profile = test_profile();
+    profile.password = "s3cret".to_string();
+    store.save(&profile).unwrap();
+
+    let found = store
+        .get_existing(&profile.id)
+        .unwrap()
+        .expect("a saved profile is Some");
+    assert_eq!(found.password, "s3cret");
+}
+
+/// Saving with the password left empty must not wipe the stored one.
+#[test]
+fn an_edit_that_omits_the_password_keeps_the_stored_one() {
+    setup_keyring();
+    let dir = tempfile::tempdir().unwrap();
+    let store = ConnectionStore::new(&dir.path().join("test.db")).unwrap();
+
+    let mut profile = test_profile();
+    profile.password = "s3cret".to_string();
+    store.save(&profile).unwrap();
+
+    // What the command layer does: read the stored profile, fill the blank.
+    let mut edit = profile.clone();
+    edit.name = "renamed".to_string();
+    edit.password = String::new();
+    if edit.password.is_empty() {
+        if let Some(stored) = store.get_existing(&edit.id).unwrap() {
+            edit.password = stored.password;
+        }
+    }
+    store.save(&edit).unwrap();
+
+    let after = store.get(&profile.id).unwrap();
+    assert_eq!(after.name, "renamed");
+    assert_eq!(
+        after.password, "s3cret",
+        "the stored password must survive an edit that did not touch it"
+    );
 }

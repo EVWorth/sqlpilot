@@ -183,6 +183,22 @@ impl ConnectionStore {
     }
 
     #[tracing::instrument(skip(self))]
+    /// The stored profile, or `None` if there is no such profile yet.
+    ///
+    /// The distinction matters when filling in credentials the frontend did
+    /// not send back. "Nothing stored" means a new profile, where an empty
+    /// password really is the user's intent. A keyring that is locked or
+    /// unavailable is a different thing entirely, and treating it as "no
+    /// password" makes the next save delete the credential (#274) — so that
+    /// case is returned as an error rather than folded into `None`.
+    pub fn get_existing(&self, id: &str) -> Result<Option<ConnectionProfile>, CoreError> {
+        match self.get(id) {
+            Ok(profile) => Ok(Some(profile)),
+            Err(CoreError::NotFound(_)) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
     pub fn get(&self, id: &str) -> Result<ConnectionProfile, CoreError> {
         tracing::debug!("Getting connection profile");
         let db = self
