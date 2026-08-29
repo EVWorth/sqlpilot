@@ -52,7 +52,25 @@ pub async fn save_connection_profile(
             .as_ref()
             .is_some_and(|c| c.password.is_none() || c.passphrase.is_none());
     if needs_stored {
-        if let Ok(stored) = state.connection_store.get(&profile.id) {
+        // `if let Ok(..)` here was the bug: it treated a locked or unavailable
+        // keyring exactly like "this profile has no stored password", left the
+        // field empty, and let the save below delete the credential — while
+        // reporting success (#274). A missing profile is fine; anything else
+        // means refusing to save rather than destroying what is stored.
+        let stored = state
+            .connection_store
+            .get_existing(&profile.id)
+            .map_err(|e| {
+                tracing::error!(error = %e, profile_id = %profile.id, "Refusing to save: stored credentials unreadable");
+                format!(
+                    "Could not read the saved credentials for this profile, so nothing was saved \
+                     and the stored password is untouched. This usually means the OS keyring is \
+                     locked or unavailable. Underlying error: {}",
+                    e
+                )
+            })?;
+
+        if let Some(stored) = stored {
             if profile.password.is_empty() {
                 profile.password = stored.password;
             }
@@ -112,9 +130,23 @@ pub async fn test_connection(
     state: State<'_, AppState>,
     mut profile: ConnectionProfile,
 ) -> Result<TestConnectionResult, String> {
-    // If the frontend omitted the password (edit mode), look it up from the store
+    // If the frontend omitted the password (edit mode), look it up from the
+    // store. A keyring failure here is reported rather than swallowed: testing
+    // with a silently-empty password produces "Access denied", which sends the
+    // user off to debug credentials that are perfectly fine (#274).
     if profile.password.is_empty() {
-        if let Ok(stored) = state.connection_store.get(&profile.id) {
+        let stored = state
+            .connection_store
+            .get_existing(&profile.id)
+            .map_err(|e| {
+                tracing::error!(error = %e, "Could not read stored credentials for test");
+                format!(
+                    "Could not read the saved password for this profile — the OS keyring may be \
+                     locked or unavailable. Underlying error: {}",
+                    e
+                )
+            })?;
+        if let Some(stored) = stored {
             profile.password = stored.password;
         }
     }

@@ -1,4 +1,4 @@
-import { Database, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
+import { Database, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { cn } from "../../lib/utils";
@@ -181,6 +181,19 @@ export function ConnectionTabs() {
                 <span
                   className="h-1.5 w-1.5 shrink-0 rounded-full"
                   style={{ backgroundColor: profile.color }}
+                />
+              )}
+
+              {
+                /* Read-only is enforced in the executor, but a guard the user
+                  cannot see is one they will be surprised by — the refusal
+                  arrives only after they run something (#277). */
+              }
+              {profile?.read_only && (
+                <Lock
+                  role="img"
+                  aria-label="Read-only connection"
+                  className="h-3 w-3 shrink-0 text-yellow-400"
                 />
               )}
 
