@@ -130,6 +130,11 @@ export const api = {
   killProcess: (connectionId: string, processId: number) =>
     unwrap("kill_process", () => commands.killProcess(connectionId, processId)),
 
+  // Aborts the running statement but leaves the session — the proportionate
+  // response to a long query, where killProcess drops the whole connection.
+  killQuery: (connectionId: string, processId: number) =>
+    unwrap("kill_query", () => commands.killQuery(connectionId, processId)),
+
   // Which PROCESSLIST rows are SQLPilot's own sessions, so the UI can present
   // them as un-killable rather than letting the user disconnect the app.
   getOwnThreadIds: (connectionId: string) => unwrap("get_own_thread_ids", () => commands.getOwnThreadIds(connectionId)),

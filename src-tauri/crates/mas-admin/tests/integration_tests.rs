@@ -272,3 +272,66 @@ async fn kill_process_still_kills_a_foreign_connection() {
 
     manager.disconnect(&info.id).await.unwrap();
 }
+
+/// `KILL QUERY` must abort the statement and leave the session usable.
+///
+/// The panel could only issue `KILL`, which drops the connection along with
+/// its transaction, prepared statements and session variables — a heavy answer
+/// to "this SELECT is taking too long" (#430).
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn kill_query_stops_the_statement_but_keeps_the_session() {
+    use sqlx::mysql::MySqlConnection;
+    use sqlx::Connection;
+
+    let manager = Arc::new(ConnectionManager::new());
+    let service = AdminService::new(manager.clone());
+    let admin = manager.connect(&test_profile()).await.expect("connect");
+
+    let mut victim =
+        MySqlConnection::connect("mysql://test_user:test_password@127.0.0.1:13306/test_db")
+            .await
+            .expect("open the session to interrupt");
+    let (victim_id,): (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
+        .fetch_one(&mut victim)
+        .await
+        .expect("read thread id");
+
+    // Give the session something to be interrupted out of, and a session
+    // variable that must survive the interruption.
+    sqlx::query("SET @survives = 'yes'")
+        .execute(&mut victim)
+        .await
+        .expect("set a session variable");
+
+    let sleeper = tokio::spawn(async move {
+        let result = sqlx::query("SELECT SLEEP(30)").execute(&mut victim).await;
+        (victim, result)
+    });
+    tokio::time::sleep(Duration::from_millis(750)).await;
+
+    let started = std::time::Instant::now();
+    service
+        .kill_query(&admin.id, victim_id as i64)
+        .await
+        .expect("kill query should be permitted");
+    let (mut victim, _result) = sleeper.await.expect("the sleeping task should finish");
+
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "SLEEP(30) should have been cut short, took {:?}",
+        started.elapsed()
+    );
+
+    // The distinguishing property: the session is still there, with its state.
+    let (survives,): (String,) = sqlx::query_as("SELECT @survives")
+        .fetch_one(&mut victim)
+        .await
+        .expect("the session should still be usable after KILL QUERY");
+    assert_eq!(
+        survives, "yes",
+        "session state should survive an aborted statement"
+    );
+
+    manager.disconnect(&admin.id).await.unwrap();
+}

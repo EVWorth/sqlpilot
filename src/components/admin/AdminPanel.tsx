@@ -114,13 +114,22 @@ function ProcessListTab({ connectionId }: { connectionId: string }) {
     };
   }, [refreshInterval, fetchProcesses]);
 
-  const handleKill = async (processId: number) => {
+  // Two scopes, because they are not interchangeable: aborting a long SELECT
+  // should not also discard the session's transaction, prepared statements and
+  // variables, which is all `KILL` could do before (#430).
+  const handleKill = async (processId: number, scope: "query" | "connection") => {
     try {
-      await api.killProcess(connectionId, processId);
+      if (scope === "query") {
+        await api.killQuery(connectionId, processId);
+      } else {
+        await api.killProcess(connectionId, processId);
+      }
       setConfirmKillId(null);
       await fetchProcesses();
     } catch (e) {
-      setError(`Failed to kill process ${processId}: ${e}`);
+      setError(
+        `Failed to kill ${scope === "query" ? "query on" : "connection"} ${processId}: ${e}`,
+      );
     }
   };
 
@@ -243,10 +252,18 @@ function ProcessListTab({ connectionId }: { connectionId: string }) {
                     ? (
                       <div className="flex items-center gap-1">
                         <button
-                          onClick={() => handleKill(p.id)}
+                          onClick={() => handleKill(p.id, "query")}
+                          title="Abort the running statement, keep the session"
+                          className="rounded bg-amber-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-amber-500"
+                        >
+                          Kill query
+                        </button>
+                        <button
+                          onClick={() => handleKill(p.id, "connection")}
+                          title="Disconnect the session entirely, discarding its transaction"
                           className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-500"
                         >
-                          Kill?
+                          Kill connection
                         </button>
                         <button
                           onClick={() => setConfirmKillId(null)}
@@ -530,7 +547,13 @@ interface MetricCard {
   sub?: string;
 }
 
-function computeMetrics(vars: StatusVar[]): MetricCard[] {
+/** A previous SHOW GLOBAL STATUS reading, for the rate calculations. */
+export interface StatusSample {
+  queries: number;
+  uptime: number;
+}
+
+export function computeMetrics(vars: StatusVar[], previous?: StatusSample): MetricCard[] {
   const uptime = getStatusVal(vars, "Uptime");
   const queries = getStatusVal(vars, "Queries");
   const slowQueries = getStatusVal(vars, "Slow_queries");
@@ -545,17 +568,48 @@ function computeMetrics(vars: StatusVar[]): MetricCard[] {
   const openTables = getStatusVal(vars, "Open_tables");
   const openedTables = getStatusVal(vars, "Opened_tables");
 
-  const qps = uptime > 0 ? (queries / uptime).toFixed(1) : "0";
+  const cacheHits = getStatusVal(vars, "Table_open_cache_hits");
+  const cacheMisses = getStatusVal(vars, "Table_open_cache_misses");
+
+  // Queries/Uptime is the average since the server started, which on a
+  // long-lived server barely moves and tells a DBA nothing about now. The
+  // rate over the last interval needs two readings, so the first one still
+  // shows the lifetime average — labelled as such rather than as QPS (#443).
+  //
+  // Uptime is the time base rather than the client clock: it comes from the
+  // same reading as the counter, so a slow response or a clock adjustment
+  // cannot skew it.
+  const elapsed = previous ? uptime - previous.uptime : 0;
+  const isLive = previous !== undefined && elapsed > 0;
+  const qps = isLive
+    ? Math.max(0, (queries - previous.queries) / elapsed).toFixed(1)
+    : uptime > 0
+    ? (queries / uptime).toFixed(1)
+    : "0";
   const poolUsagePct = poolSize > 0 ? (((poolSize - poolFree) / poolSize) * 100).toFixed(1) : "0";
   const poolHitRate = poolReadRequests > 0
     ? (((poolReadRequests - poolReads) / poolReadRequests) * 100).toFixed(2)
     : "100";
-  const cacheHitRate = openedTables > 0 ? ((openTables / openedTables) * 100).toFixed(1) : "100";
+  // Open_tables is how many are open right now; Opened_tables is how many
+  // have ever been opened. Their ratio is not a hit rate — it reads 0% on a
+  // server that has been up a week and 100% on one just restarted, whatever
+  // the cache is doing. MySQL 5.6+ and MariaDB both publish the real
+  // counters (#431).
+  const cacheRequests = cacheHits + cacheMisses;
+  const cacheHitRate = cacheRequests > 0
+    ? ((cacheHits / cacheRequests) * 100).toFixed(1)
+    : null;
 
   return [
     { label: "Uptime", value: formatUptime(uptime) },
     { label: "Connections", value: String(threadsConnected), sub: `${connections} total` },
-    { label: "QPS", value: qps, sub: `${queries.toLocaleString()} total` },
+    {
+      label: isLive ? "QPS" : "QPS (avg since start)",
+      value: qps,
+      sub: isLive
+        ? `${queries.toLocaleString()} total`
+        : `${queries.toLocaleString()} total — live rate after next refresh`,
+    },
     { label: "Slow Queries", value: slowQueries.toLocaleString() },
     {
       label: "Threads",
@@ -563,12 +617,21 @@ function computeMetrics(vars: StatusVar[]): MetricCard[] {
       sub: `${threadsConnected} connected / ${threadsCached} cached`,
     },
     { label: "Buffer Pool Usage", value: `${poolUsagePct}%`, sub: `Hit rate: ${poolHitRate}%` },
-    { label: "Table Cache", value: `${openTables} open`, sub: `Hit rate: ${cacheHitRate}%` },
+    {
+      label: "Table Cache",
+      value: `${openTables} open`,
+      sub: cacheHitRate === null
+        ? `${openedTables.toLocaleString()} opened — hit rate unavailable`
+        : `Hit rate: ${cacheHitRate}%`,
+    },
   ];
 }
 
 function ServerStatusTab({ connectionId }: { connectionId: string }) {
   const [statusVars, setStatusVars] = useState<StatusVar[]>([]);
+  // The reading before this one, so QPS can be a rate over the interval rather
+  // than the average since the server started (#443).
+  const [previousSample, setPreviousSample] = useState<StatusSample | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -583,7 +646,16 @@ function ServerStatusTab({ connectionId }: { connectionId: string }) {
           name: String(row[0] ?? ""),
           value: String(row[1] ?? ""),
         }));
-        setStatusVars(rows);
+        setStatusVars((prior) => {
+          // Carry the reading being replaced forward as the baseline.
+          if (prior.length > 0) {
+            setPreviousSample({
+              queries: getStatusVal(prior, "Queries"),
+              uptime: getStatusVal(prior, "Uptime"),
+            });
+          }
+          return rows;
+        });
         setError(null);
       }
     } catch (e) {
@@ -608,7 +680,10 @@ function ServerStatusTab({ connectionId }: { connectionId: string }) {
     };
   }, [refreshInterval, fetchStatus]);
 
-  const metrics = useMemo(() => computeMetrics(statusVars), [statusVars]);
+  const metrics = useMemo(
+    () => computeMetrics(statusVars, previousSample),
+    [statusVars, previousSample],
+  );
 
   const filtered = useMemo(() => {
     if (!filter) return statusVars;

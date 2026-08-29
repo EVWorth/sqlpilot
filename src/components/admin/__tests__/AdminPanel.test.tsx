@@ -7,6 +7,7 @@ vi.mock("../../../lib/tauri-api", () => ({
     getProcessList: vi.fn(),
     getOwnThreadIds: vi.fn(),
     killProcess: vi.fn(),
+    killQuery: vi.fn(),
     executeQuery: vi.fn(),
     getServerVariables: vi.fn(),
   },
@@ -97,6 +98,7 @@ describe("ProcessListTab", () => {
     vi.clearAllMocks();
     vi.mocked(api.getProcessList).mockResolvedValue(mockProcesses);
     vi.mocked(api.killProcess).mockResolvedValue(undefined);
+    vi.mocked(api.killQuery).mockResolvedValue(undefined);
     // clearAllMocks resets calls but not implementations, so a test that marks
     // a process as our own would otherwise leak into the ones after it.
     vi.mocked(api.getOwnThreadIds).mockResolvedValue([]);
@@ -168,7 +170,8 @@ describe("ProcessListTab", () => {
     await screen.findByText("root");
     const skullButtons = screen.getAllByTitle(/Kill process/);
     fireEvent.click(skullButtons[0]);
-    expect(screen.getByText("Kill?")).toBeDefined();
+    expect(screen.getByText("Kill connection")).toBeDefined();
+    expect(screen.getByText("Kill query")).toBeDefined();
     expect(screen.getByText("Cancel")).toBeDefined();
   });
 
@@ -177,8 +180,21 @@ describe("ProcessListTab", () => {
     await screen.findByText("root");
     const skullButtons = screen.getAllByTitle(/Kill process/);
     fireEvent.click(skullButtons[0]);
-    fireEvent.click(screen.getByText("Kill?"));
+    fireEvent.click(screen.getByText("Kill connection"));
     expect(api.killProcess).toHaveBeenCalledWith(mockConnectionId, 1);
+  });
+
+  it("kills only the query when that is what was chosen", async () => {
+    // Aborting a long SELECT should not also discard the session's
+    // transaction and prepared statements (#430).
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    await screen.findByText("root");
+    fireEvent.click(screen.getAllByTitle(/Kill process/)[0]);
+    await act(async () => {
+      fireEvent.click(screen.getByText("Kill query"));
+    });
+    expect(api.killQuery).toHaveBeenCalledWith(mockConnectionId, 1);
+    expect(api.killProcess).not.toHaveBeenCalled();
   });
 
   it("shows error on kill failure", async () => {
@@ -188,9 +204,9 @@ describe("ProcessListTab", () => {
     const skullButtons = screen.getAllByTitle(/Kill process/);
     fireEvent.click(skullButtons[0]);
     await act(async () => {
-      fireEvent.click(screen.getByText("Kill?"));
+      fireEvent.click(screen.getByText("Kill connection"));
     });
-    expect(await screen.findByText(/Failed to kill process/)).toBeDefined();
+    expect(await screen.findByText(/Failed to kill connection/)).toBeDefined();
   });
 });
 
@@ -272,7 +288,7 @@ describe("ServerStatusTab", () => {
     fireEvent.click(screen.getByText("Server Status"));
     expect((await screen.findAllByText("Uptime")).length).toBeGreaterThanOrEqual(1);
     expect(screen.queryAllByText("Connections").length).toBeGreaterThanOrEqual(1);
-    expect(screen.queryAllByText("QPS").length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryAllByText(/^QPS/).length).toBeGreaterThanOrEqual(1);
   });
 
   it("shows error on fetch failure", async () => {
