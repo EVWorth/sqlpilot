@@ -770,7 +770,12 @@ function PrivilegesEditor({
     setError(null);
     setSuccessMsg(null);
     const userSpec = `${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`;
-    const statements: string[] = [];
+    // Collected separately so every revoke can be emitted before any grant.
+    // Interleaving them by scope meant a global GRANT could land before a
+    // database REVOKE, so an interruption in between left the user with more
+    // access than intended — the wrong direction to fail in (#439).
+    const revokes: string[] = [];
+    const grants: string[] = [];
 
     // Global privilege changes
     if (hasGlobalChanges) {
@@ -782,23 +787,15 @@ function PrivilegesEditor({
       );
 
       if (toRevoke.length > 0) {
-        statements.push(
-          `REVOKE ${toRevoke.join(", ")} ON *.* FROM ${userSpec}`,
-        );
+        revokes.push(`REVOKE ${toRevoke.join(", ")} ON *.* FROM ${userSpec}`);
       }
       if (toGrant.length > 0) {
-        statements.push(
-          `GRANT ${toGrant.join(", ")} ON *.* TO ${userSpec}`,
-        );
+        grants.push(`GRANT ${toGrant.join(", ")} ON *.* TO ${userSpec}`);
       }
       if (editedGrantOption && !hasGrantOption) {
-        statements.push(
-          `GRANT GRANT OPTION ON *.* TO ${userSpec}`,
-        );
+        grants.push(`GRANT GRANT OPTION ON *.* TO ${userSpec}`);
       } else if (!editedGrantOption && hasGrantOption) {
-        statements.push(
-          `REVOKE GRANT OPTION ON *.* FROM ${userSpec}`,
-        );
+        revokes.push(`REVOKE GRANT OPTION ON *.* FROM ${userSpec}`);
       }
     }
 
@@ -812,34 +809,50 @@ function PrivilegesEditor({
       const dbScope = `${quoteIdentifier(db)}.*`;
 
       if (toRevoke.length > 0) {
-        statements.push(
-          `REVOKE ${toRevoke.join(", ")} ON ${dbScope} FROM ${userSpec}`,
-        );
+        revokes.push(`REVOKE ${toRevoke.join(", ")} ON ${dbScope} FROM ${userSpec}`);
       }
       if (toGrant.length > 0) {
-        statements.push(
-          `GRANT ${toGrant.join(", ")} ON ${dbScope} TO ${userSpec}`,
-        );
+        grants.push(`GRANT ${toGrant.join(", ")} ON ${dbScope} TO ${userSpec}`);
       }
     }
 
+    const statements = [...revokes, ...grants];
     if (statements.length > 0) {
       statements.push("FLUSH PRIVILEGES");
     }
 
+    // GRANT and REVOKE each force an implicit commit, so this sequence cannot
+    // be made atomic — a transaction around it would change nothing, and a
+    // GRANT survives a ROLLBACK. What is left is to fail in the safer
+    // direction and to say exactly what happened (#439).
+    //
+    // Every revoke is emitted before any grant, so an interruption leaves the
+    // user with less access than intended rather than more. Being locked out
+    // of a schema is recoverable and obvious; retaining a privilege an admin
+    // believed they had removed is neither.
+    const applied: string[] = [];
+    // Held rather than set immediately: the re-read below calls loadGrants,
+    // which clears the error as it starts, and would wipe this report.
+    let failureReport: string | null = null;
     try {
       for (const sql of statements) {
         await api.executeQuery(connectionId, sql);
+        applied.push(sql);
       }
-      setSuccessMsg("Privileges updated successfully");
-      // The cached per-database grants are now stale; drop them so the
-      // selected database reloads from the server rather than showing the
-      // optimistic edit as if it were the server's state.
+      setSuccessMsg(
+        statements.length === 1
+          ? "Privileges updated"
+          : `Privileges updated — ${statements.length} statements applied`,
+      );
+    } catch (e) {
+      failureReport = describePartialFailure(statements, applied, e);
+    } finally {
+      // Always re-read, on success and on failure alike. After a partial
+      // failure the server holds a state nobody chose, and showing the
+      // optimistic edit as though it were real is the worst of the options.
       setDbPrivs(new Map());
       await loadGrants();
-    } catch (e) {
-      setError(String(e));
-    } finally {
+      if (failureReport) setError(failureReport);
       setApplying(false);
     }
   };
@@ -855,7 +868,7 @@ function PrivilegesEditor({
   return (
     <div className="space-y-4 p-4">
       {error && (
-        <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+        <div className="whitespace-pre-line rounded border border-red-500/30 bg-red-500/10 px-3 py-2 font-mono text-[11px] text-red-400">
           {error}
         </div>
       )}
@@ -1026,6 +1039,39 @@ function PrivilegesEditor({
       </div>
     </div>
   );
+}
+
+/**
+ * Explain a half-applied privilege change.
+ *
+ * Reporting only the error from the statement that failed leaves the user
+ * unable to tell what the server now holds — and since none of it can be
+ * rolled back, that is the one thing they need to know.
+ */
+function describePartialFailure(
+  statements: string[],
+  applied: string[],
+  error: unknown,
+): string {
+  const failed = statements[applied.length];
+  const notAttempted = statements.slice(applied.length + 1);
+
+  const lines = [
+    `Applied ${applied.length} of ${statements.length} statements, then failed.`,
+    "",
+    `Failed: ${failed}`,
+    `  ${String(error)}`,
+  ];
+  if (applied.length > 0) {
+    lines.push("", "Already applied (GRANT and REVOKE cannot be rolled back):");
+    lines.push(...applied.map((s) => `  ${s}`));
+  }
+  if (notAttempted.length > 0) {
+    lines.push("", "Not attempted:");
+    lines.push(...notAttempted.map((s) => `  ${s}`));
+  }
+  lines.push("", "The privilege list has been refreshed from the server.");
+  return lines.join("\n");
 }
 
 function setsEqual(a: Set<string>, b: Set<string>): boolean {

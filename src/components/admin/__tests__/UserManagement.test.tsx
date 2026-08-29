@@ -311,3 +311,58 @@ describe("per-database privilege edits (#441)", () => {
     expect(await screen.findByText(/unapplied changes on db1/)).toBeDefined();
   });
 });
+
+describe("partial privilege failure (#439)", () => {
+  it("says what applied, what failed and what was skipped", async () => {
+    // GRANT and REVOKE each force an implicit commit, so a half-applied
+    // change cannot be rolled back. Reporting only the failing statement's
+    // error left the user unable to tell what the server now holds.
+    vi.mocked(api.getDatabases).mockResolvedValue([{ name: "db1" }] as never);
+    let seen = 0;
+    vi.mocked(api.executeQuery).mockImplementation((_c: string, sql: string) => {
+      if (sql.startsWith("SHOW GRANTS")) {
+        return Promise.resolve([
+          {
+            query_id: "g",
+            statement_index: 0,
+            columns: [{ name: "G", data_type: "V", nullable: false, is_primary_key: false }],
+            rows: [["GRANT SELECT, INSERT ON *.* TO 'alice'@'%'"]],
+            rows_affected: 0,
+            execution_time_ms: 1,
+            warnings: [],
+            rows_truncated: false,
+          },
+        ]) as never;
+      }
+      if (sql.startsWith("REVOKE") || sql.startsWith("GRANT") || sql.startsWith("FLUSH")) {
+        seen += 1;
+        // Succeed on the first, fail on the second.
+        return seen === 1
+          ? (Promise.resolve([]) as never)
+          : (Promise.reject(new Error("Access denied")) as never);
+      }
+      return Promise.resolve(mockUserResults([{ User: "alice", Host: "%" }])) as never;
+    });
+
+    render(<UserManagement connectionId="c1" />);
+    fireEvent.click(await screen.findByText("alice"));
+    fireEvent.click(await screen.findByText("Privileges"));
+
+    // Two global changes, so there is a statement either side of the failure.
+    const globalBoxes = await screen.findAllByRole("checkbox");
+    await act(async () => {
+      fireEvent.click(globalBoxes[0]);
+    });
+    await act(async () => {
+      fireEvent.click(globalBoxes[2]);
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Apply Changes"));
+    });
+
+    const report = await screen.findByText(/Applied 1 of/);
+    expect(report.textContent).toContain("Failed:");
+    expect(report.textContent).toContain("cannot be rolled back");
+    expect(report.textContent).toContain("refreshed from the server");
+  });
+});
