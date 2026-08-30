@@ -1,11 +1,10 @@
 import { create } from "zustand";
+import { isDestructiveStatement } from "../lib/sql-safety";
 import { api } from "../lib/tauri-api";
 import type { QueryResult } from "../types";
 import { useConnectionStore } from "./connectionStore";
 import { useHistoryStore } from "./historyStore";
 import { useSettingsStore } from "./settingsStore";
-
-const DESTRUCTIVE_PATTERN = /\b(DROP|DELETE|TRUNCATE|ALTER)\b/i;
 
 /**
  * What the pending confirmation would run if approved. `explain-analyze` is
@@ -105,7 +104,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
 
   executeQuery: async (connectionId, sql, database) => {
     // Production safety check
-    if (isProductionConnection(connectionId) && DESTRUCTIVE_PATTERN.test(sql)) {
+    if (isProductionConnection(connectionId) && isDestructiveStatement(sql)) {
       set({ confirmDialog: { isOpen: true, kind: "query", connectionId, sql, database } });
       return;
     }

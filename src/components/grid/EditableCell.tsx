@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isBooleanSqlType, isExactNumericType, isLongTextSqlType, isNumericSqlType } from "../../lib/sql-types";
+import {
+  isBooleanSqlType,
+  isExactNumericType,
+  isLongTextSqlType,
+  isNumericSqlType,
+  parseBooleanInput,
+} from "../../lib/sql-types";
 import type { SqlValue } from "../../types";
 import { SqlValueGuard } from "../../types";
 
@@ -19,6 +25,9 @@ export function EditableCell({
   onTab,
 }: EditableCellProps) {
   const [editing, setEditing] = useState(false);
+  // Set when the typed text is not a value this column can hold, so the cell
+  // can say so instead of writing something the server would reinterpret.
+  const [invalid, setInvalid] = useState(false);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
 
@@ -52,12 +61,17 @@ export function EditableCell({
     [onCommit],
   );
 
-  const parseEditValue = useCallback((rawValue: string): SqlValue => {
+  const parseEditValue = useCallback((rawValue: string): SqlValue | undefined => {
     if (rawValue === "" && value === null) {
       return null;
     }
     if (rawValue === "") {
       return "";
+    }
+    // A boolean column takes 0 or 1. Anything else must not be handed to
+    // MySQL, which converts a non-numeric string to 0 without complaint.
+    if (isBooleanSqlType(dataType)) {
+      return parseBooleanInput(rawValue);
     }
     // BIGINT and DECIMAL keep their digits as text: Number() would drop the
     // last digit of a large id or the exactness of a decimal, corrupting the
@@ -81,12 +95,20 @@ export function EditableCell({
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
         const parsed = parseEditValue(editValue);
+        if (parsed === undefined) {
+          setInvalid(true);
+          return;
+        }
         commitEdit(parsed);
       } else if (e.key === "Escape") {
         cancelEdit();
       } else if (e.key === "Tab") {
         e.preventDefault();
         const parsed = parseEditValue(editValue);
+        if (parsed === undefined) {
+          setInvalid(true);
+          return;
+        }
         commitEdit(parsed);
         onTab?.(e.shiftKey);
       }
@@ -151,10 +173,20 @@ export function EditableCell({
         <textarea
           ref={inputRef as React.RefObject<HTMLTextAreaElement>}
           value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
+          onChange={(e) => {
+            setEditValue(e.target.value);
+            setInvalid(false);
+          }}
           onKeyDown={handleKeyDown}
           onBlur={() => {
             const parsed = parseEditValue(editValue);
+            // Long-text columns are never boolean, so this cannot currently be
+            // undefined — guarded anyway so a future type with its own parsing
+            // rules cannot slip an unreadable value through here.
+            if (parsed === undefined) {
+              cancelEdit();
+              return;
+            }
             commitEdit(parsed);
           }}
           rows={3}
@@ -182,13 +214,25 @@ export function EditableCell({
         type={isNumericSqlType(dataType) && !isExactNumericType(dataType) ? "number" : "text"}
         inputMode={isNumericSqlType(dataType) ? "numeric" : undefined}
         value={editValue}
-        onChange={(e) => setEditValue(e.target.value)}
+        onChange={(e) => {
+          setEditValue(e.target.value);
+          setInvalid(false);
+        }}
         onKeyDown={handleKeyDown}
         onBlur={() => {
           const parsed = parseEditValue(editValue);
+          // Leaving the cell must not write a value it could not read.
+          if (parsed === undefined) {
+            cancelEdit();
+            return;
+          }
           commitEdit(parsed);
         }}
-        className="w-full rounded border border-brand-500 bg-[var(--color-bg-primary)] px-1 py-0.5 text-xs text-[var(--color-text-primary)] outline-none"
+        title={invalid ? "Enter 0 or 1 (or true/false, yes/no, on/off)" : undefined}
+        aria-invalid={invalid || undefined}
+        className={`w-full rounded border bg-[var(--color-bg-primary)] px-1 py-0.5 text-xs text-[var(--color-text-primary)] outline-none ${
+          invalid ? "border-red-500" : "border-brand-500"
+        }`}
       />
       <button
         onMouseDown={(e) => {
