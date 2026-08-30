@@ -1,27 +1,40 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useEditorStore } from "../../../stores/editorStore";
 import { ConnectionTabs } from "../ConnectionTabs";
 
 const mockLoadProfiles = vi.fn();
+// Hoisted, because the mock factory below runs before ordinary top-level
+// consts are initialised.
+const { setStateSpy } = vi.hoisted(() => ({ setStateSpy: vi.fn() }));
 
 /** Overridden per test to render tabs for specific profiles. */
 let storeState: Record<string, unknown> = {};
 
-vi.mock("../../../stores/connectionStore", () => ({
-  useConnectionStore: vi.fn((s: (v: unknown) => unknown) =>
-    s({
-      profiles: [],
-      activeConnections: [],
-      ...storeState,
-      selectedConnectionId: null,
-      connect: vi.fn(),
-      disconnect: vi.fn(),
-      deleteProfile: vi.fn(),
-      setSelectedConnection: vi.fn(),
-      loadProfiles: mockLoadProfiles,
-    })
-  ),
-}));
+function currentState() {
+  return {
+    profiles: [],
+    activeConnections: [],
+    selectedConnectionId: null,
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+    deleteProfile: vi.fn(),
+    setSelectedConnection: vi.fn(),
+    loadProfiles: mockLoadProfiles,
+    ...storeState,
+  };
+}
+
+vi.mock("../../../stores/connectionStore", () => {
+  const hook = vi.fn((s: (v: unknown) => unknown) => s(currentState())) as unknown as {
+    (s: (v: unknown) => unknown): unknown;
+    getState: () => unknown;
+    setState: typeof setStateSpy;
+  };
+  hook.getState = () => currentState();
+  hook.setState = setStateSpy;
+  return { useConnectionStore: hook };
+});
 
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: {
@@ -42,6 +55,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 beforeEach(() => {
   vi.clearAllMocks();
   storeState = {};
+  setStateSpy.mockClear();
   mockLoadProfiles.mockResolvedValue(undefined);
 });
 
@@ -89,5 +103,32 @@ describe("read-only connections (#277)", () => {
     };
     render(<ConnectionTabs />);
     expect(screen.queryByLabelText("Read-only connection")).toBeNull();
+  });
+});
+
+describe("startup reconnect (#276)", () => {
+  it("says which servers it could not reconnect to", async () => {
+    // The failure used to be an empty catch. The tab looked normal and the
+    // first query failed with "Connection not found", which describes neither
+    // what happened nor when.
+    const connect = vi.fn().mockRejectedValue(new Error("connection refused"));
+    storeState = {
+      profiles: [{ id: "p1", name: "prod-eu", host: "db" }],
+      connect,
+    };
+    vi.mocked(useEditorStore.getState).mockReturnValue({
+      tabs: [{ id: "t1", profileId: "p1" }],
+      activeTabId: "t1",
+      addTab: vi.fn(),
+      setTabConnection: vi.fn(),
+    } as never);
+
+    render(<ConnectionTabs />);
+
+    await vi.waitFor(() => {
+      expect(setStateSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ error: expect.stringContaining("prod-eu") }),
+      );
+    });
   });
 });

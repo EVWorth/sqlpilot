@@ -35,6 +35,9 @@ pub enum CoreError {
     #[error("Read-only connection: {0}")]
     ReadOnly(String),
 
+    #[error("Connection pool exhausted: {0}")]
+    PoolExhausted(String),
+
     #[error("Out of memory: {0}")]
     OutOfMemory(String),
 

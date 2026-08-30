@@ -49,6 +49,7 @@ export function ConnectionTabs() {
         ),
       ];
 
+      const failed: string[] = [];
       for (const profileId of profileIds) {
         try {
           const conn = await connect(profileId);
@@ -62,9 +63,26 @@ export function ConnectionTabs() {
           if (activeTab?.profileId === profileId) {
             setSelectedConnection(conn.id);
           }
-        } catch {
-          // Server may be unreachable — leave tab without a live connection
+        } catch (e) {
+          // Leaving the tab without a live connection is right; saying nothing
+          // about it is not. The tab looked normal and the first query failed
+          // with "Connection not found", which describes neither what happened
+          // nor when (#276).
+          const name = useConnectionStore.getState().profiles.find((p) => p.id === profileId)?.name
+            ?? profileId;
+          failed.push(name);
+          console.warn(`Could not reconnect to ${name} on startup`, e);
         }
+      }
+
+      if (failed.length > 0) {
+        useConnectionStore.setState({
+          error: failed.length === 1
+            ? `Could not reconnect to ${failed[0]}. Its tabs have no live connection — use the connect button to retry.`
+            : `Could not reconnect to ${failed.length} servers (${
+              failed.join(", ")
+            }). Their tabs have no live connection — use the connect button to retry.`,
+        });
       }
     };
     init();

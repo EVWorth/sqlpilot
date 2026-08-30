@@ -15,6 +15,8 @@ pub struct ActiveConnection {
     /// were in force when it was opened.
     pub query_timeout_secs: Option<u32>,
     pub read_only: bool,
+    pub pool_max: u32,
+    pub acquire_timeout_secs: u64,
     /// Who the server sees this connection as, for the audit line on a write.
     pub actor: String,
     /// Server thread ids this pool has opened.
@@ -101,7 +103,13 @@ impl ConnectionManager {
             .await
             .map_err(|e| {
                 tracing::warn!(connection_id = %conn_id, error = %e, "Connection failed");
-                CoreError::Connection(format!("Failed to connect: {}", e))
+                super::describe_pool_error(
+                    &e,
+                    &profile.name,
+                    profile.pool_max,
+                    profile.connect_timeout_secs.unwrap_or(10) as u64,
+                )
+                .unwrap_or_else(|| CoreError::Connection(format!("Failed to connect: {}", e)))
             })?;
 
         // If no default database was specified, auto-select the first user database
@@ -153,6 +161,8 @@ impl ConnectionManager {
                 pool,
                 query_timeout_secs: profile.query_timeout_secs,
                 read_only: profile.read_only,
+                pool_max: profile.pool_max,
+                acquire_timeout_secs: profile.connect_timeout_secs.unwrap_or(10) as u64,
                 actor: format!("{}@{}:{}", profile.username, profile.host, profile.port),
                 own_threads: Arc::clone(&own_threads),
             },
@@ -260,6 +270,17 @@ impl ConnectionManager {
                 tracing::debug!(connection_id = %connection_id, "Pool not found");
                 CoreError::NotFound(format!("Connection not found: {}", connection_id))
             })
+    }
+
+    /// Pool sizing for a live connection, for the message when it runs out.
+    pub fn pool_limits(&self, connection_id: &str) -> Option<(String, u32, u64)> {
+        self.connections.get(connection_id).map(|conn| {
+            (
+                conn.info.name.clone(),
+                conn.pool_max,
+                conn.acquire_timeout_secs,
+            )
+        })
     }
 
     /// Query timeout in force for a live connection. `None` (and a stored `0`)
