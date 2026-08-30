@@ -115,6 +115,7 @@ vi.mock("../../../lib/sql-generator", () => ({
   generateInsert: vi.fn(() => "INSERT ..."),
   generateDelete: vi.fn(() => "DELETE ..."),
   extractTableName: vi.fn(() => "users"),
+  resolveEditTarget: vi.fn(() => ({ editable: true, table: "users" })),
   getWhereColumns: vi.fn(() => ({ columns: ["id"], hasPrimaryKey: true })),
 }));
 
