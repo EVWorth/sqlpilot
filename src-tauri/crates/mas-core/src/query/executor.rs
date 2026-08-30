@@ -735,6 +735,13 @@ fn build_select_result(
                 .map(|col| ColumnMeta {
                     name: col.name().to_string(),
                     data_type: col.type_info().name().to_string(),
+                    // Placeholders, not facts. MySQL does send NOT_NULL and
+                    // PRIMARY_KEY flags in the result-set metadata, but sqlx
+                    // keeps ColumnFlags pub(crate), so they cannot be read
+                    // here. Anything that needs the real answer — the grid,
+                    // when working out how to address a row for UPDATE — asks
+                    // the schema inspector, which reads information_schema.
+                    // Do not start trusting these two (#387).
                     nullable: true,
                     is_primary_key: false,
                 })

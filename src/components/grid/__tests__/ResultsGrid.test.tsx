@@ -1,5 +1,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { generateUpdate, resolveEditTarget } from "../../../lib/sql-generator";
+import { api } from "../../../lib/tauri-api";
 import { ResultsGrid } from "../ResultsGrid";
 
 const state = {
@@ -89,19 +91,32 @@ vi.mock("../../../hooks/useGridEditing", () => ({
   useGridEditing: vi.fn(() => mockGridEditing),
 }));
 
-vi.mock("../../../lib/tauri-api", () => ({ api: { exportResults: vi.fn(), executeQuery: vi.fn() } }));
+vi.mock("../../../lib/tauri-api", () => ({
+  api: { exportResults: vi.fn(), executeQuery: vi.fn(), getColumns: vi.fn() },
+}));
 vi.mock("../../../lib/sql-generator", () => ({
   columnTypesOf: vi.fn(() => ({})),
   generateUpdate: vi.fn(() => "UPDATE ..."),
   generateInsert: vi.fn(() => "INSERT ..."),
   generateDelete: vi.fn(() => "DELETE ..."),
   extractTableName: vi.fn(() => "users"),
+  resolveEditTarget: vi.fn(() => ({ editable: true, table: "users" })),
   getWhereColumns: vi.fn(() => ({ columns: ["id"], hasPrimaryKey: true })),
 }));
 vi.mock("../EditableCell", () => ({ EditableCell: vi.fn(() => <div data-testid="editable-cell">EditableCell</div>) }));
 vi.mock("../EditToolbar", () => ({
-  EditToolbar: vi.fn(({ editMode }: { editMode: boolean }) => (
-    <div data-testid="edit-toolbar" data-edit-mode={editMode}>EditToolbar</div>
+  EditToolbar: vi.fn(({ editMode, onSave }: { editMode: boolean; onSave?: () => void }) => (
+    <div data-testid="edit-toolbar" data-edit-mode={editMode}>
+      EditToolbar
+      <button
+        type="button"
+        data-testid="save-button"
+        onClick={() =>
+          onSave?.()}
+      >
+        Save
+      </button>
+    </div>
   )),
 }));
 vi.mock("../TruncatedCell", () => ({
@@ -374,5 +389,100 @@ describe("ResultsGrid tab switching", () => {
     state.activeResultIndex = 0;
     render(<ResultsGrid />);
     fireEvent.click(screen.getByText("Result 2"));
+  });
+});
+
+describe("saving edits safely", () => {
+  beforeEach(() => {
+    // Call counts leak between tests in this block otherwise — the outer
+    // describe's clearAllMocks does not reach here.
+    vi.clearAllMocks();
+    // This describe sits outside the one whose beforeEach seeds the store, so
+    // the grid would otherwise render "Execute a query to see results".
+    state.results = [{ ...baseResult }];
+    state.activeResultIndex = 0;
+    state.isExecuting = false;
+    state.error = null;
+    editorTabs = [{
+      id: "tab-0",
+      content: "SELECT * FROM users",
+      connectionId: "conn-1",
+      database: "app",
+    }];
+    editorActiveTabId = "tab-0";
+    connSelectedId = "conn-1";
+    mockGridEditing.updates = new Map([[0, [{ column: "name", newValue: "x" }]]]);
+    mockGridEditing.hasChanges = true;
+    mockGridEditing.pendingCount = 1;
+    vi.mocked(api.getColumns).mockResolvedValue([
+      { name: "id", is_primary_key: true },
+      { name: "name", is_primary_key: false },
+    ] as never);
+    vi.mocked(api.executeQuery).mockResolvedValue([{ rows_affected: 1 }] as never);
+    vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "users" });
+  });
+
+  afterEach(() => {
+    mockGridEditing.updates = new Map();
+    mockGridEditing.hasChanges = false;
+    mockGridEditing.pendingCount = 0;
+  });
+
+  it("refuses to write when the query cannot be attributed to one table", async () => {
+    // A join used to resolve to whichever table came first in the FROM clause,
+    // so an edit to the other table's column was written to the wrong place
+    // (#399).
+    vi.mocked(resolveEditTarget).mockReturnValue({
+      editable: false,
+      reason: "the query joins tables, so an edited column cannot be attributed to one of them",
+    });
+
+    render(<ResultsGrid />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("save-button"));
+    });
+
+    expect(api.executeQuery).not.toHaveBeenCalled();
+    expect(await screen.findByText(/joins tables/)).toBeDefined();
+  });
+
+  it("addresses rows by the real primary key, not every column", async () => {
+    // Result-set metadata reports is_primary_key false for everything, so the
+    // WHERE clause matched on all columns (#387). The schema knows better.
+    render(<ResultsGrid />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("save-button"));
+    });
+
+    expect(api.getColumns).toHaveBeenCalledWith("conn-1", "app", "users");
+    expect(vi.mocked(generateUpdate).mock.calls[0][1]).toEqual(["id"]);
+  });
+
+  it("refuses when the primary key is not among the selected columns", async () => {
+    // Without the key on screen there is no way to address the row.
+    vi.mocked(api.getColumns).mockResolvedValue([
+      { name: "hidden_id", is_primary_key: true },
+    ] as never);
+
+    render(<ResultsGrid />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("save-button"));
+    });
+
+    expect(api.executeQuery).not.toHaveBeenCalled();
+    expect(await screen.findByText(/primary key/)).toBeDefined();
+  });
+
+  it("says so when a change matched no row", async () => {
+    // The statement runs and affects zero rows, which is not an error — so the
+    // save reported success whatever happened (#419).
+    vi.mocked(api.executeQuery).mockResolvedValue([{ rows_affected: 0 }] as never);
+
+    render(<ResultsGrid />);
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("save-button"));
+    });
+
+    expect(await screen.findByText(/matched a row/)).toBeDefined();
   });
 });

@@ -81,10 +81,98 @@ export function generateDelete(
 
 const TABLE_NAME_RE = /\bFROM\s+(?:`([^`]+)`|(\w+))(?:\s|;|$)/i;
 
+/**
+ * The first table named in a FROM clause.
+ *
+ * Kept for callers that only want a label. It is *not* safe to write through:
+ * for a join it returns whichever table is listed first, whatever the edited
+ * column belongs to. Use `resolveEditTarget` before generating an UPDATE or
+ * DELETE.
+ */
 export function extractTableName(sql: string): string | null {
   const match = TABLE_NAME_RE.exec(sql);
   if (!match) return null;
   return match[1] ?? match[2] ?? null;
+}
+
+/** Where an edit would be written, or why it cannot be. */
+export type EditTarget =
+  | { editable: true; table: string }
+  | { editable: false; reason: string };
+
+/** Strip comments and string literals so keyword matching sees only structure. */
+function structuralSql(sql: string): string {
+  return sql
+    .replace(/'(?:[^'\\]|\\.|'')*'/g, "''")
+    .replace(/"(?:[^"\\]|\\.|"")*"/g, "\"\"")
+    .replace(/--[^\n]*/g, " ")
+    .replace(/\/\*[\s\S]*?\*\//g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Decide whether the rows on screen can be written back, and to what.
+ *
+ * The grid used to take the first table in the FROM clause and write there.
+ * For `SELECT * FROM orders o JOIN users u ON ...` that is `orders`, whatever
+ * column the user actually edited — so an edit to a `users` column either
+ * failed with "unknown column" or, where both tables have a column of that
+ * name, silently changed the wrong table's data (#399).
+ *
+ * This errs towards refusing. A query it declines is an inconvenience; a query
+ * it wrongly accepts writes to the wrong place, and the user has no way to
+ * tell from the grid.
+ */
+export function resolveEditTarget(sql: string): EditTarget {
+  const s = structuralSql(sql);
+  if (!s) return { editable: false, reason: "there is no query to write back to" };
+
+  const statements = s.split(";").filter((part) => part.trim() !== "");
+  if (statements.length > 1) {
+    return { editable: false, reason: "the editor holds more than one statement" };
+  }
+
+  if (/^WITH\b/i.test(s)) {
+    return {
+      editable: false,
+      reason: "the query starts with a CTE, so its rows do not map to one table",
+    };
+  }
+  if (!/^\(*\s*SELECT\b/i.test(s)) {
+    return { editable: false, reason: "only the results of a SELECT can be edited" };
+  }
+  if (/\bJOIN\b/i.test(s)) {
+    return {
+      editable: false,
+      reason: "the query joins tables, so an edited column cannot be attributed to one of them",
+    };
+  }
+  if (/\bUNION\b/i.test(s)) {
+    return { editable: false, reason: "the query is a UNION, so its rows come from several tables" };
+  }
+  if (/\bFROM\s*\(/i.test(s)) {
+    return { editable: false, reason: "the query selects from a subquery rather than a table" };
+  }
+  if (/\bGROUP\s+BY\b|\bDISTINCT\b/i.test(s)) {
+    return {
+      editable: false,
+      reason: "the rows are aggregated, so they do not correspond to stored rows",
+    };
+  }
+
+  // A comma in the FROM clause is the old-style join syntax.
+  const fromClause = /\bFROM\b(.*?)(?:\bWHERE\b|\bORDER\b|\bLIMIT\b|\bHAVING\b|$)/i.exec(s);
+  if (fromClause && fromClause[1].includes(",")) {
+    return {
+      editable: false,
+      reason: "the query reads from several tables, so an edit cannot be attributed to one",
+    };
+  }
+
+  const table = extractTableName(s);
+  if (!table) return { editable: false, reason: "no table could be identified in the query" };
+  return { editable: true, table };
 }
 
 export function getPrimaryKeyColumns(columns: ColumnMeta[]): string[] {
