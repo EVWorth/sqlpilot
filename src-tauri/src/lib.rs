@@ -15,24 +15,50 @@ use tauri::Manager;
 use tracing_subscriber::prelude::*;
 use tracing_subscriber::EnvFilter;
 
+/// Attach the platform credential store, if there is one.
+///
+/// This used to `.expect()`, so a locked GNOME Keyring, a Flatpak sandbox
+/// without a Secret Service, or a headless session took the whole app down
+/// before it drew a window (#278). A missing keyring is a degraded mode, not
+/// a fatal condition: profiles still work, passwords just are not remembered.
 fn init_keyring() {
-    #[cfg(target_os = "linux")]
-    {
-        let store = linux_keyutils_keyring_store::Store::new()
-            .expect("Failed to initialize Linux keyring store");
-        mas_core::connection::init_keyring(store);
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let store = windows_native_keyring_store::Store::new()
-            .expect("Failed to initialize Windows keyring store");
-        mas_core::connection::init_keyring(store);
-    }
-    #[cfg(target_os = "macos")]
-    {
-        let store = apple_native_keyring_store::keychain::Store::new()
-            .expect("Failed to initialize macOS keyring store");
-        mas_core::connection::init_keyring(store);
+    let result: Result<(), String> = {
+        #[cfg(target_os = "linux")]
+        {
+            linux_keyutils_keyring_store::Store::new()
+                .map(|store| mas_core::connection::init_keyring(store))
+                .map_err(|e| e.to_string())
+        }
+        #[cfg(target_os = "windows")]
+        {
+            windows_native_keyring_store::Store::new()
+                .map(|store| mas_core::connection::init_keyring(store))
+                .map_err(|e| e.to_string())
+        }
+        #[cfg(target_os = "macos")]
+        {
+            apple_native_keyring_store::keychain::Store::new()
+                .map(|store| mas_core::connection::init_keyring(store))
+                .map_err(|e| e.to_string())
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
+        {
+            Err("no credential store for this platform".to_string())
+        }
+    };
+
+    match result {
+        Ok(()) => {
+            commands::set_keyring_available(true);
+            tracing::info!("OS credential store initialized");
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                "No OS credential store available — starting without one. Connection \
+                 passwords will not be remembered between sessions."
+            );
+        }
     }
 }
 
@@ -127,6 +153,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::write_file_contents,
             commands::pick_save_file,
             commands::is_rpm_ostree,
+            commands::keyring_available,
             commands::sqlite::sqlite_open,
             commands::sqlite::sqlite_close,
             commands::sqlite::sqlite_list,
@@ -183,6 +210,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::write_file_contents,
             commands::pick_save_file,
             commands::is_rpm_ostree,
+            commands::keyring_available,
             commands::sqlite::sqlite_open,
             commands::sqlite::sqlite_close,
             commands::sqlite::sqlite_list,

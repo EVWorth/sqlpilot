@@ -647,6 +647,24 @@ pub async fn get_own_thread_ids(
         .collect())
 }
 
+/// Whether the OS credential store was available at startup.
+///
+/// Read by the frontend so it can say plainly that passwords will not be
+/// remembered, rather than the user discovering it when one fails to save
+/// (#278).
+static KEYRING_AVAILABLE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+pub fn set_keyring_available(available: bool) {
+    KEYRING_AVAILABLE.store(available, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Whether connection passwords can be stored between sessions.
+#[tauri::command]
+#[specta::specta]
+pub fn keyring_available() -> bool {
+    KEYRING_AVAILABLE.load(std::sync::atomic::Ordering::Relaxed)
+}
+
 // Platform detection
 //
 // `tauri-plugin-updater` shells out to `rpm -U` on Linux, which is a no-op
