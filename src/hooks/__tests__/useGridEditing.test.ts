@@ -607,3 +607,100 @@ describe("useGridEditing", () => {
     });
   });
 });
+
+describe("undo history for inserts and deletes (#404, #405)", () => {
+  it("survives the add, add, undo, undo, redo, redo trace", () => {
+    // The trace from #404. Undo used to remove "the last insert" rather than a
+    // known position, and redo re-derived an inverse it had already applied,
+    // so rows came back in the wrong places.
+    const { result } = renderHook(() => useGridEditing());
+
+    act(() => result.current.addRow());
+    act(() => result.current.editInsertCell(0, "name", "A"));
+    act(() => result.current.addRow());
+    act(() => result.current.editInsertCell(1, "name", "B"));
+    expect(result.current.inserts).toEqual([{ name: "A" }, { name: "B" }]);
+
+    act(() => result.current.undo()); // B's cell
+    act(() => result.current.undo()); // B's row
+    expect(result.current.inserts).toEqual([{ name: "A" }]);
+
+    act(() => result.current.redo()); // B's row
+    act(() => result.current.redo()); // B's cell
+    expect(result.current.inserts).toEqual([{ name: "A" }, { name: "B" }]);
+  });
+
+  it("undoes a single cell of an added row without losing the row", () => {
+    // editInsertCell pushed nothing, so the cell showed as dirty and Undo
+    // could only remove the whole row (#405).
+    const { result } = renderHook(() => useGridEditing());
+
+    act(() => result.current.addRow());
+    act(() => result.current.editInsertCell(0, "name", "A"));
+    act(() => result.current.editInsertCell(0, "email", "a@example.com"));
+
+    act(() => result.current.undo());
+    expect(result.current.inserts).toEqual([{ name: "A" }]);
+
+    act(() => result.current.undo());
+    expect(result.current.inserts).toEqual([{}]);
+    // The row itself is still pending — only its cells were undone.
+    expect(result.current.inserts).toHaveLength(1);
+  });
+
+  it("redoes a delete instead of quietly cancelling it", () => {
+    // The entry was the same toggle in both directions, so redo undid the
+    // undo and the row ended up in its original state (#404).
+    const { result } = renderHook(() => useGridEditing());
+
+    act(() => result.current.deleteRow(3));
+    expect(result.current.isRowDeleted(3)).toBe(true);
+
+    act(() => result.current.undo());
+    expect(result.current.isRowDeleted(3)).toBe(false);
+
+    act(() => result.current.redo());
+    expect(result.current.isRowDeleted(3)).toBe(true);
+  });
+
+  it("undoes un-deleting a row back to deleted", () => {
+    const { result } = renderHook(() => useGridEditing());
+
+    act(() => result.current.deleteRow(3)); // mark
+    act(() => result.current.deleteRow(3)); // unmark
+    expect(result.current.isRowDeleted(3)).toBe(false);
+
+    act(() => result.current.undo());
+    expect(result.current.isRowDeleted(3)).toBe(true);
+
+    act(() => result.current.redo());
+    expect(result.current.isRowDeleted(3)).toBe(false);
+  });
+
+  it("removes the row that was added, not whichever is last", () => {
+    const { result } = renderHook(() => useGridEditing());
+
+    act(() => result.current.addRow());
+    act(() => result.current.editInsertCell(0, "name", "first"));
+    act(() => result.current.addRow());
+
+    // Undo the second row; the first, with its data, must remain.
+    act(() => result.current.undo());
+    expect(result.current.inserts).toEqual([{ name: "first" }]);
+  });
+
+  it("keeps a cell edit undoable across a redo of its row", () => {
+    const { result } = renderHook(() => useGridEditing());
+
+    act(() => result.current.addRow());
+    act(() => result.current.editInsertCell(0, "name", "A"));
+    act(() => result.current.undo()); // cell
+    act(() => result.current.undo()); // row
+    expect(result.current.inserts).toEqual([]);
+
+    act(() => result.current.redo()); // row back, empty
+    expect(result.current.inserts).toEqual([{}]);
+    act(() => result.current.redo()); // cell back
+    expect(result.current.inserts).toEqual([{ name: "A" }]);
+  });
+});
