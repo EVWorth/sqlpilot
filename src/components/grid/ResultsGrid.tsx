@@ -32,11 +32,11 @@ import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
 import {
   columnTypesOf,
-  extractTableName,
   generateDelete,
   generateInsert,
   generateUpdate,
   getWhereColumns,
+  resolveEditTarget,
 } from "../../lib/sql-generator";
 import { isNumericSqlType } from "../../lib/sql-types";
 import { api } from "../../lib/tauri-api";
@@ -318,11 +318,17 @@ export function ResultsGrid() {
       (t) => t.id === useEditorStore.getState().activeTabId,
     );
     const sql = editorTab?.content ?? "";
-    const tableName = extractTableName(sql);
-    if (!tableName) {
-      showToast("Cannot detect table name from query");
+
+    // Where the edit would land, or why it must not be attempted. The old
+    // check took the first table in the FROM clause, which for a join is
+    // whichever is listed first — not necessarily the one that owns the
+    // edited column (#399).
+    const target = resolveEditTarget(sql);
+    if (!target.editable) {
+      showToast(`Cannot save: ${target.reason}`);
       return;
     }
+    const tableName = target.table;
 
     const connId = editorTab?.connectionId
       ?? useConnectionStore.getState().selectedConnectionId;
@@ -333,6 +339,35 @@ export function ResultsGrid() {
 
     setIsSaving(true);
     try {
+      // The result-set metadata reports is_primary_key as false for every
+      // column, so the WHERE clause fell back to matching on all of them
+      // (#387). Ask the schema for the real key instead.
+      let keyColumns = whereInfo.columns;
+      const database = editorTab?.database;
+      if (database) {
+        try {
+          const schema = await api.getColumns(connId, database, tableName);
+          const pk = schema.filter((c) => c.is_primary_key).map((c) => c.name);
+          const present = pk.filter((name) => activeResult.columns.some((c) => c.name === name));
+          if (pk.length > 0 && present.length === pk.length) {
+            keyColumns = present;
+          } else if (pk.length > 0) {
+            // The key exists but is not on screen, so no row can be addressed.
+            showToast(
+              `Cannot save: the query does not select ${tableName}'s primary key (${
+                pk.join(", ")
+              }), so rows cannot be identified`,
+            );
+            setIsSaving(false);
+            return;
+          }
+        } catch (e) {
+          // Fall back to the previous behaviour rather than blocking the save,
+          // but say so — matching on every column is weaker.
+          console.warn(`Could not read ${tableName}'s key columns`, e);
+        }
+      }
+
       const statements: string[] = [];
 
       // Generate UPDATE statements
@@ -341,7 +376,7 @@ export function ResultsGrid() {
         statements.push(
           generateUpdate(
             tableName,
-            whereInfo.columns,
+            keyColumns,
             originalRow,
             changes.map((c) => ({ column: c.column, newValue: c.newValue })),
             columnTypes,
@@ -359,21 +394,33 @@ export function ResultsGrid() {
       for (const rowIdx of editing.deletes) {
         const originalRow = getOriginalRow(rowIdx);
         statements.push(
-          generateDelete(tableName, whereInfo.columns, originalRow, columnTypes),
+          generateDelete(tableName, keyColumns, originalRow, columnTypes),
         );
       }
 
       // Execute all statements as a single transactional batch.
       // Wrap in a transaction so partial failures roll back.
+      let matched = 0;
       if (statements.length > 0) {
         const batch = "START TRANSACTION;\n" + statements.join(";\n") + ";\nCOMMIT;";
-        await api.executeQuery(connId, batch);
+        const results = await api.executeQuery(connId, batch);
+        matched = results.reduce((sum, r) => sum + Number(r.rows_affected ?? 0), 0);
       }
 
       // Re-run original query to refresh
       editing.discardAll();
       await useResultStore.getState().executeQuery(connId, sql);
-      showToast(`Applied ${statements.length} change(s)`);
+
+      // A WHERE that matches nothing is not an error — the statement runs and
+      // affects zero rows — so the save reported success either way (#419).
+      if (statements.length > 0 && matched < statements.length) {
+        showToast(
+          `Only ${matched} of ${statements.length} change(s) matched a row. The rest changed `
+            + `nothing — the values they matched on may no longer be in the table.`,
+        );
+      } else {
+        showToast(`Applied ${statements.length} change(s)`);
+      }
     } catch (e) {
       showToast(`Save failed: ${String(e)}`);
     } finally {
