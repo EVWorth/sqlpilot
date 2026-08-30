@@ -99,3 +99,21 @@ const NUMERIC_LITERAL_RE = /^-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?$/;
 export function isNumericLiteral(text: string): boolean {
   return NUMERIC_LITERAL_RE.test(text.trim());
 }
+
+/**
+ * Read a typed boolean value, or `undefined` when the text is not one.
+ *
+ * A boolean column is a `TINYINT(1)`, and MySQL will happily accept a string
+ * for one: `SET is_active = 'true'` stores 0, because 'true' is not numeric.
+ * The statement succeeds, so nothing reports a problem and the row is quietly
+ * wrong — the opposite of what was typed (#421).
+ *
+ * The spellings people actually type are accepted; anything else is rejected
+ * rather than guessed at, because guessing is how the value became 0.
+ */
+export function parseBooleanInput(raw: string): 0 | 1 | undefined {
+  const v = raw.trim().toLowerCase();
+  if (["1", "true", "t", "yes", "y", "on"].includes(v)) return 1;
+  if (["0", "false", "f", "no", "n", "off"].includes(v)) return 0;
+  return undefined;
+}

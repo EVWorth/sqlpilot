@@ -6,6 +6,7 @@ import {
   isLongTextSqlType,
   isNumericLiteral,
   isNumericSqlType,
+  parseBooleanInput,
 } from "../sql-types";
 
 describe("baseSqlType", () => {
@@ -112,5 +113,25 @@ describe("isLongTextSqlType", () => {
     // the old regex tested /text|blob|json/ anywhere in the string
     expect(isLongTextSqlType("VARCHAR(20)")).toBe(false);
     expect(isLongTextSqlType("INT")).toBe(false);
+  });
+});
+
+describe("parseBooleanInput (#421)", () => {
+  it("reads the spellings people type", () => {
+    for (const yes of ["1", "true", "TRUE", "t", "yes", "Y", "on", " True "]) {
+      expect(parseBooleanInput(yes)).toBe(1);
+    }
+    for (const no of ["0", "false", "FALSE", "f", "no", "N", "off", " false "]) {
+      expect(parseBooleanInput(no)).toBe(0);
+    }
+  });
+
+  it("refuses anything it cannot read, rather than guessing", () => {
+    // Guessing is how this became a bug: MySQL takes a non-numeric string for
+    // a TINYINT(1) and stores 0, so typing "true" silently set the column to
+    // false — the opposite of what was asked for.
+    for (const junk of ["banana", "2", "", "null", "-1", "truthy"]) {
+      expect(parseBooleanInput(junk)).toBeUndefined();
+    }
   });
 });
