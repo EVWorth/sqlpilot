@@ -222,7 +222,17 @@ impl QueryExecutor {
                 None => stream.next().await,
             };
             let Some(item) = next else { break };
-            let item = item.map_err(|e| CoreError::Query(e.to_string()))?;
+            let item = item.map_err(|e| {
+                // A pool that has run out reports "pool timed out while waiting
+                // for an open connection", which names neither the pool nor
+                // the limit that caused it (#279).
+                self.connection_manager
+                    .pool_limits(&connection_id)
+                    .and_then(|(name, max, timeout)| {
+                        crate::connection::describe_pool_error(&e, &name, max, timeout)
+                    })
+                    .unwrap_or_else(|| CoreError::Query(e.to_string()))
+            })?;
             match item {
                 Either::Right(row) => {
                     // The first prelude row carries CONNECTION_ID(). Record it so
