@@ -1584,6 +1584,7 @@ No `password_ref` column (passwords live in OS keyring, not SQL). No `sort_order
 A future migration to SQLite (`history.db`) is plausible but not in scope.
 
 ---
+
 ## 10. Plugin Architecture (Future)
 
 > **Status:** Planned for v2.0. This section describes the intended design; implementation details may change.
@@ -1679,6 +1680,7 @@ Disable:    Unmount components → Unsubscribe events → Unload module
 Uninstall:  Disable → Remove files → Clean registry → Purge plugin data
 Update:     Download new version → Disable old → Install new → Enable
 ```
+
 ---
 
 ## Appendix A: Glossary

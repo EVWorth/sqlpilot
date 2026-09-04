@@ -12,7 +12,14 @@ serde_json = "1"
 # RC bump cannot land unreviewed — the API changes between RCs.
 specta = { version = "=2.0.0-rc.25", features = ["derive", "chrono", "uuid", "serde_json"] }
 specta-typescript = "=0.0.12"
-sqlx = { version = "=0.9.0", default-features = false, features = ["runtime-tokio", "tls-rustls-ring", "mysql", "chrono", "json", "uuid"] }
+sqlx = { version = "=0.9.0", default-features = false, features = [
+  "runtime-tokio",
+  "tls-rustls-ring",
+  "mysql",
+  "chrono",
+  "json",
+  "uuid",
+] }
 tauri = { version = "2", features = [] }
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 thiserror = "2"

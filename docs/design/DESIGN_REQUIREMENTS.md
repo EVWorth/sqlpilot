@@ -80,15 +80,15 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 | Open source               |    ✅ (GPL)     | ✅ (Apache) |     ❌      |    ❌     |    ❌     |   ✅ (MIT)   |
 | Fast startup              |       ❌        |     ❌      |     ✅      |    ✅     |    ❌     |      ✅      |
 | Low memory usage          |       ❌        |     ❌      |     ✅      |    ✅     |    ❌     |      ✅      |
-| Modern UI                 |       ❌        |      ⚠️      |     ❌      |    ✅     |    ✅     |      ✅      |
+| Modern UI                 |       ❌        |     ⚠️      |     ❌      |    ✅     |    ✅     |      ✅      |
 | AI-powered SQL            |       ❌        |     ❌      |     ❌      |    ❌     | ✅ (paid) |      ✅      |
-| Schema-aware autocomplete |        ⚠️        |      ⚠️      |     ✅      |    ✅     |    ✅     |      ✅      |
+| Schema-aware autocomplete |       ⚠️        |     ⚠️      |     ✅      |    ✅     |    ✅     |      ✅      |
 | Visual ERD                |       ✅        |  ✅ (paid)  |     ❌      |    ❌     |    ✅     |      ✅      |
 | SSH tunneling             |       ✅        |     ✅      |     ✅      |    ✅     |    ✅     |      ✅      |
-| Data grid performance     |       ❌        |      ⚠️      |     ✅      |    ✅     |    ✅     |      ✅      |
+| Data grid performance     |       ❌        |     ⚠️      |     ✅      |    ✅     |    ✅     |      ✅      |
 | Keyboard-first UX         |       ❌        |     ❌      |     ❌      |    ✅     |    ✅     |      ✅      |
 | Dark mode                 |       ❌        |     ✅      |     ❌      |    ✅     |    ✅     |      ✅      |
-| Custom themes             |       ❌        |      ⚠️      |     ❌      |    ❌     |    ✅     |      ✅      |
+| Custom themes             |       ❌        |     ⚠️      |     ❌      |    ❌     |    ✅     |      ✅      |
 | Plugin/extension API      |       ❌        |     ✅      |     ❌      |    ❌     |    ✅     |      ✅      |
 
 | Native performance | ⚠️ | ❌ | ✅ | ✅ | ❌ | ✅ |
