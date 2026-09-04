@@ -9,6 +9,8 @@ export interface MenuItem {
   danger?: boolean;
   separator?: boolean;
   disabled?: boolean;
+  /** Hover text. A disabled item is otherwise silent about why. */
+  title?: string;
 }
 
 interface ContextMenuProps {
@@ -89,6 +91,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
             <button
               key={idx}
               disabled={item.disabled}
+              title={item.title}
               onClick={() => {
                 if (!item.disabled) {
                   item.onClick();

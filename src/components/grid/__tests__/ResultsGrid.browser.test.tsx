@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useContextMenu } from "../../../hooks/useContextMenu";
+import { resolveEditTarget } from "../../../lib/sql-generator";
 import type { QueryResult, SqlValue } from "../../../types";
 import { ResultsGrid } from "../ResultsGrid";
 
@@ -114,7 +116,6 @@ vi.mock("../../../lib/sql-generator", () => ({
   generateUpdate: vi.fn(() => "UPDATE ..."),
   generateInsert: vi.fn(() => "INSERT ..."),
   generateDelete: vi.fn(() => "DELETE ..."),
-  extractTableName: vi.fn(() => "users"),
   resolveEditTarget: vi.fn(() => ({ editable: true, table: "users" })),
   getWhereColumns: vi.fn(() => ({ columns: ["id"], hasPrimaryKey: true })),
 }));
@@ -1110,5 +1111,80 @@ describe("ResultsGrid (browser)", () => {
 
     const cells = screen.getAllByTestId("truncated-cell");
     expect(cells[0].getAttribute("data-value")).toBe("false");
+  });
+});
+
+// ─── Copy as INSERT ───────────────────────────────────────────
+describe("Copy as INSERT", () => {
+  let items: { label: string; disabled?: boolean; title?: string; onClick: () => void }[] = [];
+
+  beforeEach(() => {
+    items = [];
+    vi.mocked(useContextMenu).mockReturnValue({
+      contextMenu: null,
+      showContextMenu: (_e: unknown, menuItems: typeof items) => {
+        items = menuItems;
+      },
+    } as never);
+    resultState.results = [makeResult()];
+    editorTabs = [{ id: "tab-0", content: "SELECT id, name FROM users", connectionId: "conn-1" }];
+    editorActiveTabId = "tab-0";
+  });
+
+  afterEach(() => {
+    vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "users" } as never);
+  });
+
+  /** Right-click the first body row and return the menu the grid asked for. */
+  function openRowMenu() {
+    render(<ResultsGrid />);
+    const cell = document.querySelector("tbody tr td");
+    expect(cell).not.toBeNull();
+    fireEvent.contextMenu(cell!);
+    return items.find((i) => i.label === "Copy as INSERT")!;
+  }
+
+  it("names the table the rows came from", async () => {
+    const writeSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "users" } as never);
+
+    const item = openRowMenu();
+    expect(item.disabled).toBe(false);
+    item.onClick();
+
+    const sql = writeSpy.mock.calls.at(-1)![0] as string;
+    expect(sql).toContain("INSERT INTO `users`");
+    // The whole point: the old statement said `your_table`, which fails on
+    // paste — or writes to a real table of that name (#409).
+    expect(sql).not.toContain("your_table");
+    writeSpy.mockRestore();
+  });
+
+  it("quotes the table name, so a name needing quoting still parses", async () => {
+    const writeSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "order details" } as never);
+
+    openRowMenu().onClick();
+
+    expect(writeSpy.mock.calls.at(-1)![0]).toContain("INSERT INTO `order details`");
+    writeSpy.mockRestore();
+  });
+
+  it("is disabled, and says why, when no single table owns the rows", async () => {
+    const writeSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    vi.mocked(resolveEditTarget).mockReturnValue({
+      editable: false,
+      reason: "the query joins tables, so an edited column cannot be attributed to one of them",
+    } as never);
+
+    const item = openRowMenu();
+    expect(item.disabled).toBe(true);
+    expect(item.title).toContain("joins tables");
+
+    // Belt and braces: even called directly it must not put broken SQL on the
+    // clipboard, since a disabled item is a UI convention rather than a lock.
+    item.onClick();
+    expect(writeSpy).not.toHaveBeenCalled();
+    writeSpy.mockRestore();
   });
 });
