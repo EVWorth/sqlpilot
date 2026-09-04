@@ -38,6 +38,7 @@ import {
   getWhereColumns,
   resolveEditTarget,
 } from "../../lib/sql-generator";
+import { quoteIdentifier } from "../../lib/sql-quote";
 import { isNumericSqlType } from "../../lib/sql-types";
 import { api } from "../../lib/tauri-api";
 import { useAiStore } from "../../stores/aiStore";
@@ -236,9 +237,27 @@ export function ResultsGrid() {
         .map((v) => SqlValueGuard.toString(v))
         .join("\t");
 
-      const insertCols = colNames.map((n) => `\`${n}\``).join(", ");
+      // The statement has to name a table that exists. It used to say
+      // `your_table`, so pasting it produced "Table 'db.your_table' doesn't
+      // exist" — or, on the one schema where that name is real, wrote a row
+      // into it (#409).
+      //
+      // Same resolver as Save, and for the same reason: a join or a CTE
+      // selects columns that belong to more than one table, so there is no
+      // single table an INSERT of this row could target.
+      const insertTarget = resolveEditTarget(
+        useEditorStore.getState().tabs.find(
+          (tab) => tab.id === useEditorStore.getState().activeTabId,
+        )?.content ?? "",
+      );
+      const insertCols = colNames.map(quoteIdentifier).join(", ");
       const insertVals = row.map((v, i) => formatSqlVal(v, colNames[i])).join(", ");
-      const insertStmt = `INSERT INTO your_table (${insertCols}) VALUES (${insertVals});`;
+      const insertStmt = insertTarget.editable
+        ? `INSERT INTO ${quoteIdentifier(insertTarget.table)} (${insertCols}) VALUES (${insertVals});`
+        : null;
+      const insertRefusal = insertTarget.editable
+        ? undefined
+        : `Copy as INSERT needs one source table: ${insertTarget.reason}`;
 
       const allRowsTsv = [
         colNames.join("\t"),
@@ -265,8 +284,10 @@ export function ResultsGrid() {
         {
           label: "Copy as INSERT",
           icon: <FileCode className="h-3.5 w-3.5" />,
+          disabled: insertStmt === null,
+          title: insertRefusal,
           onClick: () => {
-            navigator.clipboard.writeText(insertStmt);
+            if (insertStmt !== null) navigator.clipboard.writeText(insertStmt);
           },
         },
         { label: "", separator: true, onClick: () => {} },
