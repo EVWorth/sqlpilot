@@ -89,6 +89,61 @@ jobs:
               - 'vitest.browser.config.ts'
               - 'opencode.json'
 
+  # Workflow-only PRs used to run nothing at all: `detect-changes` computed a
+  # `workflows` output that no job consumed, and the `frontend`/`rust` filters
+  # name only ci.yml, so a change to release.yml or dprint-update.yml merged
+  # entirely unchecked. That is how create-pull-request came to be pinned to a
+  # 41-character SHA matching no commit, which failed the weekly dprint bump in
+  # seconds for months before anyone opened the Actions tab (#534).
+  lint-workflows:
+    name: Lint (workflows)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # A pinned release plus its published checksum, rather than a third-party
+      # action — a gate whose job is to verify upstream pins should not itself
+      # rest on an unverified one. The runner ships shellcheck, which actionlint
+      # picks up to lint the shell inside `run:` blocks.
+      - name: Install actionlint
+        env:
+          # Bump alongside the pin in mise.toml, which the version comes from,
+          # so contributors and CI lint with the same binary.
+          ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
+        run: |
+          set -euo pipefail
+          version=$(sed -nE 's/^actionlint = "([^"]+)"$/\1/p' mise.toml)
+          if [ -z "${version}" ]; then
+            echo "no actionlint pin found in mise.toml" >&2
+            exit 1
+          fi
+          curl -fsSL -o actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${version}/actionlint_${version}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum --check --strict
+          tar -xzf actionlint.tar.gz actionlint
+          sudo mv actionlint /usr/local/bin/actionlint
+
+      # shellcheck ships on the runner and actionlint picks it up automatically,
+      # which is most of the value here — it reads the shell inside `run:`.
+      # Style-level findings are filtered out: they would fail the job over
+      # ${var//a/b} versus sed, and rewriting release shell to satisfy a
+      # preference is a worse trade than the check is worth.
+      - name: Lint workflow syntax
+        env:
+          SHELLCHECK_OPTS: "--severity=info"
+        run: actionlint -no-color -oneline
+
+      # actionlint checks syntax, expressions and shell, but not whether a
+      # pinned SHA resolves upstream — which is the thing that actually broke.
+      - name: Check action pins
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: scripts/check-action-pins.sh
+
   npm-audit:
     name: npm Audit
     needs: detect-changes

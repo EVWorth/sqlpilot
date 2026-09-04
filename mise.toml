@@ -20,3 +20,9 @@ rust = "1.95.0"
 # discovery path. Pinned to a major so recipe syntax cannot shift underneath
 # the repo on a contributor's fresh install.
 just = "1"
+# Workflow linter. Unlike the tools above, CI does not have its own pin for
+# this — the `Lint (workflows)` job reads the version from right here, so a
+# bump moves both at once and `just lint-workflows` matches what CI runs.
+# The job also verifies a sha256 recorded next to it in ci.yml; bump the two
+# together, or the download fails its checksum (loudly, which is the point).
+actionlint = "1.7.12"
