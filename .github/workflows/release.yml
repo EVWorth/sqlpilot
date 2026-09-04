@@ -7,10 +7,16 @@ on:
   workflow_dispatch:
 
 # Cancel in-flight runs when a new release dispatch arrives (e.g.
-# tag re-pushed, manual re-run). Keyed by workflow + ref/tag/input
-# so concurrent releases don't collide.
+# tag re-pushed, manual re-run). Keyed by workflow + ref: for a tag push
+# that is the tag, for a manual dispatch the branch it was run from, so
+# concurrent releases don't collide.
+#
+# The fallbacks this used to carry were dead. `workflow_dispatch` declares
+# no inputs, so `github.event.inputs.tag` never held anything, and
+# `github.ref` is always set, so nothing after the first `||` could ever
+# be reached.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref || github.event.inputs.tag || github.run_id }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
