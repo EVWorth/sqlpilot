@@ -7,6 +7,7 @@ vi.mock("../../../lib/tauri-api", () => ({
     getTables: vi.fn(),
     getColumns: vi.fn(),
     getIndexes: vi.fn(),
+    getForeignKeys: vi.fn(),
     getTableDdl: vi.fn(),
     executeQuery: vi.fn(),
   },
@@ -64,6 +65,7 @@ describe("TableDesigner", () => {
     ]);
     // Alter mode reads the table's real engine/charset/collation/comment out
     // of its DDL; a table with nothing unusual set looks like this.
+    vi.mocked(api.getForeignKeys).mockResolvedValue([]);
     vi.mocked(api.getTableDdl).mockResolvedValue(
       "CREATE TABLE `users` (\n  `id` int NOT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     );
@@ -242,6 +244,7 @@ describe("TableDesigner", () => {
       vi.mocked(api.getColumns).mockReturnValue(new Promise(() => {}));
       vi.mocked(api.getIndexes).mockReturnValue(new Promise(() => {}));
       vi.mocked(api.getTableDdl).mockReturnValue(new Promise(() => {}));
+      vi.mocked(api.getForeignKeys).mockReturnValue(new Promise(() => {}));
 
       render(
         <TableDesigner connectionId="conn-1" database="testdb" tableName="users" />,
@@ -307,6 +310,7 @@ describe("TableDesigner", () => {
     beforeEach(() => {
       vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
       vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+      vi.mocked(api.getForeignKeys).mockResolvedValue([]);
       vi.mocked(api.getTableDdl).mockResolvedValue(MYISAM_DDL);
     });
 
@@ -560,6 +564,98 @@ describe("TableDesigner", () => {
       });
 
       expect(screen.queryByTestId("index-problem")).toBeNull();
+    });
+  });
+
+  describe("foreign keys", () => {
+    const existingFk = {
+      name: "orders_ibfk_1",
+      columns: ["user_id"],
+      referenced_table: "users",
+      referenced_columns: ["id"],
+      on_update: "NO ACTION",
+      on_delete: "CASCADE",
+    };
+
+    beforeEach(() => {
+      vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
+      vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+    });
+
+    it("shows the ones the table already has", async () => {
+      // The tab was empty for every table — the Rust type existed with
+      // nothing producing it — so an existing constraint could not be seen,
+      // edited or removed (#386).
+      vi.mocked(api.getForeignKeys).mockResolvedValue([existingFk] as never);
+
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="orders" />);
+      await screen.findByDisplayValue("orders");
+      fireEvent.click(screen.getByText("Foreign Keys"));
+
+      expect(screen.getByDisplayValue("orders_ibfk_1")).toBeDefined();
+      expect(screen.getByDisplayValue("CASCADE")).toBeDefined();
+    });
+
+    it("treats an untouched foreign key as no change", async () => {
+      // The baseline was always empty, so a loaded key looked newly added.
+      vi.mocked(api.getForeignKeys).mockResolvedValue([existingFk] as never);
+
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="orders" />);
+      await screen.findByDisplayValue("orders");
+      fireEvent.click(screen.getByText("Preview SQL"));
+
+      expect(screen.getByTestId("sql-preview-dialog").textContent)
+        .toContain("No changes detected");
+    });
+
+    it("emits a drop and an add when a referential action changes", async () => {
+      vi.mocked(api.getForeignKeys).mockResolvedValue([existingFk] as never);
+
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="orders" />);
+      await screen.findByDisplayValue("orders");
+      fireEvent.click(screen.getByText("Foreign Keys"));
+      fireEvent.change(screen.getByDisplayValue("CASCADE"), { target: { value: "SET NULL" } });
+      fireEvent.click(screen.getByText("Preview SQL"));
+
+      const sql = screen.getByTestId("sql-preview-dialog").textContent ?? "";
+      expect(sql).toContain("DROP FOREIGN KEY `orders_ibfk_1`");
+      expect(sql).toContain("ON DELETE SET NULL");
+    });
+
+    it("warns when the two sides cannot be the same kind of type", async () => {
+      // MySQL answers this with ERROR 1215 at save time and names neither
+      // the column nor the reason (#385).
+      vi.mocked(api.getForeignKeys).mockResolvedValue([{
+        ...existingFk,
+        columns: ["name"],
+      }] as never);
+      vi.mocked(api.getColumns).mockImplementation(
+        ((_c: string, _d: string, table: string) =>
+          Promise.resolve(
+            table === "users"
+              ? [{
+                name: "id",
+                data_type: "int",
+                column_type: "int",
+                nullable: false,
+                default_value: null,
+                is_primary_key: true,
+                extra: "",
+                comment: "",
+                charset: null,
+                collation: null,
+              }]
+              : mockColumns,
+          )) as never,
+      );
+
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="orders" />);
+      await screen.findByDisplayValue("orders");
+      await act(async () => {
+        fireEvent.click(screen.getByText("Foreign Keys"));
+      });
+
+      expect(screen.getByTestId("fk-problem").textContent).toContain("same kind of type");
     });
   });
 });

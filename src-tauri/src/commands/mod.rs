@@ -9,7 +9,8 @@ use mas_core::models::{
 };
 use mas_core::query::{ExplainResponse, QueryExecutor};
 use mas_core::schema::inspector::{
-    ColumnInfo, DatabaseInfo, IndexInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo,
+    ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, RoutineInfo, TableInfo, TriggerInfo,
+    ViewInfo,
 };
 use mas_core::schema::SchemaInspector;
 use mas_sqlite::connection::SqliteConnectionManager;
@@ -349,6 +350,27 @@ pub async fn get_columns(
         })?;
     tracing::info!(count = columns.len(), "Listed columns");
     Ok(columns)
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn get_foreign_keys(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    table: String,
+) -> Result<Vec<ForeignKeyInfo>, String> {
+    let keys = state
+        .schema_inspector
+        .get_foreign_keys(&connection_id, &database, &table)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get foreign keys");
+            e.to_string()
+        })?;
+    tracing::info!(count = keys.len(), "Listed foreign keys");
+    Ok(keys)
 }
 
 #[tauri::command]

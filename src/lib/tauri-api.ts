@@ -88,6 +88,9 @@ export const api = {
   getIndexes: (connectionId: string, database: string, table: string) =>
     unwrap("get_indexes", () => commands.getIndexes(connectionId, database, table)),
 
+  getForeignKeys: (connectionId: string, database: string, table: string) =>
+    unwrap("get_foreign_keys", () => commands.getForeignKeys(connectionId, database, table)),
+
   getTableDdl: (connectionId: string, database: string, table: string) =>
     unwrap("get_table_ddl", () => commands.getTableDdl(connectionId, database, table)),
 

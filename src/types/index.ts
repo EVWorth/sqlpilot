@@ -13,6 +13,7 @@ export type {
   ConnectionEnvironment,
   ConnectionInfo,
   DatabaseInfo,
+  ForeignKeyInfo,
   IndexInfo,
   ProcessInfo,
   RoutineInfo,

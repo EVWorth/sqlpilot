@@ -24,11 +24,12 @@ import {
   type TableDesignerConfig,
   type TableOptions,
 } from "../../lib/ddl-generator";
+import { foreignKeyTypeProblem } from "../../lib/fk-compat";
 import { DEFAULT_TABLE_OPTIONS, parseTableOptions } from "../../lib/table-options";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import { useResultStore } from "../../stores/resultStore";
-import type { ColumnInfo, IndexInfo, TableInfo } from "../../types";
+import type { ColumnInfo, ForeignKeyInfo, IndexInfo, TableInfo } from "../../types";
 import { SQLPreviewDialog } from "./SQLPreviewDialog";
 
 // --- Constants ---
@@ -157,7 +158,9 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
   const [showPreview, setShowPreview] = useState(false);
 
   const [refTables, setRefTables] = useState<TableInfo[]>([]);
-  const [refTableColumns, setRefTableColumns] = useState<Record<string, string[]>>({});
+  // Name and type. The type is what makes a mismatched foreign key visible
+  // before the server rejects it (#385).
+  const [refTableColumns, setRefTableColumns] = useState<Record<string, RefColumn[]>>({});
 
   // Load reference tables for FK tab
   useEffect(() => {
@@ -174,7 +177,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
         const cols = await api.getColumns(connectionId, database, table);
         setRefTableColumns((prev) => ({
           ...prev,
-          [table]: cols.map((c) => c.name),
+          [table]: cols.map((c) => ({ name: c.name, type: c.column_type })),
         }));
       } catch {
         // ignore
@@ -190,9 +193,13 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
     const load = async () => {
       try {
         setLoading(true);
-        const [colsData, idxData, tableDdl] = await Promise.all([
+        const [colsData, idxData, fkData, tableDdl] = await Promise.all([
           api.getColumns(connectionId, database, tableName),
           api.getIndexes(connectionId, database, tableName),
+          // The Foreign Keys tab was empty for every table: the type existed
+          // in Rust with nothing producing it, so an existing constraint
+          // could not be seen, edited or removed (#386).
+          api.getForeignKeys(connectionId, database, tableName),
           // Engine, charset, collation and comment are only available from
           // the table's own DDL. Without them both the form and the diff
           // baseline showed the defaults for every table, so the Options tab
@@ -234,8 +241,19 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           columns: i.columns,
         }));
 
+        const loadedFks: DesignerForeignKey[] = fkData.map((f: ForeignKeyInfo) => ({
+          id: nextId("fk"),
+          name: f.name,
+          columns: f.columns,
+          referenceTable: f.referenced_table,
+          referenceColumns: f.referenced_columns,
+          onDelete: normaliseFkAction(f.on_delete),
+          onUpdate: normaliseFkAction(f.on_update),
+        }));
+
         setColumns(loadedCols.length > 0 ? loadedCols : [newColumn()]);
         setIndexes(loadedIdxs);
+        setForeignKeys(loadedFks);
         setTblName(tableName);
         setOptions(loadedOptions);
 
@@ -244,7 +262,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           database,
           columns: loadedCols.length > 0 ? loadedCols : [newColumn()],
           indexes: loadedIdxs,
-          foreignKeys: [],
+          foreignKeys: loadedFks,
           // The same values the form now shows, so an untouched table diffs
           // to nothing and a real edit diffs against what is really there.
           options: { ...loadedOptions },
@@ -486,7 +504,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
         {activeSubTab === "foreignKeys" && (
           <ForeignKeysTab
             foreignKeys={foreignKeys}
-            columnNames={columnNames}
+            localColumns={columns}
             refTables={refTables}
             refTableColumns={refTableColumns}
             onLoadRefColumns={loadRefTableColumns}
@@ -831,7 +849,7 @@ function IndexesTab({
 
 function ForeignKeysTab({
   foreignKeys,
-  columnNames,
+  localColumns,
   refTables,
   refTableColumns,
   onLoadRefColumns,
@@ -840,9 +858,9 @@ function ForeignKeysTab({
   onRemove,
 }: {
   foreignKeys: DesignerForeignKey[];
-  columnNames: string[];
+  localColumns: DesignerColumn[];
   refTables: TableInfo[];
-  refTableColumns: Record<string, string[]>;
+  refTableColumns: Record<string, RefColumn[]>;
   onLoadRefColumns: (table: string) => void;
   onUpdate: (id: string, field: keyof DesignerForeignKey, value: unknown) => void;
   onAdd: () => void;
@@ -861,78 +879,99 @@ function ForeignKeysTab({
     onUpdate(fk.id, field, next);
   };
 
+  // A key loaded from the server names a table the user never picked, so
+  // nothing has fetched its columns — and without them there is no type to
+  // compare against. Asked for once per table: the loader swallows failures,
+  // so keying off "not loaded yet" alone would retry on every render.
+  const requested = useRef(new Set<string>());
+  useEffect(() => {
+    for (const fk of foreignKeys) {
+      if (fk.referenceTable && !requested.current.has(fk.referenceTable)) {
+        requested.current.add(fk.referenceTable);
+        onLoadRefColumns(fk.referenceTable);
+      }
+    }
+  }, [foreignKeys, onLoadRefColumns]);
+
+  const columnNames = localColumns.filter((c) => c.name).map((c) => c.name);
+  const localTypeOf = (name: string) => {
+    const col = localColumns.find((c) => c.name === name);
+    if (!col) return undefined;
+    return col.length ? `${col.type}(${col.length})` : col.type;
+  };
+
+  /**
+   * The first type mismatch across the key's column pairs.
+   *
+   * Positional: MySQL pairs the nth local column with the nth referenced one,
+   * which is also the order the buttons record them in.
+   */
+  const typeProblem = (fk: DesignerForeignKey): string | null => {
+    const refCols = refTableColumns[fk.referenceTable] ?? [];
+    for (let i = 0; i < Math.min(fk.columns.length, fk.referenceColumns.length); i++) {
+      const problem = foreignKeyTypeProblem(
+        localTypeOf(fk.columns[i]),
+        refCols.find((rc) => rc.name === fk.referenceColumns[i])?.type,
+      );
+      if (problem) return problem;
+    }
+    return null;
+  };
+
   return (
     <div>
       {foreignKeys.length === 0
         ? <p className="text-xs text-[var(--color-text-muted)]">No foreign keys defined.</p>
         : (
           <div className="space-y-3">
-            {foreignKeys.map((fk) => (
-              <div
-                key={fk.id}
-                className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <div>
-                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Constraint Name</label>
-                    <input
-                      value={fk.name}
-                      onChange={(e) => onUpdate(fk.id, "name", e.target.value)}
-                      placeholder="fk_name"
-                      className={cn(inputClass, "w-48")}
-                    />
-                  </div>
-                  <button
-                    onClick={() => onRemove(fk.id)}
-                    className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-
-                <div className="mb-2 grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Column(s)</label>
-                    <div className="flex flex-wrap gap-1">
-                      {columnNames.map((cn) => (
-                        <button
-                          key={cn}
-                          onClick={() => toggleColumn(fk, "columns", cn)}
-                          className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
-                            fk.columns.includes(cn)
-                              ? "border-brand-500 bg-brand-600/20 text-brand-300"
-                              : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]"
-                          }`}
-                        >
-                          {cn}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Reference Table</label>
-                    <select
-                      value={fk.referenceTable}
-                      onChange={(e) => {
-                        const table = e.target.value;
-                        onUpdate(fk.id, "referenceTable", table);
-                        onUpdate(fk.id, "referenceColumns", []);
-                        if (table) onLoadRefColumns(table);
-                      }}
-                      className={selectClass}
+            {foreignKeys.map((fk) => {
+              const problem = typeProblem(fk);
+              return (
+                <div
+                  key={fk.id}
+                  data-testid="fk-row"
+                  className={cn(
+                    "rounded border bg-[var(--color-bg-secondary)] p-3",
+                    problem ? "border-amber-600" : "border-[var(--color-border)]",
+                  )}
+                >
+                  {problem && (
+                    <p
+                      data-testid="fk-problem"
+                      className="mb-2 flex items-center gap-1 text-[11px] text-amber-400"
                     >
-                      <option value="">Select table…</option>
-                      {refTables.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
-                    </select>
+                      <AlertCircle className="h-3 w-3 shrink-0" />
+                      {problem}
+                    </p>
+                  )}
+                  <div className="mb-2 flex items-center justify-between">
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Constraint Name</label>
+                      <input
+                        value={fk.name}
+                        onChange={(e) => onUpdate(fk.id, "name", e.target.value)}
+                        placeholder="fk_name"
+                        className={cn(inputClass, "w-48")}
+                      />
+                    </div>
+                    <button
+                      onClick={() => onRemove(fk.id)}
+                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
 
-                    {fk.referenceTable && refTableColumns[fk.referenceTable] && (
-                      <div className="mt-1.5 flex flex-wrap gap-1">
-                        {refTableColumns[fk.referenceTable].map((cn) => (
+                  <div className="mb-2 grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Column(s)</label>
+                      <div className="flex flex-wrap gap-1">
+                        {columnNames.map((cn) => (
                           <button
                             key={cn}
-                            onClick={() => toggleColumn(fk, "referenceColumns", cn)}
+                            onClick={() => toggleColumn(fk, "columns", cn)}
                             className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
-                              fk.referenceColumns.includes(cn)
+                              fk.columns.includes(cn)
                                 ? "border-brand-500 bg-brand-600/20 text-brand-300"
                                 : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]"
                             }`}
@@ -941,34 +980,69 @@ function ForeignKeysTab({
                           </button>
                         ))}
                       </div>
-                    )}
-                  </div>
-                </div>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Reference Table</label>
+                      <select
+                        value={fk.referenceTable}
+                        onChange={(e) => {
+                          const table = e.target.value;
+                          onUpdate(fk.id, "referenceTable", table);
+                          onUpdate(fk.id, "referenceColumns", []);
+                          if (table) onLoadRefColumns(table);
+                        }}
+                        className={selectClass}
+                      >
+                        <option value="">Select table…</option>
+                        {refTables.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
+                      </select>
 
-                <div className="flex gap-3">
-                  <div>
-                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">ON DELETE</label>
-                    <select
-                      value={fk.onDelete}
-                      onChange={(e) => onUpdate(fk.id, "onDelete", e.target.value)}
-                      className={cn(selectClass, "w-32")}
-                    >
-                      {FK_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-                    </select>
+                      {fk.referenceTable && refTableColumns[fk.referenceTable] && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {refTableColumns[fk.referenceTable].map((rc) => (
+                            <button
+                              key={rc.name}
+                              onClick={() => toggleColumn(fk, "referenceColumns", rc.name)}
+                              title={rc.type}
+                              className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
+                                fk.referenceColumns.includes(rc.name)
+                                  ? "border-brand-500 bg-brand-600/20 text-brand-300"
+                                  : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]"
+                              }`}
+                            >
+                              {rc.name}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">ON UPDATE</label>
-                    <select
-                      value={fk.onUpdate}
-                      onChange={(e) => onUpdate(fk.id, "onUpdate", e.target.value)}
-                      className={cn(selectClass, "w-32")}
-                    >
-                      {FK_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
-                    </select>
+
+                  <div className="flex gap-3">
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">ON DELETE</label>
+                      <select
+                        value={fk.onDelete}
+                        onChange={(e) => onUpdate(fk.id, "onDelete", e.target.value)}
+                        className={cn(selectClass, "w-32")}
+                      >
+                        {FK_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">ON UPDATE</label>
+                      <select
+                        value={fk.onUpdate}
+                        onChange={(e) => onUpdate(fk.id, "onUpdate", e.target.value)}
+                        className={cn(selectClass, "w-32")}
+                      >
+                        {FK_ACTIONS.map((a) => <option key={a} value={a}>{a}</option>)}
+                      </select>
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       <button
@@ -1074,6 +1148,26 @@ function OptionsTab({
  * "170" where it had held b'10101010' — confirmed against MySQL 8. A type
  * this build has never heard of is still the truth about the column (#382).
  */
+/**
+ * The server's spelling of a referential action, as one of the four the
+ * editor offers.
+ *
+ * MySQL reports an absent clause as NO ACTION, which is what it means, and
+ * that is already one of the four.
+ */
+/** A referenced table's column, as much of it as the FK editor needs. */
+interface RefColumn {
+  name: string;
+  type: string;
+}
+
+function normaliseFkAction(rule: string): DesignerForeignKey["onDelete"] {
+  const upper = rule.trim().toUpperCase();
+  return (FK_ACTIONS as readonly string[]).includes(upper)
+    ? upper as DesignerForeignKey["onDelete"]
+    : "RESTRICT";
+}
+
 function normaliseBaseType(base: string): string {
   if (base === "INT" || base === "INTEGER") return "INT";
   return base;

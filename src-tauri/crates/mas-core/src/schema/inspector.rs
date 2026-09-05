@@ -59,9 +59,11 @@ pub struct IndexInfo {
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ForeignKeyInfo {
     pub name: String,
-    pub column: String,
+    /// In key order. A composite foreign key spans several rows of
+    /// KEY_COLUMN_USAGE, which ORDINAL_POSITION puts back in order.
+    pub columns: Vec<String>,
     pub referenced_table: String,
-    pub referenced_column: String,
+    pub referenced_columns: Vec<String>,
     pub on_update: String,
     pub on_delete: String,
 }
@@ -213,6 +215,74 @@ impl SchemaInspector {
     }
 
     #[tracing::instrument(skip(self))]
+    /// The table's foreign keys, with the referential actions that go with
+    /// them.
+    ///
+    /// This had a type and no method: the designer showed an empty Foreign
+    /// Keys tab for every table, so an existing constraint could not be seen,
+    /// edited or removed (#386).
+    ///
+    /// The columns come from KEY_COLUMN_USAGE, one row per column, and the ON
+    /// UPDATE / ON DELETE rules from REFERENTIAL_CONSTRAINTS, one row per
+    /// constraint — hence the join and the grouping.
+    pub async fn get_foreign_keys(
+        &self,
+        connection_id: &str,
+        database: &str,
+        table: &str,
+    ) -> Result<Vec<ForeignKeyInfo>, CoreError> {
+        tracing::debug!(database = %database, table = %table, "Fetching foreign keys");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query(
+            "SELECT CAST(k.CONSTRAINT_NAME AS CHAR) AS CONSTRAINT_NAME,
+                    CAST(k.COLUMN_NAME AS CHAR) AS COLUMN_NAME,
+                    CAST(k.REFERENCED_TABLE_NAME AS CHAR) AS REFERENCED_TABLE_NAME,
+                    CAST(k.REFERENCED_COLUMN_NAME AS CHAR) AS REFERENCED_COLUMN_NAME,
+                    CAST(r.UPDATE_RULE AS CHAR) AS UPDATE_RULE,
+                    CAST(r.DELETE_RULE AS CHAR) AS DELETE_RULE
+             FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
+             JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS r
+               ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+              AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+              AND r.TABLE_NAME = k.TABLE_NAME
+             WHERE k.TABLE_SCHEMA = ? AND k.TABLE_NAME = ?
+               AND k.REFERENCED_TABLE_NAME IS NOT NULL
+             ORDER BY k.CONSTRAINT_NAME, k.ORDINAL_POSITION",
+        )
+        .bind(database)
+        .bind(table)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        // Grouped in first-seen order, which ORDER BY has already settled, so
+        // a composite key's columns stay in key order.
+        let mut keys: Vec<ForeignKeyInfo> = Vec::new();
+        for row in &rows {
+            let name: String = row.get("CONSTRAINT_NAME");
+            let column: String = row.get("COLUMN_NAME");
+            let ref_column: String = row.get("REFERENCED_COLUMN_NAME");
+
+            match keys.last_mut() {
+                Some(existing) if existing.name == name => {
+                    existing.columns.push(column);
+                    existing.referenced_columns.push(ref_column);
+                }
+                _ => keys.push(ForeignKeyInfo {
+                    name,
+                    columns: vec![column],
+                    referenced_table: row.get("REFERENCED_TABLE_NAME"),
+                    referenced_columns: vec![ref_column],
+                    on_update: row.get("UPDATE_RULE"),
+                    on_delete: row.get("DELETE_RULE"),
+                }),
+            }
+        }
+
+        tracing::debug!(count = keys.len(), "Foreign keys fetched");
+        Ok(keys)
+    }
+
     pub async fn get_indexes(
         &self,
         connection_id: &str,
