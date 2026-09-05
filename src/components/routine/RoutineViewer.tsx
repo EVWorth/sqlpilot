@@ -15,9 +15,12 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseRoutineMetadata, type RoutineParameter } from "../../lib/routine-parser";
+import { buildDropRoutine, buildFunctionCall, formatParamValue, isPlainIdentifier } from "../../lib/routine-sql";
+import { quoteIdentifier } from "../../lib/sql-quote";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import { useEditorStore } from "../../stores/editorStore";
+import { useResultStore } from "../../stores/resultStore";
 import type { QueryResult } from "../../types";
 
 interface RoutineViewerProps {
@@ -110,14 +113,27 @@ export function RoutineViewer({
   const executeProcedure = async () => {
     const statements: string[] = [];
 
+    // A parameter name comes from the routine's own declaration, so it should
+    // already be a plain identifier. `SET @name` takes it unquoted, with no
+    // way to escape anything, so refuse rather than build a statement whose
+    // meaning depends on what the name happens to contain.
+    const oddName = params.find((p) => !isPlainIdentifier(p.name));
+    if (oddName) {
+      throw new Error(
+        `Cannot call this routine: the parameter name "${oddName.name}" is not a plain identifier`,
+      );
+    }
+
     // Set IN/INOUT params as session variables
     for (const p of params) {
       if (p.direction === "IN" || p.direction === "INOUT") {
         const val = paramValues[p.name];
         if (val !== undefined && val !== "") {
-          statements.push(
-            `SET @${p.name} = ${formatParamValue(val, p.dataType)}`,
-          );
+          const formatted = formatParamValue(val, p.dataType);
+          if (!formatted.ok) {
+            throw new Error(`${p.name}: ${formatted.reason}`);
+          }
+          statements.push(`SET @${p.name} = ${formatted.sql}`);
         } else {
           statements.push(`SET @${p.name} = NULL`);
         }
@@ -129,11 +145,13 @@ export function RoutineViewer({
 
     // Build CALL statement with session variable references
     const callArgs = params.map((p) => `@${p.name}`).join(", ");
-    statements.push(`CALL \`${database}\`.\`${routineName}\`(${callArgs})`);
+    statements.push(
+      `CALL ${quoteIdentifier(database)}.${quoteIdentifier(routineName)}(${callArgs})`,
+    );
 
     // Read OUT/INOUT params
     if (outParams.length > 0) {
-      const selectParts = outParams.map((p) => `@${p.name} AS \`${p.name}\``);
+      const selectParts = outParams.map((p) => `@${p.name} AS ${quoteIdentifier(p.name)}`);
       statements.push(`SELECT ${selectParts.join(", ")}`);
     }
 
@@ -156,17 +174,17 @@ export function RoutineViewer({
   };
 
   const executeFunction = async () => {
-    const args = inParams
-      .map((p) => {
-        const val = paramValues[p.name];
-        if (val !== undefined && val !== "") {
-          return formatParamValue(val, p.dataType);
-        }
-        return "NULL";
-      })
-      .join(", ");
+    const args = inParams.map((p) => {
+      const val = paramValues[p.name];
+      if (val === undefined || val === "") return "NULL";
+      const formatted = formatParamValue(val, p.dataType);
+      if (!formatted.ok) {
+        throw new Error(`${p.name}: ${formatted.reason}`);
+      }
+      return formatted.sql;
+    });
 
-    const sql = `SELECT \`${database}\`.\`${routineName}\`(${args}) AS \`result\``;
+    const sql = buildFunctionCall(database, routineName, args);
     const queryResults = await api.executeQuery(connectionId, sql);
     setResults(queryResults);
   };
@@ -176,7 +194,7 @@ export function RoutineViewer({
     useEditorStore.getState().updateTabContent(tabId, ddl);
   };
 
-  const handleDrop = () => {
+  const handleDrop = async () => {
     if (
       !window.confirm(
         `Are you sure you want to drop ${routineType.toLowerCase()} \`${database}\`.\`${routineName}\`?`,
@@ -184,23 +202,37 @@ export function RoutineViewer({
     ) {
       return;
     }
-    api
-      .executeQuery(
+    // Through the store, not api.executeQuery. The store is where the
+    // production gate lives: on a connection marked production a destructive
+    // statement raises the app's own confirmation before anything runs. Going
+    // straight to the IPC layer skipped it, so dropping a routine on
+    // production was one unstyled browser prompt away (#393).
+    try {
+      await useResultStore.getState().executeQuery(
         connectionId,
-        `DROP ${routineType} \`${database}\`.\`${routineName}\``,
-      )
-      .then(() => {
-        const tabId = useEditorStore
-          .getState()
-          .tabs.find(
-            (t) =>
-              t.type === "routine"
-              && t.routineName === routineName
-              && t.database === database,
-          )?.id;
-        if (tabId) useEditorStore.getState().closeTab(tabId);
-      })
-      .catch((e) => setExecError(String(e)));
+        buildDropRoutine(routineType, database, routineName),
+        database,
+      );
+      const { error } = useResultStore.getState();
+      if (error) {
+        setExecError(error);
+        return;
+      }
+      // Still open when the production gate is waiting on the user. Closing
+      // the tab now would hide the dialog's subject.
+      if (useResultStore.getState().confirmDialog) return;
+      const tabId = useEditorStore
+        .getState()
+        .tabs.find(
+          (t) =>
+            t.type === "routine"
+            && t.routineName === routineName
+            && t.database === database,
+        )?.id;
+      if (tabId) useEditorStore.getState().closeTab(tabId);
+    } catch (e) {
+      setExecError(String(e));
+    }
   };
 
   const isProcedure = routineType === "PROCEDURE";
@@ -536,19 +568,4 @@ function getInputType(dataType: string): string {
     return "time";
   }
   return "text";
-}
-
-function formatParamValue(value: string, dataType: string): string {
-  const upper = dataType.toUpperCase();
-  if (
-    /^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|FLOAT|DOUBLE|DECIMAL|NUMERIC|REAL|BIT|BOOLEAN|BOOL)\b/.test(
-      upper,
-    )
-  ) {
-    const num = Number(value);
-    if (!isNaN(num)) return String(num);
-  }
-  // Escape single quotes in string values
-  const escaped = value.replace(/'/g, "\\'");
-  return `'${escaped}'`;
 }
