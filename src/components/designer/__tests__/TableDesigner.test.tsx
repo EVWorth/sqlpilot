@@ -161,8 +161,10 @@ describe("TableDesigner", () => {
 
       const btn = screen.getByText("Create Table");
 
+      // Create Table opens the preview; Execute is what runs it (#380).
+      fireEvent.click(btn);
       await act(async () => {
-        fireEvent.click(btn);
+        fireEvent.click(screen.getByText("Execute Preview"));
       });
 
       expect(useResultStore.getState().executeQuery).toHaveBeenCalled();
@@ -181,8 +183,9 @@ describe("TableDesigner", () => {
       const columnNameInput = screen.getByPlaceholderText("column_name");
       fireEvent.change(columnNameInput, { target: { value: "id" } });
 
+      fireEvent.click(screen.getByText("Create Table"));
       await act(async () => {
-        fireEvent.click(screen.getByText("Create Table"));
+        fireEvent.click(screen.getByText("Execute Preview"));
       });
 
       expect(await screen.findByText("Table saved successfully!")).toBeDefined();
@@ -207,8 +210,9 @@ describe("TableDesigner", () => {
       const columnNameInput = screen.getByPlaceholderText("column_name");
       fireEvent.change(columnNameInput, { target: { value: "id" } });
 
+      fireEvent.click(screen.getByText("Create Table"));
       await act(async () => {
-        fireEvent.click(screen.getByText("Create Table"));
+        fireEvent.click(screen.getByText("Execute Preview"));
       });
 
       expect(await screen.findByText(/Failed to execute/)).toBeDefined();
@@ -400,6 +404,75 @@ describe("TableDesigner", () => {
 
       expect(screen.getByText(/Duplicate column name/)).toBeDefined();
       expect(screen.queryByText("Table saved successfully!")).toBeNull();
+    });
+  });
+
+  describe("creating a table shows the statement first", () => {
+    function fillIn() {
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      fireEvent.change(screen.getByPlaceholderText("table_name"), {
+        target: { value: "my_new_table" },
+      });
+      fireEvent.change(screen.getByPlaceholderText("column_name"), {
+        target: { value: "id" },
+      });
+    }
+
+    it("opens the preview instead of running immediately", async () => {
+      // Nothing on screen showed the statement or the database it would land
+      // in; the first sight of either was the schema tree afterwards (#380).
+      fillIn();
+      await act(async () => {
+        fireEvent.click(screen.getByText("Create Table"));
+      });
+
+      expect(screen.getByTestId("sql-preview-dialog")).toBeDefined();
+      expect(useResultStore.getState().executeQuery).not.toHaveBeenCalled();
+    });
+
+    it("shows the statement it is about to run", async () => {
+      fillIn();
+      fireEvent.click(screen.getByText("Create Table"));
+
+      expect(screen.getByTestId("sql-preview-dialog").textContent)
+        .toContain("CREATE TABLE `my_new_table`");
+    });
+
+    it("runs it on Execute", async () => {
+      fillIn();
+      fireEvent.click(screen.getByText("Create Table"));
+      await act(async () => {
+        fireEvent.click(screen.getByText("Execute Preview"));
+      });
+
+      expect(useResultStore.getState().executeQuery).toHaveBeenCalled();
+    });
+
+    it("runs nothing on Cancel", async () => {
+      fillIn();
+      fireEvent.click(screen.getByText("Create Table"));
+      await act(async () => {
+        fireEvent.click(screen.getByText("Close Preview"));
+      });
+
+      expect(useResultStore.getState().executeQuery).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("sql-preview-dialog")).toBeNull();
+    });
+
+    it("does not add a step to alter mode, which already shows its changes", async () => {
+      vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
+      vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
+      await screen.findByDisplayValue("users");
+      fireEvent.click(screen.getByText("Add Column"));
+      const names = screen.getAllByPlaceholderText("column_name");
+      fireEvent.change(names[names.length - 1], { target: { value: "added" } });
+      await act(async () => {
+        fireEvent.click(screen.getByText("Apply Changes"));
+      });
+
+      expect(useResultStore.getState().executeQuery).toHaveBeenCalled();
     });
   });
 });

@@ -259,7 +259,28 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
     return generateCreateTable(config);
   }, [currentConfig, isAlter, originalConfig, tableName]);
 
-  const handleSave = async () => {
+  /**
+   * What the primary button does.
+   *
+   * Creating a table went straight to the server. The generated statement is
+   * entirely the designer's own work — there is no diff to read and nothing
+   * on screen that shows what will run — so the first sight of it was in the
+   * schema tree afterwards, in whichever database the tab happened to be
+   * pointed at (#380).
+   *
+   * Alter mode already shows its changes: the form is the table, the diff is
+   * against what was loaded, and a destructive change on a production
+   * connection raises the store's own confirmation. It keeps saving directly.
+   */
+  const handlePrimaryAction = () => {
+    if (isAlter) {
+      void runSave();
+      return;
+    }
+    setShowPreview(true);
+  };
+
+  const runSave = async () => {
     const sql = generateSql();
     if (sql.startsWith("--")) {
       setError(sql);
@@ -393,7 +414,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
             Preview SQL
           </button>
           <button
-            onClick={handleSave}
+            onClick={handlePrimaryAction}
             disabled={saving}
             className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50"
           >
@@ -464,7 +485,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
         <SQLPreviewDialog
           sql={generateSql()}
           onClose={() => setShowPreview(false)}
-          onExecute={handleSave}
+          onExecute={runSave}
         />
       )}
     </div>
