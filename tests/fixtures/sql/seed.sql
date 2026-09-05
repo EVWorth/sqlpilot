@@ -347,6 +347,28 @@ BEGIN
         JSON_OBJECT('order_number', NEW.order_number, 'user_id', NEW.user_id, 'total', NEW.total));
 END //
 
+-- Procedures whose result sets exercise the executor's statement mapping.
+-- A CALL sends one result set per SELECT in the body plus a closing OK
+-- packet, so the count of protocol messages does not match the count of
+-- statements sent. Assuming it did panicked the fetch loop (#544).
+
+CREATE PROCEDURE IF NOT EXISTS proc_one_result_set()
+BEGIN
+    SELECT 'only' AS a;
+END //
+
+CREATE PROCEDURE IF NOT EXISTS proc_two_result_sets(OUT p_out INT)
+BEGIN
+    SELECT 'hello' AS greeting;
+    SELECT 'second' AS s;
+    SET p_out = 42;
+END //
+
+CREATE PROCEDURE IF NOT EXISTS proc_no_result_set()
+BEGIN
+    SET @proc_no_result_set_ran = 1;
+END //
+
 DELIMITER ;
 
 -- ============================================
