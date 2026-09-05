@@ -7,6 +7,7 @@ vi.mock("../../../lib/tauri-api", () => ({
     getTables: vi.fn(),
     getColumns: vi.fn(),
     getIndexes: vi.fn(),
+    getTableDdl: vi.fn(),
     executeQuery: vi.fn(),
   },
 }));
@@ -56,6 +57,11 @@ describe("TableDesigner", () => {
     vi.mocked(api.getTables).mockResolvedValue([
       { name: "other_table", table_type: "BASE TABLE", engine: "InnoDB", row_count: 0, data_size: 0, comment: "" },
     ]);
+    // Alter mode reads the table's real engine/charset/collation/comment out
+    // of its DDL; a table with nothing unusual set looks like this.
+    vi.mocked(api.getTableDdl).mockResolvedValue(
+      "CREATE TABLE `users` (\n  `id` int NOT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
+    );
   });
 
   describe("create mode", () => {
@@ -214,6 +220,7 @@ describe("TableDesigner", () => {
     it("shows loading state while fetching table structure", async () => {
       vi.mocked(api.getColumns).mockReturnValue(new Promise(() => {}));
       vi.mocked(api.getIndexes).mockReturnValue(new Promise(() => {}));
+      vi.mocked(api.getTableDdl).mockReturnValue(new Promise(() => {}));
 
       render(
         <TableDesigner connectionId="conn-1" database="testdb" tableName="users" />,
@@ -269,6 +276,53 @@ describe("TableDesigner", () => {
       // New index form should appear
       const indexNameInputs = screen.getAllByPlaceholderText("index_name");
       expect(indexNameInputs.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe("table options in alter mode", () => {
+    const MYISAM_DDL = "CREATE TABLE `users` (\n  `id` int NOT NULL\n"
+      + ") ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_bin COMMENT='legacy'";
+
+    beforeEach(() => {
+      vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
+      vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+      vi.mocked(api.getTableDdl).mockResolvedValue(MYISAM_DDL);
+    });
+
+    async function openOptions() {
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
+      await screen.findByDisplayValue("users");
+      fireEvent.click(screen.getByText("Options"));
+    }
+
+    it("shows what the table actually is, not the defaults for a new table", async () => {
+      // Every table used to open reading InnoDB / utf8mb4 / no comment,
+      // whatever it really was (#378).
+      await openOptions();
+
+      expect(screen.getByDisplayValue("MyISAM")).toBeDefined();
+      expect(screen.getByDisplayValue("utf8mb3")).toBeDefined();
+      expect(screen.getByDisplayValue("legacy")).toBeDefined();
+    });
+
+    it("emits nothing when the table is opened and left alone", async () => {
+      await openOptions();
+      fireEvent.click(screen.getByText("Preview SQL"));
+
+      expect(screen.getByTestId("sql-preview-dialog").textContent)
+        .toContain("No changes detected");
+    });
+
+    it("keeps a change towards a default value instead of discarding it", async () => {
+      // The damaging half. The baseline said InnoDB for a MyISAM table, so
+      // choosing InnoDB diffed against itself: the request vanished and the
+      // user was told there was nothing to do.
+      await openOptions();
+      fireEvent.change(screen.getByDisplayValue("MyISAM"), { target: { value: "InnoDB" } });
+      fireEvent.click(screen.getByText("Preview SQL"));
+
+      expect(screen.getByTestId("sql-preview-dialog").textContent)
+        .toContain("ENGINE = InnoDB");
     });
   });
 });
