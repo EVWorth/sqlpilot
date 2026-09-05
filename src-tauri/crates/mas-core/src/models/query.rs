@@ -15,10 +15,30 @@ pub struct QueryResult {
     #[specta(type = specta_typescript::Number)]
     pub execution_time_ms: u64,
     pub warnings: Vec<String>,
+    /// Whether rows were withheld. Derived from `truncation_reason` at the one
+    /// place a truncated result is built, so the two cannot disagree.
     pub rows_truncated: bool,
+    /// Why rows were withheld, when they were. The banner needs this: telling
+    /// someone to add a LIMIT is wrong advice when the cap was memory, and
+    /// they will respond by raising a LIMIT that was never the constraint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub truncation_reason: Option<TruncationReason>,
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(type = Option<specta_typescript::Number>)]
     pub total_rows_available: Option<u64>,
+}
+
+/// What stopped the result set from being complete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum TruncationReason {
+    /// The caller's row limit was reached. Asking for fewer rows, or raising
+    /// the limit, is a meaningful response.
+    RowLimit,
+    /// Available system memory fell below the guard's floor mid-fetch, so the
+    /// fetch stopped early. A larger LIMIT cannot help; a narrower projection
+    /// or a WHERE clause can.
+    MemoryGuard,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
