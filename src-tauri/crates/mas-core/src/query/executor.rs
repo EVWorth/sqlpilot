@@ -208,6 +208,10 @@ impl QueryExecutor {
         let mut stream = sqlx::raw_sql(AssertSqlSafe(combined_sql)).fetch_many(&pool);
         let mut results = Vec::new();
         let mut current_rows: Vec<sqlx::mysql::MySqlRow> = Vec::new();
+        // Whether the CALL being processed has already produced a result set,
+        // so its closing OK packet is recognised as a marker rather than
+        // reported as an extra empty statement.
+        let mut call_emitted = false;
         let mut start = Instant::now();
 
         loop {
@@ -261,11 +265,25 @@ impl QueryExecutor {
                     }
                 }
                 Either::Left(qr) => {
-                    // Statement complete. For SELECT this arrives after all rows;
-                    // for DML/DDL it is the only item for that statement.
+                    // A result set, or a statement reporting a count.
+                    //
+                    // This used to assume one Left per statement, which CALL
+                    // breaks: MySQL sends one result set per SELECT inside the
+                    // procedure and then a final OK packet, so N+1 arrive for
+                    // one statement. `statements[stmt_idx]` then ran off the
+                    // end and panicked — on any procedure that returns rows,
+                    // which is to say the ordinary case (#544).
+                    //
+                    // Past the end, the Left belongs to a statement that has
+                    // already reported. Attribute it there rather than
+                    // indexing out of bounds.
+                    let had_rows = !current_rows.is_empty();
+                    let mut call_in_progress = false;
                     if stmt_idx >= 0 {
-                        let idx = stmt_idx as usize;
+                        let overrun = stmt_idx as usize >= statements.len();
+                        let idx = (stmt_idx as usize).min(statements.len().saturating_sub(1));
                         let stmt = &statements[idx];
+                        call_in_progress = crate::query::statement::effective_verb(stmt) == "CALL";
                         let query_id = uuid::Uuid::new_v4().to_string();
                         let execution_time = start.elapsed().as_millis() as u64;
                         let preview: String = stmt.chars().take(200).collect();
@@ -277,7 +295,16 @@ impl QueryExecutor {
                         );
                         tracing::trace!(query_id = %query_id, sql = %stmt, "Full statement SQL");
 
-                        let is_select = returns_rows(stmt);
+                        // Whether this is a result set cannot come from the
+                        // verb alone. CALL is not in the row-returning list and
+                        // could not usefully be: whether it returns rows
+                        // depends on the procedure body, not the statement
+                        // text. Rows that actually arrived settle it, and the
+                        // verb still covers a SELECT that matched nothing, so
+                        // an empty result set stays a result set rather than
+                        // turning into a count.
+                        let is_select =
+                            !current_rows.is_empty() || (!overrun && returns_rows(stmt));
 
                         if is_select {
                             let row_count = current_rows.len() as u64;
@@ -306,6 +333,19 @@ impl QueryExecutor {
                                 execution_time,
                                 truncation,
                             ));
+                            call_emitted |= call_in_progress;
+                        } else if overrun || (call_in_progress && call_emitted) {
+                            // A CALL's closing OK packet. The sets it closes
+                            // have already been pushed, so reporting it too
+                            // would add a phantom "0 rows affected" after
+                            // every procedure call. A CALL that produced no
+                            // sets at all does not reach here, and still
+                            // reports its count.
+                            tracing::trace!(
+                                query_id = %query_id,
+                                statement_index = idx,
+                                "Extra completion marker, already reported"
+                            );
                         } else {
                             let rows_affected = qr.rows_affected();
 
@@ -349,7 +389,23 @@ impl QueryExecutor {
                         current_rows.clear();
                         start = Instant::now();
                     }
-                    stmt_idx += 1;
+                    // A CALL is not finished until a Left arrives carrying no
+                    // rows — its result sets come first, then the OK packet
+                    // that closes it. Advancing on each of them would
+                    // attribute the procedure's second and later result sets
+                    // to whatever statement follows the CALL.
+                    //
+                    // The protocol's "more results" flag would settle this
+                    // exactly, but sqlx does not surface it through
+                    // fetch_many, so rows-or-not is the available signal. It
+                    // is wrong in one case: a procedure whose final SELECT
+                    // matches nothing looks finished one Left early. Result
+                    // data and ordering are unaffected either way; only
+                    // statement_index, which labels the result tabs, drifts.
+                    if !(call_in_progress && had_rows) {
+                        stmt_idx += 1;
+                        call_emitted = false;
+                    }
                 }
             }
         }
