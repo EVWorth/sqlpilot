@@ -22,6 +22,7 @@ import {
   type TableDesignerConfig,
   type TableOptions,
 } from "../../lib/ddl-generator";
+import { DEFAULT_TABLE_OPTIONS, parseTableOptions } from "../../lib/table-options";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import type { ColumnInfo, IndexInfo, TableInfo } from "../../types";
@@ -80,14 +81,6 @@ interface TableDesignerProps {
   tableName?: string;
 }
 
-const defaultOptions: TableOptions = {
-  engine: "InnoDB",
-  charset: "utf8mb4",
-  collation: "utf8mb4_general_ci",
-  autoIncrementStart: "1",
-  comment: "",
-};
-
 let idCounter = 0;
 function nextId(prefix: string): string {
   return `${prefix}-${++idCounter}`;
@@ -135,7 +128,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
   const [columns, setColumns] = useState<DesignerColumn[]>([newColumn()]);
   const [indexes, setIndexes] = useState<DesignerIndex[]>([]);
   const [foreignKeys, setForeignKeys] = useState<DesignerForeignKey[]>([]);
-  const [options, setOptions] = useState<TableOptions>({ ...defaultOptions });
+  const [options, setOptions] = useState<TableOptions>({ ...DEFAULT_TABLE_OPTIONS });
 
   const [originalConfig, setOriginalConfig] = useState<TableDesignerConfig | null>(null);
   const [loading, setLoading] = useState(isAlter);
@@ -178,10 +171,17 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
     const load = async () => {
       try {
         setLoading(true);
-        const [colsData, idxData] = await Promise.all([
+        const [colsData, idxData, tableDdl] = await Promise.all([
           api.getColumns(connectionId, database, tableName),
           api.getIndexes(connectionId, database, tableName),
+          // Engine, charset, collation and comment are only available from
+          // the table's own DDL. Without them both the form and the diff
+          // baseline showed the defaults for every table, so the Options tab
+          // misreported the table and any change towards a default value was
+          // diffed against itself and silently dropped (#378).
+          api.getTableDdl(connectionId, database, tableName),
         ]);
+        const loadedOptions = parseTableOptions(tableDdl);
 
         const loadedCols: DesignerColumn[] = colsData.map((c: ColumnInfo) => ({
           id: nextId("col"),
@@ -210,6 +210,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
         setColumns(loadedCols.length > 0 ? loadedCols : [newColumn()]);
         setIndexes(loadedIdxs);
         setTblName(tableName);
+        setOptions(loadedOptions);
 
         const config: TableDesignerConfig = {
           tableName,
@@ -217,7 +218,9 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           columns: loadedCols.length > 0 ? loadedCols : [newColumn()],
           indexes: loadedIdxs,
           foreignKeys: [],
-          options: { ...defaultOptions },
+          // The same values the form now shows, so an untouched table diffs
+          // to nothing and a real edit diffs against what is really there.
+          options: { ...loadedOptions },
         };
         setOriginalConfig(config);
       } catch (e) {
@@ -874,6 +877,16 @@ function OptionsTab({
     onChange({ ...options, [field]: value });
   };
 
+  /**
+   * The static lists cover what someone is likely to pick for a new table,
+   * not everything a server has. A table already on utf8mb3, or on a
+   * collation MariaDB introduced, has a value that is not in the list — and
+   * a select whose value matches no option renders blank, showing the wrong
+   * thing about the table it just loaded. Keep the real value selectable.
+   */
+  const withCurrent = (list: readonly string[], current: string): string[] =>
+    current && !list.includes(current) ? [current, ...list] : [...list];
+
   const selectClass =
     "rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500";
   const inputClass =
@@ -888,7 +901,7 @@ function OptionsTab({
           onChange={(e) => update("engine", e.target.value)}
           className={cn(selectClass, "w-full")}
         >
-          {ENGINES.map((e) => <option key={e} value={e}>{e}</option>)}
+          {withCurrent(ENGINES, options.engine).map((e) => <option key={e} value={e}>{e}</option>)}
         </select>
       </div>
       <div>
@@ -898,7 +911,7 @@ function OptionsTab({
           onChange={(e) => update("charset", e.target.value)}
           className={cn(selectClass, "w-full")}
         >
-          {CHARSETS.map((c) => <option key={c} value={c}>{c}</option>)}
+          {withCurrent(CHARSETS, options.charset).map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div>
@@ -908,7 +921,7 @@ function OptionsTab({
           onChange={(e) => update("collation", e.target.value)}
           className={cn(selectClass, "w-full")}
         >
-          {COLLATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+          {withCurrent(COLLATIONS, options.collation).map((c) => <option key={c} value={c}>{c}</option>)}
         </select>
       </div>
       <div>
