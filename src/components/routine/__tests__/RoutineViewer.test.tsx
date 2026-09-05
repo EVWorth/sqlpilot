@@ -23,8 +23,15 @@ vi.mock("../../../stores/editorStore", () => ({
   },
 }));
 
+vi.mock("../../../stores/resultStore", () => ({
+  useResultStore: {
+    getState: vi.fn(),
+  },
+}));
+
 import { api } from "../../../lib/tauri-api";
 import { useEditorStore } from "../../../stores/editorStore";
+import { useResultStore } from "../../../stores/resultStore";
 
 const mockDdl = `CREATE PROCEDURE test_sp(
   IN p_id INT,
@@ -44,6 +51,11 @@ describe("RoutineViewer", () => {
       tabs: [],
       closeTab: vi.fn(),
     });
+    vi.mocked(useResultStore.getState).mockReturnValue({
+      executeQuery: vi.fn().mockResolvedValue(undefined),
+      error: null,
+      confirmDialog: null,
+    } as never);
   });
 
   it("shows loading state", async () => {
@@ -152,5 +164,67 @@ describe("RoutineViewer", () => {
     fireEvent.click(screen.getByText("Edit"));
     expect(mockAddTab).toHaveBeenCalledWith("conn-1", "testdb");
     expect(mockUpdateTabContent).toHaveBeenCalledWith("new-tab", mockDdl);
+  });
+});
+
+describe("dropping a routine", () => {
+  beforeEach(() => {
+    vi.mocked(api.getRoutineDdl).mockResolvedValue(mockDdl);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+  });
+
+  async function renderAndDrop(name = "test_sp") {
+    await act(async () => {
+      render(
+        <RoutineViewer connectionId="conn-1" database="testdb" routineName={name} routineType="PROCEDURE" />,
+      );
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByTitle(/drop/i));
+    });
+  }
+
+  it("goes through the store, so the production gate applies", async () => {
+    // It called api.executeQuery directly, which skips the store's
+    // production-safety check entirely — so dropping a routine on a
+    // production connection was one unstyled browser prompt away (#393).
+    await renderAndDrop();
+
+    expect(useResultStore.getState().executeQuery).toHaveBeenCalledWith(
+      "conn-1",
+      "DROP PROCEDURE `testdb`.`test_sp`",
+      "testdb",
+    );
+    expect(api.executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("quotes a name containing a backtick instead of ending the quoting", async () => {
+    await renderAndDrop("we`ird");
+
+    expect(useResultStore.getState().executeQuery).toHaveBeenCalledWith(
+      "conn-1",
+      "DROP PROCEDURE `testdb`.`we``ird`",
+      "testdb",
+    );
+  });
+
+  it("leaves the tab open while the production dialog is waiting", async () => {
+    const closeTab = vi.fn();
+    vi.mocked(useEditorStore.getState).mockReturnValue({
+      addTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      tabs: [{ id: "t1", type: "routine", routineName: "test_sp", database: "testdb" }],
+      closeTab,
+    } as never);
+    vi.mocked(useResultStore.getState).mockReturnValue({
+      executeQuery: vi.fn().mockResolvedValue(undefined),
+      error: null,
+      confirmDialog: { isOpen: true, kind: "query", connectionId: "conn-1", sql: "DROP ..." },
+    } as never);
+
+    await renderAndDrop();
+
+    // Closing it now would take away what the dialog is asking about.
+    expect(closeTab).not.toHaveBeenCalled();
   });
 });
