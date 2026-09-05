@@ -4,10 +4,14 @@ import { TruncatedCell } from "../TruncatedCell";
 
 class FakeResizeObserver {
   static instances: FakeResizeObserver[] = [];
+  /** Total ever constructed. `instances` only holds the live ones, since
+   * disconnect removes from it — so it cannot show churn on its own. */
+  static created = 0;
   callback: ResizeObserverCallback;
   observed: Element[] = [];
   constructor(callback: ResizeObserverCallback) {
     this.callback = callback;
+    FakeResizeObserver.created++;
     FakeResizeObserver.instances.push(this);
   }
   observe(el: Element) {
@@ -34,6 +38,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   FakeResizeObserver.instances = [];
+  FakeResizeObserver.created = 0;
 });
 
 afterEach(() => {
@@ -261,5 +266,47 @@ describe("TruncatedCell", () => {
     const textEl = container.querySelector(".truncate") as HTMLElement;
     fireEvent.doubleClick(textEl);
     expect(onViewFull).not.toHaveBeenCalled();
+  });
+});
+
+describe("observer churn", () => {
+  it("keeps one observer across value changes", () => {
+    // The effect listed `formatted` as a dependency, so every new value tore
+    // the observer down and built another. A grid polling SELECT NOW(), or a
+    // column being typed into, does that for every visible cell on every
+    // render (#417).
+    const { rerender } = render(
+      <TruncatedCell value="12:00:00" columnName="now" onViewFull={() => {}} />,
+    );
+    expect(FakeResizeObserver.created).toBe(1);
+
+    for (let i = 1; i <= 25; i++) {
+      rerender(
+        <TruncatedCell value={`12:00:${String(i).padStart(2, "0")}`} columnName="now" onViewFull={() => {}} />,
+      );
+    }
+
+    expect(FakeResizeObserver.created).toBe(1);
+    expect(FakeResizeObserver.instances).toHaveLength(1);
+  });
+
+  it("keeps one observer when only the column metadata changes", () => {
+    // Neither of these has any bearing on whether text overflows its box,
+    // and both were dependencies.
+    const { rerender } = render(
+      <TruncatedCell value="x" columnName="a" dataType="varchar" onViewFull={() => {}} />,
+    );
+    rerender(<TruncatedCell value="x" columnName="b" dataType="text" onViewFull={() => {}} />);
+
+    expect(FakeResizeObserver.created).toBe(1);
+  });
+
+  it("still disconnects when the cell unmounts", () => {
+    const { unmount } = render(
+      <TruncatedCell value="x" columnName="a" onViewFull={() => {}} />,
+    );
+    expect(FakeResizeObserver.instances).toHaveLength(1);
+    unmount();
+    expect(FakeResizeObserver.instances).toHaveLength(0);
   });
 });

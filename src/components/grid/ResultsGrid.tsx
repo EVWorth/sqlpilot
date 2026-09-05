@@ -556,18 +556,6 @@ export function ResultsGrid() {
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
-  useEffect(() => {
-    const el = scrollContainerRef.current;
-    if (!el || totalRows <= 5000) return;
-    const SCROLL_BOOST = Math.min(totalRows / 100, 100);
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      el.scrollTop += e.deltaY * SCROLL_BOOST;
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, [totalRows]);
-
   const rowVirtualizer = useVirtualizer({
     count: totalRows,
     getScrollElement: () => scrollContainerRef.current,
