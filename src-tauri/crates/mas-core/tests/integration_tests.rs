@@ -230,6 +230,152 @@ async fn test_execute_select() {
     manager.disconnect(&info.id).await.unwrap();
 }
 
+// ====== DESIGNER ATOMICITY ======
+//
+// The designer used to emit one ALTER TABLE per change and send them as one
+// multi-statement string. A failure partway left the earlier ones applied.
+//
+// A transaction is not the answer: DDL commits implicitly, so START
+// TRANSACTION / ALTER / ROLLBACK leaves the change in place. Putting every
+// clause in a single ALTER is what makes it all-or-nothing (#379).
+
+async fn column_names(
+    inspector: &SchemaInspector,
+    connection_id: &str,
+    table: &str,
+) -> Vec<String> {
+    inspector
+        .get_columns(connection_id, "test_db", table)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.name)
+        .collect()
+}
+
+async fn a_failed_alter_changes_nothing(profile: ConnectionProfile) {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let inspector = SchemaInspector::new(manager.clone());
+    let info = manager.connect(&profile).await.unwrap();
+
+    executor
+        .execute(
+            &info.id,
+            "DROP TABLE IF EXISTS alter_atomicity; CREATE TABLE alter_atomicity (id INT, dup INT)",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // The second clause collides with an existing column, so the statement
+    // cannot succeed. What matters is what the first clause leaves behind.
+    let combined =
+        "ALTER TABLE `alter_atomicity`\n  ADD COLUMN `ok1` INT,\n  ADD COLUMN `dup` INT;";
+    let result = executor.execute(&info.id, combined, None, None).await;
+    assert!(result.is_err(), "the duplicate column should have failed");
+
+    assert_eq!(
+        column_names(&inspector, &info.id, "alter_atomicity").await,
+        vec!["id".to_string(), "dup".to_string()],
+        "a failed ALTER must leave the table exactly as it was"
+    );
+
+    executor
+        .execute(&info.id, "DROP TABLE alter_atomicity", None, None)
+        .await
+        .unwrap();
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_failed_alter_changes_nothing_mysql() {
+    a_failed_alter_changes_nothing(test_profile()).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_failed_alter_changes_nothing_mariadb() {
+    a_failed_alter_changes_nothing(mariadb_profile()).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_separate_alters_are_what_left_the_table_half_changed() {
+    // The behaviour being moved away from, pinned so the reason for the
+    // single-statement form does not have to be taken on trust.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let inspector = SchemaInspector::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    executor
+        .execute(
+            &info.id,
+            "DROP TABLE IF EXISTS alter_partial; CREATE TABLE alter_partial (id INT, dup INT)",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let separate = "ALTER TABLE `alter_partial` ADD COLUMN `ok1` INT;\n\
+         ALTER TABLE `alter_partial` ADD COLUMN `dup` INT;";
+    assert!(executor
+        .execute(&info.id, separate, None, None)
+        .await
+        .is_err());
+
+    assert_eq!(
+        column_names(&inspector, &info.id, "alter_partial").await,
+        vec!["id".to_string(), "dup".to_string(), "ok1".to_string()],
+        "the first statement lands even though the second fails"
+    );
+
+    executor
+        .execute(&info.id, "DROP TABLE alter_partial", None, None)
+        .await
+        .unwrap();
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_ddl_ignores_a_rollback() {
+    // Why the issue's proposed transaction wrapper cannot work.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let inspector = SchemaInspector::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    executor
+        .execute(
+            &info.id,
+            "DROP TABLE IF EXISTS ddl_rollback; CREATE TABLE ddl_rollback (id INT);\n\
+             START TRANSACTION;\n\
+             ALTER TABLE ddl_rollback ADD COLUMN a INT;\n\
+             ROLLBACK;",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        column_names(&inspector, &info.id, "ddl_rollback").await,
+        vec!["id".to_string(), "a".to_string()],
+        "DDL commits implicitly; the rollback does not undo it"
+    );
+
+    executor
+        .execute(&info.id, "DROP TABLE ddl_rollback", None, None)
+        .await
+        .unwrap();
+    manager.disconnect(&info.id).await.unwrap();
+}
+
 // ====== DESIGNER DDL ROUND-TRIP ======
 //
 // The designer rebuilds a column definition from parsed pieces when the user

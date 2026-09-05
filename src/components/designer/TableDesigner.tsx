@@ -26,6 +26,7 @@ import {
 import { DEFAULT_TABLE_OPTIONS, parseTableOptions } from "../../lib/table-options";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
+import { useResultStore } from "../../stores/resultStore";
 import type { ColumnInfo, IndexInfo, TableInfo } from "../../types";
 import { SQLPreviewDialog } from "./SQLPreviewDialog";
 
@@ -267,7 +268,20 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
     try {
       setSaving(true);
       setError(null);
-      await api.executeQuery(connectionId, sql);
+      // Through the store rather than straight to the IPC layer. The store
+      // is where the production gate lives — a DROP COLUMN on a connection
+      // marked production raises the app's confirmation first — and where
+      // history entries are written, so a schema change is recorded like any
+      // other statement (#379).
+      await useResultStore.getState().executeQuery(connectionId, sql, database);
+      const { error: runError, confirmDialog } = useResultStore.getState();
+      if (runError) {
+        setError(`Failed to execute: ${runError}`);
+        return;
+      }
+      // Waiting on the production dialog. Nothing has run, so the baseline
+      // must not move and success must not be claimed.
+      if (confirmDialog) return;
       setSuccess("Table saved successfully!");
       setTimeout(() => setSuccess(null), 3000);
       if (isAlter) {

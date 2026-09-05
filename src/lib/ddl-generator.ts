@@ -198,17 +198,32 @@ export function generateCreateTable(config: TableDesignerConfig): string {
   return `CREATE TABLE ${escId(tableName)} (\n${defs.join(",\n")}\n)${optLine};`;
 }
 
+/**
+ * One ALTER TABLE carrying every change, rather than one per change.
+ *
+ * Emitting a statement each meant a run could stop halfway. Adding five
+ * columns where the third collides with an existing name left the first two
+ * added and the rest not, with the table in a state the user never asked
+ * for. Confirmed on MySQL 8 and MariaDB 11: separate statements leave
+ * `id,dup,ok1`, the combined form leaves `id,dup` — untouched.
+ *
+ * A transaction cannot help here. DDL commits implicitly, verified on the
+ * same servers: START TRANSACTION, ALTER TABLE ADD COLUMN, ROLLBACK leaves
+ * the column in place. Putting the clauses in one statement is what actually
+ * makes the change all-or-nothing (#379).
+ */
 export function generateAlterTable(
   tableName: string,
   original: TableDesignerConfig,
   modified: TableDesignerConfig,
 ): string {
-  const stmts: string[] = [];
+  // Each entry is one clause of the single statement built at the end.
+  const clauses: string[] = [];
   const tn = escId(tableName);
 
   // Renamed table
   if (modified.tableName !== original.tableName && modified.tableName) {
-    stmts.push(`ALTER TABLE ${tn} RENAME TO ${escId(modified.tableName)};`);
+    clauses.push(`RENAME TO ${escId(modified.tableName)}`);
   }
 
   // Dropped columns
@@ -218,7 +233,7 @@ export function generateAlterTable(
 
   for (const origCol of original.columns) {
     if (!modColMap.has(origCol.id)) {
-      stmts.push(`ALTER TABLE ${tn} DROP COLUMN ${escId(origCol.name)};`);
+      clauses.push(`DROP COLUMN ${escId(origCol.name)}`);
     }
   }
 
@@ -229,16 +244,14 @@ export function generateAlterTable(
 
     if (!origColNames.has(modCol.id)) {
       const pos = prevCol ? ` AFTER ${escId(prevCol)}` : " FIRST";
-      stmts.push(`ALTER TABLE ${tn} ADD COLUMN ${buildColumnDef(modCol)}${pos};`);
+      clauses.push(`ADD COLUMN ${buildColumnDef(modCol)}${pos}`);
     } else {
       const origCol = origColMap.get(modCol.id);
       if (origCol && isColumnChanged(origCol, modCol)) {
         const nameChanged = origCol.name !== modCol.name;
         const keyword = nameChanged ? "CHANGE COLUMN" : "MODIFY COLUMN";
         const oldName = nameChanged ? `${escId(origCol.name)} ` : "";
-        stmts.push(
-          `ALTER TABLE ${tn} ${keyword} ${oldName}${buildColumnDef(modCol)};`,
-        );
+        clauses.push(`${keyword} ${oldName}${buildColumnDef(modCol)}`);
       }
     }
     prevCol = modCol.name;
@@ -252,9 +265,9 @@ export function generateAlterTable(
   for (const origIdx of original.indexes) {
     if (!modIdxMap.has(origIdx.id)) {
       if (origIdx.type === "PRIMARY KEY") {
-        stmts.push(`ALTER TABLE ${tn} DROP PRIMARY KEY;`);
+        clauses.push("DROP PRIMARY KEY");
       } else {
-        stmts.push(`ALTER TABLE ${tn} DROP INDEX ${escId(origIdx.name)};`);
+        clauses.push(`DROP INDEX ${escId(origIdx.name)}`);
       }
     }
   }
@@ -265,22 +278,22 @@ export function generateAlterTable(
 
     if (!origIdxIds.has(modIdx.id)) {
       if (modIdx.type === "PRIMARY KEY") {
-        stmts.push(`ALTER TABLE ${tn} ADD PRIMARY KEY (${modIdx.columns.map(escId).join(", ")});`);
+        clauses.push(`ADD PRIMARY KEY (${modIdx.columns.map(escId).join(", ")})`);
       } else {
-        stmts.push(`ALTER TABLE ${tn} ADD ${buildIndexDef(modIdx)};`);
+        clauses.push(`ADD ${buildIndexDef(modIdx)}`);
       }
     } else {
       const origIdx = origIdxMap.get(modIdx.id);
       if (origIdx && isIndexChanged(origIdx, modIdx)) {
         if (origIdx.type === "PRIMARY KEY") {
-          stmts.push(`ALTER TABLE ${tn} DROP PRIMARY KEY;`);
+          clauses.push("DROP PRIMARY KEY");
         } else {
-          stmts.push(`ALTER TABLE ${tn} DROP INDEX ${escId(origIdx.name)};`);
+          clauses.push(`DROP INDEX ${escId(origIdx.name)}`);
         }
         if (modIdx.type === "PRIMARY KEY") {
-          stmts.push(`ALTER TABLE ${tn} ADD PRIMARY KEY (${modIdx.columns.map(escId).join(", ")});`);
+          clauses.push(`ADD PRIMARY KEY (${modIdx.columns.map(escId).join(", ")})`);
         } else {
-          stmts.push(`ALTER TABLE ${tn} ADD ${buildIndexDef(modIdx)};`);
+          clauses.push(`ADD ${buildIndexDef(modIdx)}`);
         }
       }
     }
@@ -293,7 +306,7 @@ export function generateAlterTable(
 
   for (const origFk of original.foreignKeys) {
     if (!modFkMap.has(origFk.id)) {
-      stmts.push(`ALTER TABLE ${tn} DROP FOREIGN KEY ${escId(origFk.name)};`);
+      clauses.push(`DROP FOREIGN KEY ${escId(origFk.name)}`);
     }
   }
 
@@ -302,12 +315,12 @@ export function generateAlterTable(
     if (modFk.columns.length === 0 || !modFk.referenceTable) continue;
 
     if (!origFkIds.has(modFk.id)) {
-      stmts.push(`ALTER TABLE ${tn} ADD ${buildForeignKeyDef(modFk)};`);
+      clauses.push(`ADD ${buildForeignKeyDef(modFk)}`);
     } else {
       const origFk = origFkMap.get(modFk.id);
       if (origFk && isFkChanged(origFk, modFk)) {
-        stmts.push(`ALTER TABLE ${tn} DROP FOREIGN KEY ${escId(origFk.name)};`);
-        stmts.push(`ALTER TABLE ${tn} ADD ${buildForeignKeyDef(modFk)};`);
+        clauses.push(`DROP FOREIGN KEY ${escId(origFk.name)}`);
+        clauses.push(`ADD ${buildForeignKeyDef(modFk)}`);
       }
     }
   }
@@ -326,13 +339,13 @@ export function generateAlterTable(
   if (modified.options.comment !== original.options.comment) {
     optChanges.push(`COMMENT = '${modified.options.comment.replace(/'/g, "''")}'`);
   }
-  if (optChanges.length > 0) {
-    stmts.push(`ALTER TABLE ${tn} ${optChanges.join(", ")};`);
-  }
+  clauses.push(...optChanges);
 
-  return stmts.length > 0
-    ? stmts.join("\n\n")
-    : "-- No changes detected";
+  if (clauses.length === 0) return "-- No changes detected";
+
+  // One clause per line: the statement can be long, and a preview the user
+  // is asked to approve should be readable.
+  return `ALTER TABLE ${tn}\n  ${clauses.join(",\n  ")};`;
 }
 
 function isColumnChanged(a: DesignerColumn, b: DesignerColumn): boolean {

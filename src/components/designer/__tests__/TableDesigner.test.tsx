@@ -12,6 +12,10 @@ vi.mock("../../../lib/tauri-api", () => ({
   },
 }));
 
+vi.mock("../../../stores/resultStore", () => ({
+  useResultStore: { getState: vi.fn() },
+}));
+
 vi.mock("../SQLPreviewDialog", () => ({
   SQLPreviewDialog: ({ sql, onClose, onExecute }: { sql: string; onClose: () => void; onExecute: () => void }) => (
     <div data-testid="sql-preview-dialog">
@@ -23,6 +27,7 @@ vi.mock("../SQLPreviewDialog", () => ({
 }));
 
 import { api } from "../../../lib/tauri-api";
+import { useResultStore } from "../../../stores/resultStore";
 
 const mockColumns = [
   {
@@ -62,6 +67,11 @@ describe("TableDesigner", () => {
     vi.mocked(api.getTableDdl).mockResolvedValue(
       "CREATE TABLE `users` (\n  `id` int NOT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     );
+    vi.mocked(useResultStore.getState).mockReturnValue({
+      executeQuery: vi.fn().mockResolvedValue(undefined),
+      error: null,
+      confirmDialog: null,
+    } as never);
   });
 
   describe("create mode", () => {
@@ -136,7 +146,8 @@ describe("TableDesigner", () => {
     });
 
     it("creates table on Save click", async () => {
-      vi.mocked(api.executeQuery).mockResolvedValue([]);
+      // Saving goes through the result store now, so the production gate and
+      // the history entry apply to a CREATE TABLE as much as to an ALTER.
 
       render(
         <TableDesigner connectionId="conn-1" database="testdb" />,
@@ -154,7 +165,7 @@ describe("TableDesigner", () => {
         fireEvent.click(btn);
       });
 
-      expect(api.executeQuery).toHaveBeenCalled();
+      expect(useResultStore.getState().executeQuery).toHaveBeenCalled();
     });
 
     it("shows success message after creating table", async () => {
@@ -178,7 +189,13 @@ describe("TableDesigner", () => {
     });
 
     it("shows error on save failure", async () => {
-      vi.mocked(api.executeQuery).mockRejectedValue("SQL error");
+      // The store reports a failed statement through its own error field
+      // rather than by rejecting.
+      vi.mocked(useResultStore.getState).mockReturnValue({
+        executeQuery: vi.fn().mockResolvedValue(undefined),
+        error: "SQL error",
+        confirmDialog: null,
+      } as never);
 
       render(
         <TableDesigner connectionId="conn-1" database="testdb" />,
@@ -323,6 +340,66 @@ describe("TableDesigner", () => {
 
       expect(screen.getByTestId("sql-preview-dialog").textContent)
         .toContain("ENGINE = InnoDB");
+    });
+  });
+
+  describe("applying changes", () => {
+    beforeEach(() => {
+      vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
+      vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+    });
+
+    async function editAndSave() {
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
+      await screen.findByDisplayValue("users");
+      fireEvent.click(screen.getByText("Add Column"));
+      const nameInputs = screen.getAllByPlaceholderText("column_name");
+      fireEvent.change(nameInputs[nameInputs.length - 1], { target: { value: "added" } });
+      await act(async () => {
+        fireEvent.click(screen.getByText("Apply Changes"));
+      });
+    }
+
+    it("goes through the store, so the production gate and history apply", async () => {
+      // It called api.executeQuery directly, which skips both (#379).
+      await editAndSave();
+
+      expect(useResultStore.getState().executeQuery).toHaveBeenCalled();
+      expect(api.executeQuery).not.toHaveBeenCalled();
+    });
+
+    it("sends one statement, not one per change", async () => {
+      await editAndSave();
+
+      const sql = vi.mocked(useResultStore.getState().executeQuery).mock.calls[0][1] as string;
+      expect(sql.match(/ALTER TABLE/g)).toHaveLength(1);
+      expect(sql.match(/;/g)).toHaveLength(1);
+    });
+
+    it("claims nothing while the production dialog is still open", async () => {
+      vi.mocked(useResultStore.getState).mockReturnValue({
+        executeQuery: vi.fn().mockResolvedValue(undefined),
+        error: null,
+        confirmDialog: { isOpen: true, kind: "query", connectionId: "conn-1", sql: "ALTER ..." },
+      } as never);
+
+      await editAndSave();
+
+      // Nothing has run yet, so saying it worked would be a lie.
+      expect(screen.queryByText("Table saved successfully!")).toBeNull();
+    });
+
+    it("reports a failure from the store rather than reporting success", async () => {
+      vi.mocked(useResultStore.getState).mockReturnValue({
+        executeQuery: vi.fn().mockResolvedValue(undefined),
+        error: "Duplicate column name 'added'",
+        confirmDialog: null,
+      } as never);
+
+      await editAndSave();
+
+      expect(screen.getByText(/Duplicate column name/)).toBeDefined();
+      expect(screen.queryByText("Table saved successfully!")).toBeNull();
     });
   });
 });

@@ -547,3 +547,82 @@ describe("column modifiers survive a round-trip", () => {
     expect(generateAlterTable("t", wrap([col]), wrap([col]))).toContain("No changes detected");
   });
 });
+
+describe("an ALTER either all applies or none of it does", () => {
+  const col = (id: string, name: string) => ({
+    id,
+    name,
+    type: "INT",
+    length: "",
+    nullable: true,
+    defaultValue: "",
+    autoIncrement: false,
+    comment: "",
+  });
+  const opts = {
+    engine: "InnoDB",
+    charset: "utf8mb4",
+    collation: "utf8mb4_general_ci",
+    autoIncrementStart: "1",
+    comment: "",
+  };
+  const wrap = (columns: ReturnType<typeof col>[], overrides = {}) => ({
+    tableName: "t",
+    database: "d",
+    columns,
+    indexes: [],
+    foreignKeys: [],
+    options: opts,
+    ...overrides,
+  });
+
+  it("puts every change in one statement", () => {
+    // Five separate statements meant a run could stop in the middle: adding
+    // five columns where the third collides left the first two added.
+    // Verified on MySQL 8 and MariaDB 11 (#379).
+    const before = wrap([col("c1", "id")]);
+    const after = wrap([
+      col("c1", "id"),
+      col("c2", "a"),
+      col("c3", "b"),
+      col("c4", "c"),
+    ]);
+    const sql = generateAlterTable("t", before, after);
+
+    expect(sql.match(/ALTER TABLE/g)).toHaveLength(1);
+    expect(sql.match(/;/g)).toHaveLength(1);
+    expect(sql).toContain("ADD COLUMN `a`");
+    expect(sql).toContain("ADD COLUMN `c`");
+  });
+
+  it("combines a rename, a drop, an add and an option change", () => {
+    // All four are legal clauses of one ALTER — checked against both servers.
+    const before = wrap([col("c1", "id"), col("c2", "gone")]);
+    const after = wrap([col("c1", "id"), col("c3", "added")], {
+      tableName: "renamed",
+      options: { ...opts, comment: "now commented" },
+    });
+    const sql = generateAlterTable("t", before, after);
+
+    expect(sql.match(/ALTER TABLE/g)).toHaveLength(1);
+    expect(sql).toContain("RENAME TO `renamed`");
+    expect(sql).toContain("DROP COLUMN `gone`");
+    expect(sql).toContain("ADD COLUMN `added`");
+    expect(sql).toContain("COMMENT = 'now commented'");
+  });
+
+  it("separates clauses with commas, not semicolons", () => {
+    const before = wrap([col("c1", "id")]);
+    const after = wrap([col("c1", "id"), col("c2", "a"), col("c3", "b")]);
+    const sql = generateAlterTable("t", before, after);
+
+    expect(sql.trimEnd().endsWith(";")).toBe(true);
+    expect(sql.slice(0, -1)).not.toContain(";");
+    expect(sql).toContain(",");
+  });
+
+  it("still says nothing when nothing changed", () => {
+    const same = wrap([col("c1", "id")]);
+    expect(generateAlterTable("t", same, same)).toContain("No changes detected");
+  });
+});
