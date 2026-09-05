@@ -40,6 +40,12 @@ pub struct ColumnInfo {
     pub is_primary_key: bool,
     pub extra: String,
     pub comment: String,
+    /// Only set for string columns, and only when the column carries its own
+    /// character set rather than inheriting the table's. COLUMN_TYPE does not
+    /// include either, so without these a round-trip through the designer
+    /// would rewrite the column with the table default (#377).
+    pub charset: Option<String>,
+    pub collation: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -170,7 +176,9 @@ impl SchemaInspector {
                     CAST(COLUMN_DEFAULT AS CHAR) AS COLUMN_DEFAULT,
                     CAST(COLUMN_KEY AS CHAR) AS COLUMN_KEY,
                     CAST(EXTRA AS CHAR) AS EXTRA,
-                    CAST(COLUMN_COMMENT AS CHAR) AS COLUMN_COMMENT
+                    CAST(COLUMN_COMMENT AS CHAR) AS COLUMN_COMMENT,
+                    CAST(CHARACTER_SET_NAME AS CHAR) AS CHARACTER_SET_NAME,
+                    CAST(COLLATION_NAME AS CHAR) AS COLLATION_NAME
              FROM INFORMATION_SCHEMA.COLUMNS
              WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
              ORDER BY ORDINAL_POSITION",
@@ -195,6 +203,8 @@ impl SchemaInspector {
                     is_primary_key: key == "PRI",
                     extra: row.get("EXTRA"),
                     comment: row.try_get("COLUMN_COMMENT").unwrap_or_default(),
+                    charset: row.try_get("CHARACTER_SET_NAME").ok(),
+                    collation: row.try_get("COLLATION_NAME").ok(),
                 }
             })
             .collect();

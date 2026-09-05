@@ -9,6 +9,16 @@ export interface DesignerColumn {
   defaultValue: string;
   autoIncrement: boolean;
   comment: string;
+  // Modifiers the designer does not offer controls for, carried so that
+  // editing a column's name or comment does not quietly rewrite the rest of
+  // its definition (#377). Absent on a column being created from scratch.
+  unsigned?: boolean;
+  zerofill?: boolean;
+  /** Only when the column overrides the table's character set. */
+  charset?: string;
+  collation?: string;
+  /** e.g. `CURRENT_TIMESTAMP`, from EXTRA rather than from the type. */
+  onUpdate?: string;
 }
 
 export interface DesignerIndex {
@@ -68,17 +78,25 @@ function escId(name: string): string {
 
 function buildColumnType(col: DesignerColumn): string {
   const upper = col.type.toUpperCase();
+  // UNSIGNED and ZEROFILL are part of the type, not separate clauses, and
+  // must come straight after it. ZEROFILL implies UNSIGNED, so MySQL reports
+  // both; emitting both back is what it accepts.
+  const numericAttrs = [
+    col.unsigned ? " UNSIGNED" : "",
+    col.zerofill ? " ZEROFILL" : "",
+  ].join("");
   if (col.length && TYPES_WITH_LENGTH.has(upper)) {
-    if (upper === "ENUM" || upper === "SET") {
-      return `${upper}(${col.length})`;
-    }
-    return `${upper}(${col.length})`;
+    return `${upper}(${col.length})${numericAttrs}`;
   }
-  return upper;
+  return `${upper}${numericAttrs}`;
 }
 
 function buildColumnDef(col: DesignerColumn): string {
   const parts: string[] = [escId(col.name), buildColumnType(col)];
+
+  // Between the type and NOT NULL, which is where MySQL wants them.
+  if (col.charset) parts.push(`CHARACTER SET ${col.charset}`);
+  if (col.collation) parts.push(`COLLATE ${col.collation}`);
 
   if (!col.nullable) {
     parts.push("NOT NULL");
@@ -100,6 +118,11 @@ function buildColumnDef(col: DesignerColumn): string {
     } else {
       parts.push(`DEFAULT '${col.defaultValue.replace(/'/g, "''")}'`);
     }
+  }
+
+  // After DEFAULT, before COMMENT.
+  if (col.onUpdate) {
+    parts.push(`ON UPDATE ${col.onUpdate}`);
   }
 
   if (col.comment) {
@@ -317,6 +340,11 @@ function isColumnChanged(a: DesignerColumn, b: DesignerColumn): boolean {
     a.name !== b.name
     || a.type !== b.type
     || a.length !== b.length
+    || a.unsigned !== b.unsigned
+    || a.zerofill !== b.zerofill
+    || a.charset !== b.charset
+    || a.collation !== b.collation
+    || a.onUpdate !== b.onUpdate
     || a.nullable !== b.nullable
     || a.defaultValue !== b.defaultValue
     || a.autoIncrement !== b.autoIncrement

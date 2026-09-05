@@ -230,6 +230,100 @@ async fn test_execute_select() {
     manager.disconnect(&info.id).await.unwrap();
 }
 
+// ====== DESIGNER DDL ROUND-TRIP ======
+//
+// The designer rebuilds a column definition from parsed pieces when the user
+// edits any part of a column. It used to rebuild only the type name and
+// length, so UNSIGNED, ZEROFILL, CHARACTER SET, COLLATE and ON UPDATE were
+// dropped — turning an unsigned column signed, which then rejects the values
+// it used to hold, or clamps them where strict mode is off (#377).
+//
+// The statements here are exactly what the generator now emits; the
+// TypeScript side asserts it produces them, and this asserts the server
+// accepts them and reports the column back unchanged.
+
+async fn designer_ddl_preserves_column_modifiers(profile: ConnectionProfile) {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&profile).await.unwrap();
+
+    let setup = "DROP TABLE IF EXISTS ddl_roundtrip;\n\
+         CREATE TABLE ddl_roundtrip (\n\
+           big INT UNSIGNED ZEROFILL NOT NULL,\n\
+           s VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin,\n\
+           ts TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP\n\
+         );\n\
+         INSERT INTO ddl_roundtrip (big, s) VALUES (4000000000, 'x');";
+    executor.execute(&info.id, setup, None, None).await.unwrap();
+
+    // What the designer emits for an edit to each column's comment.
+    let altered = "ALTER TABLE `ddl_roundtrip` MODIFY COLUMN `big` INT(10) UNSIGNED ZEROFILL NOT NULL COMMENT 'edited';\n\
+         ALTER TABLE `ddl_roundtrip` MODIFY COLUMN `s` VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL COMMENT 'edited';\n\
+         ALTER TABLE `ddl_roundtrip` MODIFY COLUMN `ts` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'edited';";
+    executor
+        .execute(&info.id, altered, None, None)
+        .await
+        .unwrap();
+
+    let inspector = SchemaInspector::new(manager.clone());
+    let cols = inspector
+        .get_columns(&info.id, "test_db", "ddl_roundtrip")
+        .await
+        .unwrap();
+
+    let big = cols.iter().find(|c| c.name == "big").unwrap();
+    assert!(
+        big.column_type.to_lowercase().contains("unsigned"),
+        "UNSIGNED lost: {}",
+        big.column_type
+    );
+    assert!(
+        big.column_type.to_lowercase().contains("zerofill"),
+        "ZEROFILL lost: {}",
+        big.column_type
+    );
+
+    let s_col = cols.iter().find(|c| c.name == "s").unwrap();
+    assert_eq!(s_col.collation.as_deref(), Some("utf8mb4_bin"));
+
+    let ts = cols.iter().find(|c| c.name == "ts").unwrap();
+    assert!(
+        ts.extra.to_lowercase().contains("on update"),
+        "ON UPDATE lost: {}",
+        ts.extra
+    );
+
+    // And the value that only fits in an unsigned column is still there.
+    let rows = executor
+        .execute(&info.id, "SELECT big FROM ddl_roundtrip", None, None)
+        .await
+        .unwrap();
+    assert_eq!(rows[0].rows.len(), 1);
+    assert!(
+        format!("{:?}", rows[0].rows[0][0]).contains("4000000000"),
+        "value changed: {:?}",
+        rows[0].rows[0][0]
+    );
+
+    executor
+        .execute(&info.id, "DROP TABLE ddl_roundtrip", None, None)
+        .await
+        .unwrap();
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_designer_ddl_preserves_column_modifiers_mysql() {
+    designer_ddl_preserves_column_modifiers(test_profile()).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_designer_ddl_preserves_column_modifiers_mariadb() {
+    designer_ddl_preserves_column_modifiers(mariadb_profile()).await;
+}
+
 // ====== CALL / MULTI-RESULT-SET TESTS ======
 //
 // A CALL does not map one-to-one onto protocol messages. MySQL sends one

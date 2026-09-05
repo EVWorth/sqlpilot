@@ -112,6 +112,14 @@ export type ColumnInfo = {
 	is_primary_key: boolean,
 	extra: string,
 	comment: string,
+	/**
+	 *  Only set for string columns, and only when the column carries its own
+	 *  character set rather than inheriting the table's. COLUMN_TYPE does not
+	 *  include either, so without these a round-trip through the designer
+	 *  would rewrite the column with the table default (#377).
+	 */
+	charset: string | null,
+	collation: string | null,
 };
 
 export type ColumnMeta = {
