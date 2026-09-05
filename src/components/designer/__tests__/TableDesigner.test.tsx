@@ -475,4 +475,91 @@ describe("TableDesigner", () => {
       expect(useResultStore.getState().executeQuery).toHaveBeenCalled();
     });
   });
+
+  describe("the form refuses to build invalid DDL", () => {
+    it("keeps a type the dropdown has never heard of", async () => {
+      // Unknown types used to become VARCHAR. A BIT(8) column saved back that
+      // way turned b'10101010' into the string "170" on MySQL 8 (#382).
+      vi.mocked(api.getColumns).mockResolvedValue([
+        {
+          name: "b",
+          data_type: "bit",
+          column_type: "bit(8)",
+          nullable: true,
+          default_value: null,
+          is_primary_key: false,
+          extra: "",
+          comment: "",
+          charset: null,
+          collation: null,
+        },
+      ] as never);
+      vi.mocked(api.getIndexes).mockResolvedValue([]);
+
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
+      await screen.findByDisplayValue("users");
+
+      expect(screen.getByDisplayValue("BIT")).toBeDefined();
+      expect(screen.getByDisplayValue("8")).toBeDefined();
+    });
+
+    it("will not let a VARCHAR be marked auto-increment", async () => {
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      const typeSelect = screen.getAllByDisplayValue("INT")[0];
+      fireEvent.change(typeSelect, { target: { value: "VARCHAR" } });
+
+      const boxes = screen.getAllByRole("checkbox");
+      const autoInc = boxes[boxes.length - 1];
+      expect((autoInc as HTMLInputElement).disabled).toBe(true);
+      expect(autoInc.getAttribute("title")).toContain("integer type");
+    });
+
+    it("allows it on an integer column", async () => {
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      const boxes = screen.getAllByRole("checkbox");
+      expect((boxes[boxes.length - 1] as HTMLInputElement).disabled).toBe(false);
+    });
+
+    it("says so when a second primary key is added", async () => {
+      // MySQL answers a second one with ERROR 1068, and the only sign used to
+      // be the save failing (#384).
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      fireEvent.click(screen.getByText("Indexes"));
+      fireEvent.click(screen.getByText("Add Index"));
+      fireEvent.click(screen.getByText("Add Index"));
+
+      const types = screen.getAllByDisplayValue("INDEX");
+      fireEvent.change(types[0], { target: { value: "PRIMARY KEY" } });
+      fireEvent.change(types[1], { target: { value: "PRIMARY KEY" } });
+
+      expect(screen.getByTestId("index-problem").textContent)
+        .toContain("only one primary key");
+    });
+
+    it("says so when two indexes share a name", async () => {
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      fireEvent.click(screen.getByText("Indexes"));
+      fireEvent.click(screen.getByText("Add Index"));
+      fireEvent.click(screen.getByText("Add Index"));
+
+      const names = screen.getAllByPlaceholderText("index_name");
+      fireEvent.change(names[0], { target: { value: "idx_same" } });
+      fireEvent.change(names[1], { target: { value: "idx_same" } });
+
+      const problems = screen.getAllByTestId("index-problem");
+      expect(problems).toHaveLength(2);
+      expect(problems[0].textContent).toContain("already called");
+    });
+
+    it("says nothing about a single well-formed index", async () => {
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      fireEvent.click(screen.getByText("Indexes"));
+      fireEvent.click(screen.getByText("Add Index"));
+      fireEvent.change(screen.getByPlaceholderText("index_name"), {
+        target: { value: "idx_ok" },
+      });
+
+      expect(screen.queryByTestId("index-problem")).toBeNull();
+    });
+  });
 });

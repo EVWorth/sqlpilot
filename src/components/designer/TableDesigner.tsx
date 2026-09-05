@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseColumnType, parseOnUpdate } from "../../lib/column-modifiers";
 import {
+  canAutoIncrement,
   type DesignerColumn,
   type DesignerForeignKey,
   type DesignerIndex,
@@ -59,6 +60,22 @@ const COLUMN_TYPES = [
   "JSON",
   "BINARY",
   "VARBINARY",
+  // Absent until #382. BIT is the damaging omission: a BIT(8) column loaded
+  // as VARCHAR(8) and saved back turns b'10101010' into the string "170".
+  "BIT",
+  "BOOL",
+  "SERIAL",
+  "TINYBLOB",
+  "MEDIUMBLOB",
+  "LONGBLOB",
+  "GEOMETRY",
+  "POINT",
+  "LINESTRING",
+  "POLYGON",
+  "MULTIPOINT",
+  "MULTILINESTRING",
+  "MULTIPOLYGON",
+  "GEOMETRYCOLLECTION",
 ] as const;
 
 const INDEX_TYPES = ["PRIMARY KEY", "UNIQUE", "INDEX", "FULLTEXT"] as const;
@@ -612,11 +629,23 @@ function ColumnsTab({
                     />
                   </td>
                   <td className="px-1 py-1 text-center">
+                    {
+                      /*
+                      MySQL rejects AUTO_INCREMENT on anything but an integer
+                      type — `VARCHAR(255) AUTO_INCREMENT` is ERROR 1063 — and
+                      the checkbox used to be offered on every column, so the
+                      only sign was the save failing (#383).
+                    */
+                    }
                     <input
                       type="checkbox"
-                      checked={col.autoIncrement}
+                      checked={col.autoIncrement && canAutoIncrement(col.type)}
+                      disabled={!canAutoIncrement(col.type)}
+                      title={canAutoIncrement(col.type)
+                        ? undefined
+                        : `AUTO_INCREMENT needs an integer type; ${col.type || "this column"} cannot carry it`}
                       onChange={(e) => onUpdate(col.id, "autoIncrement", e.target.checked)}
-                      className="accent-brand-500"
+                      className="accent-brand-500 disabled:opacity-40"
                     />
                   </td>
                   <td className="px-1 py-1">
@@ -677,73 +706,116 @@ function IndexesTab({
     onUpdate(idx.id, "columns", next);
   };
 
+  // MySQL takes one primary key per table and one index of any given name.
+  // Both used to be buildable here, and the only sign was the save coming
+  // back with ERROR 1068 or ERROR 1061 (#384).
+  const primaryKeyIds = indexes.filter((i) => i.type === "PRIMARY KEY").map((i) => i.id);
+  const extraPrimaryKeys = new Set(primaryKeyIds.slice(1));
+
+  const nameCounts = new Map<string, number>();
+  for (const i of indexes) {
+    if (i.type === "PRIMARY KEY" || !i.name) continue;
+    nameCounts.set(i.name, (nameCounts.get(i.name) ?? 0) + 1);
+  }
+
+  /** What is wrong with this index, if anything, in words the user can act on. */
+  const problemWith = (idx: DesignerIndex): string | null => {
+    if (extraPrimaryKeys.has(idx.id)) {
+      return "A table can have only one primary key. Change this one's type, or remove it.";
+    }
+    if (idx.type !== "PRIMARY KEY" && idx.name && (nameCounts.get(idx.name) ?? 0) > 1) {
+      return `Another index is already called "${idx.name}". Index names must be unique.`;
+    }
+    const missing = idx.columns.filter((c) => !columnNames.includes(c));
+    if (missing.length > 0) {
+      return `No such column: ${missing.join(", ")}. It may have been renamed or removed.`;
+    }
+    return null;
+  };
+
   return (
     <div>
       {indexes.length === 0
         ? <p className="text-xs text-[var(--color-text-muted)]">No indexes defined.</p>
         : (
           <div className="space-y-3">
-            {indexes.map((idx) => (
-              <div
-                key={idx.id}
-                className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
-              >
-                <div className="mb-2 flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div>
-                      <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Name</label>
-                      <input
-                        value={idx.name}
-                        onChange={(e) => onUpdate(idx.id, "name", e.target.value)}
-                        placeholder="index_name"
-                        disabled={idx.type === "PRIMARY KEY"}
-                        className={cn(inputClass, "w-48")}
-                      />
+            {indexes.map((idx) => {
+              const problem = problemWith(idx);
+              return (
+                <div
+                  key={idx.id}
+                  data-testid="index-row"
+                  className={cn(
+                    "rounded border bg-[var(--color-bg-secondary)] p-3",
+                    problem ? "border-amber-600" : "border-[var(--color-border)]",
+                  )}
+                >
+                  {problem && (
+                    <p
+                      data-testid="index-problem"
+                      className="mb-2 flex items-center gap-1 text-[11px] text-amber-400"
+                    >
+                      <AlertCircle className="h-3 w-3 shrink-0" />
+                      {problem}
+                    </p>
+                  )}
+                  <div className="mb-2 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Name</label>
+                        <input
+                          value={idx.name}
+                          onChange={(e) => onUpdate(idx.id, "name", e.target.value)}
+                          placeholder="index_name"
+                          disabled={idx.type === "PRIMARY KEY"}
+                          className={cn(inputClass, "w-48")}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Type</label>
+                        <select
+                          value={idx.type}
+                          onChange={(e) => onUpdate(idx.id, "type", e.target.value)}
+                          className={cn(selectClass, "w-36")}
+                        >
+                          {INDEX_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                        </select>
+                      </div>
                     </div>
-                    <div>
-                      <label className="mb-0.5 block text-[10px] text-[var(--color-text-muted)]">Type</label>
-                      <select
-                        value={idx.type}
-                        onChange={(e) => onUpdate(idx.id, "type", e.target.value)}
-                        className={cn(selectClass, "w-36")}
-                      >
-                        {INDEX_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                      </select>
+                    <button
+                      onClick={() => onRemove(idx.id)}
+                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Columns</label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {columnNames.map((colName) => (
+                        <button
+                          key={colName}
+                          onClick={() => toggleColumn(idx, colName)}
+                          className={cn(
+                            "rounded border px-2 py-0.5 text-[10px] transition-colors",
+                            idx.columns.includes(colName)
+                              ? "border-brand-500 bg-brand-600/20 text-brand-300"
+                              : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]",
+                          )}
+                        >
+                          {colName}
+                        </button>
+                      ))}
+                      {columnNames.length === 0 && (
+                        <span className="text-[10px] text-[var(--color-text-muted)]">
+                          Add columns in the Columns tab first
+                        </span>
+                      )}
                     </div>
                   </div>
-                  <button
-                    onClick={() => onRemove(idx.id)}
-                    className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
-                  >
-                    <Trash2 className="h-3.5 w-3.5" />
-                  </button>
                 </div>
-                <div>
-                  <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Columns</label>
-                  <div className="flex flex-wrap gap-1.5">
-                    {columnNames.map((colName) => (
-                      <button
-                        key={colName}
-                        onClick={() => toggleColumn(idx, colName)}
-                        className={cn(
-                          "rounded border px-2 py-0.5 text-[10px] transition-colors",
-                          idx.columns.includes(colName)
-                            ? "border-brand-500 bg-brand-600/20 text-brand-300"
-                            : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]",
-                        )}
-                      >
-                        {colName}
-                      </button>
-                    ))}
-                    {columnNames.length === 0 && (
-                      <span className="text-[10px] text-[var(--color-text-muted)]">
-                        Add columns in the Columns tab first
-                      </span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       <button
@@ -994,13 +1066,15 @@ function OptionsTab({
 // --- Helpers ---
 
 /**
- * Fit a server type name to one the type dropdown offers.
+ * The type to show for a column the server reported.
  *
- * Falling back to VARCHAR is wrong for anything the list is missing — that is
- * #382 — but it is the behaviour this change inherits and not what it sets
- * out to alter.
+ * A name the dropdown does not offer is kept as it is rather than replaced
+ * with VARCHAR. The list will always trail the server, and coercing was
+ * destructive: a BIT(8) column came back as VARCHAR and, once saved, held
+ * "170" where it had held b'10101010' — confirmed against MySQL 8. A type
+ * this build has never heard of is still the truth about the column (#382).
  */
 function normaliseBaseType(base: string): string {
   if (base === "INT" || base === "INTEGER") return "INT";
-  return COLUMN_TYPES.includes(base as typeof COLUMN_TYPES[number]) ? base : "VARCHAR";
+  return base;
 }
