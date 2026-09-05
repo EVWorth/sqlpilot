@@ -13,6 +13,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { parseColumnType, parseOnUpdate } from "../../lib/column-modifiers";
 import {
   type DesignerColumn,
   type DesignerForeignKey,
@@ -183,16 +184,24 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
         ]);
         const loadedOptions = parseTableOptions(tableDdl);
 
-        const loadedCols: DesignerColumn[] = colsData.map((c: ColumnInfo) => ({
-          id: nextId("col"),
-          name: c.name,
-          type: extractBaseType(c.column_type),
-          length: extractLength(c.column_type),
-          nullable: c.nullable,
-          defaultValue: c.default_value ?? "",
-          autoIncrement: c.extra.toLowerCase().includes("auto_increment"),
-          comment: c.comment,
-        }));
+        const loadedCols: DesignerColumn[] = colsData.map((c: ColumnInfo) => {
+          const parsed = parseColumnType(c.column_type);
+          return {
+            id: nextId("col"),
+            name: c.name,
+            type: normaliseBaseType(parsed.baseType),
+            length: parsed.length,
+            nullable: c.nullable,
+            defaultValue: c.default_value ?? "",
+            autoIncrement: c.extra.toLowerCase().includes("auto_increment"),
+            comment: c.comment,
+            unsigned: parsed.unsigned,
+            zerofill: parsed.zerofill,
+            charset: c.charset ?? undefined,
+            collation: c.collation ?? undefined,
+            onUpdate: parseOnUpdate(c.extra) || undefined,
+          };
+        });
 
         const loadedIdxs: DesignerIndex[] = idxData.map((i: IndexInfo) => ({
           id: nextId("idx"),
@@ -949,18 +958,14 @@ function OptionsTab({
 
 // --- Helpers ---
 
-function extractBaseType(columnType: string): string {
-  const upper = columnType.toUpperCase();
-  // Match type name before parenthesis or space
-  const match = upper.match(/^([A-Z]+)/);
-  if (!match) return "VARCHAR";
-  const base = match[1];
-  // Map some MySQL types
+/**
+ * Fit a server type name to one the type dropdown offers.
+ *
+ * Falling back to VARCHAR is wrong for anything the list is missing — that is
+ * #382 — but it is the behaviour this change inherits and not what it sets
+ * out to alter.
+ */
+function normaliseBaseType(base: string): string {
   if (base === "INT" || base === "INTEGER") return "INT";
   return COLUMN_TYPES.includes(base as typeof COLUMN_TYPES[number]) ? base : "VARCHAR";
-}
-
-function extractLength(columnType: string): string {
-  const match = columnType.match(/\(([^)]+)\)/);
-  return match ? match[1] : "";
 }

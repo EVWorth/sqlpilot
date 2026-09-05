@@ -465,3 +465,85 @@ describe("ddl-generator", () => {
     });
   });
 });
+
+describe("column modifiers survive a round-trip", () => {
+  // The definitions these produce were run against MySQL 8 and MariaDB 11:
+  // both accept them and report the column back unchanged, with the stored
+  // value intact. See the integration test of the same name.
+  const base = {
+    id: "c1",
+    name: "big",
+    type: "INT",
+    length: "10",
+    nullable: false,
+    defaultValue: "",
+    autoIncrement: false,
+    comment: "",
+  };
+  const opts = {
+    engine: "InnoDB",
+    charset: "utf8mb4",
+    collation: "utf8mb4_general_ci",
+    autoIncrementStart: "1",
+    comment: "",
+  };
+  const wrap = (columns: typeof base[]) => ({
+    tableName: "t",
+    database: "d",
+    columns,
+    indexes: [],
+    foreignKeys: [],
+    options: opts,
+  });
+
+  it("emits UNSIGNED and ZEROFILL as part of the type", () => {
+    // Dropping them turned an unsigned column signed. On MySQL 8 in strict
+    // mode the ALTER then fails with ERROR 1264 if any row is above
+    // 2^31-1; with strict mode off, 4000000000 is clamped to 2147483647
+    // (#377). Both confirmed against a live server.
+    const col = { ...base, unsigned: true, zerofill: true };
+    const sql = generateAlterTable("t", wrap([base]), wrap([{ ...col, comment: "edited" }]));
+    expect(sql).toContain("MODIFY COLUMN `big` INT(10) UNSIGNED ZEROFILL NOT NULL");
+  });
+
+  it("puts CHARACTER SET and COLLATE after the type, where MySQL wants them", () => {
+    const col = {
+      ...base,
+      name: "s",
+      type: "VARCHAR",
+      length: "20",
+      nullable: true,
+      charset: "utf8mb4",
+      collation: "utf8mb4_bin",
+    };
+    const sql = generateAlterTable("t", wrap([base]), wrap([col]));
+    expect(sql).toContain("`s` VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL");
+  });
+
+  it("emits ON UPDATE after DEFAULT", () => {
+    const col = {
+      ...base,
+      name: "ts",
+      type: "TIMESTAMP",
+      length: "",
+      nullable: true,
+      defaultValue: "CURRENT_TIMESTAMP",
+      onUpdate: "CURRENT_TIMESTAMP",
+    };
+    const sql = generateAlterTable("t", wrap([base]), wrap([col]));
+    expect(sql).toContain("`ts` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+  });
+
+  it("treats a modifier change as a change worth emitting", () => {
+    // Nothing else about the column differs, so without this the request to
+    // drop UNSIGNED would diff to nothing.
+    const before = { ...base, unsigned: true };
+    const after = { ...base, unsigned: false };
+    expect(generateAlterTable("t", wrap([before]), wrap([after]))).toContain("MODIFY COLUMN");
+  });
+
+  it("says nothing about a column nobody touched", () => {
+    const col = { ...base, unsigned: true, zerofill: true };
+    expect(generateAlterTable("t", wrap([col]), wrap([col]))).toContain("No changes detected");
+  });
+});
