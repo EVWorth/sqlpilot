@@ -230,6 +230,178 @@ async fn test_execute_select() {
     manager.disconnect(&info.id).await.unwrap();
 }
 
+// ====== CALL / MULTI-RESULT-SET TESTS ======
+//
+// A CALL does not map one-to-one onto protocol messages. MySQL sends one
+// result set per SELECT in the procedure body and then an OK packet closing
+// the call, so N+1 completion markers arrive for a single statement. The
+// fetch loop assumed one marker per statement and indexed `statements` with
+// the running count, which ran off the end and panicked — on any procedure
+// that returns rows (#544).
+
+fn mariadb_profile() -> ConnectionProfile {
+    ConnectionProfile {
+        name: "Test MariaDB 11".to_string(),
+        port: 13308,
+        ..test_profile()
+    }
+}
+
+async fn call_returns_the_procedures_rows(profile: ConnectionProfile) {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&profile).await.unwrap();
+
+    let results = executor
+        .execute(
+            &info.id,
+            "CALL `test_db`.`proc_one_result_set`()",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // One set, carrying the procedure's rows. Before the fix this panicked;
+    // had it not, CALL is absent from the row-returning verb list, so the
+    // rows would have been dropped and reported as a count.
+    assert_eq!(results.len(), 1, "one CALL, one result set");
+    assert_eq!(results[0].columns.len(), 1);
+    assert_eq!(results[0].columns[0].name, "a");
+    assert_eq!(results[0].rows.len(), 1);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_call_with_one_result_set_mysql() {
+    call_returns_the_procedures_rows(test_profile()).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_call_with_one_result_set_mariadb() {
+    call_returns_the_procedures_rows(mariadb_profile()).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_call_with_no_result_set_still_reports_a_count() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(
+            &info.id,
+            "CALL `test_db`.`proc_no_result_set`()",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert!(results[0].columns.is_empty(), "no rows to describe");
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_procedure_batch_attributes_every_set_to_its_statement() {
+    // The shape the routine viewer sends: initialise the OUT parameter, call,
+    // then read it back.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(
+            &info.id,
+            "SET @p_out = NULL;\nCALL `test_db`.`proc_two_result_sets`(@p_out);\nSELECT @p_out AS `p_out`;",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let shape: Vec<(usize, Vec<String>)> = results
+        .iter()
+        .map(|r| {
+            (
+                r.statement_index,
+                r.columns.iter().map(|c| c.name.clone()).collect(),
+            )
+        })
+        .collect();
+
+    // Both of the procedure's result sets belong to the CALL, which is
+    // statement 1 — not to whatever follows it. The OK packet that closes the
+    // call is a marker, not a fourth statement, so it produces nothing.
+    assert_eq!(
+        shape,
+        vec![
+            (0, vec![]),
+            (1, vec!["greeting".to_string()]),
+            (1, vec!["s".to_string()]),
+            (2, vec!["p_out".to_string()]),
+        ]
+    );
+
+    // And the OUT parameter really did come back.
+    let out = &results[3].rows[0][0];
+    assert!(format!("{:?}", out).contains("42"), "got {:?}", out);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_select_matching_nothing_is_still_a_result_set() {
+    // Guards the other half of the change: "did rows arrive" now helps decide
+    // whether a completion marker is a result set, and a SELECT that matched
+    // nothing must not become a rows-affected report because of it.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(
+            &info.id,
+            "SELECT 1 AS n FROM (SELECT 1) t WHERE 1 = 0",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].rows.len(), 0);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_plain_batch_keeps_one_statement_index_each() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SELECT 1 AS a; SELECT 2 AS b", None, None)
+        .await
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    assert_eq!(results[0].statement_index, 0);
+    assert_eq!(results[1].statement_index, 1);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
 async fn test_row_limit_is_reported_as_the_reason() {
