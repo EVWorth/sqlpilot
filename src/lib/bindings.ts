@@ -308,7 +308,17 @@ export type QueryResult_Deserialize = {
 	rows_affected: number,
 	execution_time_ms: number,
 	warnings: string[],
+	/**
+	 *  Whether rows were withheld. Derived from `truncation_reason` at the one
+	 *  place a truncated result is built, so the two cannot disagree.
+	 */
 	rows_truncated: boolean,
+	/**
+	 *  Why rows were withheld, when they were. The banner needs this: telling
+	 *  someone to add a LIMIT is wrong advice when the cap was memory, and
+	 *  they will respond by raising a LIMIT that was never the constraint.
+	 */
+	truncation_reason: TruncationReason | null,
 	total_rows_available: number | null,
 };
 
@@ -320,7 +330,17 @@ export type QueryResult_Serialize = {
 	rows_affected: number,
 	execution_time_ms: number,
 	warnings: string[],
+	/**
+	 *  Whether rows were withheld. Derived from `truncation_reason` at the one
+	 *  place a truncated result is built, so the two cannot disagree.
+	 */
 	rows_truncated: boolean,
+	/**
+	 *  Why rows were withheld, when they were. The banner needs this: telling
+	 *  someone to add a LIMIT is wrong advice when the cap was memory, and
+	 *  they will respond by raising a LIMIT that was never the constraint.
+	 */
+	truncation_reason?: TruncationReason | null,
 	total_rows_available?: number | null,
 };
 
@@ -425,6 +445,20 @@ export type TriggerInfo = {
 	table: string,
 	timing: string,
 };
+
+/**  What stopped the result set from being complete. */
+export type TruncationReason = 
+/**
+ *  The caller's row limit was reached. Asking for fewer rows, or raising
+ *  the limit, is a meaningful response.
+ */
+"row_limit" | 
+/**
+ *  Available system memory fell below the guard's floor mid-fetch, so the
+ *  fetch stopped early. A larger LIMIT cannot help; a narrower projection
+ *  or a WHERE clause can.
+ */
+"memory_guard";
 
 export type ViewInfo = {
 	name: string,

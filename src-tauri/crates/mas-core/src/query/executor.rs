@@ -1,6 +1,6 @@
 use crate::connection::ConnectionManager;
 use crate::error::CoreError;
-use crate::models::{ColumnMeta, QueryResult, SqlValue};
+use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
 use dashmap::DashMap;
 use futures::StreamExt;
 use sqlx::{AssertSqlSafe, Column, Either, Row, TypeInfo};
@@ -281,8 +281,8 @@ impl QueryExecutor {
 
                         if is_select {
                             let row_count = current_rows.len() as u64;
-                            let rows_truncated = limit.is_some() && row_count >= limit.unwrap()
-                                || mem_guard.triggered();
+                            let truncation =
+                                truncation_for(row_count, limit, mem_guard.triggered());
 
                             if execution_time > 1000 {
                                 tracing::warn!(
@@ -304,7 +304,7 @@ impl QueryExecutor {
                                 idx,
                                 &current_rows,
                                 execution_time,
-                                rows_truncated,
+                                truncation,
                             ));
                         } else {
                             let rows_affected = qr.rows_affected();
@@ -341,6 +341,7 @@ impl QueryExecutor {
                                 execution_time_ms: execution_time,
                                 warnings: vec![],
                                 rows_truncated: false,
+                                truncation_reason: None,
                                 total_rows_available: None,
                             });
                         }
@@ -387,7 +388,7 @@ impl QueryExecutor {
                     idx,
                     &current_rows,
                     execution_time,
-                    true,
+                    Some(TruncationReason::MemoryGuard),
                 ));
             }
         }
@@ -720,12 +721,37 @@ fn find_keyword_offset(s: &str, keyword: &str) -> Option<usize> {
     last_pos
 }
 
+/// Why a result set is short, given what bounded it.
+///
+/// Memory wins when both apply. It is the constraint a user cannot argue
+/// with, and telling them to adjust a LIMIT when RAM was the cap sends them
+/// to raise a limit that was never binding (#413).
+///
+/// In the streaming path the guard cannot actually be the answer: tripping it
+/// breaks out of the fetch loop, so the statement-complete marker never
+/// arrives and that case is finished after the loop instead. The branch is
+/// here anyway, so every caller derives the reason the same way and a change
+/// to the control flow cannot quietly produce the wrong advice.
+fn truncation_for(
+    row_count: u64,
+    limit: Option<u64>,
+    memory_exhausted: bool,
+) -> Option<TruncationReason> {
+    if memory_exhausted {
+        Some(TruncationReason::MemoryGuard)
+    } else if limit.is_some_and(|l| row_count >= l) {
+        Some(TruncationReason::RowLimit)
+    } else {
+        None
+    }
+}
+
 fn build_select_result(
     query_id: String,
     statement_index: usize,
     rows: &[sqlx::mysql::MySqlRow],
     execution_time_ms: u64,
-    rows_truncated: bool,
+    truncation: Option<TruncationReason>,
 ) -> QueryResult {
     let columns: Vec<ColumnMeta> = rows
         .first()
@@ -770,8 +796,11 @@ fn build_select_result(
         rows_affected: row_count,
         execution_time_ms,
         warnings: vec![],
-        rows_truncated,
-        total_rows_available: if rows_truncated {
+        // Derived here and nowhere else, so the flag and the reason cannot
+        // drift apart.
+        rows_truncated: truncation.is_some(),
+        truncation_reason: truncation,
+        total_rows_available: if truncation.is_some() {
             Some(row_count)
         } else {
             None
@@ -1033,5 +1062,42 @@ mod tests {
         // 'LIMITED' is not 'LIMIT' followed by space+digit; it must not match.
         let sql = "SELECT * FROM t WHERE LIMITED = 5";
         assert_eq!(find_keyword_offset(&sql.to_uppercase(), "LIMIT"), None);
+    }
+
+    #[test]
+    fn truncation_for_reports_nothing_when_the_result_fits() {
+        assert_eq!(truncation_for(50, Some(100), false), None);
+    }
+
+    #[test]
+    fn truncation_for_reports_nothing_when_unbounded() {
+        assert_eq!(truncation_for(1_000_000, None, false), None);
+    }
+
+    #[test]
+    fn truncation_for_reports_the_row_limit_when_it_is_reached() {
+        assert_eq!(
+            truncation_for(100, Some(100), false),
+            Some(TruncationReason::RowLimit)
+        );
+    }
+
+    #[test]
+    fn truncation_for_reports_memory_even_with_no_limit_set() {
+        assert_eq!(
+            truncation_for(4_321, None, true),
+            Some(TruncationReason::MemoryGuard)
+        );
+    }
+
+    #[test]
+    fn truncation_for_prefers_memory_over_the_row_limit() {
+        // Someone already at their row limit who is also out of memory must
+        // not be told to adjust the limit: raising it asks for more memory,
+        // and lowering it does not explain what they are seeing (#413).
+        assert_eq!(
+            truncation_for(100, Some(100), true),
+            Some(TruncationReason::MemoryGuard)
+        );
     }
 }

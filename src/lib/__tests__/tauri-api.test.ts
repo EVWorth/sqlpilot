@@ -278,7 +278,11 @@ describe("api (Tauri available)", () => {
       "my_table",
     );
     expect(invokeMock).toHaveBeenCalledWith("export_results", {
-      result: { ...queryResult, total_rows_available: queryResult.total_rows_available ?? null },
+      result: {
+        ...queryResult,
+        total_rows_available: queryResult.total_rows_available ?? null,
+        truncation_reason: queryResult.truncation_reason ?? null,
+      },
       format: "csv",
       tableName: "my_table",
     });
@@ -288,7 +292,11 @@ describe("api (Tauri available)", () => {
   it("exportResults omits optional tableName", async () => {
     await api.exportResults(queryResult, "json");
     expect(invokeMock).toHaveBeenCalledWith("export_results", {
-      result: { ...queryResult, total_rows_available: queryResult.total_rows_available ?? null },
+      result: {
+        ...queryResult,
+        total_rows_available: queryResult.total_rows_available ?? null,
+        truncation_reason: queryResult.truncation_reason ?? null,
+      },
       format: "json",
       tableName: null,
     });

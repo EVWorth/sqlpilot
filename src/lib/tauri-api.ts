@@ -110,13 +110,17 @@ export const api = {
     unwrap("get_trigger_ddl", () => commands.getTriggerDdl(connectionId, database, triggerName)),
 
   // Export
-  // The command takes the Deserialize phase, where total_rows_available is
-  // required; skip_serializing_if means it can be absent on the way back, so
-  // fill it in rather than widening the Rust type.
+  // The command takes the Deserialize phase, where total_rows_available and
+  // truncation_reason are required; skip_serializing_if means either can be
+  // absent on the way back, so fill them in rather than widening the Rust type.
   exportResults: (result: QueryResult, format: string, tableName?: string) =>
     unwrap("export_results", () =>
       commands.exportResults(
-        { ...result, total_rows_available: result.total_rows_available ?? null },
+        {
+          ...result,
+          total_rows_available: result.total_rows_available ?? null,
+          truncation_reason: result.truncation_reason ?? null,
+        },
         format,
         orNull(tableName),
       )),

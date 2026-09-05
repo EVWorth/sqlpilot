@@ -41,6 +41,7 @@ import {
 import { quoteIdentifier } from "../../lib/sql-quote";
 import { isNumericSqlType } from "../../lib/sql-types";
 import { api } from "../../lib/tauri-api";
+import { truncationMessage } from "../../lib/truncation";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -661,8 +662,7 @@ export function ResultsGrid() {
         <div className="flex items-center gap-2 border-b border-amber-800 bg-amber-900/20 px-3 py-1.5 text-xs text-amber-400">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>
-            Results truncated to {activeResult.rows.length.toLocaleString()}{" "}
-            rows. Add a LIMIT clause to fetch fewer rows.
+            {truncationMessage(activeResult.rows.length, activeResult.truncation_reason)}
           </span>
         </div>
       )}

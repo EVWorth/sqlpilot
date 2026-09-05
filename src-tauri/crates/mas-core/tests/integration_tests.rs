@@ -7,7 +7,7 @@
 
 use chrono::Utc;
 use mas_core::connection::{self, ConnectionManager, ConnectionStore};
-use mas_core::models::ConnectionProfile;
+use mas_core::models::{ConnectionProfile, TruncationReason};
 use mas_core::query::QueryExecutor;
 use mas_core::schema::SchemaInspector;
 use std::sync::Arc;
@@ -226,6 +226,54 @@ async fn test_execute_select() {
     assert_eq!(results[0].columns[0].name, "num");
     assert_eq!(results[0].columns[1].name, "greeting");
     assert_eq!(results[0].rows.len(), 1);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_row_limit_is_reported_as_the_reason() {
+    // The banner tells the user what to do about a short result set, so the
+    // reason has to survive the round trip and not just the boolean (#413).
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(
+            &info.id,
+            "SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3",
+            None,
+            Some(2),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(results[0].rows.len(), 2);
+    assert!(results[0].rows_truncated);
+    assert_eq!(
+        results[0].truncation_reason,
+        Some(TruncationReason::RowLimit)
+    );
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_result_within_the_limit_has_no_truncation_reason() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SELECT 1 AS n UNION ALL SELECT 2", None, Some(10))
+        .await
+        .unwrap();
+
+    assert_eq!(results[0].rows.len(), 2);
+    assert!(!results[0].rows_truncated);
+    assert_eq!(results[0].truncation_reason, None);
 
     manager.disconnect(&info.id).await.unwrap();
 }

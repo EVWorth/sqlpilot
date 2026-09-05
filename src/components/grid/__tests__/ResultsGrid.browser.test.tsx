@@ -423,6 +423,29 @@ describe("ResultsGrid (browser)", () => {
     expect(screen.queryByText(/Results truncated/)).not.toBeInTheDocument();
   });
 
+  it("blames memory, not the LIMIT, when the memory guard stopped the fetch", () => {
+    // The banner said "add a LIMIT clause" whatever the cause, so a user
+    // already at LIMIT 10000 would raise it — asking for more of the
+    // resource that had just run out (#413).
+    resultState.results = [
+      makeResult({ rows_truncated: true, truncation_reason: "memory_guard", rows: [] }),
+    ];
+    render(<ResultsGrid />);
+
+    expect(screen.getByText(/low on memory/)).toBeInTheDocument();
+    expect(screen.queryByText(/add a LIMIT clause/i)).not.toBeInTheDocument();
+  });
+
+  it("names the row limit when that is what stopped the fetch", () => {
+    resultState.results = [
+      makeResult({ rows_truncated: true, truncation_reason: "row_limit", rows: [] }),
+    ];
+    render(<ResultsGrid />);
+
+    expect(screen.getByText(/row limit/)).toBeInTheDocument();
+    expect(screen.getByText(/Settings/)).toBeInTheDocument();
+  });
+
   // ─── Warnings display ─────────────────────────────────────
   it("shows warning banners from result warnings", () => {
     resultState.results = [makeResult({ warnings: ["High memory usage detected"] })];
