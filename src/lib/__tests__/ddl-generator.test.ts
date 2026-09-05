@@ -626,3 +626,84 @@ describe("an ALTER either all applies or none of it does", () => {
     expect(generateAlterTable("t", same, same)).toContain("No changes detected");
   });
 });
+
+describe("AUTO_INCREMENT only where MySQL allows it", () => {
+  const opts = {
+    engine: "InnoDB",
+    charset: "utf8mb4",
+    collation: "utf8mb4_general_ci",
+    autoIncrementStart: "1",
+    comment: "",
+  };
+  const col = (type: string, length: string) => ({
+    id: "c1",
+    name: "x",
+    type,
+    length,
+    nullable: false,
+    defaultValue: "",
+    autoIncrement: true,
+    comment: "",
+  });
+  const wrap = (c: ReturnType<typeof col>) => ({
+    tableName: "t",
+    database: "d",
+    columns: [c],
+    indexes: [],
+    foreignKeys: [],
+    options: opts,
+  });
+
+  it("emits it on an integer column", () => {
+    expect(generateCreateTable(wrap(col("INT", "11")))).toContain("AUTO_INCREMENT");
+  });
+
+  it("refuses it on a VARCHAR, which MySQL answers with ERROR 1063", () => {
+    // The checkbox is disabled for these now, but a disabled control is a
+    // convention rather than a lock — and a column that carried the flag
+    // before its type changed would otherwise keep it (#383).
+    expect(generateCreateTable(wrap(col("VARCHAR", "255")))).not.toContain("AUTO_INCREMENT");
+  });
+
+  it("refuses it on a DATETIME", () => {
+    expect(generateCreateTable(wrap(col("DATETIME", "")))).not.toContain("AUTO_INCREMENT");
+  });
+
+  it("accepts every integer width", () => {
+    for (const t of ["INT", "BIGINT", "TINYINT", "SMALLINT", "MEDIUMINT", "SERIAL"]) {
+      expect(generateCreateTable(wrap(col(t, "")))).toContain("AUTO_INCREMENT");
+    }
+  });
+});
+
+describe("BIT keeps its width", () => {
+  it("emits BIT(8), not a bare BIT", () => {
+    // A BIT(8) loaded as VARCHAR(8) and saved back turned b'10101010' into
+    // the string "170" — confirmed against MySQL 8. Losing only the width
+    // would be quieter and just as wrong: BIT alone means BIT(1) (#382).
+    const sql = generateCreateTable({
+      tableName: "t",
+      database: "d",
+      columns: [{
+        id: "c1",
+        name: "b",
+        type: "BIT",
+        length: "8",
+        nullable: true,
+        defaultValue: "",
+        autoIncrement: false,
+        comment: "",
+      }],
+      indexes: [],
+      foreignKeys: [],
+      options: {
+        engine: "InnoDB",
+        charset: "utf8mb4",
+        collation: "utf8mb4_general_ci",
+        autoIncrementStart: "1",
+        comment: "",
+      },
+    });
+    expect(sql).toContain("`b` BIT(8)");
+  });
+});

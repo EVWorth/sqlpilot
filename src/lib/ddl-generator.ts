@@ -70,7 +70,33 @@ const TYPES_WITH_LENGTH = new Set([
   "VARBINARY",
   "ENUM",
   "SET",
+  // BIT(n) is a width, and losing it makes BIT(8) into BIT(1) (#382).
+  "BIT",
+  "YEAR",
 ]);
+
+/** Types MySQL will accept AUTO_INCREMENT on. */
+const AUTO_INCREMENT_TYPES = new Set([
+  "INT",
+  "INTEGER",
+  "BIGINT",
+  "TINYINT",
+  "SMALLINT",
+  "MEDIUMINT",
+  "SERIAL",
+]);
+
+/**
+ * Whether AUTO_INCREMENT is legal on this type.
+ *
+ * The UI disables the checkbox where it is not, but a disabled control is a
+ * convention rather than a lock — and a column that already carried the flag
+ * before its type was changed would otherwise keep it. MySQL answers
+ * `VARCHAR(255) AUTO_INCREMENT` with ERROR 1063 (#383).
+ */
+export function canAutoIncrement(type: string): boolean {
+  return AUTO_INCREMENT_TYPES.has(type.trim().toUpperCase());
+}
 
 function escId(name: string): string {
   return `\`${name.replace(/`/g, "``")}\``;
@@ -104,7 +130,7 @@ function buildColumnDef(col: DesignerColumn): string {
     parts.push("NULL");
   }
 
-  if (col.autoIncrement) {
+  if (col.autoIncrement && canAutoIncrement(col.type)) {
     parts.push("AUTO_INCREMENT");
   } else if (col.defaultValue !== "") {
     const upper = col.defaultValue.toUpperCase();
