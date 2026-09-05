@@ -1211,3 +1211,33 @@ describe("Copy as INSERT", () => {
     writeSpy.mockRestore();
   });
 });
+
+// ─── Scrolling ────────────────────────────────────────────────
+describe("scrolling a virtualized result", () => {
+  it("does not intercept the wheel", () => {
+    // Past 5000 rows the grid installed a non-passive wheel listener that
+    // called preventDefault and moved scrollTop itself, multiplied by
+    // min(rows/100, 100). On a 10K-row result one notch of a mouse wheel
+    // travelled 10,000px — about 312 rows — while a trackpad's small
+    // pixel deltas were left feeling stuck. Native scrolling and the
+    // virtualizer handle this between them (#407).
+    const addSpy = vi.spyOn(HTMLElement.prototype, "addEventListener");
+
+    resultState.results = [
+      makeResult({
+        rows: Array.from({ length: 5001 }, (_, i) => [i, `row ${i}`]),
+      }),
+    ];
+    render(<ResultsGrid />);
+
+    // React's own root attaches a passive wheel listener, which by definition
+    // cannot preventDefault. What must not exist is a non-passive one.
+    const hijackers = addSpy.mock.calls.filter(([type, , options]) =>
+      type === "wheel"
+      && !(typeof options === "object" && options !== null && options.passive === true)
+    );
+    expect(hijackers).toEqual([]);
+
+    addSpy.mockRestore();
+  });
+});

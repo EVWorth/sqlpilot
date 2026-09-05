@@ -47,23 +47,41 @@ export function TruncatedCell({
   const [isOverflowing, setIsOverflowing] = useState(false);
   const textRef = useRef<HTMLDivElement | null>(null);
 
+  // One observer for as long as the cell is mounted.
+  //
+  // This used to list `formatted` among its dependencies, so every value
+  // change tore the observer down and built a new one. A grid polling
+  // `SELECT NOW()`, or a column being typed into, does that for every visible
+  // cell on every render — hundreds of ResizeObserver constructions a second,
+  // all doing the work of one. Nothing leaked, since the cleanup did
+  // disconnect them, but the churn is pure waste and it showed up as CPU
+  // burnt on an idle grid (#417).
+  //
+  // `columnName` and `dataType` were dependencies too, and neither has any
+  // bearing on whether text overflows its box.
   useEffect(() => {
     const el = textRef.current;
     if (!el) return;
     let scheduled = false;
-    const check = () => setIsOverflowing(el.scrollWidth > el.clientWidth);
     const ro = new ResizeObserver(() => {
       if (scheduled) return;
       scheduled = true;
       requestAnimationFrame(() => {
         scheduled = false;
-        check();
+        setIsOverflowing(el.scrollWidth > el.clientWidth);
       });
     });
     ro.observe(el);
-    check();
     return () => ro.disconnect();
-  }, [formatted, columnName, dataType]);
+  }, []);
+
+  // Text can change without the box resizing, and that changes whether it
+  // overflows — so the measurement still has to re-run per value. One layout
+  // read, which is what the old effect was really for.
+  useEffect(() => {
+    const el = textRef.current;
+    if (el) setIsOverflowing(el.scrollWidth > el.clientWidth);
+  }, [formatted]);
 
   const showIcon = showForTextType || isOverflowing;
   const openViewer = () => {
