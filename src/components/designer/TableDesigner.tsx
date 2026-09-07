@@ -30,7 +30,7 @@ import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import { useResultStore } from "../../stores/resultStore";
 import type { ColumnInfo, ForeignKeyInfo, IndexInfo, TableInfo } from "../../types";
-import { SQLPreviewDialog } from "./SQLPreviewDialog";
+import { SQLPreviewDialog } from "../common/SQLPreviewDialog";
 
 // --- Constants ---
 
