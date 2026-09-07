@@ -356,13 +356,85 @@ describe("partial privilege failure (#439)", () => {
     await act(async () => {
       fireEvent.click(globalBoxes[2]);
     });
+    // Apply Changes opens the preview; Execute is what runs the batch (#439).
     await act(async () => {
       fireEvent.click(screen.getByText("Apply Changes"));
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByText("Execute"));
     });
 
     const report = await screen.findByText(/Applied 1 of/);
     expect(report.textContent).toContain("Failed:");
     expect(report.textContent).toContain("cannot be rolled back");
     expect(report.textContent).toContain("refreshed from the server");
+  });
+
+  describe("privilege changes are shown before they run", () => {
+    /**
+     * The DCL statements that actually reached the server for *this* test's
+     * connection. Components mounted by earlier tests keep settling their
+     * promises into the same mock, so the id is part of the filter.
+     */
+    function dclCalls() {
+      return vi.mocked(api.executeQuery).mock.calls.filter(([id, sql]) =>
+        id === "conn-1" && typeof sql === "string" && /^(GRANT|REVOKE|FLUSH)/.test(sql)
+      );
+    }
+
+    async function openPrivilegesAndToggle() {
+      vi.mocked(api.executeQuery).mockImplementation(
+        ((_c: string, sql: string) => {
+          if (sql.startsWith("SHOW GRANTS")) return Promise.resolve([]) as never;
+          if (/^(GRANT|REVOKE|FLUSH)/.test(sql)) return Promise.resolve([]) as never;
+          return Promise.resolve(mockUserResults([{ User: "alice", Host: "%" }])) as never;
+        }) as never,
+      );
+
+      render(<UserManagement connectionId="conn-1" />);
+      fireEvent.click(await screen.findByText("alice"));
+      fireEvent.click(await screen.findByText("Privileges"));
+      const boxes = await screen.findAllByRole("checkbox");
+      await act(async () => {
+        fireEvent.click(boxes[0]);
+      });
+    }
+
+    it("shows the statements instead of running them", async () => {
+      // GRANT and REVOKE force an implicit commit, so once Apply runs there is
+      // no way back. The preview is the last point at which the whole change
+      // can still be reconsidered (#439).
+      await openPrivilegesAndToggle();
+      await act(async () => {
+        fireEvent.click(screen.getByText("Apply Changes"));
+      });
+
+      expect(screen.getByText("SQL Preview")).toBeInTheDocument();
+      expect(dclCalls()).toHaveLength(0);
+    });
+
+    it("runs nothing when the preview is closed", async () => {
+      await openPrivilegesAndToggle();
+      await act(async () => {
+        fireEvent.click(screen.getByText("Apply Changes"));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByText("Close"));
+      });
+
+      expect(dclCalls()).toHaveLength(0);
+    });
+
+    it("runs the batch on Execute", async () => {
+      await openPrivilegesAndToggle();
+      await act(async () => {
+        fireEvent.click(screen.getByText("Apply Changes"));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByText("Execute"));
+      });
+
+      expect(dclCalls().length).toBeGreaterThan(0);
+    });
   });
 });

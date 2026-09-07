@@ -17,7 +17,7 @@ vi.mock("../../../stores/resultStore", () => ({
   useResultStore: { getState: vi.fn() },
 }));
 
-vi.mock("../SQLPreviewDialog", () => ({
+vi.mock("../../common/SQLPreviewDialog", () => ({
   SQLPreviewDialog: ({ sql, onClose, onExecute }: { sql: string; onClose: () => void; onExecute: () => void }) => (
     <div data-testid="sql-preview-dialog">
       <pre>{sql}</pre>

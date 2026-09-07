@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { quoteIdentifier, quoteStringLiteral } from "../../lib/sql-quote";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
+import { SQLPreviewDialog } from "../common/SQLPreviewDialog";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
 import { CreateUserDialog } from "./CreateUserDialog";
 import {
@@ -607,6 +608,10 @@ function PrivilegesEditor({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [applying, setApplying] = useState(false);
+  // The batch waiting for approval. GRANT and REVOKE force an implicit
+  // commit, so once Apply runs there is no way back — the preview is the last
+  // point at which the whole change can still be reconsidered (#439).
+  const [pendingStatements, setPendingStatements] = useState<string[] | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Database privileges
@@ -765,10 +770,14 @@ function PrivilegesEditor({
   const hasDbChanges = dirtyDbs.length > 0;
   const hasChanges = hasGlobalChanges || hasDbChanges;
 
-  const applyChanges = async () => {
-    setApplying(true);
-    setError(null);
-    setSuccessMsg(null);
+  /**
+   * The statements Apply would run, in the order it would run them.
+   *
+   * Separated from running them so the same list can be shown for approval
+   * first. GRANT and REVOKE cannot be rolled back, so the preview is the only
+   * point at which the whole change can still be reconsidered (#439).
+   */
+  const buildStatements = (): string[] => {
     const userSpec = `${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`;
     // Collected separately so every revoke can be emitted before any grant.
     // Interleaving them by scope meant a global GRANT could land before a
@@ -820,6 +829,13 @@ function PrivilegesEditor({
     if (statements.length > 0) {
       statements.push("FLUSH PRIVILEGES");
     }
+    return statements;
+  };
+
+  const applyChanges = async (statements: string[]) => {
+    setApplying(true);
+    setError(null);
+    setSuccessMsg(null);
 
     // GRANT and REVOKE each force an implicit commit, so this sequence cannot
     // be made atomic — a transaction around it would change nothing, and a
@@ -867,6 +883,19 @@ function PrivilegesEditor({
 
   return (
     <div className="space-y-4 p-4">
+      {pendingStatements && (
+        <SQLPreviewDialog
+          sql={pendingStatements.length > 0
+            ? pendingStatements.map((sql) => `${sql};`).join("\n")
+            : "-- No privilege changes to apply"}
+          onClose={() => setPendingStatements(null)}
+          onExecute={() => {
+            const statements = pendingStatements;
+            setPendingStatements(null);
+            void applyChanges(statements);
+          }}
+        />
+      )}
       {error && (
         <div className="whitespace-pre-line rounded border border-red-500/30 bg-red-500/10 px-3 py-2 font-mono text-[11px] text-red-400">
           {error}
@@ -1006,7 +1035,7 @@ function PrivilegesEditor({
       {/* Apply */}
       <div className="flex items-center gap-2">
         <button
-          onClick={applyChanges}
+          onClick={() => setPendingStatements(buildStatements())}
           disabled={!hasChanges || applying}
           className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50 transition-colors"
         >
