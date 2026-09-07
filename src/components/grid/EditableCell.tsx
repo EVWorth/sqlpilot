@@ -15,6 +15,17 @@ interface EditableCellProps {
   isEdited: boolean;
   onCommit: (newValue: SqlValue) => void;
   onTab?: (shiftKey: boolean) => void;
+  /**
+   * Whether this cell is the one being edited.
+   *
+   * Owned by the grid rather than the cell. Tab has to move the edit to the
+   * next cell, and a cell cannot put another cell into edit mode — which is
+   * why the old handler could only write the next position into a ref that
+   * nothing read, leaving focus to fall through to whatever came next in the
+   * document, usually a footer button (#408).
+   */
+  editing: boolean;
+  onEditingChange: (editing: boolean) => void;
 }
 
 export function EditableCell({
@@ -23,13 +34,27 @@ export function EditableCell({
   isEdited,
   onCommit,
   onTab,
+  editing,
+  onEditingChange,
 }: EditableCellProps) {
-  const [editing, setEditing] = useState(false);
   // Set when the typed text is not a value this column can hold, so the cell
   // can say so instead of writing something the server would reinterpret.
   const [invalid, setInvalid] = useState(false);
   const [editValue, setEditValue] = useState("");
   const inputRef = useRef<HTMLInputElement | HTMLTextAreaElement>(null);
+
+  // Read inside the effect below without making the effect depend on it:
+  // the draft is seeded when editing starts, and must not be overwritten if
+  // the underlying value changes while the user is typing.
+  const valueRef = useRef(value);
+  valueRef.current = value;
+
+  useEffect(() => {
+    if (!editing) return;
+    const current = valueRef.current;
+    setEditValue(current === null ? "" : SqlValueGuard.toString(current));
+    setInvalid(false);
+  }, [editing]);
 
   useEffect(() => {
     if (editing && inputRef.current) {
@@ -38,27 +63,24 @@ export function EditableCell({
         inputRef.current.select();
       }
     }
+    // Deliberately not keyed on editValue: re-running on every keystroke
+    // would re-select the text under the cursor.
   }, [editing]);
 
   const startEdit = useCallback(() => {
-    if (value === null) {
-      setEditValue("");
-    } else {
-      setEditValue(SqlValueGuard.toString(value));
-    }
-    setEditing(true);
-  }, [value]);
+    onEditingChange(true);
+  }, [onEditingChange]);
 
   const cancelEdit = useCallback(() => {
-    setEditing(false);
-  }, []);
+    onEditingChange(false);
+  }, [onEditingChange]);
 
   const commitEdit = useCallback(
     (newVal: SqlValue) => {
-      setEditing(false);
+      onEditingChange(false);
       onCommit(newVal);
     },
-    [onCommit],
+    [onCommit, onEditingChange],
   );
 
   const parseEditValue = useCallback((rawValue: string): SqlValue | undefined => {
@@ -123,8 +145,8 @@ export function EditableCell({
     } else {
       onCommit(null);
     }
-    setEditing(false);
-  }, [value, onCommit]);
+    onEditingChange(false);
+  }, [value, onCommit, onEditingChange]);
 
   // Boolean checkbox
   if (isBooleanSqlType(dataType) && !editing) {

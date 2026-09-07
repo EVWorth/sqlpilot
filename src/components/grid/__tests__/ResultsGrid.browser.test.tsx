@@ -122,7 +122,21 @@ vi.mock("../../../lib/sql-generator", () => ({
 
 // ─── Sub-component mocks with real callbacks ──────────────────
 vi.mock("../EditableCell", () => ({
-  EditableCell: vi.fn(({ value }: { value: unknown }) => <div data-testid="editable-cell">{String(value)}</div>),
+  // Surfaces the controlled-editing props, since which cell is being edited
+  // is the grid's state now rather than the cell's (#408).
+  EditableCell: vi.fn(
+    ({ value, editing, onTab }: {
+      value: unknown;
+      editing?: boolean;
+      onTab?: (shiftKey: boolean) => void;
+    }) => (
+      <div data-testid="editable-cell" data-editing={String(!!editing)}>
+        {String(value)}
+        <button data-testid="tab" onClick={() => onTab?.(false)} />
+        <button data-testid="shift-tab" onClick={() => onTab?.(true)} />
+      </div>
+    ),
+  ),
 }));
 
 vi.mock("../EditToolbar", () => ({
@@ -1239,5 +1253,64 @@ describe("scrolling a virtualized result", () => {
     expect(hijackers).toEqual([]);
 
     addSpy.mockRestore();
+  });
+});
+
+// ─── Tab across cells ─────────────────────────────────────────
+describe("Tab moves the edit to the next cell", () => {
+  beforeEach(() => {
+    mockGridEditing.editMode = true;
+    resultState.results = [makeResult()];
+  });
+
+  afterEach(() => {
+    mockGridEditing.editMode = false;
+  });
+
+  /** Every editable cell, in document order. Two columns, two rows. */
+  const cells = () => Array.from(document.querySelectorAll("[data-testid=\"editable-cell\"]"));
+  const editingIndex = () => cells().findIndex((c) => c.getAttribute("data-editing") === "true");
+
+  function tabFrom(index: number, shift = false) {
+    const button = cells()[index].querySelector(
+      shift ? "[data-testid=\"shift-tab\"]" : "[data-testid=\"tab\"]",
+    ) as HTMLElement;
+    fireEvent.click(button);
+  }
+
+  it("hands the edit to the next cell, rather than dropping it", () => {
+    // onTab wrote the next position into a ref that nothing read, so the
+    // edit never moved and focus fell through to the next thing in the
+    // document — usually a footer button (#408).
+    render(<ResultsGrid />);
+    expect(editingIndex()).toBe(-1);
+
+    tabFrom(0);
+
+    expect(editingIndex()).toBe(1);
+  });
+
+  it("goes backwards on shift", () => {
+    render(<ResultsGrid />);
+    tabFrom(1, true);
+    expect(editingIndex()).toBe(0);
+  });
+
+  it("carries on into the next row past the last column", () => {
+    render(<ResultsGrid />);
+    tabFrom(1);
+    expect(editingIndex()).toBe(2);
+  });
+
+  it("stops at the end of the grid rather than wrapping to the top", () => {
+    render(<ResultsGrid />);
+    tabFrom(3);
+    expect(editingIndex()).toBe(-1);
+  });
+
+  it("leaves exactly one cell editing", () => {
+    render(<ResultsGrid />);
+    tabFrom(0);
+    expect(cells().filter((c) => c.getAttribute("data-editing") === "true")).toHaveLength(1);
   });
 });

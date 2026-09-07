@@ -1,7 +1,27 @@
 import { fireEvent, render, screen } from "@testing-library/react";
+import type { ComponentProps } from "react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import type { SqlValue } from "../../../types";
 import { EditableCell } from "../EditableCell";
+
+/**
+ * The cell as the grid uses it.
+ *
+ * Which cell is being edited is the grid's state now, so that Tab can move
+ * the edit onwards — a cell cannot put another cell into edit mode (#408).
+ * This harness plays the grid's part, so these tests keep exercising the
+ * behaviour rather than the plumbing.
+ */
+function ControlledCell(
+  props: Omit<ComponentProps<typeof EditableCell>, "editing" | "onEditingChange"> & {
+    initiallyEditing?: boolean;
+  },
+) {
+  const { initiallyEditing = false, ...rest } = props;
+  const [editing, setEditing] = useState(initiallyEditing);
+  return <EditableCell {...rest} editing={editing} onEditingChange={setEditing} />;
+}
 
 function createDefaultProps(overrides = {}) {
   return {
@@ -16,22 +36,22 @@ function createDefaultProps(overrides = {}) {
 
 describe("EditableCell", () => {
   it("renders NULL for null value in display mode", () => {
-    const { container } = render(<EditableCell {...createDefaultProps({ value: null })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: null })} />);
     expect(container.textContent).toContain("NULL");
   });
 
   it("renders string value in display mode", () => {
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "hello" })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "hello" })} />);
     expect(container.textContent).toContain("hello");
   });
 
   it("renders number value in display mode", () => {
-    const { container } = render(<EditableCell {...createDefaultProps({ value: 42, dataType: "int" })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: 42, dataType: "int" })} />);
     expect(container.textContent).toContain("42");
   });
 
   it("renders boolean checkbox for boolean type", () => {
-    render(<EditableCell {...createDefaultProps({ value: true, dataType: "bool" })} />);
+    render(<ControlledCell {...createDefaultProps({ value: true, dataType: "bool" })} />);
     const checkbox = screen.getByRole("checkbox");
     expect(checkbox).toBeInTheDocument();
     expect(checkbox).toBeChecked();
@@ -39,20 +59,20 @@ describe("EditableCell", () => {
 
   it("toggles boolean value on checkbox change", () => {
     const onCommit = vi.fn();
-    render(<EditableCell {...createDefaultProps({ value: true, dataType: "bool", onCommit })} />);
+    render(<ControlledCell {...createDefaultProps({ value: true, dataType: "bool", onCommit })} />);
     fireEvent.click(screen.getByRole("checkbox"));
     expect(onCommit).toHaveBeenCalledWith(0);
   });
 
   it("toggles boolean value from 0 to 1", () => {
     const onCommit = vi.fn();
-    render(<EditableCell {...createDefaultProps({ value: 0, dataType: "tinyint(1)", onCommit })} />);
+    render(<ControlledCell {...createDefaultProps({ value: 0, dataType: "tinyint(1)", onCommit })} />);
     fireEvent.click(screen.getByRole("checkbox"));
     expect(onCommit).toHaveBeenCalledWith(1);
   });
 
   it("enters edit mode on double click", () => {
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "click me" })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "click me" })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("textbox");
     expect(input).toBeInTheDocument();
@@ -60,7 +80,7 @@ describe("EditableCell", () => {
   });
 
   it("shows empty string in edit mode for null value", () => {
-    const { container } = render(<EditableCell {...createDefaultProps({ value: null })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: null })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("textbox");
     expect(input).toHaveValue("");
@@ -68,7 +88,7 @@ describe("EditableCell", () => {
 
   it("commits value on Enter key", () => {
     const onCommit = vi.fn();
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "old", onCommit })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "old", onCommit })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("textbox") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "new value" } });
@@ -79,7 +99,7 @@ describe("EditableCell", () => {
   it("commits value on Tab key", () => {
     const onCommit = vi.fn();
     const onTab = vi.fn();
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "old", onCommit, onTab })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "old", onCommit, onTab })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("textbox") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "tabbed" } });
@@ -91,7 +111,7 @@ describe("EditableCell", () => {
   it("commits value on Tab with shift", () => {
     const onCommit = vi.fn();
     const onTab = vi.fn();
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "old", onCommit, onTab })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "old", onCommit, onTab })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("textbox") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "shift-tab" } });
@@ -101,7 +121,7 @@ describe("EditableCell", () => {
 
   it("cancels edit mode on Escape", () => {
     const onCommit = vi.fn();
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "old", onCommit })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "old", onCommit })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("textbox") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "cancel" } });
@@ -112,7 +132,7 @@ describe("EditableCell", () => {
 
   it("commits on blur", () => {
     const onCommit = vi.fn();
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "old", onCommit })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "old", onCommit })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("textbox") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "blur value" } });
@@ -122,7 +142,9 @@ describe("EditableCell", () => {
 
   it("parses numeric values for numeric types", () => {
     const onCommit = vi.fn();
-    const { container } = render(<EditableCell {...createDefaultProps({ value: null, dataType: "int", onCommit })} />);
+    const { container } = render(
+      <ControlledCell {...createDefaultProps({ value: null, dataType: "int", onCommit })} />,
+    );
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("spinbutton") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "123" } });
@@ -131,13 +153,15 @@ describe("EditableCell", () => {
   });
 
   it("uses textarea for long text types", () => {
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "text content", dataType: "text" })} />);
+    const { container } = render(
+      <ControlledCell {...createDefaultProps({ value: "text content", dataType: "text" })} />,
+    );
     fireEvent.doubleClick(container.firstElementChild!);
     expect(document.querySelector("textarea")).toBeInTheDocument();
   });
 
   it("uses number input for numeric types", () => {
-    const { container } = render(<EditableCell {...createDefaultProps({ value: null, dataType: "int" })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: null, dataType: "int" })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const input = screen.getByRole("spinbutton");
     expect(input).toHaveAttribute("type", "number");
@@ -145,7 +169,7 @@ describe("EditableCell", () => {
 
   it("toggles null in edit mode via null button", () => {
     const onCommit = vi.fn();
-    const { container } = render(<EditableCell {...createDefaultProps({ value: null, onCommit })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: null, onCommit })} />);
     // Enter edit mode for a non-null type
     fireEvent.doubleClick(container.firstElementChild!);
     // In edit mode, find the ∅ button (title won't help as it renders ∅ character)
@@ -162,7 +186,7 @@ describe("EditableCell", () => {
 
   it("toggles non-null value to NULL in edit mode", () => {
     const onCommit = vi.fn();
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "exists", onCommit })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "exists", onCommit })} />);
     fireEvent.doubleClick(container.firstElementChild!);
     const editButtons = container.querySelectorAll("button");
     const nullBtn = Array.from(editButtons).find(
@@ -176,7 +200,7 @@ describe("EditableCell", () => {
   });
 
   it("shows edited indicator when isEdited is true", () => {
-    const { container } = render(<EditableCell {...createDefaultProps({ value: "edited", isEdited: true })} />);
+    const { container } = render(<ControlledCell {...createDefaultProps({ value: "edited", isEdited: true })} />);
     expect(container.firstElementChild).toHaveClass("border-l-2", "border-amber-400");
   });
 });
