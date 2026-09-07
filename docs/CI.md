@@ -23,61 +23,37 @@ Run the same checks locally with `just lint-workflows`.
 
 ## Automation identity
 
-`dprint-update.yml` opens its PR as a **GitHub App**, not as Actions. This is
-one-time setup; without it the workflow fails its preflight step with a message
-naming the missing secrets.
+`dprint-update.yml` opens its PR as **GitHub Actions**, using `GITHUB_TOKEN`.
+That requires one repository setting, which is already on:
 
-### Why not `GITHUB_TOKEN`
+_Settings → Actions → General → Workflow permissions → "Allow GitHub Actions to
+create and approve pull requests"_
 
-Two independent reasons, either one sufficient:
+No secrets, no App, nothing to rotate.
 
-- **It cannot open a PR by default.** The repository setting _Settings → Actions
-  → General → Workflow permissions → "Allow GitHub Actions to create and approve
-  pull requests"_ gates the underlying API, so `gh pr create` and every
-  PR-opening action hit it equally. That switch also grants Actions the ability
-  to **approve** PRs, which becomes a review-requirement bypass the moment
-  branch protection is added to `main`. Turning it on for a formatter bump buys
-  a dormant permission nobody will remember.
-- **PRs it opens get no CI.** GitHub suppresses workflow runs triggered by
-  `GITHUB_TOKEN` to prevent recursion. The bump would arrive unchecked — the
-  same shape as the defect above.
+### What that setting costs
 
-An App installation token is subject to neither. The repo setting stays off,
-and the PR runs the full suite.
+Two things, recorded so neither is rediscovered the hard way.
 
-### Setup
+**It also lets Actions approve pull requests.** The switch bundles create and
+approve together. `main` has no branch protection today, so this grants nothing
+in practice — but the day required reviews are added, an approving review from
+`GITHUB_TOKEN` would satisfy them. If branch protection ever goes on `main`,
+revisit this.
 
-Once, by someone with admin on the repository.
+**The bump PR gets no checks.** GitHub does not run workflows for a pull request
+opened with `GITHUB_TOKEN`, to prevent recursion. The job compensates by running
+`npx tsc --noEmit` and the unit suite against the reformatted tree before opening
+the PR, and the PR body says so. To get the full matrix on one, push an empty
+commit to its branch.
 
-1. **Create the App.** <https://github.com/settings/apps> → _New GitHub App_.
-   - _Name_: anything unowned, e.g. `sqlpilot-automation`. This name becomes the
-     PR author, shown as `sqlpilot-automation[bot]`.
-   - _Homepage URL_: the repo URL is fine.
-   - **Uncheck _Active_ under Webhook.** The App never receives events.
-   - _Repository permissions_: **Contents: Read and write**, **Pull requests:
-     Read and write**. Nothing else — no organization or account permissions.
-   - _Where can this App be installed_: only this account.
-2. **Generate a private key.** On the App's page, _Private keys_ → _Generate a
-   private key_. A `.pem` downloads. It is shown once.
-3. **Install it.** The App's _Install App_ tab → install on this account →
-   _Only select repositories_ → `sqlpilot`.
-4. **Add two repository secrets.** Repo _Settings → Secrets and variables →
-   Actions_:
-   - `DPRINT_BOT_APP_ID` — the numeric _App ID_ from the App's General tab.
-   - `DPRINT_BOT_PRIVATE_KEY` — the entire contents of the `.pem`, including the
-     `-----BEGIN RSA PRIVATE KEY-----` and `-----END` lines.
-5. **Delete the local `.pem`.** The secret is stored; the file on disk is now
-   only a liability.
-6. **Verify**: `gh workflow run dprint-update.yml --ref main`. It should either
-   open a PR or report no drift and exit clean.
+### The alternative, if either cost stops mattering
 
-The App's private key does not expire, unlike a personal access token. Rotate it
-from the App's _Private keys_ tab if it is ever exposed — generate the new key,
-update the secret, then delete the old key.
+A GitHub App installation token is subject to neither restriction: the repository
+setting becomes irrelevant and the PR runs CI normally. It costs one App to
+create and a private key to hold. See [#537](https://github.com/EVWorth/sqlpilot/issues/537)
+for the comparison; the workflow was briefly written that way and the shape is in
+its history.
 
-### If the App is ever removed
-
-The workflow fails at its preflight step with the missing secret named. It does
-not silently fall back to `GITHUB_TOKEN`, because that fallback would push a
-branch and then fail anyway, or open an unchecked PR if the repo setting had
-been turned on in the meantime.
+Worth switching if branch protection lands on `main`, or if a bump ever breaks
+something the pre-open verification does not catch.
