@@ -285,4 +285,26 @@ describe("ConnectionDialog", () => {
     const saveBtn = screen.getByText("Save");
     expect(saveBtn.closest("button")?.disabled).toBe(true);
   });
+
+  describe("SSH tunnelling is not implemented", () => {
+    it("says so before any credentials are typed", () => {
+      // The fields are stored but nothing opens a tunnel, so a profile
+      // configured here used to connect straight to the database host while
+      // the UI implied otherwise (#273).
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByText("SSH Tunnel"));
+
+      const notice = screen.getByTestId("ssh-unsupported");
+      expect(notice.textContent).toContain("not implemented");
+      expect(notice.textContent).toContain("refuse rather than connect directly");
+    });
+
+    it("shows the notice whether or not the toggle is on", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByText("SSH Tunnel"));
+      fireEvent.click(screen.getByLabelText?.("Enable SSH Tunnel") ?? screen.getByText("Enable SSH Tunnel"));
+
+      expect(screen.getByTestId("ssh-unsupported")).toBeInTheDocument();
+    });
+  });
 });

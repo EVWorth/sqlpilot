@@ -32,6 +32,41 @@ pub struct ConnectionManager {
     connections: Arc<DashMap<String, ActiveConnection>>,
 }
 
+/// Refuse a profile whose traffic the user expects to be tunnelled.
+///
+/// The dialog collects an SSH host, username, password and key passphrase,
+/// and the store keeps them — but nothing reads them. There is no ssh2 or
+/// russh dependency in the tree and `connect` builds its options from
+/// `profile.host` and `profile.port` alone, so a profile configured with a
+/// tunnel connected **straight to the database host** while the UI implied
+/// otherwise (#273).
+///
+/// Connecting anyway is the dangerous answer: someone who believes their
+/// traffic is tunnelled may be reaching a database over the open internet.
+/// Refusing is loud, reversible, and leaves the stored configuration alone
+/// for whenever the tunnel is actually built.
+fn refuse_unimplemented_ssh(profile: &ConnectionProfile) -> Result<(), CoreError> {
+    let Some(ssh) = profile.ssh_config.as_ref() else {
+        return Ok(());
+    };
+    if ssh.host.trim().is_empty() {
+        return Ok(());
+    }
+
+    tracing::warn!(
+        profile = %profile.name,
+        ssh_host = %ssh.host,
+        "Refused a connection configured for SSH tunnelling, which is not implemented"
+    );
+    Err(CoreError::SSH(format!(
+        "This profile is set to tunnel through {}, but SSH tunnelling is not implemented yet. \
+         Connecting would have gone straight to {}:{} instead, which is not what the tunnel \
+         settings say. Remove the SSH settings to connect directly, or open a tunnel yourself \
+         and point the profile at the forwarded local port.",
+        ssh.host, profile.host, profile.port
+    )))
+}
+
 impl ConnectionManager {
     pub fn new() -> Self {
         Self {
@@ -41,6 +76,8 @@ impl ConnectionManager {
 
     #[tracing::instrument(skip(self, profile), fields(host = %profile.host, port = %profile.port, user = %profile.username))]
     pub async fn connect(&self, profile: &ConnectionProfile) -> Result<ConnectionInfo, CoreError> {
+        refuse_unimplemented_ssh(profile)?;
+
         let conn_id = uuid::Uuid::new_v4().to_string();
 
         tracing::debug!(
@@ -191,6 +228,11 @@ impl ConnectionManager {
     pub async fn test_connection(
         profile: &ConnectionProfile,
     ) -> Result<TestConnectionResult, CoreError> {
+        // Same refusal as connect. A Test Connection that reports success by
+        // reaching the database directly would be the strongest possible
+        // false assurance that the tunnel works.
+        refuse_unimplemented_ssh(profile)?;
+
         let start = Instant::now();
 
         let charset = profile
@@ -383,4 +425,73 @@ fn apply_ssl_config(
         }
     }
     options
+}
+
+#[cfg(test)]
+mod ssh_refusal_tests {
+    use super::*;
+    use crate::models::SSHConfig;
+    use chrono::Utc;
+
+    fn profile() -> ConnectionProfile {
+        ConnectionProfile {
+            id: "p1".to_string(),
+            name: "prod".to_string(),
+            group: None,
+            color: None,
+            host: "db.internal".to_string(),
+            port: 3306,
+            username: "u".to_string(),
+            password: "p".to_string(),
+            default_database: None,
+            ssh_config: None,
+            ssl_config: None,
+            pool_min: 1,
+            pool_max: 5,
+            read_only: false,
+            connect_timeout_secs: None,
+            query_timeout_secs: None,
+            charset: None,
+            environment: None,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        }
+    }
+
+    fn with_ssh(host: &str) -> ConnectionProfile {
+        let mut p = profile();
+        p.ssh_config = Some(SSHConfig {
+            host: host.to_string(),
+            port: 22,
+            username: "tunnel".to_string(),
+            password: None,
+            private_key_path: None,
+            passphrase: None,
+        });
+        p
+    }
+
+    #[test]
+    fn a_profile_without_ssh_is_allowed() {
+        assert!(refuse_unimplemented_ssh(&profile()).is_ok());
+    }
+
+    #[test]
+    fn a_profile_expecting_a_tunnel_is_refused() {
+        // Connecting would have reached db.internal directly while the UI
+        // said the traffic went through the bastion (#273).
+        let err = refuse_unimplemented_ssh(&with_ssh("bastion.example.com")).unwrap_err();
+        let message = err.to_string();
+        assert!(message.contains("bastion.example.com"), "{message}");
+        assert!(message.contains("db.internal:3306"), "{message}");
+        assert!(message.contains("not implemented"), "{message}");
+    }
+
+    #[test]
+    fn an_empty_ssh_host_is_not_a_tunnel() {
+        // The dialog can leave a blank config behind after the fields are
+        // cleared; that is not a request to tunnel anywhere.
+        assert!(refuse_unimplemented_ssh(&with_ssh("")).is_ok());
+        assert!(refuse_unimplemented_ssh(&with_ssh("   ")).is_ok());
+    }
 }

@@ -1,4 +1,4 @@
-import { CheckCircle2, Database, Loader2, Settings, Shield, Terminal, X, XCircle } from "lucide-react";
+import { AlertCircle, CheckCircle2, Database, Loader2, Settings, Shield, Terminal, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -423,6 +423,28 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
           {/* SSH Tunnel Tab */}
           {activeTab === "ssh" && (
             <div className="space-y-4">
+              {
+                /*
+                The fields below are stored but not acted on: nothing in the
+                backend opens a tunnel. A profile configured here used to
+                connect straight to the database host while the UI implied
+                the traffic was tunnelled, so the connection is now refused
+                outright rather than quietly going direct (#273).
+              */
+              }
+              <div
+                data-testid="ssh-unsupported"
+                className="flex items-start gap-2 rounded border border-amber-700 bg-amber-900/20 px-3 py-2 text-xs text-amber-300"
+              >
+                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  SSH tunnelling is not implemented yet. These settings are saved, but a profile that uses them cannot
+                  connect — SQLPilot will refuse rather than connect directly to the database and leave you thinking the
+                  traffic is tunnelled. Open a tunnel yourself and point the profile at the forwarded local port
+                  instead.
+                </span>
+              </div>
+
               <label className="flex cursor-pointer items-center gap-2">
                 <input
                   type="checkbox"
