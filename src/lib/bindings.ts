@@ -34,6 +34,7 @@ export const commands = {
 	getTables: (connectionId: string, database: string) => typedError<TableInfo[], string>(__TAURI_INVOKE("get_tables", { connectionId, database })),
 	getColumns: (connectionId: string, database: string, table: string) => typedError<ColumnInfo[], string>(__TAURI_INVOKE("get_columns", { connectionId, database, table })),
 	getIndexes: (connectionId: string, database: string, table: string) => typedError<IndexInfo[], string>(__TAURI_INVOKE("get_indexes", { connectionId, database, table })),
+	getForeignKeys: (connectionId: string, database: string, table: string) => typedError<ForeignKeyInfo[], string>(__TAURI_INVOKE("get_foreign_keys", { connectionId, database, table })),
 	getTableDdl: (connectionId: string, database: string, table: string) => typedError<string, string>(__TAURI_INVOKE("get_table_ddl", { connectionId, database, table })),
 	getViews: (connectionId: string, database: string) => typedError<ViewInfo[], string>(__TAURI_INVOKE("get_views", { connectionId, database })),
 	getRoutines: (connectionId: string, database: string) => typedError<RoutineInfo[], string>(__TAURI_INVOKE("get_routines", { connectionId, database })),
@@ -275,6 +276,19 @@ export type ExplainResponse_Serialize = {
 	 *  than MySQL's single-column TREE text (#422).
 	 */
 	tabular: boolean,
+};
+
+export type ForeignKeyInfo = {
+	name: string,
+	/**
+	 *  In key order. A composite foreign key spans several rows of
+	 *  KEY_COLUMN_USAGE, which ORDINAL_POSITION puts back in order.
+	 */
+	columns: string[],
+	referenced_table: string,
+	referenced_columns: string[],
+	on_update: string,
+	on_delete: string,
 };
 
 export type IndexInfo = {

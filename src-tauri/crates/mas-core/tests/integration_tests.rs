@@ -230,6 +230,106 @@ async fn test_execute_select() {
     manager.disconnect(&info.id).await.unwrap();
 }
 
+// ====== FOREIGN KEY INSPECTION ======
+
+async fn foreign_keys_come_back_with_their_actions(profile: ConnectionProfile) {
+    // ForeignKeyInfo existed with nothing producing it, so the designer's
+    // Foreign Keys tab was empty for every table (#386).
+    let manager = Arc::new(ConnectionManager::new());
+    let inspector = SchemaInspector::new(manager.clone());
+    let info = manager.connect(&profile).await.unwrap();
+
+    let keys = inspector
+        .get_foreign_keys(&info.id, "test_db", "order_items")
+        .await
+        .unwrap();
+
+    assert_eq!(keys.len(), 2, "order_items has two foreign keys");
+
+    let to_orders = keys
+        .iter()
+        .find(|k| k.referenced_table == "orders")
+        .expect("a key referencing orders");
+    assert_eq!(to_orders.columns, vec!["order_id".to_string()]);
+    assert_eq!(to_orders.referenced_columns, vec!["id".to_string()]);
+    assert_eq!(to_orders.on_delete, "CASCADE");
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_foreign_keys_mysql() {
+    foreign_keys_come_back_with_their_actions(test_profile()).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_foreign_keys_mariadb() {
+    foreign_keys_come_back_with_their_actions(mariadb_profile()).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_composite_foreign_key_keeps_its_column_order() {
+    // A composite key spans several rows of KEY_COLUMN_USAGE, and the pairing
+    // is positional — the wrong order would build a different constraint.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let inspector = SchemaInspector::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    executor
+        .execute(
+            &info.id,
+            "DROP TABLE IF EXISTS fk_child, fk_parent;\n\
+             CREATE TABLE fk_parent (a INT, b INT, PRIMARY KEY (a, b));\n\
+             CREATE TABLE fk_child (\n\
+               x INT, y INT,\n\
+               CONSTRAINT fk_two FOREIGN KEY (x, y) REFERENCES fk_parent (a, b) ON DELETE SET NULL\n\
+             );",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let keys = inspector
+        .get_foreign_keys(&info.id, "test_db", "fk_child")
+        .await
+        .unwrap();
+
+    assert_eq!(keys.len(), 1, "one constraint, not one per column");
+    assert_eq!(keys[0].columns, vec!["x".to_string(), "y".to_string()]);
+    assert_eq!(
+        keys[0].referenced_columns,
+        vec!["a".to_string(), "b".to_string()]
+    );
+    assert_eq!(keys[0].on_delete, "SET NULL");
+
+    executor
+        .execute(&info.id, "DROP TABLE fk_child, fk_parent", None, None)
+        .await
+        .unwrap();
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn test_table_without_foreign_keys_reports_none() {
+    let manager = Arc::new(ConnectionManager::new());
+    let inspector = SchemaInspector::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    assert!(inspector
+        .get_foreign_keys(&info.id, "test_db", "users")
+        .await
+        .unwrap()
+        .is_empty());
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
 // ====== DESIGNER ATOMICITY ======
 //
 // The designer used to emit one ALTER TABLE per change and send them as one
