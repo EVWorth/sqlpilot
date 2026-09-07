@@ -20,10 +20,10 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useClickHandler } from "../../hooks/useClickHandler";
 import { useContextMenu } from "../../hooks/useContextMenu";
-import { api } from "../../lib/tauri-api";
+import { dataSourceFor } from "../../lib/datasource";
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -33,6 +33,10 @@ import type { DatabaseInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo } from
 import { FolderNode } from "./FolderNode";
 
 export function SchemaTree({ connectionId }: { connectionId: string }) {
+  // Whatever backend this connection belongs to. The tree asks it for
+  // databases, tables and the rest, and gets the same shapes back either way,
+  // so nothing below here knows or cares which one answered (#461).
+  const source = useMemo(() => dataSourceFor(connectionId), [connectionId]);
   const [databases, setDatabases] = useState<DatabaseInfo[]>([]);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
@@ -81,7 +85,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   };
 
   useEffect(() => {
-    api.getDatabases(connectionId).then(setDatabases).catch(console.error);
+    source.listDatabases(connectionId).then(setDatabases).catch(console.error);
   }, [connectionId]);
 
   // Ctrl+Shift+O focuses the schema tree filter input
@@ -107,19 +111,19 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         if (cancelled) break;
         try {
           if (!cancelled && !tables[db.name]) {
-            const t = await api.getTables(connectionId, db.name);
+            const t = await source.listTables(connectionId, db.name);
             if (!cancelled) setTables((prev) => ({ ...prev, [db.name]: t }));
           }
           if (!cancelled && !views[db.name]) {
-            const v = await api.getViews(connectionId, db.name);
+            const v = await source.listViews(connectionId, db.name);
             if (!cancelled) setViews((prev) => ({ ...prev, [db.name]: v }));
           }
           if (!cancelled && !routines[db.name]) {
-            const r = await api.getRoutines(connectionId, db.name);
+            const r = await source.listRoutines(connectionId, db.name);
             if (!cancelled) setRoutines((prev) => ({ ...prev, [db.name]: r }));
           }
           if (!cancelled && !triggers[db.name]) {
-            const t = await api.getTriggers(connectionId, db.name);
+            const t = await source.listTriggers(connectionId, db.name);
             if (!cancelled) setTriggers((prev) => ({ ...prev, [db.name]: t }));
           }
         } catch (e) {
@@ -139,7 +143,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     if (!isExpanded && !tables[dbName]) {
       setLoadingDbs((prev) => new Set(prev).add(dbName));
       try {
-        const t = await api.getTables(connectionId, dbName);
+        const t = await source.listTables(connectionId, dbName);
         setTables((prev) => ({ ...prev, [dbName]: t }));
       } catch (e) {
         console.error(e);
@@ -167,13 +171,13 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         setLoadingFolders((prev) => new Set(prev).add(key));
         try {
           if (folder === "views") {
-            const v = await api.getViews(connectionId, dbName);
+            const v = await source.listViews(connectionId, dbName);
             setViews((prev) => ({ ...prev, [dbName]: v }));
           } else if (folder === "procedures" || folder === "functions") {
-            const r = await api.getRoutines(connectionId, dbName);
+            const r = await source.listRoutines(connectionId, dbName);
             setRoutines((prev) => ({ ...prev, [dbName]: r }));
           } else if (folder === "triggers") {
-            const t = await api.getTriggers(connectionId, dbName);
+            const t = await source.listTriggers(connectionId, dbName);
             setTriggers((prev) => ({ ...prev, [dbName]: t }));
           }
         } catch (e) {
@@ -214,7 +218,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
 
   const refreshTables = async (dbName: string) => {
     try {
-      const t = await api.getTables(connectionId, dbName);
+      const t = await source.listTables(connectionId, dbName);
       setTables((prev) => ({ ...prev, [dbName]: t }));
     } catch (e) {
       console.error(e);
@@ -224,13 +228,13 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const refreshFolder = async (dbName: string, folder: string) => {
     try {
       if (folder === "views") {
-        const v = await api.getViews(connectionId, dbName);
+        const v = await source.listViews(connectionId, dbName);
         setViews((prev) => ({ ...prev, [dbName]: v }));
       } else if (folder === "routines") {
-        const r = await api.getRoutines(connectionId, dbName);
+        const r = await source.listRoutines(connectionId, dbName);
         setRoutines((prev) => ({ ...prev, [dbName]: r }));
       } else if (folder === "triggers") {
-        const t = await api.getTriggers(connectionId, dbName);
+        const t = await source.listTriggers(connectionId, dbName);
         setTriggers((prev) => ({ ...prev, [dbName]: t }));
       }
     } catch (e) {

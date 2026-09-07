@@ -1,6 +1,7 @@
-import { ChevronDown, ChevronRight, Database, History, Star } from "lucide-react";
+import { ChevronDown, ChevronRight, Database, FileText, History, Star } from "lucide-react";
 import { useState } from "react";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useSqliteStore } from "../../stores/sqliteStore";
 import { QueryFavorites } from "../favorites/QueryFavorites";
 import { QueryHistory } from "../history/QueryHistory";
 import { SchemaTree } from "../schema/SchemaTree";
@@ -10,6 +11,7 @@ export function Sidebar() {
   const [showFavorites, setShowFavorites] = useState(false);
   const profiles = useConnectionStore((s) => s.profiles);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
+  const sqliteSessions = useSqliteStore((s) => s.sessions);
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
@@ -17,12 +19,26 @@ export function Sidebar() {
   const selectedConnection = activeConnections.find(
     (c) => c.id === selectedConnectionId,
   );
+  // A SQLite file is selected the same way a server connection is, and drives
+  // the same tree — it just has a path where the others have a host (#461).
+  const sqliteSession = sqliteSessions.find((s) => s.id === selectedConnectionId);
   const selectedProfile = selectedConnection
     ? profiles.find((p) => p.id === selectedConnection.profile_id)
     : undefined;
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-bg-secondary)]">
+      {sqliteSession && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--color-border)] px-3 py-1.5">
+          <FileText className="h-3 w-3 shrink-0 text-sky-400" />
+          <span
+            className="truncate text-[11px] font-medium text-[var(--color-text-secondary)]"
+            title={sqliteSession.path}
+          >
+            {sqliteSession.path}
+          </span>
+        </div>
+      )}
       {selectedConnection && (
         <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] px-3 py-1.5 shrink-0">
           <Database className="h-3 w-3 shrink-0 text-green-400" />
@@ -41,8 +57,8 @@ export function Sidebar() {
         </div>
       )}
       <div className="flex-1 overflow-y-auto">
-        {selectedConnection
-          ? <SchemaTree connectionId={selectedConnection.id} />
+        {selectedConnection || sqliteSession
+          ? <SchemaTree connectionId={(selectedConnection ?? sqliteSession)!.id} />
           : (
             <div className="flex flex-col items-center justify-center h-full gap-2 p-4 text-center">
               <Database className="h-8 w-8 text-[var(--color-text-muted)] opacity-40" />

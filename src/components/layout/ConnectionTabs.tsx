@@ -1,15 +1,20 @@
-import { Database, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
+import { Database, FileText, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { useSqliteStore } from "../../stores/sqliteStore";
 import type { ConnectionProfileSummary } from "../../types";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
 
 export function ConnectionTabs() {
   const profiles = useConnectionStore((s) => s.profiles);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
+  const sqliteSessions = useSqliteStore((s) => s.sessions);
+  const sqliteOpening = useSqliteStore((s) => s.opening);
+  const openSqliteFile = useSqliteStore((s) => s.openFile);
+  const closeSqlite = useSqliteStore((s) => s.close);
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const connect = useConnectionStore((s) => s.connect);
   const disconnect = useConnectionStore((s) => s.disconnect);
@@ -234,8 +239,66 @@ export function ConnectionTabs() {
             </div>
           );
         })}
+
+        {
+          /*
+          Open SQLite files, rendered beside the server connections rather
+          than in a pane of their own. A file has no host, port or profile, so
+          it carries only its name and a distinct icon — but selecting one
+          drives the same sidebar, editor and grid (#461).
+        */
+        }
+        {sqliteSessions.map((session) => {
+          const isSelected = session.id === selectedConnectionId;
+          return (
+            <div
+              key={session.id}
+              data-testid="sqlite-tab"
+              className={cn(
+                "group relative flex h-7 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1.5 rounded px-2 text-xs select-none",
+                isSelected
+                  ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
+              )}
+              onClick={() => setSelectedConnection(session.id)}
+              title={session.path}
+            >
+              {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}
+              <FileText className="h-3 w-3 shrink-0 text-sky-400" />
+              <span className="truncate">{session.name}</span>
+              <button
+                className={cn(
+                  "ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+                  isSelected && "opacity-60",
+                  "hover:bg-[var(--color-bg-secondary)] hover:opacity-100",
+                )}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  void closeSqlite(session.id);
+                }}
+                title="Close database"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          );
+        })}
       </div>
       {/* end scrollable tabs */}
+
+      <button
+        onClick={() => {
+          void openSqliteFile().then((session) => {
+            if (session) setSelectedConnection(session.id);
+          });
+        }}
+        disabled={sqliteOpening}
+        className="ml-1 flex h-7 shrink-0 items-center gap-1 rounded px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
+        title="Open a SQLite database file"
+      >
+        <FileText className="h-3.5 w-3.5" />
+        SQLite
+      </button>
 
       {/* Add / connect button — outside overflow container so popover isn't clipped */}
       <div className="relative ml-1 shrink-0">

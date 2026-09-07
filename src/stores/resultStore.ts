@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { connectionKind, dataSourceFor } from "../lib/datasource";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api } from "../lib/tauri-api";
 import type { QueryResult } from "../types";
@@ -179,6 +180,14 @@ async function doExplain(
   set: (partial: Partial<ResultState>) => void,
   database?: string,
 ) {
+  // The explain command is MySQL-only. Saying so beats letting the backend
+  // answer "connection not found", which describes an internal detail rather
+  // than the situation.
+  if (connectionKind(connectionId) !== "mysql") {
+    set({ error: "Query plans are not available for SQLite connections yet." });
+    return;
+  }
+
   cancelGeneration++;
   const myGeneration = cancelGeneration;
   activeExecution = { generation: myGeneration, connectionId };
@@ -236,7 +245,14 @@ async function doExecuteQuery(
 
   try {
     set({ isExecuting: true, error: null });
-    const results = await api.executeQuery(connectionId, sql, effectiveDatabase, rowLimit);
+    // Through the data source, so the editor runs a statement the same way
+    // whichever backend the connection belongs to (#461).
+    const results = await dataSourceFor(connectionId).execute(
+      connectionId,
+      sql,
+      effectiveDatabase,
+      rowLimit,
+    );
     if (cancelGeneration !== myGeneration) return;
     set({ results, activeResultIndex: 0, isExecuting: false });
 
