@@ -64,12 +64,19 @@ impl AdminService {
         tracing::debug!("Fetching process list");
         let pool = self.connection_manager.get_pool(connection_id)?;
         let rows = sqlx::query(
-            "SELECT ID,
+            // ID and TIME are cast for the same reason the strings are: the
+            // column types differ between servers and between versions, and
+            // sqlx decodes by exact width. MySQL 8 declares ID as BIGINT
+            // UNSIGNED and TIME as INT, neither of which decodes into i64 —
+            // so every id arrived as 0 through unwrap_or_default, the panel
+            // showed 0 for every process, and Kill had nothing real to aim
+            // at (#445).
+            "SELECT CAST(ID AS SIGNED) AS ID,
                     CAST(USER AS CHAR) AS USER,
                     CAST(HOST AS CHAR) AS HOST,
                     CAST(DB AS CHAR) AS DB,
                     CAST(COMMAND AS CHAR) AS COMMAND,
-                    TIME,
+                    CAST(TIME AS SIGNED) AS TIME,
                     CAST(STATE AS CHAR) AS STATE,
                     CAST(INFO AS CHAR) AS INFO
              FROM INFORMATION_SCHEMA.PROCESSLIST",
