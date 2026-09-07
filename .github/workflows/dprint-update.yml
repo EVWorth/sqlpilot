@@ -35,49 +35,7 @@ jobs:
   bump:
     runs-on: ubuntu-latest
     steps:
-      # Fail here, loudly and specifically, rather than letting the token step
-      # produce something opaque. Until the App exists this workflow cannot do
-      # its job, and a scheduled job that cannot do its job should say so — a
-      # weekly red X nobody can explain is how the last defect in this file
-      # survived for months (#534).
-      - name: Preflight — App credentials present
-        env:
-          APP_ID: ${{ secrets.DPRINT_BOT_APP_ID }}
-          PRIVATE_KEY: ${{ secrets.DPRINT_BOT_PRIVATE_KEY }}
-        run: |
-          set -euo pipefail
-          missing=""
-          [ -z "${APP_ID}" ] && missing="${missing} DPRINT_BOT_APP_ID"
-          [ -z "${PRIVATE_KEY}" ] && missing="${missing} DPRINT_BOT_PRIVATE_KEY"
-          if [ -n "${missing}" ]; then
-            echo "Missing repository secret(s):${missing}" >&2
-            echo "This workflow opens its PR as a GitHub App, not as Actions." >&2
-            echo "One-time setup: docs/CI.md, 'Automation identity'." >&2
-            exit 1
-          fi
-
-      # Why an App rather than GITHUB_TOKEN:
-      #
-      # - GITHUB_TOKEN cannot open a PR unless the repository setting "Allow
-      #   GitHub Actions to create and approve pull requests" is on. That
-      #   switch also grants Actions the ability to *approve* PRs, which would
-      #   become a review-requirement bypass the moment branch protection is
-      #   added to main. Not worth turning on for a formatter bump (#537).
-      # - PRs opened with GITHUB_TOKEN do not trigger workflow runs, by design,
-      #   to prevent recursion. The bump would arrive with no CI on it at all.
-      #   An App token is not GITHUB_TOKEN, so the PR gets the full suite.
-      - name: Mint App token
-        id: app-token
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ secrets.DPRINT_BOT_APP_ID }}
-          private-key: ${{ secrets.DPRINT_BOT_PRIVATE_KEY }}
-
-      # Checked out with the App token too, so the push that create-pull-request
-      # makes uses the same identity that opens the PR.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          token: ${{ steps.app-token.outputs.token }}
 
       # Install from the lockfile rather than naming a dprint version here.
       # A hardcoded range silently goes stale every time package.json moves,
@@ -109,11 +67,56 @@ jobs:
         run: |
           if [ -z "$(git status --porcelain)" ]; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Every dprint plugin is already at its latest version."
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
             echo "Files changed:"
             git status --short
           fi
+
+      # Only from here on does the workflow need to be able to open a PR, so
+      # only from here on can a missing App be a failure.
+      #
+      # This used to run first, which meant a red X every Monday whether or
+      # not there was anything to bump — crying wolf at exactly the job whose
+      # last real defect went unnoticed for months because nobody trusted its
+      # status (#534). With nothing to bump there is nothing to fail about.
+      - name: Preflight — App credentials present
+        if: steps.drift.outputs.changed == 'true'
+        env:
+          APP_ID: ${{ secrets.DPRINT_BOT_APP_ID }}
+          PRIVATE_KEY: ${{ secrets.DPRINT_BOT_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          missing=""
+          [ -z "${APP_ID}" ] && missing="${missing} DPRINT_BOT_APP_ID"
+          [ -z "${PRIVATE_KEY}" ] && missing="${missing} DPRINT_BOT_PRIVATE_KEY"
+          if [ -n "${missing}" ]; then
+            echo "Plugin updates are available, but this workflow cannot open" >&2
+            echo "the pull request that carries them." >&2
+            echo "Missing repository secret(s):${missing}" >&2
+            echo "It opens its PR as a GitHub App, not as Actions." >&2
+            echo "One-time setup: docs/CI.md, 'Automation identity'." >&2
+            exit 1
+          fi
+
+      # Why an App rather than GITHUB_TOKEN:
+      #
+      # - GITHUB_TOKEN cannot open a PR unless the repository setting "Allow
+      #   GitHub Actions to create and approve pull requests" is on. That
+      #   switch also grants Actions the ability to *approve* PRs, which would
+      #   become a review-requirement bypass the moment branch protection is
+      #   added to main. Not worth turning on for a formatter bump (#537).
+      # - PRs opened with GITHUB_TOKEN do not trigger workflow runs, by design,
+      #   to prevent recursion. The bump would arrive with no CI on it at all.
+      #   An App token is not GITHUB_TOKEN, so the PR gets the full suite.
+      - name: Mint App token
+        id: app-token
+        if: steps.drift.outputs.changed == 'true'
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.DPRINT_BOT_APP_ID }}
+          private-key: ${{ secrets.DPRINT_BOT_PRIVATE_KEY }}
 
       - name: Open PR
         if: steps.drift.outputs.changed == 'true'
