@@ -30,6 +30,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
+import { nextEditableCell } from "../../lib/grid-navigation";
 import {
   columnTypesOf,
   generateDelete,
@@ -118,9 +119,29 @@ export function ResultsGrid() {
     dataType?: string;
   }>({ isOpen: false, columnName: "", content: null });
   const { contextMenu, showContextMenu } = useContextMenu();
-  const editingCellRef = useRef<{ rowIndex: number; colIndex: number } | null>(
-    null,
-  );
+  /**
+   * Which cell is being edited, if any.
+   *
+   * State rather than a ref, and owned here rather than by the cell: Tab has
+   * to move the edit onwards, and a cell cannot put another cell into edit
+   * mode. The old ref was written on Tab and read by nothing, so focus fell
+   * through to the next thing in the document — usually a footer button
+   * (#408).
+   *
+   * Pending insert rows use negative indices, so one piece of state covers
+   * both grids without the two ever colliding.
+   */
+  const [editingCell, setEditingCell] = useState<
+    { rowIndex: number; colIndex: number } | null
+  >(null);
+
+  const insertRowIndex = (insertIdx: number) => -1 - insertIdx;
+
+  const editCellAt = useCallback((rowIndex: number, colIndex: number) => {
+    setEditingCell({ rowIndex, colIndex });
+  }, []);
+
+  const stopEditing = useCallback(() => setEditingCell(null), []);
 
   const editing = useGridEditing();
 
@@ -511,21 +532,30 @@ export function ResultsGrid() {
             onCommit={(newValue) => {
               editing.editCell(rowIdx, col.name, originalValue, newValue);
             }}
+            editing={editingCell?.rowIndex === rowIdx && editingCell?.colIndex === colIdx}
+            onEditingChange={(on) => (on ? editCellAt(rowIdx, colIdx) : stopEditing())}
             onTab={(shiftKey) => {
-              const nextCol = shiftKey ? colIdx - 1 : colIdx + 1;
-              if (nextCol >= 0 && nextCol < activeResult.columns.length) {
-                editingCellRef.current = {
-                  rowIndex: rowIdx,
-                  colIndex: nextCol,
-                };
+              const next = nextEditableCell(
+                { rowIndex: rowIdx, colIndex: colIdx },
+                shiftKey,
+                activeResult.rows.length,
+                activeResult.columns.length,
+              );
+              if (!next) {
+                stopEditing();
+                return;
               }
+              editCellAt(next.rowIndex, next.colIndex);
             }}
           />
         );
       },
       size: Math.max(80, Math.min(350, Math.min(maxContentLen[col.name] ?? 5, 30) * 9 + 40)),
     }));
-  }, [activeResult, editing, maxContentLen]);
+    // editingCell belongs here: the cell renderers close over it, so leaving
+    // it out would keep rendering the previously-memoised cells and the edit
+    // would never appear to move.
+  }, [activeResult, editing, editingCell, editCellAt, stopEditing, maxContentLen]);
 
   const data = useMemo(() => {
     if (!activeResult) return [];
@@ -794,6 +824,10 @@ export function ResultsGrid() {
                               onCommit={(newValue) => {
                                 editing.editInsertCell(insertIdx, col.name, newValue);
                               }}
+                              editing={editingCell?.rowIndex === insertRowIndex(insertIdx)
+                                && editingCell?.colIndex === colIdx}
+                              onEditingChange={(on) =>
+                                on ? editCellAt(insertRowIndex(insertIdx), colIdx) : stopEditing()}
                             />
                           </div>
                         );
@@ -948,7 +982,7 @@ export function ResultsGrid() {
                       <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
                         +
                       </td>
-                      {activeResult.columns.map((col) => (
+                      {activeResult.columns.map((col, colIdx) => (
                         <td
                           key={col.name}
                           className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
@@ -962,6 +996,9 @@ export function ResultsGrid() {
                             onCommit={(newValue) => {
                               editing.editInsertCell(insertIdx, col.name, newValue);
                             }}
+                            editing={editingCell?.rowIndex === insertRowIndex(insertIdx)
+                              && editingCell?.colIndex === colIdx}
+                            onEditingChange={(on) => on ? editCellAt(insertRowIndex(insertIdx), colIdx) : stopEditing()}
                           />
                         </td>
                       ))}
