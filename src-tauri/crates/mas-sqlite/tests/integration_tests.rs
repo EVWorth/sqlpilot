@@ -342,3 +342,88 @@ async fn schema_unknown_connection_returns_not_found() {
     let err = insp.get_tables("ghost").await.unwrap_err();
     assert!(matches!(err, SqliteError::NotFound(_)));
 }
+
+// ---------------------------------------------------------------------------
+// Opening a path that is not a database
+//
+// `rusqlite::Connection::open` is accommodating in two ways that are wrong for
+// an "open" action. Verified against the version in this tree: a path that
+// does not exist is created as a new empty database, and a file that is not a
+// database opens fine and fails on the first query with "file is not a
+// database" — describing the symptom rather than the cause (#463).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn open_refuses_a_file_that_is_not_a_database() {
+    let mgr = manager();
+    let path = std::env::temp_dir().join("mas_sqlite_not_a_db.txt");
+    std::fs::write(&path, b"just some text, definitely not a database").unwrap();
+
+    let err = mgr
+        .open("c1", path.to_str().unwrap())
+        .err()
+        .expect("should refuse a non-database file");
+    assert!(err.to_string().contains("not a SQLite database"), "{err}");
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn open_refuses_an_empty_file() {
+    // Zero bytes is a valid *new* database to SQLite, but opening is meant to
+    // open something that is already there.
+    let mgr = manager();
+    let path = std::env::temp_dir().join("mas_sqlite_empty.db");
+    std::fs::write(&path, b"").unwrap();
+
+    assert!(mgr.open("c1", path.to_str().unwrap()).is_err());
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn open_does_not_create_a_missing_file() {
+    let mgr = manager();
+    let path = std::env::temp_dir().join("mas_sqlite_should_not_appear.db");
+    std::fs::remove_file(&path).ok();
+
+    assert!(mgr.open("c1", path.to_str().unwrap()).is_err());
+    assert!(
+        !path.exists(),
+        "opening a missing path must not leave a database behind"
+    );
+}
+
+#[test]
+fn open_refuses_a_directory() {
+    let mgr = manager();
+    let dir = std::env::temp_dir();
+    let err = mgr
+        .open("c1", dir.to_str().unwrap())
+        .err()
+        .expect("should refuse a directory");
+    assert!(err.to_string().contains("not a regular file"), "{err}");
+}
+
+#[test]
+fn open_accepts_a_real_database() {
+    // The guard must not refuse the thing it exists to protect.
+    let path = std::env::temp_dir().join("mas_sqlite_real.db");
+    std::fs::remove_file(&path).ok();
+    {
+        let seed = rusqlite::Connection::open(&path).unwrap();
+        seed.execute_batch("CREATE TABLE t (a INT); INSERT INTO t VALUES (1);")
+            .unwrap();
+    }
+
+    let mgr = manager();
+    assert!(mgr.open("c1", path.to_str().unwrap()).is_ok());
+
+    std::fs::remove_file(&path).ok();
+}
+
+#[test]
+fn open_still_accepts_in_memory() {
+    let mgr = manager();
+    assert!(mgr.open("c1", ":memory:").is_ok());
+}
