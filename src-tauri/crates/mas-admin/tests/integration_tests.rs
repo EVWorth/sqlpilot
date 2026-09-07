@@ -335,3 +335,208 @@ async fn kill_query_stops_the_statement_but_keeps_the_session() {
 
     manager.disconnect(&admin.id).await.unwrap();
 }
+
+// ---------------------------------------------------------------------------
+// What the service itself implements
+//
+// AdminService has four methods. Only kill_process had coverage, so a change
+// to the process list or the variables query would have gone out unexamined
+// (#445).
+// ---------------------------------------------------------------------------
+
+fn mariadb_profile() -> ConnectionProfile {
+    ConnectionProfile {
+        name: "Test MariaDB 11 (admin)".to_string(),
+        port: 13308,
+        ..test_profile()
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn process_list_includes_this_connection() {
+    let manager = Arc::new(ConnectionManager::new());
+    let service = AdminService::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let processes = service.get_process_list(&info.id).await.unwrap();
+
+    assert!(!processes.is_empty(), "our own session should be listed");
+    assert!(
+        processes.iter().any(|p| p.user == "test_user"),
+        "expected a row for test_user, got users: {:?}",
+        processes.iter().map(|p| &p.user).collect::<Vec<_>>()
+    );
+    // Every row needs an id, since that is what kill_process is given.
+    assert!(processes.iter().all(|p| p.id > 0));
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn process_list_works_on_mariadb_too() {
+    // MariaDB's PROCESSLIST carries different columns from MySQL 8's; the
+    // query has to be readable on both.
+    let manager = Arc::new(ConnectionManager::new());
+    let service = AdminService::new(manager.clone());
+    let info = manager.connect(&mariadb_profile()).await.unwrap();
+
+    assert!(!service.get_process_list(&info.id).await.unwrap().is_empty());
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn server_variables_include_the_ones_the_panel_shows() {
+    let manager = Arc::new(ConnectionManager::new());
+    let service = AdminService::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let variables = service.get_server_variables(&info.id).await.unwrap();
+
+    assert!(variables.len() > 50, "expected a full variable list");
+    for expected in ["version", "max_connections", "sql_mode"] {
+        assert!(
+            variables.iter().any(|v| v.name == expected),
+            "{expected} missing from the variable list"
+        );
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn kill_query_with_a_bogus_id_reports_an_error() {
+    let manager = Arc::new(ConnectionManager::new());
+    let service = AdminService::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let err = service
+        .kill_query(&info.id, 99_999_999)
+        .await
+        .expect_err("no such thread");
+    assert!(
+        err.to_string().to_lowercase().contains("thread"),
+        "error should name the missing thread: {err}"
+    );
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+// ---------------------------------------------------------------------------
+// The user lifecycle the panel drives
+//
+// None of this lives in AdminService: the dialogs build the statements and
+// send them through execute_query, so nothing checked that the server accepts
+// the shapes they emit (#445). These run the same shapes.
+// ---------------------------------------------------------------------------
+
+/// A root connection, since managing users needs more than test_user has.
+async fn root_connection(port: u16) -> sqlx::mysql::MySqlConnection {
+    use sqlx::Connection;
+    sqlx::mysql::MySqlConnection::connect(&format!(
+        "mysql://root:test_root_password@127.0.0.1:{}/test_db",
+        port
+    ))
+    .await
+    .expect("connect as root")
+}
+
+async fn run(conn: &mut sqlx::mysql::MySqlConnection, sql: &str) -> Result<(), sqlx::Error> {
+    sqlx::raw_sql(sqlx::AssertSqlSafe(sql.to_string()))
+        .execute(conn)
+        .await
+        .map(|_| ())
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn the_user_lifecycle_statements_are_accepted() {
+    use sqlx::Row;
+
+    let mut db = root_connection(13306).await;
+    run(&mut db, "DROP USER IF EXISTS 'lifecycle'@'%'")
+        .await
+        .unwrap();
+
+    // CreateUserDialog, with the plugin form it defaults to.
+    run(
+        &mut db,
+        "CREATE USER 'lifecycle'@'%'\n  IDENTIFIED WITH caching_sha2_password BY 'p1'\n  WITH MAX_USER_CONNECTIONS 5;",
+    )
+    .await
+    .expect("create user");
+
+    // UserManagement's privilege editor: revokes before grants, batched per
+    // scope, then FLUSH.
+    run(
+        &mut db,
+        "GRANT SELECT, INSERT ON `test_db`.* TO 'lifecycle'@'%'",
+    )
+    .await
+    .expect("grant database privileges");
+    run(&mut db, "GRANT SELECT ON *.* TO 'lifecycle'@'%'")
+        .await
+        .expect("grant global privileges");
+    run(&mut db, "GRANT GRANT OPTION ON *.* TO 'lifecycle'@'%'")
+        .await
+        .expect("grant the grant option");
+    run(&mut db, "FLUSH PRIVILEGES").await.expect("flush");
+
+    // What the panel reads back to populate the checkboxes.
+    let grants: Vec<String> = sqlx::query("SHOW GRANTS FOR 'lifecycle'@'%'")
+        .fetch_all(&mut db)
+        .await
+        .expect("show grants")
+        .iter()
+        .map(|r| r.get::<String, _>(0))
+        .collect();
+    assert!(
+        grants.iter().any(|g| g.contains("INSERT")),
+        "the grant just made should be readable back: {grants:?}"
+    );
+
+    run(&mut db, "REVOKE INSERT ON `test_db`.* FROM 'lifecycle'@'%'")
+        .await
+        .expect("revoke");
+    run(&mut db, "REVOKE GRANT OPTION ON *.* FROM 'lifecycle'@'%'")
+        .await
+        .expect("revoke the grant option");
+
+    // ChangePasswordDialog.
+    run(&mut db, "ALTER USER 'lifecycle'@'%' IDENTIFIED BY 'p2'")
+        .await
+        .expect("change password");
+
+    run(&mut db, "DROP USER 'lifecycle'@'%'")
+        .await
+        .expect("drop user");
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn revoking_a_privilege_the_user_does_not_have_is_an_error() {
+    // Worth pinning because the privilege editor derives its REVOKE list from
+    // what it read a moment earlier. If that read is stale, the whole batch
+    // stops here — which is why a partial failure has to say where it got to.
+    let mut db = root_connection(13306).await;
+    run(&mut db, "DROP USER IF EXISTS 'norevoke'@'%'")
+        .await
+        .unwrap();
+    run(&mut db, "CREATE USER 'norevoke'@'%' IDENTIFIED BY 'p'")
+        .await
+        .unwrap();
+
+    let err = run(&mut db, "REVOKE DELETE ON `test_db`.* FROM 'norevoke'@'%'")
+        .await
+        .expect_err("revoking what was never granted should fail");
+    assert!(
+        err.to_string().to_lowercase().contains("no such grant"),
+        "unexpected error: {err}"
+    );
+
+    run(&mut db, "DROP USER 'norevoke'@'%'").await.unwrap();
+}
