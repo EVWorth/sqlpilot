@@ -107,25 +107,24 @@ impl QueryExecutor {
         let pool = self.connection_manager.get_pool(&connection_id)?;
         let statements = split_statements(&sql);
 
-        // Apply user-specified row limit to SELECT/SHOW/DESCRIBE statements (if provided)
+        // Bound the statements the setting can meaningfully bound, and leave
+        // the rest exactly as typed. Appending LIMIT to a SHOW or a DESCRIBE
+        // is a syntax error, and appending it to an EXPLAIN changes which
+        // query the plan describes (#520).
         let statements: Vec<String> = if let Some(max_rows) = limit {
             statements
                 .into_iter()
                 .map(|stmt| {
-                    let upper = stmt.trim().to_uppercase();
-                    if upper.starts_with("SELECT")
-                        || upper.starts_with("SHOW")
-                        || upper.starts_with("DESCRIBE")
-                        || upper.starts_with("EXPLAIN")
-                    {
-                        // Respect in-statement LIMIT: only apply global limit if user didn't specify one
-                        if has_limit_clause(&upper) {
-                            stmt
-                        } else {
-                            format!("{} LIMIT {}", stmt.trim_end_matches(';'), max_rows)
-                        }
-                    } else {
+                    if !crate::query::statement::accepts_row_limit(&stmt) {
+                        return stmt;
+                    }
+                    // A LIMIT the user wrote wins: the setting is a ceiling on
+                    // what the app volunteers, not an override of what was asked
+                    // for.
+                    if has_limit_clause(&stmt.trim().to_uppercase()) {
                         stmt
+                    } else {
+                        format!("{} LIMIT {}", stmt.trim_end_matches(';'), max_rows)
                     }
                 })
                 .collect()

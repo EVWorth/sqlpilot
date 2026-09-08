@@ -190,6 +190,39 @@ pub fn effective_verb(sql: &str) -> String {
     word_at(&chars, i)
 }
 
+/// Statements where appending `LIMIT n` means what the row-limit setting
+/// intends.
+///
+/// The setting used to be applied to anything starting SELECT, SHOW,
+/// DESCRIBE or EXPLAIN. Three of those four are wrong, and two of them
+/// produce a syntax error rather than a different answer. Confirmed against
+/// MySQL 8:
+///
+///   DESCRIBE users LIMIT 5            ERROR 1064
+///   SHOW TABLES LIMIT 5               ERROR 1064
+///   SHOW CREATE TABLE users LIMIT 5   ERROR 1064
+///   SHOW DATABASES / COLUMNS / VARIABLES / PROCESSLIST ... LIMIT 5   ERROR 1064
+///   EXPLAIN SELECT * FROM users LIMIT 5   accepted, but the LIMIT binds to
+///                                         the inner statement, so the plan
+///                                         describes a query nobody asked for
+///
+/// No SHOW form takes a LIMIT. Since the row limit is on by default, typing
+/// `SHOW TABLES` in the editor was a syntax error (#520).
+///
+/// TABLE and VALUES do take one and were not being matched, so they came back
+/// unbounded — the same allowlist EXPLAIN uses for what it can safely ANALYZE.
+const LIMITABLE_VERBS: [&str; 3] = ["SELECT", "TABLE", "VALUES"];
+
+/// Whether the row limit can be appended to this statement.
+///
+/// Goes through `effective_verb`, so a CTE is followed to what it prefixes
+/// and a leading comment or bracket does not hide the verb — all cases the
+/// previous `starts_with("SELECT")` missed, leaving those statements
+/// unbounded.
+pub fn accepts_row_limit(sql: &str) -> bool {
+    LIMITABLE_VERBS.contains(&effective_verb(sql).as_str())
+}
+
 /// Statements that cannot change anything on the server.
 ///
 /// An allowlist, so an unrecognised verb is treated as a write and refused on
@@ -444,5 +477,49 @@ mod tests {
         assert!(is_blank_or_comment_only("-- one\n /* two */ \n-- three"));
         assert!(!is_blank_or_comment_only("SELECT 1"));
         assert!(!is_blank_or_comment_only("-- note\nSELECT 1"));
+    }
+
+    #[test]
+    fn accepts_row_limit_allows_the_statements_that_take_one() {
+        for sql in [
+            "SELECT * FROM users",
+            "  select 1",
+            "WITH x AS (SELECT 1) SELECT * FROM x",
+            "(SELECT 1)",
+            "-- a note\nSELECT 1",
+            "TABLE users",
+            "VALUES ROW(1)",
+        ] {
+            assert!(accepts_row_limit(sql), "should be limitable: {sql}");
+        }
+    }
+
+    #[test]
+    fn accepts_row_limit_refuses_the_statements_that_do_not() {
+        // SHOW and DESCRIBE answer a LIMIT with ERROR 1064; EXPLAIN accepts
+        // one but binds it to the inner statement, describing a different
+        // query than the user asked about (#520).
+        for sql in [
+            "SHOW TABLES",
+            "SHOW CREATE TABLE users",
+            "SHOW DATABASES",
+            "SHOW VARIABLES",
+            "DESCRIBE users",
+            "DESC users",
+            "EXPLAIN SELECT * FROM users",
+            "EXPLAIN ANALYZE SELECT 1",
+            "INSERT INTO t VALUES (1)",
+            "UPDATE t SET a = 1",
+        ] {
+            assert!(!accepts_row_limit(sql), "should not be limitable: {sql}");
+        }
+    }
+
+    #[test]
+    fn accepts_row_limit_follows_a_cte_to_what_it_prefixes() {
+        assert!(accepts_row_limit("WITH x AS (SELECT 1) SELECT * FROM x"));
+        assert!(!accepts_row_limit(
+            "WITH doomed AS (SELECT id FROM t) DELETE FROM t WHERE id IN (SELECT id FROM doomed)"
+        ));
     }
 }

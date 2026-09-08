@@ -230,6 +230,105 @@ async fn test_execute_select() {
     manager.disconnect(&info.id).await.unwrap();
 }
 
+// ====== THE ROW LIMIT ======
+//
+// The setting was applied to anything starting SELECT, SHOW, DESCRIBE or
+// EXPLAIN. No SHOW form takes a LIMIT and neither does DESCRIBE, so with the
+// limit on — which is the default — those statements came back as ERROR 1064
+// (#520).
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_row_limit_does_not_break_show_and_describe() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    for sql in [
+        "SHOW TABLES",
+        "SHOW DATABASES",
+        "SHOW CREATE TABLE users",
+        "SHOW COLUMNS FROM users",
+        "SHOW VARIABLES",
+        "DESCRIBE users",
+        "DESC users",
+    ] {
+        let result = executor.execute(&info.id, sql, None, Some(2)).await;
+        assert!(
+            result.is_ok(),
+            "`{sql}` with a row limit set should run: {:?}",
+            result.err()
+        );
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_row_limit_still_bounds_the_statements_it_should() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    // SELECT, and the two row-returning forms the old prefix check missed —
+    // TABLE and VALUES came back unbounded.
+    for sql in ["SELECT * FROM users", "TABLE users"] {
+        let results = executor
+            .execute(&info.id, sql, None, Some(2))
+            .await
+            .unwrap();
+        assert!(
+            results[0].rows.len() <= 2,
+            "`{sql}` should have been limited to 2, got {}",
+            results[0].rows.len()
+        );
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_cte_is_bounded_too() {
+    // starts_with("SELECT") did not match a WITH, so a CTE-prefixed SELECT
+    // ignored the setting entirely.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(
+            &info.id,
+            "WITH everyone AS (SELECT * FROM users) SELECT * FROM everyone",
+            None,
+            Some(2),
+        )
+        .await
+        .unwrap();
+    assert!(results[0].rows.len() <= 2, "a CTE should respect the limit");
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_limit_the_user_wrote_is_not_overridden() {
+    // The setting is a ceiling on what the app volunteers, not an override of
+    // what was asked for.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SELECT * FROM users LIMIT 1", None, Some(50))
+        .await
+        .unwrap();
+    assert_eq!(results[0].rows.len(), 1);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
 // ====== FOREIGN KEY INSPECTION ======
 
 async fn foreign_keys_come_back_with_their_actions(profile: ConnectionProfile) {
