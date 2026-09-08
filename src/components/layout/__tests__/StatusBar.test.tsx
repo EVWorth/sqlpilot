@@ -301,11 +301,12 @@ describe("StatusBar", () => {
         activeTabId: "tab-0",
       });
       renderStatusBar();
-      const installSpy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
       await user.click(screen.getByText("Update to v2.0.0"));
-      expect(installSpy).not.toHaveBeenCalled();
+      // The button delegates; the refusal comes from the store, so it also
+      // applies to any other caller and is re-checked before the restart
+      // (#570).
       expect(useSettingsStore.getState().updateStatus).toBe("error");
-      expect(useSettingsStore.getState().updateError).toMatch(/query is running/i);
+      expect(useSettingsStore.getState().updateError).toMatch(/query is still running/i);
     });
 
     it("blocks install when an editor tab has unsaved changes", async () => {
@@ -330,9 +331,7 @@ describe("StatusBar", () => {
         activeTabId: "tab-0",
       });
       renderStatusBar();
-      const installSpy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
       await user.click(screen.getByText("Update to v2.0.0"));
-      expect(installSpy).not.toHaveBeenCalled();
       expect(useSettingsStore.getState().updateStatus).toBe("error");
       expect(useSettingsStore.getState().updateError).toMatch(/unsaved changes/i);
     });

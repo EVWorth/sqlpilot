@@ -2,6 +2,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
+import { describeUpdateBlockers } from "../lib/update-guard";
 import { type StorageErrorKey, useStorageErrorStore } from "./storageErrorStore";
 
 export interface QuerySettings {
@@ -97,6 +98,7 @@ interface SettingsState {
   detectPlatform: () => Promise<void>;
   checkForUpdates: () => Promise<void>;
   installUpdate: () => Promise<void>;
+  restartToApply: () => Promise<void>;
   setUpdateError: (message: string | null) => void;
   setQuerySettings: (settings: QuerySettings) => void;
   setFormatterSettings: (settings: FormatterSettings) => void;
@@ -191,14 +193,32 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   },
 
   installUpdate: async () => {
+    // The refusal lives here rather than in the button that calls it, so a
+    // second caller cannot arrive without it (#570).
+    const blocked = describeUpdateBlockers();
+    if (blocked) {
+      set({ updateStatus: "error", updateError: blocked });
+      return;
+    }
+
+    const cached = useSettingsStore.getState().pendingUpdate;
+    if (!cached) {
+      // Nothing to install — most likely a check that resolved between the
+      // click and this read and cleared it. Saying so beats leaving the
+      // status bar reporting a download that is not happening (#569).
+      set({
+        updateStatus: "error",
+        updateError: "The pending update is no longer available. Check for updates again.",
+      });
+      return;
+    }
+
     set({
       updateStatus: "downloading",
       updateError: null,
       downloadProgress: { transferred: 0, total: null },
     });
     try {
-      const cached = useSettingsStore.getState().pendingUpdate;
-      if (!cached) return;
       await cached.downloadAndInstall((event) => {
         const data = (event as { data?: { contentLength?: number; chunkLength?: number } }).data;
         if (event.event === "Started" && data?.contentLength != null) {
@@ -213,14 +233,41 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
           }));
         }
       });
+      // Downloaded and staged, but not applied. Restarting is a separate act
+      // the user chooses, because it closes the app: the checks above ran
+      // before a download that can take minutes, and the state they looked at
+      // may not be the state now (#344, #570).
       set({ updateStatus: "downloaded" });
-      await relaunch();
     } catch (e) {
       console.error("Update install failed:", e);
       set({
         updateStatus: "error",
         updateError: e instanceof Error ? e.message : String(e),
         downloadProgress: { transferred: 0, total: null },
+      });
+    }
+  },
+
+  restartToApply: async () => {
+    // Checked again, at the moment it matters. A query started or a tab
+    // edited during the download would otherwise be destroyed by a restart
+    // authorised minutes earlier.
+    const blocked = describeUpdateBlockers();
+    if (blocked) {
+      set({ updateStatus: "error", updateError: blocked });
+      return;
+    }
+    try {
+      await relaunch();
+    } catch (e) {
+      console.error("Relaunch failed:", e);
+      // The update is on disk either way, so say that rather than implying
+      // it needs downloading again.
+      set({
+        updateStatus: "error",
+        updateError: `The update is installed but the app could not restart itself: ${
+          e instanceof Error ? e.message : String(e)
+        }. Quit and reopen SQLPilot to finish.`,
       });
     }
   },

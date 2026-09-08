@@ -386,7 +386,7 @@ describe("settingsStore", () => {
       vi.clearAllMocks();
     });
 
-    it("downloads, installs, and relaunches using the cached Update", async () => {
+    it("downloads and stages the update, but does not restart on its own", async () => {
       vi.resetModules();
       const process = await import("@tauri-apps/plugin-process");
       const downloadAndInstall = vi.fn();
@@ -401,10 +401,14 @@ describe("settingsStore", () => {
       await useSettingsStore.getState().installUpdate();
       expect(useSettingsStore.getState().updateStatus).toBe("downloaded");
       expect(downloadAndInstall).toHaveBeenCalledOnce();
+      // Restarting closes the app, so it waits to be asked (#344).
+      expect(process.relaunch).not.toHaveBeenCalled();
+
+      await useSettingsStore.getState().restartToApply();
       expect(process.relaunch).toHaveBeenCalledOnce();
     });
 
-    it("does nothing when no cached update is available", async () => {
+    it("says so when the pending update has gone, rather than spinning", async () => {
       vi.resetModules();
       const process = await import("@tauri-apps/plugin-process");
       const { useSettingsStore } = await import("../settingsStore");
@@ -414,7 +418,12 @@ describe("settingsStore", () => {
         updateVersion: null,
       });
       await useSettingsStore.getState().installUpdate();
+
       expect(process.relaunch).not.toHaveBeenCalled();
+      // It used to set "downloading" and return, leaving the status bar
+      // reporting a download that was not happening (#569).
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+      expect(useSettingsStore.getState().updateError).toContain("no longer available");
     });
 
     it("updates downloadProgress as bytes stream in via the onProgress callback", async () => {
@@ -442,7 +451,8 @@ describe("settingsStore", () => {
       await useSettingsStore.getState().installUpdate();
       const final = useSettingsStore.getState().downloadProgress;
       expect(final).toEqual({ transferred: 1000, total: 1000 });
-      expect(process.relaunch).toHaveBeenCalledOnce();
+      // The download finishing is not the restart happening.
+      expect(process.relaunch).not.toHaveBeenCalled();
     });
 
     it("surfaces the underlying error string in updateError", async () => {
@@ -461,6 +471,63 @@ describe("settingsStore", () => {
       expect(useSettingsStore.getState().updateError).toBe(
         "rpm install failed: signature verification failed",
       );
+    });
+
+    it("refuses to restart while work would be lost, and says why", async () => {
+      // The checks that authorised the download ran before it. A query
+      // started or a tab edited since would otherwise be destroyed by a
+      // restart nobody re-approved (#570).
+      vi.resetModules();
+      const process = await import("@tauri-apps/plugin-process");
+      const { useResultStore } = await import("../resultStore");
+      const { useSettingsStore } = await import("../settingsStore");
+
+      useSettingsStore.setState({ updateStatus: "downloaded", updateVersion: "1.0.0" });
+      useResultStore.setState({ isExecuting: true });
+
+      await useSettingsStore.getState().restartToApply();
+
+      expect(process.relaunch).not.toHaveBeenCalled();
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+      expect(useSettingsStore.getState().updateError).toMatch(/query is still running/);
+
+      useResultStore.setState({ isExecuting: false });
+    });
+
+    it("says the update is installed when the restart itself fails", async () => {
+      // Telling the user to download again would be wrong: it is already on
+      // disk, and quitting normally finishes the job.
+      vi.resetModules();
+      const process = await import("@tauri-apps/plugin-process");
+      vi.mocked(process.relaunch).mockRejectedValueOnce(new Error("no permission"));
+      const { useSettingsStore } = await import("../settingsStore");
+
+      useSettingsStore.setState({ updateStatus: "downloaded", updateVersion: "1.0.0" });
+      await useSettingsStore.getState().restartToApply();
+
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+      expect(useSettingsStore.getState().updateError).toMatch(/installed but the app could not restart/);
+      expect(useSettingsStore.getState().updateError).toMatch(/Quit and reopen/);
+    });
+
+    it("refuses to start a download while work would be lost", async () => {
+      vi.resetModules();
+      const { useResultStore } = await import("../resultStore");
+      const { useSettingsStore } = await import("../settingsStore");
+      const downloadAndInstall = vi.fn();
+
+      useSettingsStore.setState({
+        pendingUpdate: { version: "1.0.0", downloadAndInstall } as never,
+        updateStatus: "available",
+      });
+      useResultStore.setState({ isExecuting: true });
+
+      await useSettingsStore.getState().installUpdate();
+
+      expect(downloadAndInstall).not.toHaveBeenCalled();
+      expect(useSettingsStore.getState().updateStatus).toBe("error");
+
+      useResultStore.setState({ isExecuting: false });
     });
   });
 });
