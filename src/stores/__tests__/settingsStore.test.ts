@@ -529,5 +529,70 @@ describe("settingsStore", () => {
 
       useResultStore.setState({ isExecuting: false });
     });
+
+    it("does not ask GitHub twice in quick succession", async () => {
+      // The status bar re-runs the check whenever the status returns to idle,
+      // which a store reset or a hot reload also does. Each one was a request
+      // (#346).
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockResolvedValue(null as never);
+      const { useSettingsStore } = await import("../settingsStore");
+
+      await useSettingsStore.getState().checkForUpdates();
+      useSettingsStore.setState({ updateStatus: "idle" });
+      await useSettingsStore.getState().checkForUpdates();
+      useSettingsStore.setState({ updateStatus: "idle" });
+      await useSettingsStore.getState().checkForUpdates();
+
+      expect(updater.check).toHaveBeenCalledTimes(1);
+    });
+
+    it("still checks when the user asks, however recently one ran", async () => {
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockResolvedValue(null as never);
+      const { useSettingsStore } = await import("../settingsStore");
+
+      await useSettingsStore.getState().checkForUpdates();
+      await useSettingsStore.getState().checkForUpdates(true);
+
+      expect(updater.check).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not interrupt an install in flight", async () => {
+      // A check landing mid-download would replace "downloading" with
+      // "available" and take the progress display away from a download that
+      // is still running (#347).
+      vi.resetModules();
+      const updater = await import("@tauri-apps/plugin-updater");
+      vi.mocked(updater.check).mockResolvedValue({ version: "2.0.0" } as never);
+      const { useSettingsStore } = await import("../settingsStore");
+
+      for (const status of ["downloading", "downloaded"] as const) {
+        useSettingsStore.setState({ updateStatus: status, updateVersion: "1.0.0" });
+        await useSettingsStore.getState().checkForUpdates(true);
+        expect(useSettingsStore.getState().updateStatus).toBe(status);
+        expect(useSettingsStore.getState().updateVersion).toBe("1.0.0");
+      }
+      expect(updater.check).not.toHaveBeenCalled();
+    });
+
+    it("reports the version it actually installed", async () => {
+      // The Update object is pinned when the download starts, so a check that
+      // resolves during it cannot leave the UI naming a different one (#347).
+      vi.resetModules();
+      const { useSettingsStore } = await import("../settingsStore");
+      useSettingsStore.setState({
+        pendingUpdate: { version: "1.0.0", downloadAndInstall: vi.fn() } as never,
+        updateStatus: "available",
+        updateVersion: "9.9.9",
+      });
+
+      await useSettingsStore.getState().installUpdate();
+
+      expect(useSettingsStore.getState().updateStatus).toBe("downloaded");
+      expect(useSettingsStore.getState().updateVersion).toBe("1.0.0");
+    });
   });
 });

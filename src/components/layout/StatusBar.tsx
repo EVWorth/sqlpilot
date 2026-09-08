@@ -96,8 +96,10 @@ export function StatusBar() {
     void useSettingsStore.getState().detectPlatform();
   }, []);
 
+  // Automatic, so no force: the store throttles these and skips one while an
+  // install is in flight (#346, #347).
   useEffect(() => {
-    if (updateStatus === "idle") checkForUpdates();
+    if (updateStatus === "idle") void checkForUpdates();
   }, [checkForUpdates, updateStatus]);
 
   useEffect(() => {
@@ -406,7 +408,7 @@ export function StatusBar() {
                   <button
                     onClick={() => {
                       setShowUpdateDetails(false);
-                      void checkForUpdates();
+                      void checkForUpdates(true);
                     }}
                     className="flex items-center gap-1 rounded bg-yellow-500/20 px-2 py-1 text-[10px] text-yellow-400 hover:bg-yellow-500/30"
                   >
@@ -419,7 +421,7 @@ export function StatusBar() {
           </div>
         )}
         <button
-          onClick={checkForUpdates}
+          onClick={() => void checkForUpdates(true)}
           className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
           title="Check for updates"
         >
