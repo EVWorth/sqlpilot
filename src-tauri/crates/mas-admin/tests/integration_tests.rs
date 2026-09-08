@@ -540,3 +540,75 @@ async fn revoking_a_privilege_the_user_does_not_have_is_an_error() {
 
     run(&mut db, "DROP USER 'norevoke'@'%'").await.unwrap();
 }
+
+/// The CREATE USER forms the dialog emits, run against the server each is
+/// meant for.
+///
+/// It used to emit `IDENTIFIED WITH <plugin> BY` on both, which MariaDB
+/// rejects for every plugin — so creating a user there failed every time
+/// (#561). The TypeScript side asserts which string is built for which
+/// server; this asserts each server accepts the one built for it.
+async fn create_user_form_is_accepted(port: u16, identified: &str) {
+    let mut db = root_connection(port).await;
+    run(&mut db, "DROP USER IF EXISTS 'flavour'@'%'")
+        .await
+        .unwrap();
+
+    run(
+        &mut db,
+        &format!(
+            "CREATE USER 'flavour'@'%'\n  {}\n  WITH MAX_USER_CONNECTIONS 5;",
+            identified
+        ),
+    )
+    .await
+    .unwrap_or_else(|e| panic!("{identified} rejected on port {port}: {e}"));
+
+    run(&mut db, "DROP USER 'flavour'@'%'").await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn mysql_takes_the_plugin_form_with_by() {
+    create_user_form_is_accepted(13306, "IDENTIFIED WITH caching_sha2_password BY 'pw'").await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn mariadb_takes_the_plugin_form_with_via() {
+    create_user_form_is_accepted(
+        13308,
+        "IDENTIFIED VIA mysql_native_password USING PASSWORD('pw')",
+    )
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn both_servers_take_the_server_default_form() {
+    // The portable answer, and what the dialog now defaults to.
+    create_user_form_is_accepted(13306, "IDENTIFIED BY 'pw'").await;
+    create_user_form_is_accepted(13308, "IDENTIFIED BY 'pw'").await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn mariadb_still_rejects_the_form_that_was_being_sent() {
+    // Pins the defect rather than trusting the fix: if MariaDB ever accepts
+    // `IDENTIFIED WITH ... BY`, this fails and the branch can go.
+    let mut db = root_connection(13308).await;
+    run(&mut db, "DROP USER IF EXISTS 'oldform'@'%'")
+        .await
+        .unwrap();
+
+    let err = run(
+        &mut db,
+        "CREATE USER 'oldform'@'%' IDENTIFIED WITH mysql_native_password BY 'pw'",
+    )
+    .await
+    .expect_err("MariaDB should reject the MySQL plugin syntax");
+    assert!(
+        err.to_string().contains("1064") || err.to_string().to_lowercase().contains("syntax"),
+        "expected a syntax error, got: {err}"
+    );
+}
