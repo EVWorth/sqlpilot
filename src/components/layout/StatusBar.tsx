@@ -73,6 +73,7 @@ export function StatusBar() {
 
   const [showFullError, setShowFullError] = useState(false);
   const [showUpdateDetails, setShowUpdateDetails] = useState(false);
+  const [showUpdateConfirm, setShowUpdateConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedDiagnostic, setCopiedDiagnostic] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(false);
@@ -86,7 +87,10 @@ export function StatusBar() {
   const checkForUpdates = useSettingsStore((s) => s.checkForUpdates);
   const installUpdate = useSettingsStore((s) => s.installUpdate);
   const restartToApply = useSettingsStore((s) => s.restartToApply);
+  const dismissUpdate = useSettingsStore((s) => s.dismissUpdate);
+  const dismissedVersion = useSettingsStore((s) => s.dismissedVersion);
   const updateDetailsRef = useRef<HTMLDivElement | null>(null);
+  const updateConfirmRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
@@ -116,6 +120,17 @@ export function StatusBar() {
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [showUpdateDetails]);
+
+  useEffect(() => {
+    if (!showUpdateConfirm) return;
+    const onDocClick = (e: MouseEvent) => {
+      if (updateConfirmRef.current && !updateConfirmRef.current.contains(e.target as Node)) {
+        setShowUpdateConfirm(false);
+      }
+    };
+    document.addEventListener("mousedown", onDocClick);
+    return () => document.removeEventListener("mousedown", onDocClick);
+  }, [showUpdateConfirm]);
 
   const activeConn = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -284,17 +299,69 @@ export function StatusBar() {
             {formatRows(activeResult.rows.length)} · {formatTime(activeResult.execution_time_ms)}
           </span>
         )}
-        {updateStatus === "available" && (
-          <button
-            /* The refusal lives in the store now, so it applies to every
-               caller and is checked again before the restart (#570). */
-            onClick={() => void installUpdate()}
-            className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
-            title={`Update v${updateVersion} available — click to download`}
-          >
-            <Download className="h-3 w-3" />
-            Update to v{updateVersion}
-          </button>
+        {updateStatus === "available" && updateVersion !== dismissedVersion && (
+          <div className="relative" ref={updateConfirmRef}>
+            <button
+              onClick={() =>
+                setShowUpdateConfirm((open) =>
+                  !open
+                )}
+              className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
+              title={`Update v${updateVersion} available`}
+            >
+              <Download className="h-3 w-3" />
+              Update to v{updateVersion}
+            </button>
+            {showUpdateConfirm && (
+              <div
+                data-testid="update-confirm"
+                className="absolute bottom-full right-0 mb-2 w-64 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 shadow-lg"
+              >
+                <p className="text-[11px] font-medium text-[var(--color-text-primary)]">
+                  Update to v{updateVersion}
+                </p>
+                {
+                  /*
+                  No size: the download's length is not known until it starts,
+                  and inventing an estimate would be worse than omitting one.
+                  No restart claim either — since #573 the restart is a
+                  separate step the user takes when ready.
+                */
+                }
+                <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                  Downloads in the background. SQLPilot will ask before restarting.
+                </p>
+                <a
+                  href={`https://github.com/EVWorth/sqlpilot/releases/tag/v${updateVersion}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block text-[10px] text-brand-400 hover:underline"
+                >
+                  What's in this release
+                </a>
+                <div className="mt-2 flex gap-2">
+                  <button
+                    onClick={() => {
+                      setShowUpdateConfirm(false);
+                      void installUpdate();
+                    }}
+                    className="flex-1 rounded bg-brand-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-brand-500"
+                  >
+                    Download
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowUpdateConfirm(false);
+                      dismissUpdate();
+                    }}
+                    className="flex-1 rounded px-2 py-1 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                  >
+                    Later
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         )}
         {updateStatus === "downloaded" && (
           <button
