@@ -230,6 +230,241 @@ async fn test_execute_select() {
     manager.disconnect(&info.id).await.unwrap();
 }
 
+// ====== THE ROW LIMIT ======
+//
+// The setting was applied to anything starting SELECT, SHOW, DESCRIBE or
+// EXPLAIN. No SHOW form takes a LIMIT and neither does DESCRIBE, so with the
+// limit on — which is the default — those statements came back as ERROR 1064
+// (#520).
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_row_limit_does_not_break_show_and_describe() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    for sql in [
+        "SHOW TABLES",
+        "SHOW DATABASES",
+        "SHOW CREATE TABLE users",
+        "SHOW COLUMNS FROM users",
+        "SHOW VARIABLES",
+        "DESCRIBE users",
+        "DESC users",
+    ] {
+        let result = executor.execute(&info.id, sql, None, Some(2)).await;
+        assert!(
+            result.is_ok(),
+            "`{sql}` with a row limit set should run: {:?}",
+            result.err()
+        );
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_row_limit_still_bounds_the_statements_it_should() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    // SELECT, and the two row-returning forms the old prefix check missed —
+    // TABLE and VALUES came back unbounded.
+    for sql in ["SELECT * FROM users", "TABLE users"] {
+        let results = executor
+            .execute(&info.id, sql, None, Some(2))
+            .await
+            .unwrap();
+        assert!(
+            results[0].rows.len() <= 2,
+            "`{sql}` should have been limited to 2, got {}",
+            results[0].rows.len()
+        );
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_cte_is_bounded_too() {
+    // starts_with("SELECT") did not match a WITH, so a CTE-prefixed SELECT
+    // ignored the setting entirely.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(
+            &info.id,
+            "WITH everyone AS (SELECT * FROM users) SELECT * FROM everyone",
+            None,
+            Some(2),
+        )
+        .await
+        .unwrap();
+    assert!(results[0].rows.len() <= 2, "a CTE should respect the limit");
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_limit_the_user_wrote_is_not_overridden() {
+    // The setting is a ceiling on what the app volunteers, not an override of
+    // what was asked for.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SELECT * FROM users LIMIT 1", None, Some(50))
+        .await
+        .unwrap();
+    assert_eq!(results[0].rows.len(), 1);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+// ====== WHAT REWRITING THE STATEMENT COULD NOT DO ======
+//
+// Each of these was a failure of appending `LIMIT n` to the user's SQL: two
+// where the statement stopped parsing, two where the cap silently did not
+// apply. Capping the read instead cannot fail any of those ways (#520).
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_locking_read_still_runs_under_a_row_limit() {
+    // `SELECT ... FOR UPDATE LIMIT 2` is ERROR 1064: the LIMIT has to precede
+    // the locking clause, and appending puts it after.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SELECT * FROM users FOR UPDATE", None, Some(2))
+        .await
+        .expect("a locking read should run");
+    assert!(results[0].rows.len() <= 2);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_trailing_comment_no_longer_swallows_the_limit() {
+    // The worst of the old failures, because it was silent: the appended
+    // LIMIT landed after `--`, so the statement ran unbounded while the
+    // toolbar said rows were capped.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SELECT * FROM users -- everyone", None, Some(2))
+        .await
+        .unwrap();
+    assert!(
+        results[0].rows.len() <= 2,
+        "expected at most 2 rows, got {}",
+        results[0].rows.len()
+    );
+    assert!(results[0].rows_truncated);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_limit_inside_a_subquery_does_not_count_as_the_outer_one() {
+    // The old check saw any LIMIT anywhere and concluded the statement was
+    // already bounded, so this came back whole.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(
+            &info.id,
+            "SELECT * FROM (SELECT * FROM users LIMIT 4) AS inner_rows",
+            None,
+            Some(2),
+        )
+        .await
+        .unwrap();
+    assert!(results[0].rows.len() <= 2);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn show_output_is_bounded_too() {
+    // No LIMIT could have done this: SHOW does not take one. The setting now
+    // means what it says for every statement, not only the ones whose syntax
+    // happens to allow a bound.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SHOW VARIABLES", None, Some(3))
+        .await
+        .unwrap();
+    assert_eq!(results[0].rows.len(), 3);
+    assert!(results[0].rows_truncated);
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_result_exactly_the_limit_long_is_not_called_truncated() {
+    // Nothing was withheld, so saying otherwise would send the user looking
+    // for rows that do not exist.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SELECT 1 UNION ALL SELECT 2", None, Some(2))
+        .await
+        .unwrap();
+    assert_eq!(results[0].rows.len(), 2);
+    assert!(
+        !results[0].rows_truncated,
+        "exactly at the limit with nothing left over is not truncation"
+    );
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn the_statement_reaches_the_server_as_written() {
+    // The point of the change: nothing edits the user's SQL. A statement that
+    // would not survive having text appended to it runs unchanged.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    for sql in [
+        "SELECT * FROM users LOCK IN SHARE MODE",
+        "SELECT COUNT(*) FROM users -- how many",
+        "DESCRIBE users",
+    ] {
+        assert!(
+            executor.execute(&info.id, sql, None, Some(2)).await.is_ok(),
+            "`{sql}` should run untouched"
+        );
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
 // ====== FOREIGN KEY INSPECTION ======
 
 async fn foreign_keys_come_back_with_their_actions(profile: ConnectionProfile) {
