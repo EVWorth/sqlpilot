@@ -107,30 +107,33 @@ impl QueryExecutor {
         let pool = self.connection_manager.get_pool(&connection_id)?;
         let statements = split_statements(&sql);
 
-        // Bound the statements the setting can meaningfully bound, and leave
-        // the rest exactly as typed. Appending LIMIT to a SHOW or a DESCRIBE
-        // is a syntax error, and appending it to an EXPLAIN changes which
-        // query the plan describes (#520).
-        let statements: Vec<String> = if let Some(max_rows) = limit {
-            statements
-                .into_iter()
-                .map(|stmt| {
-                    if !crate::query::statement::accepts_row_limit(&stmt) {
-                        return stmt;
-                    }
-                    // A LIMIT the user wrote wins: the setting is a ceiling on
-                    // what the app volunteers, not an override of what was asked
-                    // for.
-                    if has_limit_clause(&stmt.trim().to_uppercase()) {
-                        stmt
-                    } else {
-                        format!("{} LIMIT {}", stmt.trim_end_matches(';'), max_rows)
-                    }
-                })
-                .collect()
-        } else {
-            statements
-        };
+        // The user's SQL is sent exactly as written. The row limit is applied
+        // while reading the results instead — see the fetch loop below.
+        //
+        // This used to append `LIMIT n` to anything that looked row-returning,
+        // which is what MySQL Workbench does and what every failure mode of
+        // this feature came from. Editing a statement to bound it means
+        // parsing it correctly, and each gap in that parsing was either a
+        // broken query or a cap that silently did not apply (#520):
+        //
+        //   SHOW / DESCRIBE (every form)      ERROR 1064
+        //   SELECT ... FOR UPDATE             ERROR 1064 — LIMIT must precede
+        //                                     the locking clause
+        //   SELECT ... LOCK IN SHARE MODE     ERROR 1064
+        //   SELECT ... INTO @var / OUTFILE    ERROR 1064
+        //   SELECT ... -- trailing comment    the appended LIMIT is commented
+        //                                     out, so no cap applied at all
+        //   SELECT * FROM (SELECT ... LIMIT 5) x
+        //                                     read as already-limited, so no
+        //                                     cap applied
+        //   TABLE / VALUES / WITH ... SELECT  not matched, so no cap applied
+        //
+        // Capping the read cannot fail any of those ways, and it bounds
+        // statements a LIMIT cannot reach at all — SHOW output, and the result
+        // sets a procedure returns. It is the approach DBeaver, DataGrip and
+        // psql take for SQL the user wrote. Appending stays correct where the
+        // app composes the statement itself, which is what the schema tree
+        // does when browsing a table.
 
         // A profile marked read-only must not be able to change anything —
         // not data, not schema, not privileges. The flag was stored and
@@ -211,6 +214,11 @@ impl QueryExecutor {
         // so its closing OK packet is recognised as a marker rather than
         // reported as an extra empty statement.
         let mut call_emitted = false;
+        // Whether a row was actually withheld from the statement being read.
+        // Tracked rather than inferred from the row count, so a result that
+        // happens to be exactly `limit` rows long is not reported as truncated
+        // when nothing was left out.
+        let mut limit_reached = false;
         let mut start = Instant::now();
 
         loop {
@@ -249,6 +257,15 @@ impl QueryExecutor {
                     }
                     // Result-set row — accumulate until the trailing Left.
                     if stmt_idx >= 0 {
+                        // At the cap: stop keeping rows, but keep draining the
+                        // stream. Breaking out here would abandon the rest of a
+                        // multi-statement batch, so the cost of the rows the
+                        // server has already produced is paid either way —
+                        // what is bounded is what the app holds and returns.
+                        if limit.is_some_and(|max| current_rows.len() as u64 >= max) {
+                            limit_reached = true;
+                            continue;
+                        }
                         // Check memory every 1000 rows to prevent OOM
                         if !current_rows.is_empty()
                             && current_rows.len().is_multiple_of(1000)
@@ -307,8 +324,7 @@ impl QueryExecutor {
 
                         if is_select {
                             let row_count = current_rows.len() as u64;
-                            let truncation =
-                                truncation_for(row_count, limit, mem_guard.triggered());
+                            let truncation = truncation_for(limit_reached, mem_guard.triggered());
 
                             if execution_time > 1000 {
                                 tracing::warn!(
@@ -386,6 +402,7 @@ impl QueryExecutor {
                         }
 
                         current_rows.clear();
+                        limit_reached = false;
                         start = Instant::now();
                     }
                     // A CALL is not finished until a Left arrives carrying no
@@ -695,106 +712,20 @@ pub(crate) fn split_statements(sql: &str) -> Vec<String> {
     statements
 }
 
-/// Check if a SQL statement already has a LIMIT clause.
-fn has_limit_clause(upper: &str) -> bool {
-    find_limit_keyword(upper).is_some()
-}
-
-#[allow(dead_code)]
-/// Strip trailing LIMIT/OFFSET from a SQL statement so we can inject our own global limit.
-/// Handles common patterns: LIMIT N, LIMIT M,N, LIMIT N OFFSET M
-fn strip_limit(stmt: &str) -> String {
-    let trimmed = stmt.trim();
-    let upper = trimmed.to_uppercase();
-
-    // Work backwards to find LIMIT keyword
-    // First check if statement ends with LIMIT pattern
-    if let Some(pos) = find_limit_keyword(&upper) {
-        let before_limit = trimmed[..pos].trim_end();
-        return before_limit.to_string();
-    }
-
-    trimmed.to_string()
-}
-
-/// Find the position of the LIMIT keyword at the end of a statement (case-insensitive).
-/// Returns None if no trailing LIMIT/OFFSET found.
-fn find_limit_keyword(upper: &str) -> Option<usize> {
-    let chars: Vec<char> = upper.chars().collect();
-    let len = chars.len();
-
-    // Skip trailing whitespace
-    let end = len
-        - chars[len - 1..]
-            .iter()
-            .take_while(|&&c| c.is_whitespace())
-            .count();
-    if end == 0 {
-        return None;
-    }
-
-    // Skip trailing OFFSET clause: ... OFFSET <number>
-    let mut end = end;
-    if upper[..end].ends_with("OFFSET") {
-        // Find "OFFSET" keyword
-        if let Some(pos) = find_keyword_offset(upper, "OFFSET") {
-            end = pos;
-        }
-    }
-
-    // Now look for LIMIT keyword
-    find_keyword_offset(&upper[..end], "LIMIT")
-}
-
-/// Find position where a keyword starts at the end of the string (with number after it)
-fn find_keyword_offset(s: &str, keyword: &str) -> Option<usize> {
-    let upper = s.to_uppercase();
-    // Search for "LIMIT" followed by a digit, anywhere in the string
-    // We want the last occurrence that's followed by digits (not part of another word)
-    let mut last_pos = None;
-    let bytes = upper.as_bytes();
-    let keyword_bytes = keyword.as_bytes();
-
-    for i in 0..=bytes.len().saturating_sub(keyword_bytes.len()) {
-        if &bytes[i..i + keyword_bytes.len()] == keyword_bytes {
-            // Check it's not part of a larger word
-            let before_ok = i == 0 || bytes[i - 1] == b' ' || bytes[i - 1] == b'\t';
-            let after_pos = i + keyword_bytes.len();
-            let after_ok =
-                after_pos < bytes.len() && (bytes[after_pos] == b' ' || bytes[after_pos] == b'\t');
-
-            if before_ok && after_ok {
-                // Check there's a digit following
-                let rest = &upper[after_pos..].trim_start();
-                if rest.starts_with(|c: char| c.is_ascii_digit()) {
-                    last_pos = Some(i);
-                }
-            }
-        }
-    }
-
-    last_pos
-}
-
 /// Why a result set is short, given what bounded it.
 ///
 /// Memory wins when both apply. It is the constraint a user cannot argue
-/// with, and telling them to adjust a LIMIT when RAM was the cap sends them
-/// to raise a limit that was never binding (#413).
+/// with, and telling them to adjust a row limit when RAM was the cap sends
+/// them to raise a limit that was never binding (#413).
 ///
-/// In the streaming path the guard cannot actually be the answer: tripping it
-/// breaks out of the fetch loop, so the statement-complete marker never
-/// arrives and that case is finished after the loop instead. The branch is
-/// here anyway, so every caller derives the reason the same way and a change
-/// to the control flow cannot quietly produce the wrong advice.
-fn truncation_for(
-    row_count: u64,
-    limit: Option<u64>,
-    memory_exhausted: bool,
-) -> Option<TruncationReason> {
+/// Both inputs are observations rather than inferences: a row was withheld,
+/// or the guard tripped. Comparing the row count against the limit instead
+/// would call a result that happens to be exactly `limit` rows long
+/// truncated, when nothing was left out.
+fn truncation_for(limit_reached: bool, memory_exhausted: bool) -> Option<TruncationReason> {
     if memory_exhausted {
         Some(TruncationReason::MemoryGuard)
-    } else if limit.is_some_and(|l| row_count >= l) {
+    } else if limit_reached {
         Some(TruncationReason::RowLimit)
     } else {
         None
@@ -1019,120 +950,20 @@ mod tests {
         assert_eq!(stmts[0], "SELECT 1");
     }
 
-    // -- has_limit_clause / strip_limit / find_limit_keyword / find_keyword_offset --
-
-    #[test]
-    fn has_limit_clause_detects_trailing_limit_n() {
-        assert!(has_limit_clause("SELECT * FROM t LIMIT 10"));
-    }
-
-    #[test]
-    fn has_limit_clause_detects_trailing_limit_n_offset_m() {
-        assert!(has_limit_clause("SELECT * FROM t LIMIT 10 OFFSET 5"));
-    }
-
-    #[test]
-    fn has_limit_clause_matches_any_limit_n_anywhere_in_statement() {
-        // Implementation finds the LAST "LIMIT <digit>" anywhere in the
-        // statement, not just trailing. Document this current behavior.
-        assert!(has_limit_clause("SELECT * FROM t WHERE col LIMIT 10"));
-        assert!(has_limit_clause(
-            "SELECT * FROM (SELECT * FROM t LIMIT 5) sub"
-        ));
-    }
-
-    #[test]
-    fn has_limit_clause_is_case_insensitive() {
-        assert!(has_limit_clause("select * from t limit 10"));
-        assert!(has_limit_clause("Select * From T Limit 10"));
-    }
-
-    #[test]
-    fn has_limit_clause_returns_false_when_absent() {
-        assert!(!has_limit_clause("SELECT * FROM t"));
-        assert!(!has_limit_clause("SELECT * FROM t WHERE x = 1"));
-    }
-
-    #[test]
-    fn has_limit_clause_returns_false_when_limit_word_is_part_of_identifier() {
-        // 'limited' contains 'limit' as a substring; the helper should not match it.
-        assert!(!has_limit_clause("SELECT limited_col FROM t"));
-    }
-
-    #[test]
-    fn strip_limit_removes_trailing_limit_n() {
-        assert_eq!(strip_limit("SELECT * FROM t LIMIT 10"), "SELECT * FROM t");
-    }
-
-    #[test]
-    fn strip_limit_removes_trailing_limit_n_offset_m() {
-        assert_eq!(
-            strip_limit("SELECT * FROM t LIMIT 10 OFFSET 5"),
-            "SELECT * FROM t"
-        );
-    }
-
-    #[test]
-    fn strip_limit_passes_through_unchanged_when_no_limit() {
-        assert_eq!(
-            strip_limit("SELECT * FROM t WHERE x = 1"),
-            "SELECT * FROM t WHERE x = 1"
-        );
-    }
-
-    #[test]
-    fn strip_limit_trims_trailing_whitespace() {
-        assert_eq!(
-            strip_limit("SELECT * FROM t LIMIT 10   "),
-            "SELECT * FROM t"
-        );
-    }
-
-    #[test]
-    fn strip_limit_strips_at_last_limit_n_even_inside_subquery() {
-        // The helper finds the LAST "LIMIT <digit>" position anywhere in
-        // the statement. With LIMIT inside a subquery and no trailing LIMIT,
-        // the inner LIMIT is removed.
-        let stripped = strip_limit("SELECT * FROM (SELECT * FROM t LIMIT 5) sub");
-        assert_eq!(stripped, "SELECT * FROM (SELECT * FROM t");
-    }
-
-    #[test]
-    fn find_keyword_offset_returns_byte_position_of_trailing_limit() {
-        let sql = "SELECT * FROM t LIMIT 10";
-        let pos = find_keyword_offset(&sql.to_uppercase(), "LIMIT");
-        assert_eq!(pos, Some("SELECT * FROM t ".len()));
-    }
-
-    #[test]
-    fn find_keyword_offset_returns_none_when_no_digit_follows() {
-        // LIMIT without a trailing number shouldn't match (it's not a real
-        // LIMIT clause — likely a placeholder or syntax error).
-        let sql = "SELECT * FROM t LIMIT";
-        assert_eq!(find_keyword_offset(&sql.to_uppercase(), "LIMIT"), None);
-    }
-
-    #[test]
-    fn find_keyword_offset_does_not_match_substring_of_longer_word() {
-        // 'LIMITED' is not 'LIMIT' followed by space+digit; it must not match.
-        let sql = "SELECT * FROM t WHERE LIMITED = 5";
-        assert_eq!(find_keyword_offset(&sql.to_uppercase(), "LIMIT"), None);
-    }
-
     #[test]
     fn truncation_for_reports_nothing_when_the_result_fits() {
-        assert_eq!(truncation_for(50, Some(100), false), None);
+        assert_eq!(truncation_for(false, false), None);
     }
 
     #[test]
     fn truncation_for_reports_nothing_when_unbounded() {
-        assert_eq!(truncation_for(1_000_000, None, false), None);
+        assert_eq!(truncation_for(false, false), None);
     }
 
     #[test]
     fn truncation_for_reports_the_row_limit_when_it_is_reached() {
         assert_eq!(
-            truncation_for(100, Some(100), false),
+            truncation_for(true, false),
             Some(TruncationReason::RowLimit)
         );
     }
@@ -1140,7 +971,7 @@ mod tests {
     #[test]
     fn truncation_for_reports_memory_even_with_no_limit_set() {
         assert_eq!(
-            truncation_for(4_321, None, true),
+            truncation_for(false, true),
             Some(TruncationReason::MemoryGuard)
         );
     }
@@ -1151,7 +982,7 @@ mod tests {
         // not be told to adjust the limit: raising it asks for more memory,
         // and lowering it does not explain what they are seeing (#413).
         assert_eq!(
-            truncation_for(100, Some(100), true),
+            truncation_for(true, true),
             Some(TruncationReason::MemoryGuard)
         );
     }
