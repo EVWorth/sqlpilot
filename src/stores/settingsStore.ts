@@ -96,7 +96,8 @@ interface SettingsState {
   platformHint: "standard" | "rpm-ostree" | "unknown";
   downloadProgress: DownloadProgress;
   detectPlatform: () => Promise<void>;
-  checkForUpdates: () => Promise<void>;
+  /** `force` is the user asking; anything automatic should omit it. */
+  checkForUpdates: (force?: boolean) => Promise<void>;
   installUpdate: () => Promise<void>;
   restartToApply: () => Promise<void>;
   setUpdateError: (message: string | null) => void;
@@ -132,6 +133,17 @@ function persist(
   }
 }
 
+/** How long an automatic check waits before asking GitHub again. */
+const CHECK_INTERVAL_MS = 60_000;
+
+/**
+ * Module-level rather than store state: bookkeeping, not something rendered.
+ * Tests get a clean pair from `vi.resetModules()`, so no reset seam is needed
+ * in the store itself.
+ */
+let checkInFlight = false;
+let lastCheckAt: number | null = null;
+
 export const useSettingsStore = create<SettingsState>((set, get) => ({
   querySettings: loadQuerySettings(),
   formatterSettings: loadSettings(),
@@ -153,7 +165,26 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     }
   },
 
-  checkForUpdates: async () => {
+  checkForUpdates: async (force = false) => {
+    // A check that lands mid-install would overwrite "downloading" with
+    // "available" and take the progress display away from a download that is
+    // still running. Nothing automatic should interrupt an install in flight
+    // (#347).
+    const status = get().updateStatus;
+    if (status === "downloading" || status === "downloaded") return;
+
+    // One at a time, and not more than once a minute unless asked. The status
+    // bar re-runs this whenever the status returns to idle, which a store
+    // reset or a hot reload also does — each one was a request to GitHub
+    // (#346). The user's own button passes force and is never skipped.
+    if (!force) {
+      if (checkInFlight) return;
+      if (lastCheckAt !== null && Date.now() - lastCheckAt < CHECK_INTERVAL_MS) return;
+    }
+    if (checkInFlight) return;
+
+    checkInFlight = true;
+    lastCheckAt = Date.now();
     set({ updateStatus: "checking", updateError: null, manualUpdateCommand: null });
     try {
       const update = await check();
@@ -189,6 +220,8 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         manualUpdateCommand: null,
         updateError: e instanceof Error ? e.message : String(e),
       });
+    } finally {
+      checkInFlight = false;
     }
   },
 
@@ -213,8 +246,13 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       return;
     }
 
+    // Pinned for the duration. A check that resolves mid-download would
+    // otherwise leave the UI naming a different version than the one being
+    // installed (#347).
+    const installingVersion = cached.version;
     set({
       updateStatus: "downloading",
+      updateVersion: installingVersion,
       updateError: null,
       downloadProgress: { transferred: 0, total: null },
     });
@@ -237,7 +275,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       // the user chooses, because it closes the app: the checks above ran
       // before a download that can take minutes, and the state they looked at
       // may not be the state now (#344, #570).
-      set({ updateStatus: "downloaded" });
+      set({ updateStatus: "downloaded", updateVersion: installingVersion });
     } catch (e) {
       console.error("Update install failed:", e);
       set({
