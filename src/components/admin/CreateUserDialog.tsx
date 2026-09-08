@@ -1,7 +1,9 @@
 import { Code, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useState } from "react";
-import { quoteStringLiteral } from "../../lib/sql-quote";
+import { authPluginsFor, buildCreateUser, SERVER_DEFAULT_PLUGIN } from "../../lib/admin/create-user";
+import { serverFlavour } from "../../lib/server-flavour";
 import { api } from "../../lib/tauri-api";
+import { useConnectionStore } from "../../stores/connectionStore";
 
 interface Props {
   isOpen: boolean;
@@ -11,7 +13,6 @@ interface Props {
 }
 
 const HOST_OPTIONS = ["%", "localhost", "127.0.0.1"] as const;
-const AUTH_PLUGINS = ["caching_sha2_password", "mysql_native_password"] as const;
 
 export function CreateUserDialog({
   isOpen,
@@ -25,30 +26,36 @@ export function CreateUserDialog({
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [authPlugin, setAuthPlugin] = useState<string>("caching_sha2_password");
+  // Server default, because it is the only choice that is right on both
+  // servers — and on MariaDB the previous default names a plugin that does
+  // not exist there (#561).
+  const [authPlugin, setAuthPlugin] = useState<string>(SERVER_DEFAULT_PLUGIN);
   const [maxConnections, setMaxConnections] = useState("");
   const [accountLocked, setAccountLocked] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [creating, setCreating] = useState(false);
+  const activeConnections = useConnectionStore((state) => state.activeConnections);
   const [error, setError] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
   const effectiveHost = host === "__custom__" ? customHost : host;
+  const flavour = serverFlavour(
+    activeConnections.find((c) => c.id === connectionId)?.server_version,
+  );
+  const authPlugins = authPluginsFor(flavour);
 
   function buildSql(): string {
-    const parts = [
-      `CREATE USER ${quoteStringLiteral(username)}@${quoteStringLiteral(effectiveHost)}`,
-      `IDENTIFIED WITH ${authPlugin} BY ${quoteStringLiteral(password)}`,
-    ];
     const maxConn = parseInt(maxConnections, 10);
-    if (!isNaN(maxConn) && maxConn > 0) {
-      parts.push(`WITH MAX_USER_CONNECTIONS ${maxConn}`);
-    }
-    if (accountLocked) {
-      parts.push("ACCOUNT LOCK");
-    }
-    return parts.join("\n  ") + ";";
+    return buildCreateUser({
+      username,
+      host: effectiveHost,
+      password,
+      authPlugin,
+      maxConnections: isNaN(maxConn) ? undefined : maxConn,
+      accountLocked,
+      flavour,
+    });
   }
 
   const isValid = username.trim() !== ""
@@ -193,9 +200,9 @@ export function CreateUserDialog({
               onChange={(e) => setAuthPlugin(e.target.value)}
               className="h-8 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 text-xs text-[var(--color-text-primary)] focus:border-brand-500 focus:outline-none"
             >
-              {AUTH_PLUGINS.map((p) => (
-                <option key={p} value={p}>
-                  {p}
+              {authPlugins.map((p) => (
+                <option key={p.value} value={p.value}>
+                  {p.label}
                 </option>
               ))}
             </select>
