@@ -13,7 +13,7 @@ import { StatusBar } from "../StatusBar";
 vi.mock("../../../lib/tauri-api", () => ({
   api: {
     getAppVersion: vi.fn().mockResolvedValue("2.1.0"),
-    isRpmOstree: vi.fn().mockResolvedValue(false),
+    getPlatformInfo: vi.fn().mockResolvedValue({ package_format: "standard", arch: "x86_64" }),
     keyringAvailable: vi.fn().mockResolvedValue(true),
   },
 }));
@@ -373,7 +373,7 @@ describe("StatusBar", () => {
       expect(dialog).toBeInTheDocument();
       expect(dialog.textContent).toContain("rpm install failed: transaction test failed");
       expect(dialog.textContent).toMatch(/SQLPilot v2\.1\.0/);
-      expect(dialog.textContent).toMatch(/rpm-ostree detected: no/);
+      expect(dialog.textContent).toMatch(/Install type: standard/);
       expect(screen.getByRole("button", { name: /copy diagnostic/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /report issue/i })).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /retry/i })).toBeInTheDocument();
@@ -407,10 +407,11 @@ describe("StatusBar", () => {
         updateStatus: "error",
         updateError: "rpm install failed",
         updateVersion: "0.4.1",
-        platformHint: "rpm-ostree",
+        packageFormat: "rpm_ostree",
+        arch: "x86_64",
       });
       renderStatusBar();
-      // detectPlatform runs on mount and overrides platformHint. Wait for
+      // detectPlatform runs on mount and overrides the format. Wait for
       // it to settle, then re-set state and re-open the panel.
       await user.click(screen.getByText("Update failed"));
       // dialog text reflects post-detectPlatform hint; assert the structural fields instead.
@@ -420,7 +421,7 @@ describe("StatusBar", () => {
       expect(blob).toContain("SQLPilot v2.1.0");
       expect(blob).toContain("Error: rpm install failed");
       expect(blob).toContain("target v0.4.1");
-      expect(blob).toMatch(/rpm-ostree detected: (yes|no)/);
+      expect(blob).toMatch(/Install type: (standard|rpm_ostree|flatpak|snap|app_image|unknown)/);
       expect(blob).toMatch(/Timestamp: \d{4}-\d{2}-\d{2}T/);
     });
 

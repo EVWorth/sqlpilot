@@ -66,7 +66,7 @@ export const commands = {
 	pickFile: (title: string, filters: ([string, string[]])[]) => typedError<string | null, string>(__TAURI_INVOKE("pick_file", { title, filters })),
 	writeFileContents: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file_contents", { path, contents })),
 	pickSaveFile: (title: string, defaultName: string, filters: ([string, string[]])[]) => typedError<string | null, string>(__TAURI_INVOKE("pick_save_file", { title, defaultName, filters })),
-	isRpmOstree: () => typedError<boolean, string>(__TAURI_INVOKE("is_rpm_ostree")),
+	getPlatformInfo: () => typedError<PlatformInfo, string>(__TAURI_INVOKE("get_platform_info")),
 	/**  Whether connection passwords can be stored between sessions. */
 	keyringAvailable: () => __TAURI_INVOKE<boolean>("keyring_available"),
 	sqliteOpen: (path: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_open", { path })),
@@ -296,6 +296,41 @@ export type IndexInfo = {
 	columns: string[],
 	is_unique: boolean,
 	index_type: string,
+};
+
+/**
+ *  How this copy of SQLPilot was installed, which decides whether it may
+ *  update itself.
+ * 
+ *  The previous check was `Path::new("/usr/bin/rpm-ostree").exists()`, which
+ *  answers a narrower question than the one being asked and gets the
+ *  important case backwards. Inside a Flatpak sandbox the host's `/usr` is
+ *  not visible, so a Flatpak on Silverblue sees no rpm-ostree binary, reports
+ *  itself as an ordinary install, and is offered an auto-update its runtime
+ *  cannot apply (#354).
+ */
+export type PackageFormat = 
+/**  A plain install that owns its own files, and can replace them. */
+"standard" | 
+/**  Tauri's updater handles this format directly. */
+"app_image" | 
+/**  The runtime owns updates; the app must not replace its own files. */
+"flatpak" | 
+/**  As Flatpak — snapd manages the revision. */
+"snap" | 
+/**
+ *  An OSTree-booted system: /usr is immutable and layered packages are
+ *  applied by rpm-ostree, taking effect on the next boot.
+ */
+"rpm_ostree";
+
+export type PlatformInfo = {
+	package_format: PackageFormat,
+	/**
+	 *  `x86_64`, `aarch64`. Needed to name the right download in a manual
+	 *  update command (#571).
+	 */
+	arch: string,
 };
 
 /**

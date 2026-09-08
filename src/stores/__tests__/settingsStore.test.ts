@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../../lib/tauri-api", () => ({
   api: {
-    isRpmOstree: vi.fn().mockResolvedValue(false),
+    getPlatformInfo: vi.fn().mockResolvedValue({ package_format: "standard", arch: "x86_64" }),
   },
 }));
 
@@ -312,7 +312,7 @@ describe("settingsStore", () => {
       const updater = await import("@tauri-apps/plugin-updater");
       vi.mocked(updater.check).mockResolvedValue({ version: "0.4.1", downloadAndInstall: vi.fn() } as any);
       const { useSettingsStore } = await import("../settingsStore");
-      useSettingsStore.setState({ platformHint: "rpm-ostree" });
+      useSettingsStore.setState({ packageFormat: "rpm_ostree", arch: "x86_64" });
       await useSettingsStore.getState().checkForUpdates();
       const state = useSettingsStore.getState();
       expect(state.updateStatus).toBe("manual-update-required");
@@ -329,7 +329,7 @@ describe("settingsStore", () => {
       const update = { version: "0.4.1", downloadAndInstall: vi.fn() } as any;
       vi.mocked(updater.check).mockResolvedValue(update);
       const { useSettingsStore } = await import("../settingsStore");
-      useSettingsStore.setState({ platformHint: "standard" });
+      useSettingsStore.setState({ packageFormat: "standard", arch: "x86_64" });
       await useSettingsStore.getState().checkForUpdates();
       const state = useSettingsStore.getState();
       expect(state.updateStatus).toBe("available");
@@ -353,31 +353,31 @@ describe("settingsStore", () => {
       vi.clearAllMocks();
     });
 
-    it("sets platformHint to rpm-ostree when api reports true", async () => {
+    it("records the package format when detection succeeds", async () => {
       vi.resetModules();
       const api = await import("../../lib/tauri-api");
-      vi.mocked(api.api.isRpmOstree).mockResolvedValue(true);
+      vi.mocked(api.api.getPlatformInfo).mockResolvedValue({ package_format: "rpm_ostree", arch: "aarch64" } as never);
       const { useSettingsStore } = await import("../settingsStore");
       await useSettingsStore.getState().detectPlatform();
-      expect(useSettingsStore.getState().platformHint).toBe("rpm-ostree");
+      expect(useSettingsStore.getState().packageFormat).toBe("rpm_ostree");
     });
 
-    it("sets platformHint to standard when api reports false", async () => {
+    it("records a standard install", async () => {
       vi.resetModules();
       const api = await import("../../lib/tauri-api");
-      vi.mocked(api.api.isRpmOstree).mockResolvedValue(false);
+      vi.mocked(api.api.getPlatformInfo).mockResolvedValue({ package_format: "standard", arch: "x86_64" } as never);
       const { useSettingsStore } = await import("../settingsStore");
       await useSettingsStore.getState().detectPlatform();
-      expect(useSettingsStore.getState().platformHint).toBe("standard");
+      expect(useSettingsStore.getState().packageFormat).toBe("standard");
     });
 
-    it("sets platformHint to unknown when api throws", async () => {
+    it("leaves the format unknown when detection fails", async () => {
       vi.resetModules();
       const api = await import("../../lib/tauri-api");
-      vi.mocked(api.api.isRpmOstree).mockRejectedValue(new Error("boom"));
+      vi.mocked(api.api.getPlatformInfo).mockRejectedValue(new Error("boom"));
       const { useSettingsStore } = await import("../settingsStore");
       await useSettingsStore.getState().detectPlatform();
-      expect(useSettingsStore.getState().platformHint).toBe("unknown");
+      expect(useSettingsStore.getState().packageFormat).toBeNull();
     });
   });
 
