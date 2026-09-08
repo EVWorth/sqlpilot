@@ -81,6 +81,8 @@ jobs:
               - '.opencode/AGENTS.md'
             workflows:
               - '.github/workflows/**'
+              # Release tooling lives here and is exercised by the same job.
+              - 'scripts/**'
             config:
               - 'lefthook.yml'
               - 'eslint.config.js'
@@ -143,6 +145,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: scripts/check-action-pins.sh
+
+      # The update manifest is the one release artifact nothing downstream
+      # validates: a wrong entry does not fail the build, it fails on a
+      # user's machine as an update that never arrives (#566).
+      - name: Test the update manifest builder
+        run: scripts/test-build-update-manifest.sh
 
   npm-audit:
     name: npm Audit
