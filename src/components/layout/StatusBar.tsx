@@ -85,7 +85,7 @@ export function StatusBar() {
   const downloadProgress = useSettingsStore((s) => s.downloadProgress);
   const checkForUpdates = useSettingsStore((s) => s.checkForUpdates);
   const installUpdate = useSettingsStore((s) => s.installUpdate);
-  const setUpdateError = useSettingsStore((s) => s.setUpdateError);
+  const restartToApply = useSettingsStore((s) => s.restartToApply);
   const updateDetailsRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -114,9 +114,6 @@ export function StatusBar() {
     document.addEventListener("mousedown", onDocClick);
     return () => document.removeEventListener("mousedown", onDocClick);
   }, [showUpdateDetails]);
-
-  const dirtyTabs = tabs.filter((t) => t.isDirty);
-  const hasDirtyTabs = dirtyTabs.length > 0;
 
   const activeConn = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -287,30 +284,26 @@ export function StatusBar() {
         )}
         {updateStatus === "available" && (
           <button
-            onClick={() => {
-              if (isExecuting) {
-                setUpdateError(
-                  "Cannot update while a query is running. Cancel or wait for it to finish.",
-                );
-                useSettingsStore.setState({ updateStatus: "error" });
-                return;
-              }
-              if (hasDirtyTabs) {
-                setUpdateError(
-                  `Cannot update: ${dirtyTabs.length} editor tab${dirtyTabs.length === 1 ? "" : "s"} ${
-                    dirtyTabs.length === 1 ? "has" : "have"
-                  } unsaved changes. Save or discard first.`,
-                );
-                useSettingsStore.setState({ updateStatus: "error" });
-                return;
-              }
-              void installUpdate();
-            }}
+            /* The refusal lives in the store now, so it applies to every
+               caller and is checked again before the restart (#570). */
+            onClick={() => void installUpdate()}
             className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
-            title={`Update v${updateVersion} available — click to install`}
+            title={`Update v${updateVersion} available — click to download`}
           >
             <Download className="h-3 w-3" />
             Update to v{updateVersion}
+          </button>
+        )}
+        {updateStatus === "downloaded" && (
+          <button
+            /* Downloading and restarting are separate: the app closing is the
+               part that can lose work, so it waits to be asked (#344). */
+            onClick={() => void restartToApply()}
+            className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
+            title={`v${updateVersion} is installed — restart to finish`}
+          >
+            <RefreshCw className="h-3 w-3" />
+            Restart to finish update
           </button>
         )}
         {updateStatus === "manual-update-required" && manualUpdateCommand && (
