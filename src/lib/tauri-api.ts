@@ -202,7 +202,9 @@ export const api = {
     unwrap("sqlite_get_table_ddl", () => commands.sqliteGetTableDdl(connectionId, table)),
 
   // Platform detection
-  isRpmOstree: () => unwrap("is_rpm_ostree", () => commands.isRpmOstree()),
+  // How this copy was installed, and on what architecture. Decides whether
+  // the app may update itself at all (#354, #571).
+  getPlatformInfo: () => unwrap("get_platform_info", () => commands.getPlatformInfo()),
 
   // False when no OS credential store was available at startup, so the UI can
   // say passwords will not be remembered rather than letting the user find out.

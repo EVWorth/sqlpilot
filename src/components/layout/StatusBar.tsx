@@ -81,7 +81,7 @@ export function StatusBar() {
   const updateVersion = useSettingsStore((s) => s.updateVersion);
   const updateError = useSettingsStore((s) => s.updateError);
   const manualUpdateCommand = useSettingsStore((s) => s.manualUpdateCommand);
-  const platformHint = useSettingsStore((s) => s.platformHint);
+  const packageFormat = useSettingsStore((s) => s.packageFormat);
   const downloadProgress = useSettingsStore((s) => s.downloadProgress);
   const checkForUpdates = useSettingsStore((s) => s.checkForUpdates);
   const installUpdate = useSettingsStore((s) => s.installUpdate);
@@ -146,7 +146,7 @@ export function StatusBar() {
   const diagnosticBlob = [
     `SQLPilot v${appVersion || "unknown"}`,
     `Platform: ${navigator.platform} (${navigator.userAgent})`,
-    `rpm-ostree detected: ${platformHint === "rpm-ostree" ? "yes" : "no"}`,
+    `Install type: ${packageFormat ?? "unknown"}`,
     `Update status: ${updateStatus}${updateVersion ? ` (target v${updateVersion})` : ""}`,
     updateError ? `Error: ${updateError}` : null,
     `Timestamp: ${new Date().toISOString()}`,

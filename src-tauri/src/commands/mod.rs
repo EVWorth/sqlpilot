@@ -16,7 +16,9 @@ use mas_core::schema::SchemaInspector;
 use mas_sqlite::connection::SqliteConnectionManager;
 use mas_sqlite::query::SqliteQueryExecutor;
 use mas_sqlite::schema::SqliteSchemaInspector;
-#[cfg(target_os = "linux")]
+use serde::{Deserialize, Serialize};
+// Unconditional now: the platform probe reads paths on every target, where
+// the previous rpm-ostree check was Linux-only.
 use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -699,15 +701,89 @@ pub fn keyring_available() -> bool {
 #[tauri::command]
 #[tracing::instrument]
 #[specta::specta]
-pub async fn is_rpm_ostree() -> Result<bool, String> {
-    #[cfg(target_os = "linux")]
-    {
-        Ok(Path::new("/usr/bin/rpm-ostree").exists())
+pub async fn get_platform_info() -> Result<PlatformInfo, String> {
+    Ok(PlatformInfo {
+        package_format: detect_package_format(&RealProbe),
+        arch: std::env::consts::ARCH.to_string(),
+    })
+}
+
+/// How this copy of SQLPilot was installed, which decides whether it may
+/// update itself.
+///
+/// The previous check was `Path::new("/usr/bin/rpm-ostree").exists()`, which
+/// answers a narrower question than the one being asked and gets the
+/// important case backwards. Inside a Flatpak sandbox the host's `/usr` is
+/// not visible, so a Flatpak on Silverblue sees no rpm-ostree binary, reports
+/// itself as an ordinary install, and is offered an auto-update its runtime
+/// cannot apply (#354).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum PackageFormat {
+    /// A plain install that owns its own files, and can replace them.
+    Standard,
+    /// Tauri's updater handles this format directly.
+    AppImage,
+    /// The runtime owns updates; the app must not replace its own files.
+    Flatpak,
+    /// As Flatpak — snapd manages the revision.
+    Snap,
+    /// An OSTree-booted system: /usr is immutable and layered packages are
+    /// applied by rpm-ostree, taking effect on the next boot.
+    RpmOstree,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct PlatformInfo {
+    pub package_format: PackageFormat,
+    /// `x86_64`, `aarch64`. Needed to name the right download in a manual
+    /// update command (#571).
+    pub arch: String,
+}
+
+/// The filesystem and environment questions the detection asks, so the
+/// decision can be tested without arranging a Flatpak sandbox.
+pub trait PlatformProbe {
+    fn path_exists(&self, path: &str) -> bool;
+    fn env(&self, key: &str) -> Option<String>;
+}
+
+struct RealProbe;
+
+impl PlatformProbe for RealProbe {
+    fn path_exists(&self, path: &str) -> bool {
+        Path::new(path).exists()
     }
-    #[cfg(not(target_os = "linux"))]
-    {
-        Ok(false)
+    fn env(&self, key: &str) -> Option<String> {
+        std::env::var(key).ok()
     }
+}
+
+/// Sandboxes are checked first, and deliberately.
+///
+/// Inside a Flatpak or a Snap the host's markers are either invisible or not
+/// ours to act on, so what matters is the sandbox itself. `/.flatpak-info`
+/// exists in every Flatpak sandbox; `SNAP` is set for every snap; `APPIMAGE`
+/// is set by the AppImage runtime. `/run/ostree-booted` is the marker for an
+/// OSTree-booted host, and is a better question than whether an rpm-ostree
+/// binary happens to be installed.
+pub fn detect_package_format(probe: &impl PlatformProbe) -> PackageFormat {
+    if !cfg!(target_os = "linux") {
+        return PackageFormat::Standard;
+    }
+    if probe.path_exists("/.flatpak-info") || probe.env("FLATPAK_ID").is_some() {
+        return PackageFormat::Flatpak;
+    }
+    if probe.env("SNAP").is_some() {
+        return PackageFormat::Snap;
+    }
+    if probe.env("APPIMAGE").is_some() {
+        return PackageFormat::AppImage;
+    }
+    if probe.path_exists("/run/ostree-booted") {
+        return PackageFormat::RpmOstree;
+    }
+    PackageFormat::Standard
 }
 
 // File import commands
@@ -815,25 +891,129 @@ pub async fn pick_save_file(
 
 #[cfg(test)]
 mod platform_tests {
-    use super::is_rpm_ostree;
+    use super::{detect_package_format, get_platform_info, PackageFormat, PlatformProbe};
 
-    #[tokio::test]
-    async fn is_rpm_ostree_returns_false_on_non_linux() {
-        #[cfg(not(target_os = "linux"))]
-        assert!(!is_rpm_ostree().await.unwrap());
+    /// A probe answering from a fixed set of facts, so each packaging can be
+    /// described without arranging the real thing.
+    struct FakeProbe {
+        paths: Vec<&'static str>,
+        vars: Vec<(&'static str, &'static str)>,
+    }
+
+    impl FakeProbe {
+        fn nothing() -> Self {
+            Self {
+                paths: vec![],
+                vars: vec![],
+            }
+        }
+        fn with_path(mut self, p: &'static str) -> Self {
+            self.paths.push(p);
+            self
+        }
+        fn with_env(mut self, k: &'static str, v: &'static str) -> Self {
+            self.vars.push((k, v));
+            self
+        }
+    }
+
+    impl PlatformProbe for FakeProbe {
+        fn path_exists(&self, path: &str) -> bool {
+            self.paths.contains(&path)
+        }
+        fn env(&self, key: &str) -> Option<String> {
+            self.vars
+                .iter()
+                .find(|(k, _)| *k == key)
+                .map(|(_, v)| v.to_string())
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_plain_install_is_standard() {
+        assert_eq!(
+            detect_package_format(&FakeProbe::nothing()),
+            PackageFormat::Standard
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_flatpak_is_recognised_by_its_sandbox() {
+        assert_eq!(
+            detect_package_format(&FakeProbe::nothing().with_path("/.flatpak-info")),
+            PackageFormat::Flatpak
+        );
+        assert_eq!(
+            detect_package_format(&FakeProbe::nothing().with_env("FLATPAK_ID", "dev.sqlpilot")),
+            PackageFormat::Flatpak
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_flatpak_on_an_ostree_host_is_still_a_flatpak() {
+        // The case the old check got backwards. Inside the sandbox the host's
+        // /usr is not visible, so a Flatpak on Silverblue saw no rpm-ostree
+        // binary, called itself an ordinary install, and was offered an
+        // auto-update its runtime cannot apply (#354).
+        let probe = FakeProbe::nothing()
+            .with_path("/.flatpak-info")
+            .with_path("/run/ostree-booted");
+        assert_eq!(detect_package_format(&probe), PackageFormat::Flatpak);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_snap_is_recognised() {
+        assert_eq!(
+            detect_package_format(&FakeProbe::nothing().with_env("SNAP", "/snap/sqlpilot/12")),
+            PackageFormat::Snap
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_appimage_is_recognised() {
+        assert_eq!(
+            detect_package_format(
+                &FakeProbe::nothing().with_env("APPIMAGE", "/home/a/SQLPilot.AppImage")
+            ),
+            PackageFormat::AppImage
+        );
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn an_ostree_host_is_recognised_by_the_boot_marker() {
+        // Not by whether an rpm-ostree binary happens to be installed, which
+        // is true on plenty of ordinary Fedora systems.
+        assert_eq!(
+            detect_package_format(&FakeProbe::nothing().with_path("/run/ostree-booted")),
+            PackageFormat::RpmOstree
+        );
+        assert_eq!(
+            detect_package_format(&FakeProbe::nothing().with_path("/usr/bin/rpm-ostree")),
+            PackageFormat::Standard
+        );
     }
 
     #[tokio::test]
-    async fn is_rpm_ostree_reflects_binary_presence() {
-        // On Linux this returns true iff /usr/bin/rpm-ostree exists. We don't
-        // assert a specific value (CI runner may or may not be atomic) — just
-        // that the command succeeds and the boolean matches the filesystem.
-        #[cfg(target_os = "linux")]
-        {
-            let result = is_rpm_ostree().await.unwrap();
-            let expected = std::path::Path::new("/usr/bin/rpm-ostree").exists();
-            assert_eq!(result, expected);
-        }
+    async fn platform_info_reports_this_machine() {
+        let info = get_platform_info().await.unwrap();
+        assert!(!info.arch.is_empty());
+    }
+
+    #[tokio::test]
+    async fn platform_info_agrees_with_this_machine() {
+        // No fixed expectation — the runner may be anything. What must hold
+        // is that the command answers, and answers the same as the detection
+        // it delegates to.
+        let info = get_platform_info().await.unwrap();
+        assert_eq!(info.arch, std::env::consts::ARCH);
+        #[cfg(not(target_os = "linux"))]
+        assert_eq!(info.package_format, PackageFormat::Standard);
     }
 }
 

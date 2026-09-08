@@ -1,7 +1,9 @@
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
+import type { PackageFormat } from "../lib/bindings";
 import { api } from "../lib/tauri-api";
+import { canSelfUpdate, manualUpdateFor } from "../lib/update-channel";
 import { describeUpdateBlockers } from "../lib/update-guard";
 import { type StorageErrorKey, useStorageErrorStore } from "./storageErrorStore";
 
@@ -93,7 +95,9 @@ interface SettingsState {
   updateError: string | null;
   pendingUpdate: Update | null;
   manualUpdateCommand: string | null;
-  platformHint: "standard" | "rpm-ostree" | "unknown";
+  /** How this copy was installed; null until detected, or if detection failed. */
+  packageFormat: PackageFormat | null;
+  arch: string | null;
   downloadProgress: DownloadProgress;
   detectPlatform: () => Promise<void>;
   /** `force` is the user asking; anything automatic should omit it. */
@@ -108,10 +112,6 @@ interface SettingsState {
 // Tauri-action's .rpm filename uses period before arch:
 // `SQLPilot-0.4.0-1.x86_64.rpm`. If tauri-action ever changes this pattern,
 // this template must follow. See docs/RELEASING.md gotcha #3.
-function buildRpmUrl(version: string): string {
-  return `https://github.com/EVWorth/sqlpilot/releases/download/v${version}/SQLPilot-${version}-1.x86_64.rpm`;
-}
-
 /**
  * Write one settings blob to localStorage, routing any failure to the shared
  * storage-error store so the StatusBar can show it. Quota exhaustion or a
@@ -152,16 +152,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   updateError: null,
   pendingUpdate: null,
   manualUpdateCommand: null,
-  platformHint: "unknown",
+  packageFormat: null,
+  arch: null,
   downloadProgress: { transferred: 0, total: null },
 
   detectPlatform: async () => {
     try {
-      const isRpmOstree = await api.isRpmOstree();
-      set({ platformHint: isRpmOstree ? "rpm-ostree" : "standard" });
+      const info = await api.getPlatformInfo();
+      set({ packageFormat: info.package_format, arch: info.arch });
     } catch (e) {
       console.error("Failed to detect platform:", e);
-      set({ platformHint: "unknown" });
+      // Unknown means "do not offer to update", which is the safe direction:
+      // an update the app cannot apply is worse than one it does not offer.
+      set({ packageFormat: null, arch: null });
     }
   },
 
@@ -189,12 +192,17 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
     try {
       const update = await check();
       if (update) {
-        if (get().platformHint === "rpm-ostree") {
+        const format = get().packageFormat;
+        const manual = format
+          ? manualUpdateFor(format, update.version, get().arch ?? "x86_64")
+          : null;
+        if (manual || (format !== null && !canSelfUpdate(format))) {
           set({
             updateStatus: "manual-update-required",
             updateVersion: update.version,
             pendingUpdate: null,
-            manualUpdateCommand: `rpm-ostree install ${buildRpmUrl(update.version)}`,
+            manualUpdateCommand: manual?.command ?? null,
+            updateError: manual?.reason ?? null,
           });
         } else {
           set({

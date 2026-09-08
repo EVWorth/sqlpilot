@@ -508,17 +508,17 @@ describe("api (Tauri available)", () => {
 
   // -- Platform detection --------------------------------------------------
 
-  it("isRpmOstree calls invoke with no args and returns true", async () => {
+  it("getPlatformInfo calls invoke with no args", async () => {
     invokeMock.mockResolvedValue(true);
-    const result = await api.isRpmOstree();
-    expect(invokeMock).toHaveBeenCalledWith("is_rpm_ostree");
+    const result = await api.getPlatformInfo();
+    expect(invokeMock).toHaveBeenCalledWith("get_platform_info");
     expect(result).toBe(true);
   });
 
-  it("isRpmOstree returns false on non-atomic systems", async () => {
+  it("getPlatformInfo surfaces the reported format", async () => {
     invokeMock.mockResolvedValue(false);
-    const result = await api.isRpmOstree();
-    expect(invokeMock).toHaveBeenCalledWith("is_rpm_ostree");
+    const result = await api.getPlatformInfo();
+    expect(invokeMock).toHaveBeenCalledWith("get_platform_info");
     expect(result).toBe(false);
   });
 
