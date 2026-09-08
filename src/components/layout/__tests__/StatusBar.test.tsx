@@ -76,6 +76,72 @@ describe("StatusBar", () => {
     return rerender!;
   }
 
+  it("asks before starting a download, rather than starting one on a click", async () => {
+    // The chip used to begin a download of unknown size on a single click
+    // (#353).
+    const user = userEvent.setup({ applyAccept: false });
+    useSettingsStore.setState({
+      updateStatus: "available",
+      updateVersion: "2.0.0",
+      updateError: null,
+      dismissedVersion: null,
+    });
+    renderStatusBar();
+    const spy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
+
+    await user.click(screen.getByText("Update to v2.0.0"));
+
+    expect(screen.getByTestId("update-confirm")).toBeInTheDocument();
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("hides the chip for a version the user put off", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    useSettingsStore.setState({
+      updateStatus: "available",
+      updateVersion: "2.0.0",
+      updateError: null,
+      dismissedVersion: null,
+    });
+    renderStatusBar();
+
+    await user.click(screen.getByText("Update to v2.0.0"));
+    await user.click(screen.getByText("Later"));
+
+    expect(screen.queryByText("Update to v2.0.0")).toBeNull();
+    expect(useSettingsStore.getState().dismissedVersion).toBe("2.0.0");
+  });
+
+  it("still shows a newer version after one was put off", async () => {
+    // "Later" means later for that update, not silence for every update.
+    useSettingsStore.setState({
+      updateStatus: "available",
+      updateVersion: "2.1.0",
+      dismissedVersion: "2.0.0",
+      updateError: null,
+    });
+    renderStatusBar();
+
+    expect(screen.getByText("Update to v2.1.0")).toBeInTheDocument();
+  });
+
+  it("does not promise a restart it no longer performs", async () => {
+    // Downloading and restarting are separate since #573, so the copy must
+    // not say the app will restart when the download finishes.
+    const user = userEvent.setup({ applyAccept: false });
+    useSettingsStore.setState({
+      updateStatus: "available",
+      updateVersion: "2.0.0",
+      dismissedVersion: null,
+      updateError: null,
+    });
+    renderStatusBar();
+    await user.click(screen.getByText("Update to v2.0.0"));
+
+    const panel = screen.getByTestId("update-confirm");
+    expect(panel.textContent).toMatch(/ask before restarting/i);
+  });
+
   it("renders connection name and host:port", () => {
     renderStatusBar();
     expect(screen.getByText(/Production DB/)).toBeInTheDocument();
@@ -285,6 +351,7 @@ describe("StatusBar", () => {
       renderStatusBar();
       const spy = vi.spyOn(useSettingsStore.getState(), "installUpdate");
       await user.click(screen.getByText("Update to v2.0.0"));
+      await user.click(screen.getByText("Download"));
       expect(spy).toHaveBeenCalledOnce();
     });
 
@@ -302,6 +369,7 @@ describe("StatusBar", () => {
       });
       renderStatusBar();
       await user.click(screen.getByText("Update to v2.0.0"));
+      await user.click(screen.getByText("Download"));
       // The button delegates; the refusal comes from the store, so it also
       // applies to any other caller and is re-checked before the restart
       // (#570).
@@ -332,6 +400,7 @@ describe("StatusBar", () => {
       });
       renderStatusBar();
       await user.click(screen.getByText("Update to v2.0.0"));
+      await user.click(screen.getByText("Download"));
       expect(useSettingsStore.getState().updateStatus).toBe("error");
       expect(useSettingsStore.getState().updateError).toMatch(/unsaved changes/i);
     });

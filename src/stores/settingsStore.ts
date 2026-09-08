@@ -95,6 +95,14 @@ interface SettingsState {
   updateError: string | null;
   pendingUpdate: Update | null;
   manualUpdateCommand: string | null;
+  /**
+   * A version the user asked not to be reminded about, for this session.
+   *
+   * Stored as the version rather than a flag, so a newer one still surfaces —
+   * "later" means later for this update, not silence for every update. Not
+   * persisted: a dismissal should not outlive the run it was made in (#353).
+   */
+  dismissedVersion: string | null;
   /** How this copy was installed; null until detected, or if detection failed. */
   packageFormat: PackageFormat | null;
   arch: string | null;
@@ -104,6 +112,7 @@ interface SettingsState {
   checkForUpdates: (force?: boolean) => Promise<void>;
   installUpdate: () => Promise<void>;
   restartToApply: () => Promise<void>;
+  dismissUpdate: () => void;
   setUpdateError: (message: string | null) => void;
   setQuerySettings: (settings: QuerySettings) => void;
   setFormatterSettings: (settings: FormatterSettings) => void;
@@ -152,6 +161,7 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   updateError: null,
   pendingUpdate: null,
   manualUpdateCommand: null,
+  dismissedVersion: null,
   packageFormat: null,
   arch: null,
   downloadProgress: { transferred: 0, total: null },
@@ -316,6 +326,11 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         }. Quit and reopen SQLPilot to finish.`,
       });
     }
+  },
+
+  dismissUpdate: () => {
+    const version = get().updateVersion;
+    if (version) set({ dismissedVersion: version });
   },
 
   setUpdateError: (message) => set({ updateError: message }),
