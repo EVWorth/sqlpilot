@@ -285,87 +285,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Setup Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: ".node-version"
-          cache: "npm"
-      - name: Install dependencies
-        run: npm ci
+      # No Node and no signing key here. The bundles were signed during the
+      # build, so this job only reads the .sig files already beside them —
+      # which keeps the signing key out of a job that talks to the releases
+      # API.
       - name: Download release artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release download ${{ github.ref_name }}
-      - name: Sign artifacts and generate manifest
-        env:
-          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the update manifest
         run: |
           TAG="${{ github.ref_name }}"
-          VERSION="${TAG#v}"
-
-          # Generate signatures for each platform binary
-          for file in *.AppImage *.deb *.rpm *.msi *.exe *.dmg *.tar.gz; do
-            [ -f "$file" ] || continue
-            echo "Signing $file..."
-            npx tauri signer sign "$file"
-          done
-
-          rm -f /tmp/sign-key
-
-          # Build the manifest JSON
-          echo "{" > update-manifest.json
-          echo "  \"version\": \"$VERSION\"," >> update-manifest.json
-
-          # min_app_version: most recent tag excluding the one being shipped.
-          # Plugin honors this: current-version users whose app is below the
-          # threshold don't see the update. Falls back to omitting the field
-          # on the very first release.
-          PREV_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -v "^${TAG}$" | head -1 | sed 's/^v//')
-          if [ -n "$PREV_TAG" ]; then
-            echo "  \"min_app_version\": \"$PREV_TAG\"," >> update-manifest.json
-          fi
-
-          echo "  \"notes\": \"See https://github.com/EVWorth/sqlpilot/releases/tag/$TAG\"," >> update-manifest.json
-          echo "  \"pub_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"," >> update-manifest.json
-          echo "  \"platforms\": {" >> update-manifest.json
-
-          first=true
-          for sigfile in *.sig; do
-            [ -f "$sigfile" ] || continue
-            base="${sigfile%.sig}"
-
-            case "$base" in
-              *_amd64.AppImage)     key="linux-x86_64" ;;
-              *_amd64.deb)          key="linux-deb" ;;
-              *aarch64.rpm)        key="linux-aarch64" ;;
-              *x86_64.rpm)         key="linux-rpm" ;;
-              *_x64_en-US.msi)      key="windows-x86_64" ;;
-              *_x64-setup.exe)      key="windows-x86_64-nsis" ;;
-              *_x64.dmg)            key="darwin-x86_64" ;;
-              *_aarch64.dmg)        key="darwin-aarch64" ;;
-              *)                    echo "Unknown platform for $sigfile, skipping..." ; continue ;;
-            esac
-
-            # Build download URL matching GitHub's asset naming
-            url="https://github.com/EVWorth/sqlpilot/releases/download/$TAG/$base"
-            sig=$(cat "$sigfile")
-
-            $first || echo "," >> update-manifest.json
-            echo "    \"$key\": {" >> update-manifest.json
-            echo "      \"url\": \"$url\"," >> update-manifest.json
-            echo "      \"signature\": \"$sig\"" >> update-manifest.json
-            echo "    }" >> update-manifest.json
-            first=false
-          done
-
-          echo "  }" >> update-manifest.json
-          echo "}" >> update-manifest.json
-
-          echo "Generated manifest:"
-          cat update-manifest.json
-          mv update-manifest.json latest.json
+          scripts/build-update-manifest.sh "${TAG#v}" "$TAG" . latest.json
 
       - name: Upload update manifest
         env:
