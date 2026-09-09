@@ -15,7 +15,7 @@ vi.mock("sql-formatter", () => ({
   format: vi.fn((sql: string) => sql),
 }));
 
-vi.mock("../../stores/themeStore", () => ({
+vi.mock("../../../stores/themeStore", () => ({
   useThemeStore: vi.fn((selector: (s: unknown) => unknown) => {
     const state = { effectiveTheme: "dark" };
     return selector(state);

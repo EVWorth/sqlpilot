@@ -172,6 +172,23 @@ jobs:
       - name: Check documented commands exist
         run: scripts/check-documented-commands.sh
 
+  check-test-mocks:
+    name: Check (vi.mock paths)
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.frontend == 'true' ||
+      needs.detect-changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # An unresolvable vi.mock path is ignored by Vitest, so the suite runs
+      # against the real module and passes anyway. Nine had accumulated before
+      # one was caught, and it was caught by accident (#594).
+      - name: Check vi.mock paths resolve
+        run: scripts/check-test-mocks.sh
+
   npm-audit:
     name: npm Audit
     needs: detect-changes

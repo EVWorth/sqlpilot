@@ -6,11 +6,11 @@ const { useConnectionStoreFn } = vi.hoisted(() => {
   return { useConnectionStoreFn: vi.fn() };
 });
 
-vi.mock("../../stores/connectionStore", () => ({
+vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: useConnectionStoreFn,
 }));
 
-vi.mock("../../lib/tauri-api", () => ({
+vi.mock("../../../lib/tauri-api", () => ({
   api: {
     getDatabases: vi.fn().mockResolvedValue([{ name: "testdb" }]),
     pickFile: vi.fn().mockResolvedValue("/path/to/dump.sql"),
@@ -19,7 +19,7 @@ vi.mock("../../lib/tauri-api", () => ({
   },
 }));
 
-vi.mock("../../lib/sql-import", () => ({
+vi.mock("../../../lib/sql-import", () => ({
   splitSqlStatements: vi.fn(() => ["CREATE TABLE users (id INT)"]),
 }));
 
