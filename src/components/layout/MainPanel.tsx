@@ -3,7 +3,6 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { AdminPanel } from "../admin/AdminPanel";
-import { SchemaCompare } from "../compare/SchemaCompare";
 import { TableDesigner } from "../designer/TableDesigner";
 import { EditorTabs } from "../editor/EditorTabs";
 import { QueryToolbar } from "../editor/QueryToolbar";
@@ -21,7 +20,6 @@ export function MainPanel() {
   const setShowExplain = useResultStore((s) => s.setShowExplain);
 
   const isAdmin = activeTab?.type === "admin";
-  const isCompare = activeTab?.type === "compare";
   const isRoutine = activeTab?.type === "routine";
   const isDesigner = activeTab?.type === "designer";
 
@@ -30,8 +28,6 @@ export function MainPanel() {
       <EditorTabs />
       {isAdmin && activeTab?.connectionId
         ? <AdminPanel connectionId={activeTab.connectionId} />
-        : isCompare
-        ? <SchemaCompare />
         : isDesigner && activeTab?.connectionId && activeTab?.database
         ? (
           <TableDesigner

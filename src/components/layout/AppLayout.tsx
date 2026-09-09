@@ -111,7 +111,7 @@ export function AppLayout() {
   useEffect(() => {
     const handleAction = (action: string) => {
       const { selectedConnectionId, disconnect } = useConnectionStore.getState();
-      const { addTab, addAdminTab, addCompareTab, editorInstance } = useEditorStore.getState();
+      const { addTab, addAdminTab, editorInstance } = useEditorStore.getState();
 
       switch (action) {
         case "new-query":
@@ -164,9 +164,6 @@ export function AppLayout() {
           break;
         case "refresh-schema":
           useSchemaCacheStore.getState().refreshSchema();
-          break;
-        case "compare-schemas":
-          addCompareTab();
           break;
         case "admin-tools":
           if (selectedConnectionId) addAdminTab(selectedConnectionId);

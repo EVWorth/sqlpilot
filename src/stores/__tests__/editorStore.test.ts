@@ -178,20 +178,6 @@ describe("editorStore", () => {
     });
   });
 
-  describe("addCompareTab", () => {
-    it("should add a compare tab", () => {
-      const id = useEditorStore.getState().addCompareTab();
-      const tab = useEditorStore.getState().tabs.find((t) => t.id === id);
-      expect(tab?.type).toBe("compare");
-    });
-
-    it("should reuse existing compare tab", () => {
-      const id1 = useEditorStore.getState().addCompareTab();
-      const id2 = useEditorStore.getState().addCompareTab();
-      expect(id1).toBe(id2);
-    });
-  });
-
   describe("addDesignerTab", () => {
     it("should add a designer tab with tableName", () => {
       const id = useEditorStore.getState().addDesignerTab("conn-1", "testdb", "users");

@@ -19,9 +19,6 @@ vi.mock("../../explain/ExplainPanel", () => ({
 vi.mock("../../admin/AdminPanel", () => ({
   AdminPanel: () => <div data-testid="admin-panel" />,
 }));
-vi.mock("../../compare/SchemaCompare", () => ({
-  SchemaCompare: () => <div data-testid="schema-compare" />,
-}));
 vi.mock("../../designer/TableDesigner", () => ({
   TableDesigner: () => <div data-testid="table-designer" />,
 }));
@@ -119,15 +116,6 @@ describe("MainPanel", () => {
     render(<MainPanel />);
     expect(screen.queryByTestId("admin-panel")).not.toBeInTheDocument();
     expect(screen.getByTestId("query-toolbar")).toBeInTheDocument();
-  });
-
-  it("renders SchemaCompare when active tab type is compare", () => {
-    mockEditorState({
-      tabs: [{ id: "tab-1", title: "Compare", content: "", type: "compare", isDirty: false }],
-      activeTabId: "tab-1",
-    });
-    render(<MainPanel />);
-    expect(screen.getByTestId("schema-compare")).toBeInTheDocument();
   });
 
   it("renders TableDesigner when active tab type is designer", () => {

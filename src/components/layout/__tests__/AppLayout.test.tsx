@@ -181,7 +181,6 @@ let editorState = {
   activeTabId: null as string | null,
   addTab: vi.fn(() => "tab-1"),
   addAdminTab: vi.fn(),
-  addCompareTab: vi.fn(),
   editorInstance: null as any,
 };
 
@@ -230,7 +229,6 @@ describe("AppLayout", () => {
       activeTabId: null,
       addTab: vi.fn(() => "tab-1"),
       addAdminTab: vi.fn(),
-      addCompareTab: vi.fn(),
       editorInstance: null,
     };
     aiState = {

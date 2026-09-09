@@ -46,7 +46,6 @@ vi.mock("clsx", () => ({
 }));
 
 const mockAddAdminTab = vi.fn();
-const mockAddCompareTab = vi.fn();
 
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
@@ -54,7 +53,6 @@ vi.mock("../../../stores/editorStore", () => ({
     {
       getState: vi.fn(() => ({
         addAdminTab: mockAddAdminTab,
-        addCompareTab: mockAddCompareTab,
       })),
     },
   ),
@@ -134,9 +132,8 @@ describe("TitleBar", () => {
     expect(buttons.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("renders toolbar buttons (Compare, Admin, etc.)", () => {
+  it("renders toolbar buttons (Admin, etc.)", () => {
     render(<TitleBar />);
-    expect(screen.getByText("Compare")).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
   });
 
@@ -238,12 +235,6 @@ describe("TitleBar", () => {
     expect(screen.getByText("Import").closest("button")).toBeDisabled();
     expect(screen.getByText("Backup").closest("button")).toBeDisabled();
     expect(screen.getByText("Restore").closest("button")).toBeDisabled();
-  });
-
-  it("calls addCompareTab when Compare button is clicked", () => {
-    render(<TitleBar />);
-    fireEvent.click(screen.getByText("Compare"));
-    expect(mockAddCompareTab).toHaveBeenCalled();
   });
 
   it("calls addAdminTab when Admin button is clicked", () => {
