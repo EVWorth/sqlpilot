@@ -956,6 +956,7 @@ async fn execute_query(
     state: State<'_, AppState>,
 ) -> Result<QueryResult, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Execute a SQL statement with streamed results via events.
 /// Returns a handle that can be used to cancel the stream.
 #[tauri::command]
@@ -986,6 +987,7 @@ async fn explain_query(
 #[tauri::command]
 fn format_sql(sql: String) -> Result<String, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Retrieve query history entries with optional search.
 #[tauri::command]
 async fn get_query_history(
@@ -1067,6 +1069,7 @@ async fn get_routines(
     state: State<'_, AppState>,
 ) -> Result<Vec<Routine>, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Force-refresh the schema cache for a database.
 #[tauri::command]
 async fn refresh_schema(
@@ -1079,6 +1082,7 @@ async fn refresh_schema(
 ### 5.4 AI Commands
 
 ```rust
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Generate SQL from a natural language prompt.
 #[tauri::command]
 async fn ai_generate_sql(
@@ -1087,6 +1091,7 @@ async fn ai_generate_sql(
     state: State<'_, AppState>,
 ) -> Result<String, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Explain a SQL query in plain English.
 #[tauri::command]
 async fn ai_explain_query(
@@ -1094,6 +1099,7 @@ async fn ai_explain_query(
     state: State<'_, AppState>,
 ) -> Result<String, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Suggest optimizations for a query given its EXPLAIN output.
 #[tauri::command]
 async fn ai_optimize_query(
@@ -1111,6 +1117,7 @@ async fn ai_chat(
     state: State<'_, AppState>,
 ) -> Result<ChatResponse, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Check AI service availability and provider info.
 #[tauri::command]
 async fn ai_status(
@@ -1120,31 +1127,64 @@ async fn ai_status(
 
 ### 5.5 Export / Import Commands
 
+Import and export are built from small, general commands rather than one
+command per feature. The backend picks files, reads and writes them, and
+formats a result set; what to do with the contents is the frontend's
+decision, and running SQL goes through `execute_query` like everything else.
+
+This section previously declared `export_data`, `import_data` and
+`preview_import`. None of them were ever implemented (#363).
+
 ```rust
-/// Export data to a file in the specified format.
+/// Format an already-fetched result set as CSV, JSON, SQL INSERTs or
+/// Markdown. Returns the text; writing it is a separate step.
 #[tauri::command]
-async fn export_data(
-    config: ExportConfig,
-    app_handle: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<ExportResult, AppError>;
+async fn export_results(
+    result: QueryResult,
+    format: String,
+    table_name: Option<String>,
+) -> Result<String, String>;
 
-/// Import data from a file into a table.
+/// Native open dialog. `filters` is (label, extensions).
 #[tauri::command]
-async fn import_data(
-    config: ImportConfig,
-    app_handle: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<ImportResult, AppError>;
+async fn pick_file(
+    title: String,
+    filters: Vec<(String, Vec<String>)>,
+) -> Result<Option<String>, String>;
 
-/// Preview the first N rows of an import file.
+/// Native save dialog.
 #[tauri::command]
-async fn preview_import(
-    file_path: String,
-    format: ImportFormat,
-    limit: Option<u32>,
-) -> Result<ImportPreview, AppError>;
+async fn pick_save_file(
+    title: String,
+    default_name: String,
+    filters: Vec<(String, Vec<String>)>,
+) -> Result<Option<String>, String>;
+
+/// Read a whole file. Refuses anything over 256 MB: the contents are held as
+/// a Rust string, a JavaScript string and parsed rows at the same time, so a
+/// larger file takes the renderer down before the user sees it (#366).
+#[tauri::command]
+async fn read_file_contents(path: String) -> Result<String, String>;
+
+/// Write a whole file.
+#[tauri::command]
+async fn write_file_contents(path: String, contents: String) -> Result<(), String>;
 ```
+
+**Import.** The frontend reads the file, parses it (`csv-parser.ts`,
+`sql-import.ts`) and sends statements through `execute_query`. There is no
+server-side batching and no transaction around an import — and there could
+not usefully be one, since a dump's `CREATE`, `DROP` and `ALTER` each commit
+as they run. The import stops at the first error by default and reports how
+much had already applied (#365).
+
+**Preview** is frontend-side too: the file is already in memory, so a
+dedicated command would re-read it to answer a question the renderer can
+answer for free.
+
+**Streaming is not implemented.** Both paths hold the whole file; the size
+limit above is what keeps that from being fatal, not a substitute for
+streaming.
 
 ### 5.6 Admin Commands
 
@@ -1174,6 +1214,7 @@ async fn get_server_variables(
     state: State<'_, AppState>,
 ) -> Result<Vec<Variable>, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Get user accounts and their privileges.
 #[tauri::command]
 async fn get_users(
@@ -1181,6 +1222,7 @@ async fn get_users(
     state: State<'_, AppState>,
 ) -> Result<Vec<User>, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Get server status metrics for dashboard display.
 #[tauri::command]
 async fn get_server_status(
@@ -1188,6 +1230,7 @@ async fn get_server_status(
     state: State<'_, AppState>,
 ) -> Result<ServerStatus, AppError>;
 
+/// NOT IMPLEMENTED. Planned; no such command is registered.
 /// Run table maintenance operations.
 #[tauri::command]
 async fn table_maintenance(

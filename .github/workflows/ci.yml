@@ -152,6 +152,26 @@ jobs:
       - name: Test the update manifest builder
         run: scripts/test-build-update-manifest.sh
 
+  # ARCHITECTURE section 5 is the reference for the Tauri command surface, and
+  # it had drifted into describing ten commands that were never written — a
+  # reader following it wrote calls that fail at runtime with "command not
+  # found" (#363). Documenting a plan is fine; claiming a surface is not, so
+  # the check accepts a NOT IMPLEMENTED marker and fails on anything else.
+  check-docs:
+    name: Check (documented commands)
+    needs: detect-changes
+    if: |
+      needs.detect-changes.outputs.docs == 'true' ||
+      needs.detect-changes.outputs.rust == 'true' ||
+      needs.detect-changes.outputs.workflows == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Check documented commands exist
+        run: scripts/check-documented-commands.sh
+
   npm-audit:
     name: npm Audit
     needs: detect-changes
