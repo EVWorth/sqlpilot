@@ -85,6 +85,71 @@ describe("ImportDialog", () => {
   });
 
   describe("SQL mode", () => {
+    async function runImport(statements: string[], failAt: number, keepGoing = false) {
+      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
+      vi.mocked(api.readFileContents).mockResolvedValue("-- dump");
+      vi.mocked(splitSqlStatements).mockReturnValue(statements);
+      let seen = 0;
+      vi.mocked(api.executeQuery).mockImplementation(
+        (() => {
+          seen += 1;
+          return seen === failAt
+            ? Promise.reject(new Error("Table 'x' doesn't exist"))
+            : Promise.resolve([]);
+        }) as never,
+      );
+
+      render(<ImportDialog {...mockProps} />);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Select file..."));
+      });
+      if (keepGoing) {
+        fireEvent.click(screen.getByLabelText("Stop at the first error"));
+      }
+      await act(async () => {
+        fireEvent.click(screen.getByText("Execute SQL"));
+      });
+    }
+
+    it("stops at the first failure instead of running the rest of the file", async () => {
+      // Every error used to be counted and the run carried on, so a dump
+      // whose CREATE TABLE failed still executed all of its INSERTs against
+      // whatever was already there (#365).
+      await runImport(["CREATE TABLE t (id INT)", "INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (2)"], 1);
+
+      expect(api.executeQuery).toHaveBeenCalledTimes(1);
+    });
+
+    it("says where it stopped and how much had already applied", async () => {
+      await runImport(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (2)", "INSERT INTO t VALUES (3)"], 2);
+
+      const stopped = screen.getByTestId("stopped-at");
+      expect(stopped.textContent).toContain("statement 2 of 3");
+      expect(stopped.textContent).toContain("1 already applied");
+    });
+
+    it("runs the whole file when the user turns stopping off", async () => {
+      await runImport(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (2)", "INSERT INTO t VALUES (3)"], 1, true);
+
+      expect(api.executeQuery).toHaveBeenCalledTimes(3);
+      expect(screen.queryByTestId("stopped-at")).toBeNull();
+    });
+
+    it("does not claim the import can be rolled back", async () => {
+      // A dump's CREATE, DROP and ALTER each commit as they run. Wrapping the
+      // run in a transaction would not change that, so the UI says so.
+      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
+      vi.mocked(api.readFileContents).mockResolvedValue("-- dump");
+      vi.mocked(splitSqlStatements).mockReturnValue(["INSERT INTO t VALUES (1)"]);
+
+      render(<ImportDialog {...mockProps} />);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Select file..."));
+      });
+
+      expect(screen.getByText(/cannot be rolled back/)).toBeDefined();
+    });
+
     it("says what a dump will drop, before it is run", async () => {
       // A DROP TABLE can sit at line 5,000 of a dump. Rendering the file
       // verbatim meant reading all of it to find out (#367).
