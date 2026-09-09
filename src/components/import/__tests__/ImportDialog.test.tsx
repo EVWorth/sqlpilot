@@ -85,6 +85,44 @@ describe("ImportDialog", () => {
   });
 
   describe("SQL mode", () => {
+    it("says what a dump will drop, before it is run", async () => {
+      // A DROP TABLE can sit at line 5,000 of a dump. Rendering the file
+      // verbatim meant reading all of it to find out (#367).
+      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
+      vi.mocked(api.readFileContents).mockResolvedValue("-- dump");
+      vi.mocked(splitSqlStatements).mockReturnValue([
+        "INSERT INTO t1 VALUES (1)",
+        "DROP TABLE users",
+        "TRUNCATE TABLE audit_log",
+      ]);
+
+      render(<ImportDialog {...mockProps} />);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Select file..."));
+      });
+
+      const warning = screen.getByTestId("destructive-warning");
+      expect(warning.textContent).toContain("2 statements");
+      expect(warning.textContent).toContain("DROP TABLE users");
+      expect(warning.textContent).toContain("TRUNCATE TABLE audit_log");
+    });
+
+    it("says nothing about a dump that only inserts", async () => {
+      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
+      vi.mocked(api.readFileContents).mockResolvedValue("-- dump");
+      vi.mocked(splitSqlStatements).mockReturnValue([
+        "INSERT INTO t1 VALUES (1)",
+        "INSERT INTO t1 VALUES (2)",
+      ]);
+
+      render(<ImportDialog {...mockProps} />);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Select file..."));
+      });
+
+      expect(screen.queryByTestId("destructive-warning")).toBeNull();
+    });
+
     it("picks SQL file and shows preview", async () => {
       vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
       vi.mocked(api.readFileContents).mockResolvedValue(
