@@ -18,6 +18,7 @@ import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
+import { HistoryQuickOpen } from "../history/HistoryQuickOpen";
 import { ImportDialog } from "../import/ImportDialog";
 import { ConnectionTabs } from "./ConnectionTabs";
 import { MainPanel } from "./MainPanel";
@@ -102,7 +103,21 @@ export function AppLayout() {
     window.dispatchEvent(new CustomEvent("open-save-favorite"));
   }, []);
 
-  useKeyboardShortcuts(toggleSidebar, openShortcuts, openSaveFavorite);
+  const [showHistoryPicker, setShowHistoryPicker] = useState(false);
+  const openHistoryPicker = useCallback(() => setShowHistoryPicker(true), []);
+
+  /** Put a statement from the picker into the active tab, or a new one. */
+  const insertFromHistory = useCallback((sql: string) => {
+    const store = useEditorStore.getState();
+    const active = store.tabs.find((t) => t.id === store.activeTabId);
+    if (active) {
+      store.updateTabContent(active.id, sql);
+      return;
+    }
+    store.updateTabContent(store.addTab(), sql);
+  }, []);
+
+  useKeyboardShortcuts(toggleSidebar, openShortcuts, openSaveFavorite, openHistoryPicker);
 
   // Check AI availability on mount
   useEffect(() => {
@@ -318,6 +333,11 @@ export function AppLayout() {
         onClose={() => setShowRestore(false)}
         preSelectedConnectionId={restorePreselect.connectionId}
         preSelectedDatabase={restorePreselect.database}
+      />
+      <HistoryQuickOpen
+        isOpen={showHistoryPicker}
+        onClose={() => setShowHistoryPicker(false)}
+        onPick={insertFromHistory}
       />
       <ConfirmDialog
         isOpen={!!confirmDialog?.isOpen}
