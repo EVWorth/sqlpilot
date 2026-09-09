@@ -18,6 +18,50 @@ vi.mock("../../../lib/tauri-api", () => ({
   },
 }));
 
+vi.mock("../../../stores/connectionStore", () => ({
+  useConnectionStore: { getState: () => ({ activeConnections: mockActiveConnections }) },
+}));
+
+vi.mock("../../../stores/resultStore", () => ({
+  useResultStore: { getState: () => ({ executeQuery: mockExecuteQuery }) },
+}));
+
+// Renders the menu items as buttons so tests can click them, the same shape
+// the favorites tests use.
+vi.mock("../../../hooks/useContextMenu", async () => {
+  const { useState, useCallback } = await import("react");
+  return {
+    useContextMenu: () => {
+      const [items, setItems] = useState<
+        { label: string; onClick: () => void; disabled?: boolean; separator?: boolean }[]
+      >([]);
+      const showContextMenu = useCallback((e: { preventDefault: () => void }, next: typeof items) => {
+        e.preventDefault();
+        setItems(next);
+      }, []);
+      const contextMenu = items.length > 0
+        ? (
+          <div data-testid="ctx-menu">
+            {items.map((item, i) =>
+              item.separator ? <hr key={i} /> : (
+                <button
+                  key={i}
+                  data-testid={`ctx-item-${item.label}`}
+                  disabled={item.disabled}
+                  onClick={item.onClick}
+                >
+                  {item.label}
+                </button>
+              )
+            )}
+          </div>
+        )
+        : null;
+      return { contextMenu, showContextMenu, hideContextMenu: () => setItems([]) };
+    },
+  };
+});
+
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: {
     getState: vi.fn(),
@@ -33,6 +77,8 @@ const mockSetFilters = vi.fn().mockResolvedValue(undefined);
 const mockResetFilters = vi.fn().mockResolvedValue(undefined);
 const mockExportMatching = vi.fn().mockResolvedValue("csv,data");
 const mockLoad = vi.fn().mockResolvedValue(undefined);
+const mockExecuteQuery = vi.fn().mockResolvedValue(undefined);
+let mockActiveConnections: { id: string; name: string }[] = [];
 
 // The panel no longer filters in memory — filtering goes to the database — so
 // tests drive it by setting what the store would have returned.
@@ -64,7 +110,7 @@ function storeExtras() {
   };
 }
 
-const mockEntries = [
+const baseEntries = [
   {
     id: "entry-1",
     sql: "SELECT * FROM users",
@@ -100,6 +146,9 @@ const mockEntries = [
   },
 ];
 
+// Reassignable so a test can narrow the set it renders.
+let mockEntries = baseEntries;
+
 describe("QueryHistory", () => {
   const mockClearHistory = vi.fn();
   const mockUpdateTabContent = vi.fn();
@@ -114,6 +163,9 @@ describe("QueryHistory", () => {
     mockSetFilters.mockResolvedValue(undefined);
     mockResetFilters.mockResolvedValue(undefined);
     mockExportMatching.mockResolvedValue("csv,data");
+    mockExecuteQuery.mockResolvedValue(undefined);
+    mockActiveConnections = [{ id: "conn-other", name: "OtherDB" }];
+    mockEntries = baseEntries;
     vi.mocked(useHistoryStore).mockImplementation((selector) => {
       if (typeof selector === "function") {
         return selector({
@@ -500,6 +552,93 @@ describe("QueryHistory", () => {
 
       await waitFor(() => expect(mockExportMatching).toHaveBeenCalledWith("sql"));
       expect(api.writeFileContents).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("run from history (#325)", () => {
+    const mockSetActiveTab = vi.fn();
+
+    beforeEach(() => {
+      mockSetActiveTab.mockClear();
+      vi.mocked(useEditorStore.getState).mockReturnValue({
+        tabs: [{ id: "tab1", type: "query", content: "", isDirty: false }],
+        activeTabId: "tab1",
+        addTab: mockAddTab,
+        updateTabContent: mockUpdateTabContent,
+        setActiveTab: mockSetActiveTab,
+      } as never);
+    });
+
+    /** Right-click the OtherDB entry, which is the one with a live connection. */
+    function openMenuOnLiveEntry() {
+      fireEvent.contextMenu(screen.getByText("SELECT * FROM nonexistent"));
+    }
+
+    it("offers Insert into editor and Run now", () => {
+      render(<QueryHistory />);
+      openMenuOnLiveEntry();
+
+      expect(screen.getByTestId("ctx-item-Insert into editor")).toBeInTheDocument();
+      expect(screen.getByTestId("ctx-item-Run now on OtherDB")).toBeInTheDocument();
+    });
+
+    it("runs against the connection the entry came from, not the selected one", async () => {
+      // Rerunning yesterday's staging query against production because the
+      // sidebar moved on is the mistake worth designing out.
+      mockActiveConnections = [
+        { id: "conn-selected", name: "SomethingElse" },
+        { id: "conn-other", name: "OtherDB" },
+      ];
+      render(<QueryHistory />);
+      openMenuOnLiveEntry();
+
+      fireEvent.click(screen.getByTestId("ctx-item-Run now on OtherDB"));
+
+      await waitFor(() =>
+        expect(mockExecuteQuery).toHaveBeenCalledWith(
+          "conn-other",
+          "SELECT * FROM nonexistent",
+          "otherdb",
+        )
+      );
+    });
+
+    it("puts the statement in the editor and focuses the tab before running", async () => {
+      render(<QueryHistory />);
+      openMenuOnLiveEntry();
+
+      fireEvent.click(screen.getByTestId("ctx-item-Run now on OtherDB"));
+
+      await waitFor(() => expect(mockExecuteQuery).toHaveBeenCalled());
+      expect(mockUpdateTabContent).toHaveBeenCalledWith("tab1", "SELECT * FROM nonexistent");
+      expect(mockSetActiveTab).toHaveBeenCalledWith("tab1");
+    });
+
+    it("cannot run an entry whose connection is closed", () => {
+      mockActiveConnections = [];
+      render(<QueryHistory />);
+      openMenuOnLiveEntry();
+
+      expect(screen.getByTestId("ctx-item-Run now")).toBeDisabled();
+    });
+
+    it("cannot run a redacted entry", () => {
+      // The password it needs is gone, so it would fail in a way nobody could
+      // act on (#587).
+      mockEntries = [{ ...baseEntries[2], redacted: true }];
+      render(<QueryHistory />);
+      fireEvent.contextMenu(screen.getByText("SELECT * FROM nonexistent"));
+
+      expect(screen.getByTestId("ctx-item-Run now on OtherDB")).toBeDisabled();
+    });
+
+    it("deletes from the menu too", () => {
+      render(<QueryHistory />);
+      openMenuOnLiveEntry();
+
+      fireEvent.click(screen.getByTestId("ctx-item-Delete"));
+
+      expect(mockRemoveEntry).toHaveBeenCalledWith("entry-3");
     });
   });
 });
