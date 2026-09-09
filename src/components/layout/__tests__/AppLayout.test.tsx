@@ -276,9 +276,23 @@ describe("AppLayout", () => {
     expect(screen.getByTestId("restore-dialog")).toBeInTheDocument();
   });
 
+  // Two ConfirmDialogs are mounted: the resultStore one, which runs the
+  // statement itself, and the production guard added in #588, which only
+  // answers yes or no. They render in that order.
+  const QUERY_DIALOG = 0;
+  const GUARD_DIALOG = 1;
+
   it("renders ConfirmDialog", () => {
     render(<AppLayout />);
-    expect(screen.getByTestId("confirm-dialog")).toBeInTheDocument();
+    expect(screen.getAllByTestId("confirm-dialog")).toHaveLength(2);
+  });
+
+  it("keeps the production guard closed until something asks", () => {
+    render(<AppLayout />);
+    expect(screen.getAllByTestId("confirm-dialog")[GUARD_DIALOG]).toHaveAttribute(
+      "data-open",
+      "false",
+    );
   });
 
   it("renders Sidebar when not collapsed", () => {
@@ -314,7 +328,7 @@ describe("AppLayout", () => {
 
   it("ConfirmDialog isOpen=false by default", () => {
     render(<AppLayout />);
-    const dialog = screen.getByTestId("confirm-dialog");
+    const dialog = screen.getAllByTestId("confirm-dialog")[QUERY_DIALOG];
     expect(dialog.getAttribute("data-open")).toBe("false");
   });
 
@@ -340,7 +354,7 @@ describe("AppLayout", () => {
   it("ConfirmDialog shows when confirmDialog is set", () => {
     resultState.confirmDialog = { isOpen: true };
     render(<AppLayout />);
-    const dialog = screen.getByTestId("confirm-dialog");
+    const dialog = screen.getAllByTestId("confirm-dialog")[QUERY_DIALOG];
     expect(dialog.getAttribute("data-open")).toBe("true");
   });
 

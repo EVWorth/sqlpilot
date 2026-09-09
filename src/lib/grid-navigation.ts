@@ -35,3 +35,21 @@ export function nextEditableCell(
   if (rowIndex < 0 || rowIndex > lastRow) return null;
   return { rowIndex, colIndex };
 }
+
+/**
+ * A one-line summary of pending grid edits, for the production confirmation.
+ *
+ * The dialog has to say what is about to be written. "Apply 12 change(s)"
+ * alone does not distinguish twelve cell edits from twelve deleted rows.
+ */
+export function describeGridChanges(counts: {
+  updates: number;
+  inserts: number;
+  deletes: number;
+}): string {
+  const parts: string[] = [];
+  if (counts.updates) parts.push(`${counts.updates} row(s) updated`);
+  if (counts.inserts) parts.push(`${counts.inserts} row(s) inserted`);
+  if (counts.deletes) parts.push(`${counts.deletes} row(s) deleted`);
+  return parts.join(", ");
+}

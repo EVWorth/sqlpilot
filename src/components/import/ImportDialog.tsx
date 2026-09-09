@@ -4,6 +4,7 @@ import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
 import { generateBatchInsert, splitSqlStatements } from "../../lib/sql-import";
 import { isDestructiveStatement } from "../../lib/sql-safety";
 import { api } from "../../lib/tauri-api";
+import { confirmDestructive } from "../../stores/productionGuardStore";
 import type { ColumnInfo, TableInfo } from "../../types";
 
 interface ImportDialogProps {
@@ -195,6 +196,20 @@ export function ImportDialog({
       stoppedAt: null,
     };
     setProgress({ ...prog });
+
+    // Once for the run rather than per statement: a dump can hold thousands,
+    // and a prompt on each would be held down rather than read (#588).
+    if (
+      !(await confirmDestructive({
+        connectionId,
+        sql: statements,
+        action: `Import ${statements.length} statement(s) into \`${database}\`?`,
+        detail: "Some of them drop or alter existing objects.",
+      }))
+    ) {
+      setImporting(false);
+      return;
+    }
 
     // Every error used to be counted and the run carried on to the end, so a
     // dump whose CREATE TABLE failed still executed all of its INSERTs

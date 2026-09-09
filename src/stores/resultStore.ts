@@ -5,6 +5,7 @@ import { api } from "../lib/tauri-api";
 import type { QueryResult } from "../types";
 import { useConnectionStore } from "./connectionStore";
 import { useHistoryStore } from "./historyStore";
+import { isProductionConnection } from "./productionGuardStore";
 import { useSettingsStore } from "./settingsStore";
 
 /**
@@ -79,14 +80,6 @@ let activeExecution: { generation: number; connectionId: string } | null = null;
 /** Release the slot only if this execution still owns it. */
 function endExecution(generation: number) {
   if (activeExecution?.generation === generation) activeExecution = null;
-}
-
-function isProductionConnection(connectionId: string): boolean {
-  const state = useConnectionStore.getState();
-  const conn = state.activeConnections.find((c) => c.id === connectionId);
-  if (!conn) return false;
-  const profile = state.profiles.find((p) => p.id === conn.profile_id);
-  return profile?.environment === "production";
 }
 
 export const useResultStore = create<ResultState>((set, get) => ({

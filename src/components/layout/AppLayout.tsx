@@ -7,6 +7,7 @@ import { useTheme } from "../../hooks/useTheme";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { useProductionGuardStore } from "../../stores/productionGuardStore";
 import type { PendingKind } from "../../stores/resultStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
@@ -68,6 +69,8 @@ export function AppLayout() {
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const selectedConnection = activeConnections.find((c) => c.id === selectedConnectionId);
   const confirmDialog = useResultStore((s) => s.confirmDialog);
+  const guardRequest = useProductionGuardStore((s) => s.pending);
+  const answerGuard = useProductionGuardStore((s) => s.answer);
   const confirmExecution = useResultStore((s) => s.confirmExecution);
   const cancelExecution = useResultStore((s) => s.cancelExecution);
   const aiEnabled = useAiStore((s) => s.aiEnabled);
@@ -325,6 +328,21 @@ export function AppLayout() {
         danger
         onConfirm={confirmExecution}
         onCancel={cancelExecution}
+      />
+      {
+        /* The awaitable gate (#588). Separate from the one above because that
+          one runs the statement itself, while this one only answers yes or no
+          and leaves the caller to carry on. */
+      }
+      <ConfirmDialog
+        isOpen={!!guardRequest}
+        title={guardRequest?.title ?? ""}
+        message={guardRequest?.message ?? ""}
+        confirmLabel={guardRequest?.confirmLabel ?? "Run anyway"}
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => answerGuard(true)}
+        onCancel={() => answerGuard(false)}
       />
     </div>
   );

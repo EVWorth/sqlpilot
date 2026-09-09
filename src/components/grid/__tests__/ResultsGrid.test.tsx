@@ -1,7 +1,8 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { generateUpdate, resolveEditTarget } from "../../../lib/sql-generator";
 import { api } from "../../../lib/tauri-api";
+import { useProductionGuardStore } from "../../../stores/productionGuardStore";
 import { ResultsGrid } from "../ResultsGrid";
 
 const state = {
@@ -44,13 +45,25 @@ vi.mock("../../../stores/editorStore", () => ({
 
 let connSelectedId: string | null = null;
 
+// The production guard reads these (#588); a mock without them made every
+// save throw rather than run.
+const connStoreExtras: {
+  activeConnections: { id: string; profile_id: string }[];
+  profiles: { id: string; environment?: string }[];
+} = { activeConnections: [], profiles: [] };
+
 vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: Object.assign(
     vi.fn((selector?: (s: any) => any) => {
-      const s = { selectedConnectionId: connSelectedId };
+      const s = { selectedConnectionId: connSelectedId, ...connStoreExtras };
       return selector ? selector(s) : s;
     }),
-    { getState: vi.fn(() => ({ selectedConnectionId: connSelectedId })) },
+    {
+      getState: vi.fn(() => ({
+        selectedConnectionId: connSelectedId,
+        ...connStoreExtras,
+      })),
+    },
   ),
 }));
 
@@ -484,5 +497,76 @@ describe("saving edits safely", () => {
     });
 
     expect(await screen.findByText(/matched a row/)).toBeDefined();
+  });
+
+  describe("on a production connection (#588)", () => {
+    beforeEach(() => {
+      connStoreExtras.activeConnections = [{ id: "conn-1", profile_id: "p1" }];
+      connStoreExtras.profiles = [{ id: "p1", environment: "production" }];
+      useProductionGuardStore.setState({ pending: null, resolve: null });
+    });
+
+    afterEach(() => {
+      connStoreExtras.activeConnections = [];
+      connStoreExtras.profiles = [];
+    });
+
+    it("asks before writing, and says what it is about to write", async () => {
+      render(<ResultsGrid />);
+      fireEvent.click(screen.getByTestId("save-button"));
+
+      await waitFor(() => {
+        expect(useProductionGuardStore.getState().pending).not.toBeNull();
+      });
+      const asked = useProductionGuardStore.getState().pending!;
+      expect(asked.message).toContain("`users`");
+      expect(asked.message).toContain("1 row(s) updated");
+      // Nothing has run yet — the question comes first.
+      expect(api.executeQuery).not.toHaveBeenCalled();
+    });
+
+    it("writes nothing when the user declines", async () => {
+      render(<ResultsGrid />);
+      fireEvent.click(screen.getByTestId("save-button"));
+
+      await waitFor(() => {
+        expect(useProductionGuardStore.getState().pending).not.toBeNull();
+      });
+      useProductionGuardStore.getState().answer(false);
+
+      await waitFor(() => {
+        expect(useProductionGuardStore.getState().pending).toBeNull();
+      });
+      expect(api.executeQuery).not.toHaveBeenCalled();
+      // The edits are still there to save again — declining is not discarding.
+      expect(mockGridEditing.discardAll).not.toHaveBeenCalled();
+    });
+
+    it("writes once the user confirms", async () => {
+      render(<ResultsGrid />);
+      fireEvent.click(screen.getByTestId("save-button"));
+
+      await waitFor(() => {
+        expect(useProductionGuardStore.getState().pending).not.toBeNull();
+      });
+      useProductionGuardStore.getState().answer(true);
+
+      await waitFor(() => {
+        expect(api.executeQuery).toHaveBeenCalled();
+      });
+      const batch = vi.mocked(api.executeQuery).mock.calls[0][1];
+      expect(batch).toContain("UPDATE");
+    });
+
+    it("does not ask on a connection that is not production", async () => {
+      connStoreExtras.profiles = [{ id: "p1", environment: "staging" }];
+      render(<ResultsGrid />);
+      fireEvent.click(screen.getByTestId("save-button"));
+
+      await waitFor(() => {
+        expect(api.executeQuery).toHaveBeenCalled();
+      });
+      expect(useProductionGuardStore.getState().pending).toBeNull();
+    });
   });
 });

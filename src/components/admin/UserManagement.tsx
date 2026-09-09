@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { quoteIdentifier, quoteStringLiteral } from "../../lib/sql-quote";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
+import { confirmDestructive } from "../../stores/productionGuardStore";
 import { SQLPreviewDialog } from "../common/SQLPreviewDialog";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
 import { CreateUserDialog } from "./CreateUserDialog";
@@ -123,11 +124,18 @@ export function UserManagement({ connectionId }: UserManagementProps) {
 
   const handleDropUser = async () => {
     if (!selectedUser) return;
-    try {
-      await api.executeQuery(
+    const sql = `DROP USER ${quoteStringLiteral(selectedUser.user)}@${quoteStringLiteral(selectedUser.host)}`;
+    // The panel's own confirmation asks whether to drop the user; this asks
+    // whether to do it on production, which is a different question (#588).
+    if (
+      !(await confirmDestructive({
         connectionId,
-        `DROP USER ${quoteStringLiteral(selectedUser.user)}@${quoteStringLiteral(selectedUser.host)}`,
-      );
+        sql,
+        action: `Drop user ${selectedUser.user}@${selectedUser.host}?`,
+      }))
+    ) return;
+    try {
+      await api.executeQuery(connectionId, sql);
       setSelectedUser(null);
       setConfirmDrop(false);
       handleRefresh();
@@ -846,6 +854,16 @@ function PrivilegesEditor({
     // user with less access than intended rather than more. Being locked out
     // of a schema is recoverable and obvious; retaining a privilege an admin
     // believed they had removed is neither.
+    if (
+      !(await confirmDestructive({
+        connectionId,
+        sql: statements,
+        action: statements.length === 1
+          ? "Change privileges?"
+          : `Apply ${statements.length} privilege changes?`,
+      }))
+    ) return;
+
     const applied: string[] = [];
     // Held rather than set immediately: the re-read below calls loadGrants,
     // which clears the error as it starts, and would wipe this report.
