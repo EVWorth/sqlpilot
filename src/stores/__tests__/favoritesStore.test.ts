@@ -304,4 +304,99 @@ describe("favoritesStore", () => {
       expect(result).toHaveLength(0);
     });
   });
+  describe("duplicate names", () => {
+    const base = { sql: "SELECT 1", category: "Uncategorized" };
+
+    it("refuses a second favorite with the same name in the same category", () => {
+      const store = useFavoritesStore.getState();
+      const first = store.addFavorite({ ...base, name: "Active users" });
+      const second = store.addFavorite({ ...base, name: "Active users", sql: "SELECT 2" });
+
+      expect(second).toEqual({
+        ok: false,
+        reason: "duplicate",
+        existingId: first.ok ? first.id : "",
+      });
+      expect(useFavoritesStore.getState().favorites).toHaveLength(1);
+    });
+
+    it("leaves the existing favorite untouched when it refuses", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Active users" });
+      store.addFavorite({ ...base, name: "Active users", sql: "DROP TABLE users" });
+
+      const [only] = useFavoritesStore.getState().favorites;
+      expect(only.sql).toBe("SELECT 1");
+    });
+
+    it("ignores case and surrounding whitespace", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Active users" });
+
+      expect(store.addFavorite({ ...base, name: "  ACTIVE USERS  " }).ok).toBe(false);
+    });
+
+    it("allows the same name in a different category", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Active users" });
+
+      expect(store.addFavorite({ ...base, name: "Active users", category: "Reports" }).ok).toBe(
+        true,
+      );
+      expect(useFavoritesStore.getState().favorites).toHaveLength(2);
+    });
+
+    it("refuses a rename onto a sibling's name and keeps the old one", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Taken" });
+      const mine = store.addFavorite({ ...base, name: "Mine" });
+      const id = mine.ok ? mine.id : "";
+
+      expect(store.renameFavorite(id, "Taken").ok).toBe(false);
+      expect(useFavoritesStore.getState().favorites.find((f) => f.id === id)?.name).toBe("Mine");
+    });
+
+    it("does not treat a favorite as its own duplicate", () => {
+      const store = useFavoritesStore.getState();
+      const mine = store.addFavorite({ ...base, name: "Mine" });
+      const id = mine.ok ? mine.id : "";
+
+      expect(store.renameFavorite(id, "MINE").ok).toBe(true);
+      expect(useFavoritesStore.getState().favorites[0].name).toBe("MINE");
+    });
+
+    it("refuses a move into a category that already holds the name", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Shared", category: "Reports" });
+      const mine = store.addFavorite({ ...base, name: "Shared" });
+      const id = mine.ok ? mine.id : "";
+
+      expect(store.moveToCategory(id, "Reports").ok).toBe(false);
+      expect(useFavoritesStore.getState().favorites.find((f) => f.id === id)?.category).toBe(
+        "Uncategorized",
+      );
+    });
+
+    it("refuses an update whose name and category together collide", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Shared", category: "Reports" });
+      const mine = store.addFavorite({ ...base, name: "Mine" });
+      const id = mine.ok ? mine.id : "";
+
+      expect(store.updateFavorite(id, { name: "Shared", category: "Reports" }).ok).toBe(false);
+    });
+
+    it("suffixes rather than collides when a deleted category is swept up", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Shared" });
+      store.addFavorite({ ...base, name: "Shared", category: "Reports" });
+
+      store.deleteCategory("Reports");
+
+      const names = useFavoritesStore.getState().favorites.map((f) => f.name).sort();
+      expect(names).toEqual(["Shared", "Shared (2)"]);
+      expect(useFavoritesStore.getState().favorites.every((f) => f.category === "Uncategorized"))
+        .toBe(true);
+    });
+  });
 });

@@ -20,39 +20,66 @@ export function SaveFavoriteDialog({
   const categories = useFavoritesStore((s) => s.categories);
   const addFavorite = useFavoritesStore((s) => s.addFavorite);
   const addCategory = useFavoritesStore((s) => s.addCategory);
+  const updateFavorite = useFavoritesStore((s) => s.updateFavorite);
 
   const [name, setName] = useState("");
   const [category, setCategory] = useState("Uncategorized");
   const [newCategory, setNewCategory] = useState("");
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [description, setDescription] = useState("");
+  // The favorite this name already belongs to, once the store has refused the
+  // save. Held rather than just a message so the user can overwrite it from
+  // here instead of cancelling, renaming and losing the SQL they came to save.
+  const [conflictId, setConflictId] = useState<string | null>(null);
 
   if (!isOpen) return null;
 
-  const handleSave = () => {
-    if (!name.trim()) return;
-
-    let finalCategory = category;
-    if (showNewCategory && newCategory.trim()) {
-      finalCategory = newCategory.trim();
-      addCategory(finalCategory);
-    }
-
-    addFavorite({
-      name: name.trim(),
-      sql,
-      category: finalCategory,
-      description: description.trim() || undefined,
-      connectionName,
-      database,
-    });
-
+  const reset = () => {
     setName("");
     setCategory("Uncategorized");
     setNewCategory("");
     setShowNewCategory(false);
     setDescription("");
+    setConflictId(null);
     onClose();
+  };
+
+  // Names the category without creating it: a save that the store refuses
+  // should not leave a stray empty category behind. addFavorite registers an
+  // unknown category itself; the overwrite path has to ask for it.
+  const targetCategory = showNewCategory && newCategory.trim() ? newCategory.trim() : category;
+
+  const handleSave = () => {
+    if (!name.trim()) return;
+
+    const result = addFavorite({
+      name: name.trim(),
+      sql,
+      category: targetCategory,
+      description: description.trim() || undefined,
+      connectionName,
+      database,
+    });
+
+    // The dialog stays open on a refusal: closing it would discard the SQL
+    // along with the name the user still has to change (#332).
+    if (!result.ok) {
+      setConflictId(result.existingId);
+      return;
+    }
+    reset();
+  };
+
+  const handleOverwrite = () => {
+    if (!conflictId) return;
+    addCategory(targetCategory);
+    updateFavorite(conflictId, {
+      name: name.trim(),
+      sql,
+      category: targetCategory,
+      description: description.trim() || undefined,
+    });
+    reset();
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -99,11 +126,26 @@ export function SaveFavoriteDialog({
             <input
               type="text"
               value={name}
-              onChange={(e) => setName(e.target.value)}
+              onChange={(e) => {
+                setName(e.target.value);
+                setConflictId(null);
+              }}
               placeholder="e.g. Get active users"
               autoFocus
-              className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-brand-500"
+              aria-invalid={conflictId !== null || undefined}
+              aria-describedby={conflictId ? "favorite-name-error" : undefined}
+              className={`w-full rounded border bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none ${
+                conflictId
+                  ? "border-red-500 focus:border-red-500"
+                  : "border-[var(--color-border)] focus:border-brand-500"
+              }`}
             />
+            {conflictId && (
+              <p id="favorite-name-error" role="alert" className="mt-1 text-[11px] text-red-400">
+                A favorite named &ldquo;{name.trim()}&rdquo; is already in{" "}
+                {targetCategory}. Rename it, or overwrite the existing one.
+              </p>
+            )}
           </div>
 
           {/* Category */}
@@ -184,9 +226,17 @@ export function SaveFavoriteDialog({
           >
             Cancel
           </button>
+          {conflictId && (
+            <button
+              onClick={handleOverwrite}
+              className="rounded border border-red-500/60 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10"
+            >
+              Overwrite
+            </button>
+          )}
           <button
             onClick={handleSave}
-            disabled={!name.trim()}
+            disabled={!name.trim() || conflictId !== null}
             className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Save Favorite

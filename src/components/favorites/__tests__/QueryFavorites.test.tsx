@@ -106,9 +106,9 @@ beforeAll(() => {
 
 beforeEach(() => {
   storeState.deleteFavorite.mockClear();
-  storeState.renameFavorite.mockClear();
-  storeState.moveToCategory.mockClear();
-  storeState.updateFavorite.mockClear();
+  storeState.renameFavorite.mockClear().mockReturnValue({ ok: true, id: "fav1" });
+  storeState.moveToCategory.mockClear().mockReturnValue({ ok: true, id: "fav1" });
+  storeState.updateFavorite.mockClear().mockReturnValue({ ok: true, id: "fav1" });
   storeState.addCategory.mockClear();
   storeState.deleteCategory.mockClear();
   updateTabContent.mockReset();
@@ -315,5 +315,77 @@ describe("QueryFavorites — dirty-tab overwrite confirmation (#341)", () => {
 
     expect(updateTabContent).not.toHaveBeenCalled();
     expect(screen.queryByText("Unsaved changes will be lost.")).not.toBeInTheDocument();
+  });
+
+  describe("renaming", () => {
+    /** Put "Get Active Users" into rename mode and return its input. */
+    function startRename() {
+      fireEvent.contextMenu(screen.getByText("Get Active Users"));
+      fireEvent.click(screen.getByTestId("ctx-item-Rename"));
+      return screen.getByDisplayValue("Get Active Users");
+    }
+
+    it("commits on Enter", () => {
+      render(<QueryFavorites />);
+      const input = startRename();
+
+      fireEvent.change(input, { target: { value: "Renamed" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(storeState.renameFavorite).toHaveBeenCalledWith("fav1", "Renamed");
+    });
+
+    it("commits on blur when focus leaves the row", () => {
+      render(<QueryFavorites />);
+      const input = startRename();
+
+      fireEvent.change(input, { target: { value: "Renamed" } });
+      fireEvent.blur(input);
+
+      expect(storeState.renameFavorite).toHaveBeenCalledWith("fav1", "Renamed");
+    });
+
+    it("does not commit after Escape, even if a blur follows (#333)", () => {
+      render(<QueryFavorites />);
+      const input = startRename();
+
+      fireEvent.change(input, { target: { value: "Renamed" } });
+      fireEvent.keyDown(input, { key: "Escape" });
+      // Whether unmounting a focused input fires blur is a renderer detail, so
+      // the cancel has to hold even when it does.
+      fireEvent.blur(input);
+
+      expect(storeState.renameFavorite).not.toHaveBeenCalled();
+      expect(screen.getByText("Get Active Users")).toBeInTheDocument();
+    });
+
+    it("ignores a press elsewhere in the row instead of loading the query (#333)", () => {
+      render(<QueryFavorites />);
+      const input = startRename();
+      fireEvent.change(input, { target: { value: "Half typed" } });
+
+      const row = input.closest("div.group") as HTMLElement;
+      fireEvent.mouseDown(row);
+      fireEvent.click(row);
+
+      expect(updateTabContent).not.toHaveBeenCalled();
+      expect(screen.getByDisplayValue(/typed|Order Summary/)).toBeInTheDocument();
+    });
+
+    it("stays in edit mode and explains when the store refuses the name", () => {
+      storeState.renameFavorite.mockReturnValue({
+        ok: false,
+        reason: "duplicate",
+        existingId: "fav2",
+      });
+      render(<QueryFavorites />);
+      const input = startRename();
+
+      fireEvent.change(input, { target: { value: "Order Summary" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/already used/);
+      expect(screen.getByDisplayValue(/typed|Order Summary/)).toBeInTheDocument();
+    });
   });
 });

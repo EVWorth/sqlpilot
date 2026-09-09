@@ -1,12 +1,17 @@
 import { fireEvent, render, screen } from "@testing-library/react";
-import { beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { SaveFavoriteDialog } from "../SaveFavoriteDialog";
 
-const { useFavoritesStoreFn, mockAddFavorite, mockAddCategory } = vi.hoisted(() => {
-  return { useFavoritesStoreFn: vi.fn(), mockAddFavorite: vi.fn(), mockAddCategory: vi.fn() };
+const { useFavoritesStoreFn, mockAddFavorite, mockAddCategory, mockUpdateFavorite } = vi.hoisted(() => {
+  return {
+    useFavoritesStoreFn: vi.fn(),
+    mockAddFavorite: vi.fn(),
+    mockAddCategory: vi.fn(),
+    mockUpdateFavorite: vi.fn(),
+  };
 });
 
-vi.mock("../../stores/favoritesStore", () => ({
+vi.mock("../../../stores/favoritesStore", () => ({
   useFavoritesStore: useFavoritesStoreFn,
 }));
 
@@ -16,9 +21,29 @@ beforeAll(() => {
       categories: ["Uncategorized", "Reports", "Monitoring"],
       addFavorite: mockAddFavorite,
       addCategory: mockAddCategory,
+      updateFavorite: mockUpdateFavorite,
     })
   );
 });
+
+beforeEach(() => {
+  mockAddFavorite.mockReset().mockReturnValue({ ok: true, id: "fav-1" });
+  mockAddCategory.mockReset();
+  mockUpdateFavorite.mockReset().mockReturnValue({ ok: true, id: "fav-1" });
+});
+
+/** Fill in a name and press Save. */
+function save(favName: string) {
+  fireEvent.change(screen.getByPlaceholderText("e.g. Get active users"), {
+    target: { value: favName },
+  });
+  fireEvent.click(screen.getByText("Save Favorite"));
+}
+
+/** Make the next addFavorite come back as a name collision. */
+function refuseAsDuplicate() {
+  mockAddFavorite.mockReturnValue({ ok: false, reason: "duplicate", existingId: "fav-existing" });
+}
 
 function dp(overrides = {}) {
   return {
@@ -99,5 +124,67 @@ describe("SaveFavoriteDialog", () => {
     render(<SaveFavoriteDialog {...dp({ onClose })} />);
     fireEvent.click(document.querySelector(".fixed.inset-0") as HTMLElement);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  describe("duplicate names", () => {
+    it("keeps the dialog open and says so when the store refuses (#332)", () => {
+      const onClose = vi.fn();
+      refuseAsDuplicate();
+      render(<SaveFavoriteDialog {...dp({ onClose })} />);
+
+      save("Active users");
+
+      expect(screen.getByRole("alert")).toHaveTextContent(/already in Uncategorized/);
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("disables Save until the name changes", () => {
+      refuseAsDuplicate();
+      render(<SaveFavoriteDialog {...dp()} />);
+
+      save("Active users");
+      expect(screen.getByText("Save Favorite")).toBeDisabled();
+
+      fireEvent.change(screen.getByPlaceholderText("e.g. Get active users"), {
+        target: { value: "Active users 2" },
+      });
+      expect(screen.getByText("Save Favorite")).not.toBeDisabled();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
+
+    it("overwrites the existing favorite on request", () => {
+      const onClose = vi.fn();
+      refuseAsDuplicate();
+      render(<SaveFavoriteDialog {...dp({ onClose })} />);
+
+      save("Active users");
+      fireEvent.click(screen.getByText("Overwrite"));
+
+      expect(mockUpdateFavorite).toHaveBeenCalledWith("fav-existing", {
+        name: "Active users",
+        sql: "SELECT * FROM users WHERE active = 1",
+        category: "Uncategorized",
+        description: undefined,
+      });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers no Overwrite button before a collision", () => {
+      render(<SaveFavoriteDialog {...dp()} />);
+      expect(screen.queryByText("Overwrite")).not.toBeInTheDocument();
+    });
+
+    it("does not create the typed category when the save is refused", () => {
+      refuseAsDuplicate();
+      render(<SaveFavoriteDialog {...dp()} />);
+
+      fireEvent.click(screen.getByText("+ New"));
+      fireEvent.change(screen.getByPlaceholderText("New category name"), {
+        target: { value: "Reports 2026" },
+      });
+      save("Active users");
+
+      expect(mockAddCategory).not.toHaveBeenCalled();
+    });
   });
 });
