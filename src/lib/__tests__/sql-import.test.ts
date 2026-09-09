@@ -105,3 +105,40 @@ describe("generateBatchInsert", () => {
     expect(result[0]).toContain("`col``1`");
   });
 });
+
+describe("CSV cells reach the server as values, not as SQL", () => {
+  const insert = (value: string) => generateBatchInsert("t", ["c"], [[value]], 10)[0];
+
+  it("keeps a quote-and-semicolon payload inside the literal", () => {
+    // The escape table is the security boundary — the point #364 makes. It is
+    // the shared one now, so there is a single implementation to get right.
+    const sql = insert("x'); DROP TABLE users; --");
+    expect(sql).toContain("'x\\'); DROP TABLE users; --'");
+    // One statement, and the payload is inside the quotes.
+    expect(sql.match(/INSERT INTO/g)).toHaveLength(1);
+  });
+
+  it("doubles a backslash, so it cannot escape the closing quote", () => {
+    // The failure that bit admin (#444) and the routine viewer (#397): a
+    // trailing backslash swallowing the quote that ends the literal.
+    expect(insert("ends with \\")).toContain("'ends with \\\\'");
+  });
+
+  it("escapes the characters MySQL reads specially", () => {
+    const sql = insert("a\nb\rc\u0000d");
+    expect(sql).toContain("\\n");
+    expect(sql).toContain("\\r");
+    expect(sql).toContain("\\0");
+  });
+
+  it("quotes identifiers, so a backtick in a name cannot end the quoting", () => {
+    const sql = generateBatchInsert("we`ird", ["col`umn"], [["v"]], 10)[0];
+    expect(sql).toContain("INSERT INTO `we``ird` (`col``umn`)");
+  });
+
+  it("writes an empty cell as NULL", () => {
+    // A choice, not a reading of the file: CSV cannot distinguish an empty
+    // string from an absent value once parsed (#578).
+    expect(insert("")).toContain("(NULL)");
+  });
+});

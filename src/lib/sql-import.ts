@@ -1,18 +1,26 @@
+import { quoteIdentifier, quoteStringLiteral } from "./sql-quote";
+
 /**
- * Escape a value for use in a MySQL INSERT statement.
+ * Render one CSV cell as a SQL literal.
+ *
+ * The escaping is the shared one rather than a third copy of the rules. The
+ * risk this closes is the one #364 names: the escape table is the security
+ * boundary, and three implementations of it means three chances for a future
+ * change to drop a transformation from one of them. There is now one, with
+ * its own tests, used by the grid, the routine viewer, admin and here.
+ *
+ * The only rule dropped in the move is escaping a tab as \t. A literal tab
+ * inside a quoted string is valid MySQL and round-trips unchanged, so the
+ * value is the same; only the statement's appearance differs.
  */
-function escapeValue(value: string): string {
+function csvCellToSql(value: string): string {
+  // An empty cell becomes NULL. CSV cannot distinguish an empty string from
+  // an absent value once parsed — `,,` and `,"",` both arrive here as "" —
+  // so this is a choice rather than a reading of the file (#578).
   if (value === "") {
     return "NULL";
   }
-  const escaped = value
-    .replace(/\\/g, "\\\\")
-    .replace(/'/g, "\\'")
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r")
-    .replace(/\t/g, "\\t")
-    .replace(/\0/g, "\\0");
-  return `'${escaped}'`;
+  return quoteStringLiteral(value);
 }
 
 /**
@@ -27,14 +35,14 @@ export function generateBatchInsert(
 ): string[] {
   if (rows.length === 0 || columns.length === 0) return [];
 
-  const escapedTable = `\`${tableName.replace(/`/g, "``")}\``;
-  const escapedCols = columns.map((c) => `\`${c.replace(/`/g, "``")}\``).join(", ");
+  const escapedTable = quoteIdentifier(tableName);
+  const escapedCols = columns.map(quoteIdentifier).join(", ");
   const statements: string[] = [];
 
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
     const valueRows = batch.map((row) => {
-      const values = columns.map((_, colIdx) => escapeValue(row[colIdx] ?? ""));
+      const values = columns.map((_, colIdx) => csvCellToSql(row[colIdx] ?? ""));
       return `(${values.join(", ")})`;
     });
     statements.push(

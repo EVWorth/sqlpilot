@@ -1,7 +1,8 @@
-import { AlertCircle, CheckCircle2, FileText, Loader2, Table2, Upload, X } from "lucide-react";
+import { AlertCircle, AlertTriangle, CheckCircle2, FileText, Loader2, Table2, Upload, X } from "lucide-react";
 import { useCallback, useState } from "react";
 import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
 import { generateBatchInsert, splitSqlStatements } from "../../lib/sql-import";
+import { isDestructiveStatement } from "../../lib/sql-safety";
 import { api } from "../../lib/tauri-api";
 import type { ColumnInfo, TableInfo } from "../../types";
 
@@ -37,6 +38,7 @@ export function ImportDialog({
 
   // SQL mode state
   const [sqlPreview, setSqlPreview] = useState<string[]>([]);
+  const [destructiveStatements, setDestructiveStatements] = useState<string[]>([]);
   const [statementCount, setStatementCount] = useState(0);
 
   // CSV mode state
@@ -61,6 +63,7 @@ export function ImportDialog({
     setProgress(null);
     setImporting(false);
     setSqlPreview([]);
+    setDestructiveStatements([]);
     setStatementCount(0);
     setCsvHeaders([]);
     setCsvRows([]);
@@ -92,6 +95,9 @@ export function ImportDialog({
         setSqlPreview(lines);
         const stmts = splitSqlStatements(content);
         setStatementCount(stmts.length);
+        // A dump's DROP TABLE can sit at line 5,000. Counting them up front
+        // means the user is told what the file does without reading it (#367).
+        setDestructiveStatements(stmts.filter(isDestructiveStatement));
       } else {
         parseCsvContent(content, csvOptions);
         await loadTables();
@@ -341,6 +347,30 @@ export function ImportDialog({
               <div className="text-xs text-[var(--color-text-muted)]">
                 {statementCount} statement{statementCount !== 1 ? "s" : ""} detected
               </div>
+              {destructiveStatements.length > 0 && (
+                <div
+                  data-testid="destructive-warning"
+                  className="rounded border border-amber-600 bg-amber-900/20 px-3 py-2 text-[11px] text-amber-300"
+                >
+                  <p className="flex items-center gap-1.5 font-medium">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                    {destructiveStatements.length} statement
+                    {destructiveStatements.length !== 1 ? "s" : ""} in this file will drop or overwrite data
+                  </p>
+                  <ul className="mt-1.5 space-y-0.5 font-mono">
+                    {destructiveStatements.slice(0, 5).map((stmt, i) => (
+                      <li key={i} className="truncate" title={stmt}>
+                        {stmt.trim().slice(0, 120)}
+                      </li>
+                    ))}
+                  </ul>
+                  {destructiveStatements.length > 5 && (
+                    <p className="mt-1 text-amber-400/80">
+                      and {destructiveStatements.length - 5} more
+                    </p>
+                  )}
+                </div>
+              )}
               <div className="max-h-48 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2">
                 <pre className="text-[11px] text-[var(--color-text-secondary)] whitespace-pre-wrap font-mono">
                   {sqlPreview.join("\n")}
