@@ -73,6 +73,8 @@ function makeQueryResult(overrides: Partial<any> = {}) {
   return {
     query_id: "q1",
     statement_index: 0,
+    // The backend reports the statement each result came from (#329).
+    sql: "SELECT 1",
     columns: [],
     rows: [["row1"]],
     rows_affected: 0,
@@ -429,7 +431,9 @@ describe("resultStore", () => {
 
   describe("confirmExecution", () => {
     it("calls doExecuteQuery when dialog exists", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      // The entry records the statement the *result* names, so the fixture has
+      // to agree with what was run (#329).
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "DROP TABLE users" })]);
 
       useResultStore.setState({
         confirmDialog: {
@@ -795,6 +799,52 @@ describe("resultStore", () => {
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({ status: "error", connectionName: "Test DB" }),
       );
+    });
+  });
+
+  describe("multi-statement runs (#329)", () => {
+    it("records one entry per statement, not one for the batch", async () => {
+      executeQueryMock.mockResolvedValue([
+        makeQueryResult({ statement_index: 0, sql: "SELECT 1", rows: [["a"]] }),
+        makeQueryResult({ statement_index: 1, sql: "SELECT 2", rows: [["b"], ["c"]] }),
+      ]);
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1; SELECT 2");
+
+      expect(addEntryMock).toHaveBeenCalledTimes(2);
+      expect(addEntryMock.mock.calls.map(([e]) => e.sql)).toEqual(["SELECT 1", "SELECT 2"]);
+    });
+
+    it("attributes each row count to its own statement", async () => {
+      executeQueryMock.mockResolvedValue([
+        makeQueryResult({ sql: "SELECT 1", rows: [["a"]] }),
+        makeQueryResult({ sql: "SELECT 2", rows: [["b"], ["c"]] }),
+      ]);
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1; SELECT 2");
+
+      expect(addEntryMock.mock.calls.map(([e]) => e.rowCount)).toEqual([1, 2]);
+    });
+
+    it("falls back to the whole script when a result carries no statement", async () => {
+      // A backend that does not report per-statement text should leave the
+      // panel showing what ran, which is the pre-#329 behaviour, rather than
+      // an empty row.
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "" })]);
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1; SELECT 2");
+
+      expect(addEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({ sql: "SELECT 1; SELECT 2" }),
+      );
+    });
+
+    it("records nothing for a run that produced no results", async () => {
+      executeQueryMock.mockResolvedValue([]);
+
+      await useResultStore.getState().executeQuery("conn-1", "SET @x = 1");
+
+      expect(addEntryMock).not.toHaveBeenCalled();
     });
   });
 });

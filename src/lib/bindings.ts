@@ -481,6 +481,13 @@ export type QueryError = {
 	code: number | null,
 	/**  SQLSTATE, where the driver supplies one. MySQL does; SQLite does not. */
 	sqlState: string | null,
+	/**
+	 *  Which statement of a multi-statement run failed, zero-based.
+	 * 
+	 *  A script whose third statement failed used to surface as one opaque
+	 *  failure, with no way to tell which line to look at (#329).
+	 */
+	statementIndex: number | null,
 };
 
 export type QueryResult = QueryResult_Serialize | QueryResult_Deserialize;
@@ -488,6 +495,16 @@ export type QueryResult = QueryResult_Serialize | QueryResult_Deserialize;
 export type QueryResult_Deserialize = {
 	query_id: string,
 	statement_index: number,
+	/**
+	 *  The statement this result came from.
+	 * 
+	 *  Carried rather than left to the caller to re-derive: a multi-statement
+	 *  run recorded one history entry for the whole batch, so a script whose
+	 *  third statement failed showed as one opaque failure (#329). Splitting
+	 *  the text again in the frontend would be a second splitter to keep in
+	 *  step with this one, and they would drift.
+	 */
+	sql: string,
 	columns: ColumnMeta[],
 	rows: SqlValue[][],
 	rows_affected: number,
@@ -510,6 +527,16 @@ export type QueryResult_Deserialize = {
 export type QueryResult_Serialize = {
 	query_id: string,
 	statement_index: number,
+	/**
+	 *  The statement this result came from.
+	 * 
+	 *  Carried rather than left to the caller to re-derive: a multi-statement
+	 *  run recorded one history entry for the whole batch, so a script whose
+	 *  third statement failed showed as one opaque failure (#329). Splitting
+	 *  the text again in the frontend would be a second splitter to keep in
+	 *  step with this one, and they would drift.
+	 */
+	sql: string,
 	columns: ColumnMeta[],
 	rows: SqlValue[][],
 	rows_affected: number,

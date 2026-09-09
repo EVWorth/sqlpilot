@@ -114,6 +114,10 @@ const sqlite: DataSource = {
     (await api.sqliteExecute(c, sql)).map((r) => ({
       query_id: r.query_id,
       statement_index: r.statement_index,
+      // The SQLite executor does not report per-statement text yet, so the
+      // whole input stands in. History then shows what ran, which is the
+      // pre-#329 behaviour rather than a wrong attribution.
+      sql,
       columns: r.columns.map((col) => ({
         name: col.name,
         data_type: col.data_type,

@@ -56,6 +56,7 @@ pub async fn sqlite_execute(
                 message: e.to_string(),
                 code: None,
                 sql_state: None,
+                statement_index: None,
             },
         })
 }

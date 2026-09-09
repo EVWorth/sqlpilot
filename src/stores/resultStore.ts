@@ -252,7 +252,6 @@ async function doExecuteQuery(
     if (cancelGeneration !== myGeneration) return;
     set({ results, activeResultIndex: 0, isExecuting: false });
 
-    const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);
     if (!conn) {
       // The statement ran and succeeded, so it is a real record and worth
       // keeping even unattributed — but the frontend's connection list
@@ -262,21 +261,35 @@ async function doExecuteQuery(
         `Recorded a successful query against ${connectionId}, which is not in activeConnections`,
       );
     }
-    void useHistoryStore.getState().addEntry({
-      id: crypto.randomUUID(),
-      sql,
-      connectionName,
-      // Rust's Option round-trips as null, so an absent field is null here
-      // rather than undefined.
-      database: effectiveDatabase ?? null,
-      executedAt: new Date().toISOString(),
-      executionTimeMs: Date.now() - startTime,
-      rowCount: totalRows,
-      status: "success",
-      error: null,
-      errorCode: null,
-      errorSqlState: null,
-    });
+
+    // One entry per statement, not one per run. A script whose third statement
+    // failed used to show as one opaque row, with no way to tell which line to
+    // look at (#329). Each result carries the statement it came from, so the
+    // pairing is the backend's rather than a second splitter to keep in step.
+    const recordedAt = new Date().toISOString();
+    const elapsed = Date.now() - startTime;
+    for (const result of results) {
+      void useHistoryStore.getState().addEntry({
+        id: crypto.randomUUID(),
+        // A backend too old to send the statement text falls back to the whole
+        // script, which is what the panel showed before this.
+        sql: result.sql || sql,
+        connectionName,
+        // Rust's Option round-trips as null, so an absent field is null here
+        // rather than undefined.
+        database: effectiveDatabase ?? null,
+        executedAt: recordedAt,
+        // The batch's total. Per-statement timings are not measured
+        // separately, and inventing a split would be worse than repeating the
+        // one number that is true.
+        executionTimeMs: elapsed,
+        rowCount: result.rows.length,
+        status: "success",
+        error: null,
+        errorCode: null,
+        errorSqlState: null,
+      });
+    }
   } catch (e) {
     // A cancel kills the statement server-side, so this rejects with the
     // server's interrupt error. Reporting it would replace the "cancelled"
