@@ -292,6 +292,7 @@ describe("ImportDialog", () => {
       vi.mocked(parseCSV).mockReturnValue({
         headers: ["name", "age"],
         rows: [["Alice", "30"]],
+        bareEmpty: [["Alice", "30"]].map((r: unknown[]) => r.map(() => false)),
       });
       vi.mocked(api.getTables).mockResolvedValue([]);
 
@@ -309,6 +310,7 @@ describe("ImportDialog", () => {
       vi.mocked(parseCSV).mockReturnValue({
         headers: ["name", "age"],
         rows: [["Alice", "30"]],
+        bareEmpty: [["Alice", "30"]].map((r: unknown[]) => r.map(() => false)),
       });
       vi.mocked(api.getTables).mockResolvedValue([]);
 
@@ -330,6 +332,7 @@ describe("ImportDialog", () => {
       vi.mocked(parseCSV).mockReturnValue({
         headers: ["name", "age"],
         rows: [["Alice", "30"]],
+        bareEmpty: [["Alice", "30"]].map((r: unknown[]) => r.map(() => false)),
       });
       vi.mocked(api.getTables).mockResolvedValue([
         { name: "people", table_type: "BASE TABLE", row_count: 0 },

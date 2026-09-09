@@ -142,3 +142,24 @@ describe("CSV cells reach the server as values, not as SQL", () => {
     expect(insert("")).toContain("(NULL)");
   });
 });
+
+describe("the file decides empty from absent", () => {
+  it("writes a bare empty as NULL and a quoted one as an empty string", () => {
+    // Previously every empty cell became NULL: a NOT NULL column rejected a
+    // row the user considered valid, and a nullable one silently lost the
+    // distinction (#578).
+    const sql = generateBatchInsert("t", ["a", "b"], [["", ""]], 10, [[true, false]])[0];
+    expect(sql).toContain("(NULL, '')");
+  });
+
+  it("treats a short row's missing cells as absent", () => {
+    const sql = generateBatchInsert("t", ["a", "b"], [["x"]], 10, [[false]])[0];
+    expect(sql).toContain("('x', NULL)");
+  });
+
+  it("falls back to the old behaviour when the flags are not supplied", () => {
+    // Callers that have no parser output still get something sensible.
+    const sql = generateBatchInsert("t", ["a"], [[""]], 10)[0];
+    expect(sql).toContain("(NULL)");
+  });
+});

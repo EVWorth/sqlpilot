@@ -787,6 +787,23 @@ pub fn detect_package_format(probe: &impl PlatformProbe) -> PackageFormat {
 }
 
 // File import commands
+/// The largest file the import and restore dialogs will open.
+///
+/// Chosen from what the pipeline can actually survive rather than from disk:
+/// the bytes become a Rust String, then a JavaScript string, then parsed rows,
+/// all live at the same time. 256 MB of CSV is already several times that in
+/// the renderer.
+const MAX_READ_BYTES: u64 = 256 * 1024 * 1024;
+
+fn human_bytes(bytes: u64) -> String {
+    const MB: u64 = 1024 * 1024;
+    if bytes >= MB {
+        format!("{:.1} MB", bytes as f64 / MB as f64)
+    } else {
+        format!("{} bytes", bytes)
+    }
+}
+
 #[tauri::command]
 #[tracing::instrument]
 #[specta::specta]
@@ -797,6 +814,27 @@ pub async fn read_file_contents(path: String) -> Result<String, String> {
     if !path_buf.is_file() {
         return Err(format!("Not a regular file: {}", path));
     }
+
+    // Refuse before reading rather than after. Everything downstream — this
+    // string, the JavaScript copy of it, the parsed rows — is held in memory
+    // at once, so a multi-gigabyte file takes the renderer down before the
+    // user sees anything at all. A refusal naming the size is an answer; a
+    // frozen window is not (#366).
+    let size = tokio::fs::metadata(&path_buf)
+        .await
+        .map_err(|e| format!("Cannot read {}: {}", path, e))?
+        .len();
+    if size > MAX_READ_BYTES {
+        return Err(format!(
+            "{} is {} and the limit is {}. Files this large have to be loaded in \
+             their entirety to be shown, which the app cannot do. Split it, or run \
+             it with the mysql client.",
+            path,
+            human_bytes(size),
+            human_bytes(MAX_READ_BYTES)
+        ));
+    }
+
     let contents = tokio::fs::read_to_string(&path_buf).await.map_err(|e| {
         tracing::error!(error = %e, path = %path, "Failed to read file");
         format!("Failed to read file: {}", e)
@@ -1123,5 +1161,47 @@ mod file_command_tests {
             .await
             .expect("read");
         assert_eq!(round_tripped, payload);
+    }
+
+    #[tokio::test]
+    async fn read_file_contents_refuses_a_file_too_large_to_show() {
+        // Refused from its metadata, before any of it is read: the point is
+        // to answer instead of taking the renderer down with it (#366).
+        let dir = std::env::temp_dir().join("mas_read_limit");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("huge.csv");
+        let file = std::fs::File::create(&path).unwrap();
+        file.set_len(super::MAX_READ_BYTES + 1).unwrap();
+        drop(file);
+
+        let err = read_file_contents(path.to_string_lossy().to_string())
+            .await
+            .expect_err("should refuse a file over the limit");
+        assert!(err.contains("limit is"), "{err}");
+        assert!(err.contains("MB"), "{err}");
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[tokio::test]
+    async fn read_file_contents_allows_a_file_at_the_limit() {
+        // The boundary itself is allowed, so the message never contradicts
+        // the behaviour.
+        let dir = std::env::temp_dir().join("mas_read_limit");
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("exact.txt");
+        std::fs::write(&path, "small").unwrap();
+
+        assert!(read_file_contents(path.to_string_lossy().to_string())
+            .await
+            .is_ok());
+
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn human_bytes_reads_as_a_person_would_say_it() {
+        assert_eq!(super::human_bytes(512), "512 bytes");
+        assert_eq!(super::human_bytes(256 * 1024 * 1024), "256.0 MB");
     }
 }

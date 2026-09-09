@@ -109,3 +109,35 @@ describe("parseCSV", () => {
     expect(result.rows).toEqual([["1", "2"]]);
   });
 });
+
+describe("bare and quoted empties are different things", () => {
+  const opts = { delimiter: ",", hasHeader: false, quoteChar: "\"" };
+
+  it("marks a bare empty and not a quoted one", () => {
+    // `,,` is an absent value; `,"",` is an empty string. The parser used to
+    // return "" for both, so the importer could only guess (#578).
+    const result = parseCSV("a,,\"\",b", opts);
+    expect(result.rows[0]).toEqual(["a", "", "", "b"]);
+    expect(result.bareEmpty[0]).toEqual([false, true, false, false]);
+  });
+
+  it("lines up with the rows after a header is taken off", () => {
+    const result = parseCSV("h1,h2\nv,", { ...opts, hasHeader: true });
+    expect(result.rows).toHaveLength(1);
+    expect(result.bareEmpty).toHaveLength(1);
+    expect(result.bareEmpty[0]).toEqual([false, true]);
+  });
+
+  it("treats a quoted value containing nothing as present", () => {
+    const result = parseCSV("\"\"", opts);
+    expect(result.bareEmpty[0]).toEqual([false]);
+  });
+
+  it("has an entry for every cell of every row", () => {
+    const result = parseCSV("a,b\nc,d\ne,f", opts);
+    expect(result.bareEmpty).toHaveLength(result.rows.length);
+    result.rows.forEach((row, i) => {
+      expect(result.bareEmpty[i]).toHaveLength(row.length);
+    });
+  });
+});

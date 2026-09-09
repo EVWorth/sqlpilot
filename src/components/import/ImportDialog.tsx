@@ -54,6 +54,8 @@ export function ImportDialog({
   });
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<string[][]>([]);
+  // Which cells the file wrote bare, so `,,` and `,"",` stay distinct (#578).
+  const [csvBareEmpty, setCsvBareEmpty] = useState<boolean[][]>([]);
   const [csvPreviewRows, setCsvPreviewRows] = useState<string[][]>([]);
   const [tables, setTables] = useState<TableInfo[]>([]);
   const [targetTable, setTargetTable] = useState("");
@@ -72,6 +74,7 @@ export function ImportDialog({
     setStatementCount(0);
     setCsvHeaders([]);
     setCsvRows([]);
+    setCsvBareEmpty([]);
     setCsvPreviewRows([]);
     setTargetTable("");
     setTargetColumns([]);
@@ -118,6 +121,9 @@ export function ImportDialog({
         const result = parseCSV(content, options);
         setCsvHeaders(result.headers);
         setCsvRows(result.rows);
+        // Defaulted: a result without the field falls back to treating every
+        // empty cell as absent, which is what callers got before it existed.
+        setCsvBareEmpty(result.bareEmpty ?? []);
         setCsvPreviewRows(result.rows.slice(0, 10));
       } catch (e) {
         console.error("CSV parse error:", e);
@@ -227,6 +233,8 @@ export function ImportDialog({
     const dbCols = mappedCsvCols.map((h) => columnMapping[h]);
     const colIndices = mappedCsvCols.map((h) => csvHeaders.indexOf(h));
     const mappedRows = csvRows.map((row) => colIndices.map((idx) => row[idx] ?? ""));
+    // Reordered the same way as the cells they describe.
+    const mappedBare = csvBareEmpty.map((row) => colIndices.map((idx) => row[idx] ?? true));
 
     const batchSize = 100;
     const statements = generateBatchInsert(
@@ -234,6 +242,7 @@ export function ImportDialog({
       dbCols,
       mappedRows,
       batchSize,
+      mappedBare,
     );
 
     const totalRows = csvRows.length;
@@ -268,7 +277,7 @@ export function ImportDialog({
     prog.done = true;
     setProgress({ ...prog });
     setImporting(false);
-  }, [targetTable, csvHeaders, csvRows, columnMapping, connectionId]);
+  }, [targetTable, csvHeaders, csvRows, csvBareEmpty, columnMapping, connectionId]);
 
   const handleClose = useCallback(() => {
     if (!importing) {

@@ -13,11 +13,11 @@ import { quoteIdentifier, quoteStringLiteral } from "./sql-quote";
  * inside a quoted string is valid MySQL and round-trips unchanged, so the
  * value is the same; only the statement's appearance differs.
  */
-function csvCellToSql(value: string): string {
-  // An empty cell becomes NULL. CSV cannot distinguish an empty string from
-  // an absent value once parsed — `,,` and `,"",` both arrive here as "" —
-  // so this is a choice rather than a reading of the file (#578).
-  if (value === "") {
+function csvCellToSql(value: string, wasBareEmpty: boolean): string {
+  // `,,` is an absent value and `,"",` is an empty string. The parser keeps
+  // the difference now, so the file decides rather than this function: a bare
+  // empty becomes NULL, a quoted one stays "" (#578).
+  if (wasBareEmpty) {
     return "NULL";
   }
   return quoteStringLiteral(value);
@@ -32,6 +32,12 @@ export function generateBatchInsert(
   columns: string[],
   rows: string[][],
   batchSize: number,
+  /**
+   * Which cells were written bare, from the parser. Absent means every empty
+   * cell is treated as NULL, which is what callers without the information
+   * used to get.
+   */
+  bareEmpty?: boolean[][],
 ): string[] {
   if (rows.length === 0 || columns.length === 0) return [];
 
@@ -41,8 +47,14 @@ export function generateBatchInsert(
 
   for (let i = 0; i < rows.length; i += batchSize) {
     const batch = rows.slice(i, i + batchSize);
-    const valueRows = batch.map((row) => {
-      const values = columns.map((_, colIdx) => csvCellToSql(row[colIdx] ?? ""));
+    const valueRows = batch.map((row, batchIdx) => {
+      const rowBare = bareEmpty?.[i + batchIdx];
+      const values = columns.map((_, colIdx) => {
+        const cell = row[colIdx] ?? "";
+        // A missing cell — the row is short — is absent, not empty.
+        const bare = rowBare ? (rowBare[colIdx] ?? true) : cell === "";
+        return csvCellToSql(cell, bare);
+      });
       return `(${values.join(", ")})`;
     });
     statements.push(
