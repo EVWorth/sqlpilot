@@ -13,6 +13,7 @@ use mas_core::schema::inspector::{
     ViewInfo,
 };
 use mas_core::schema::SchemaInspector;
+use mas_core::QueryError;
 use mas_sqlite::connection::SqliteConnectionManager;
 use mas_sqlite::query::SqliteQueryExecutor;
 use mas_sqlite::schema::SqliteSchemaInspector;
@@ -227,14 +228,17 @@ pub async fn execute_query(
     // u32: specta forbids exporting u64, and a LIMIT above 4.29e9 is
     // meaningless. Widened back for the executor below.
     limit: Option<u32>,
-) -> Result<Vec<QueryResult>, String> {
+) -> Result<Vec<QueryResult>, QueryError> {
+    // Structured rather than a string: the history panel needs to tell a
+    // missing table from a syntax error, and the driver already knows which
+    // it was (#324).
     let results = state
         .query_executor
         .execute_owned(connection_id, sql, database, limit.map(u64::from))
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Query execution failed");
-            e.to_string()
+            QueryError::from_core(&e)
         })?;
     let total_rows: u64 = results.iter().map(|r| r.rows_affected).sum();
     tracing::info!(

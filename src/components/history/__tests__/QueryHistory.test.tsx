@@ -4,6 +4,8 @@ import { QueryHistory } from "../QueryHistory";
 
 vi.mock("../../../stores/historyStore", () => ({
   useHistoryStore: Object.assign(vi.fn(), { getState: vi.fn() }),
+  HISTORY_LIMITS: [100, 500, 1000, 5000, 10000],
+  DEFAULT_HISTORY_LIMIT: 500,
 }));
 
 vi.mock("../../../stores/editorStore", () => ({
@@ -16,6 +18,7 @@ import { useEditorStore } from "../../../stores/editorStore";
 import { useHistoryStore } from "../../../stores/historyStore";
 
 const mockRemoveEntry = vi.fn();
+const mockSetLimit = vi.fn();
 
 const mockEntries = [
   {
@@ -47,7 +50,9 @@ const mockEntries = [
     executionTimeMs: 100,
     rowCount: 0,
     status: "error" as const,
-    error: "Table not found",
+    error: "Table 'otherdb.nonexistent' doesn't exist",
+    errorCode: 1146,
+    errorSqlState: "42S02",
   },
 ];
 
@@ -65,6 +70,8 @@ describe("QueryHistory", () => {
           clearHistory: mockClearHistory,
           addEntry: vi.fn(),
           removeEntry: mockRemoveEntry,
+          limit: 500,
+          setLimit: mockSetLimit,
         });
       }
       return mockEntries;
@@ -76,6 +83,8 @@ describe("QueryHistory", () => {
       clearHistory: mockClearHistory,
       addEntry: vi.fn(),
       removeEntry: mockRemoveEntry,
+      limit: 500,
+      setLimit: mockSetLimit,
     }));
   });
 
@@ -218,5 +227,58 @@ describe("QueryHistory", () => {
     expect(mockUpdateTabContent).not.toHaveBeenCalled();
     expect(mockAddTab).not.toHaveBeenCalled();
     expect(mockRemoveEntry).toHaveBeenCalledWith("entry-3");
+  });
+
+  describe("failed entries (#324)", () => {
+    it("shows the error message inline", () => {
+      render(<QueryHistory />);
+      expect(screen.getByText("Table 'otherdb.nonexistent' doesn't exist")).toBeInTheDocument();
+    });
+
+    it("shows the driver code and SQLSTATE", () => {
+      render(<QueryHistory />);
+      expect(screen.getByText("1146 · 42S02")).toBeInTheDocument();
+    });
+
+    it("carries the full message in a tooltip while it is truncated", () => {
+      render(<QueryHistory />);
+      const message = screen.getByText("Table 'otherdb.nonexistent' doesn't exist");
+      expect(message).toHaveAttribute("title", "Table 'otherdb.nonexistent' doesn't exist");
+      expect(message.className).toContain("truncate");
+    });
+
+    it("expands the message on click without loading the query into the editor", () => {
+      const store = { tabs: [], activeTabId: null, addTab: mockAddTab, updateTabContent: mockUpdateTabContent };
+      vi.mocked(useEditorStore.getState).mockReturnValue(store as never);
+      render(<QueryHistory />);
+
+      const message = screen.getByText("Table 'otherdb.nonexistent' doesn't exist");
+      fireEvent.click(message);
+
+      expect(message.className).not.toContain("truncate");
+      expect(message).toHaveAttribute("aria-expanded", "true");
+      expect(mockUpdateTabContent).not.toHaveBeenCalled();
+      expect(mockAddTab).not.toHaveBeenCalled();
+    });
+
+    it("shows nothing extra for a successful entry", () => {
+      render(<QueryHistory />);
+      expect(screen.queryByText(/doesn't exist/)).toBeInTheDocument();
+      expect(screen.queryAllByText(/·/)).toHaveLength(1);
+    });
+  });
+
+  describe("retention (#323)", () => {
+    it("shows the current limit and how much is stored", () => {
+      render(<QueryHistory />);
+      expect(screen.getByLabelText("Keep")).toHaveValue("500");
+      expect(screen.getByText("3 stored")).toBeInTheDocument();
+    });
+
+    it("changes the limit through the store", () => {
+      render(<QueryHistory />);
+      fireEvent.change(screen.getByLabelText("Keep"), { target: { value: "5000" } });
+      expect(mockSetLimit).toHaveBeenCalledWith(5000);
+    });
   });
 });

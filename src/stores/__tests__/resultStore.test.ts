@@ -22,6 +22,19 @@ vi.mock("../../lib/tauri-api", () => ({
     explainQuery: explainQueryMock,
     cancelQuery: cancelQueryMock,
   },
+  // Stands in for the real class so `instanceof` in the store resolves against
+  // the same constructor the tests throw.
+  CommandError: class CommandError extends Error {
+    code?: number;
+    sqlState?: string;
+    constructor(message: string, fields?: { code?: number | null; sqlState?: string | null }) {
+      super(message);
+      // Left as "Error" deliberately: the app shows raw `String(e)` in
+      // several places, and renaming would prefix every one of them.
+      if (fields?.code != null) this.code = fields.code;
+      if (fields?.sqlState != null) this.sqlState = fields.sqlState;
+    }
+  },
 }));
 
 vi.mock("../historyStore", () => ({
@@ -237,6 +250,35 @@ describe("resultStore", () => {
           rowCount: 0,
         }),
       );
+    });
+
+    it("records the driver code and SQLSTATE on a failed query (#324)", async () => {
+      const { CommandError } = await import("../../lib/tauri-api");
+      executeQueryMock.mockRejectedValue(
+        new CommandError("Table 'app.user' doesn't exist", { code: 1146, sqlState: "42S02" }),
+      );
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM user");
+
+      expect(addEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "error",
+          error: "Table 'app.user' doesn't exist",
+          errorCode: 1146,
+          errorSqlState: "42S02",
+        }),
+      );
+    });
+
+    it("leaves the code fields unset when the failure carried none", async () => {
+      executeQueryMock.mockRejectedValue(new Error("connection reset"));
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+
+      const entry = addEntryMock.mock.calls.at(-1)?.[0];
+      expect(entry.error).toContain("connection reset");
+      expect(entry.errorCode).toBeUndefined();
+      expect(entry.errorSqlState).toBeUndefined();
     });
 
     it("shows confirm dialog for destructive SQL on production", async () => {

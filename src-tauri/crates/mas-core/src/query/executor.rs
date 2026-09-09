@@ -242,7 +242,11 @@ impl QueryExecutor {
                     .and_then(|(name, max, timeout)| {
                         crate::connection::describe_pool_error(&e, &name, max, timeout)
                     })
-                    .unwrap_or_else(|| CoreError::Query(e.to_string()))
+                    // Kept as the driver's own error rather than flattened to
+                    // a string: the error number and SQLSTATE are the only
+                    // things that let the caller tell a missing table from a
+                    // syntax error, and to_string() drops both (#324).
+                    .unwrap_or_else(|| CoreError::Sqlx(e))
             })?;
             match item {
                 Either::Right(row) => {

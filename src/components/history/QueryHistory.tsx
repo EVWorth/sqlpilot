@@ -1,7 +1,7 @@
 import { CheckCircle, Clock, Search, Trash2, X, XCircle } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useEditorStore } from "../../stores/editorStore";
-import { type HistoryEntry, useHistoryStore } from "../../stores/historyStore";
+import { HISTORY_LIMITS, type HistoryEntry, useHistoryStore } from "../../stores/historyStore";
 
 function formatRelativeTime(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();
@@ -18,8 +18,14 @@ function formatRelativeTime(isoDate: string): string {
 export function QueryHistory() {
   const entries = useHistoryStore((s) => s.entries);
   const clearHistory = useHistoryStore((s) => s.clearHistory);
+  const limit = useHistoryStore((s) => s.limit);
+  const setLimit = useHistoryStore((s) => s.setLimit);
   const [search, setSearch] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  // Failure messages are one line until asked for. A long one would push the
+  // rest of the list off the panel, and the entry the user wants is usually
+  // identified by its SQL, not by the wording of the error.
+  const [expandedError, setExpandedError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return entries;
@@ -76,6 +82,28 @@ export function QueryHistory() {
         {confirmClear && <span className="text-[10px] text-red-400">Confirm?</span>}
       </div>
 
+      {
+        /* Retention. Lives here rather than in a settings dialog because it is
+          about this panel, and the count it governs is on screen next to it. */
+      }
+      <div className="flex items-center gap-1 border-b border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-text-muted)]">
+        <label htmlFor="history-limit">Keep</label>
+        <select
+          id="history-limit"
+          value={limit}
+          onChange={(e) => setLimit(Number(e.target.value))}
+          className="rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[10px] text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
+        >
+          {HISTORY_LIMITS.map((n) => (
+            <option key={n} value={n}>
+              {n.toLocaleString()}
+            </option>
+          ))}
+        </select>
+        <span>queries</span>
+        <span className="ml-auto">{entries.length.toLocaleString()} stored</span>
+      </div>
+
       <div className="flex-1 overflow-y-auto">
         {filtered.length === 0
           ? (
@@ -115,7 +143,29 @@ export function QueryHistory() {
                   </span>
                   <span>{entry.executionTimeMs}ms</span>
                   {entry.status === "success" && <span>{entry.rowCount} rows</span>}
+                  {entry.status === "error" && entry.errorCode !== undefined && (
+                    <span className="font-mono text-red-400/80">
+                      {entry.errorCode}
+                      {entry.errorSqlState ? ` · ${entry.errorSqlState}` : ""}
+                    </span>
+                  )}
                 </div>
+                {entry.status === "error" && entry.error && (
+                  <span
+                    role="button"
+                    aria-expanded={expandedError === entry.id}
+                    title={entry.error}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedError((prev) => (prev === entry.id ? null : entry.id));
+                    }}
+                    className={`cursor-pointer text-[10px] text-red-400 ${
+                      expandedError === entry.id ? "whitespace-pre-wrap break-words" : "truncate"
+                    }`}
+                  >
+                    {entry.error}
+                  </span>
+                )}
               </button>
             ))
           )}

@@ -41,12 +41,23 @@ pub async fn sqlite_execute(
     state: State<'_, AppState>,
     connection_id: String,
     sql: String,
-) -> Result<Vec<mas_sqlite::query::SqliteQueryResult>, String> {
+) -> Result<Vec<mas_sqlite::query::SqliteQueryResult>, mas_core::QueryError> {
+    // Same shape as the MySQL path: the shared pane reads one error type
+    // whichever backend answered (#324).
     state
         .sqlite_executor
         .execute(&connection_id, &sql)
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| match &e {
+            mas_sqlite::error::SqliteError::Rusqlite(inner) => {
+                mas_core::QueryError::from_rusqlite(inner, &e.to_string())
+            }
+            _ => mas_core::QueryError {
+                message: e.to_string(),
+                code: None,
+                sql_state: None,
+            },
+        })
 }
 
 #[tauri::command]
