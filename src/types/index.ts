@@ -147,7 +147,7 @@ export interface EditorTab {
   tableName?: string;
   routineName?: string;
   routineType?: string;
-  type?: "query" | "structure" | "admin" | "compare" | "designer" | "routine";
+  type?: "query" | "structure" | "admin" | "designer" | "routine";
   isDirty: boolean;
 }
 

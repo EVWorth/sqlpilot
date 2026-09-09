@@ -160,7 +160,6 @@ let editorState = {
   activeTabId: null as string | null,
   addTab: vi.fn(() => "tab-1"),
   addAdminTab: vi.fn(),
-  addCompareTab: vi.fn(),
   editorInstance: null as any,
 };
 
@@ -217,7 +216,6 @@ describe("AppLayout (browser)", () => {
       activeTabId: null,
       addTab: vi.fn(() => "tab-1"),
       addAdminTab: vi.fn(),
-      addCompareTab: vi.fn(),
       editorInstance: null,
     };
     aiState = {
@@ -659,15 +657,6 @@ describe("AppLayout (browser)", () => {
       window.dispatchEvent(new CustomEvent("menu-action", { detail: "refresh-schema" }));
     });
     expect(refreshSpy).toHaveBeenCalled();
-  });
-
-  // ─── Menu action: compare-schemas ───
-  it("handles compare-schemas menu action", async () => {
-    await renderApp();
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent("menu-action", { detail: "compare-schemas" }));
-    });
-    expect(editorState.addCompareTab).toHaveBeenCalled();
   });
 
   // ─── Menu action: admin-tools when connected ───

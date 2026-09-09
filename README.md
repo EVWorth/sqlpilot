@@ -84,13 +84,6 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 - **Backup** — full SQL dump with options: structure only/data only/both, DROP TABLE, multi-row INSERTs, views/procedures/triggers inclusion, progress tracking
 - **Restore** — SQL file execution with progress bar and error reporting
 
-### Schema Comparison
-
-- **Cross-connection diff** — compare schemas across different servers
-- **Color-coded results** — green (added), red (removed), yellow (modified), grey (identical)
-- **Column-level detail** — see exactly what changed: type, nullable, default, etc.
-- **Sync SQL generation** — generate `CREATE`/`ALTER`/`DROP` statements to synchronize, with selective execution
-
 ### Import & Export
 
 - **SQL import** — execute `.sql` files with statement splitting and progress tracking
@@ -318,10 +311,9 @@ sqlpilot/
 │   │   ├── admin/                 #     AdminPanel, UserManagement, CreateUser, ChangePassword
 │   │   ├── ai/                    #     AIChatPanel, ChatMessage, ModeSelector, ToolCallBlock
 │   │   ├── backup/                #     BackupDialog, RestoreDialog
-│   │   ├── common/                #     ContextMenu, ConfirmDialog, ShortcutsDialog
-│   │   ├── compare/               #     SchemaCompare, SyncPreview
+│   │   ├── common/                #     ContextMenu, ConfirmDialog, ShortcutsDialog, SQLPreviewDialog
 │   │   ├── connection/            #     ConnectionDialog (General, SSL, SSH, Advanced tabs)
-│   │   ├── designer/              #     TableDesigner, SQLPreviewDialog
+│   │   ├── designer/              #     TableDesigner
 │   │   ├── editor/                #     SQLEditor, EditorTabs, QueryToolbar
 │   │   ├── explain/               #     ExplainPanel (table view + tree view)
 │   │   ├── favorites/             #     QueryFavorites, SaveFavoriteDialog

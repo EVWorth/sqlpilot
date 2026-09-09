@@ -62,12 +62,10 @@ import { useThemeStore } from "../../../stores/themeStore";
 import { TitleBar } from "../TitleBar";
 
 const mockAddAdminTab = vi.fn();
-const mockAddCompareTab = vi.fn();
 
 function mockEditorStore() {
   const getStateMock = vi.fn(() => ({
     addAdminTab: mockAddAdminTab,
-    addCompareTab: mockAddCompareTab,
   }));
   (useEditorStore as any).getState = getStateMock;
   vi.mocked(useEditorStore).mockReturnValue({} as any);
@@ -151,7 +149,6 @@ describe("TitleBar", () => {
 
   it("renders all toolbar buttons when connected", () => {
     render(<TitleBar aiEnabled={true} onToggleAI={vi.fn()} />);
-    expect(screen.getByText("Compare")).toBeInTheDocument();
     expect(screen.getByText("Admin")).toBeInTheDocument();
     expect(screen.getByText("Import")).toBeInTheDocument();
     expect(screen.getByText("Backup")).toBeInTheDocument();
@@ -219,7 +216,9 @@ describe("TitleBar", () => {
 
   it("system menu does NOT open when right-clicking toolbar buttons", () => {
     render(<TitleBar />);
-    fireEvent.contextMenu(screen.getByText("Compare"));
+    // Any toolbar button will do; this one replaced Compare when that
+    // feature was removed.
+    fireEvent.contextMenu(screen.getByText("Admin"));
     expect(screen.queryByText("Alt+F4")).not.toBeInTheDocument();
   });
 
@@ -288,18 +287,6 @@ describe("TitleBar", () => {
     expect(screen.getByText("Import").closest("button")).toBeDisabled();
     expect(screen.getByText("Backup").closest("button")).toBeDisabled();
     expect(screen.getByText("Restore").closest("button")).toBeDisabled();
-  });
-
-  it("Compare button is always enabled", () => {
-    mockConnectionStore({ selectedConnectionId: null, activeConnections: [] });
-    render(<TitleBar />);
-    expect(screen.getByText("Compare").closest("button")).not.toBeDisabled();
-  });
-
-  it("calls addCompareTab when Compare button is clicked", () => {
-    render(<TitleBar />);
-    fireEvent.click(screen.getByText("Compare"));
-    expect(mockAddCompareTab).toHaveBeenCalled();
   });
 
   it("calls addAdminTab when Admin button is clicked", () => {

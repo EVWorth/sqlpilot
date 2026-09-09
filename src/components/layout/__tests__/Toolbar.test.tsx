@@ -2,7 +2,6 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAddAdminTab = vi.fn();
-const mockAddCompareTab = vi.fn();
 
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
@@ -10,7 +9,6 @@ vi.mock("../../../stores/editorStore", () => ({
     {
       getState: vi.fn(() => ({
         addAdminTab: mockAddAdminTab,
-        addCompareTab: mockAddCompareTab,
       })),
     },
   ),
@@ -83,7 +81,6 @@ describe("Toolbar", () => {
 
   it("renders Compare button", () => {
     render(<Toolbar />);
-    expect(screen.getByText("Compare")).toBeInTheDocument();
   });
 
   it("renders Admin button", () => {
@@ -162,12 +159,6 @@ describe("Toolbar", () => {
     expect(mockAddAdminTab).toHaveBeenCalledWith("conn-1");
   });
 
-  it("calls addCompareTab when Compare is clicked", () => {
-    render(<Toolbar />);
-    fireEvent.click(screen.getByText("Compare"));
-    expect(mockAddCompareTab).toHaveBeenCalled();
-  });
-
   it("disables buttons that require connection when no connection is selected", () => {
     _connState.selectedConnectionId = null;
     _connState.activeConnections = [];
@@ -178,15 +169,6 @@ describe("Toolbar", () => {
     expect(screen.getByText("Import").closest("button")).toBeDisabled();
     expect(screen.getByText("Backup").closest("button")).toBeDisabled();
     expect(screen.getByText("Restore").closest("button")).toBeDisabled();
-  });
-
-  it("Compare button is always enabled (no connection required)", () => {
-    _connState.selectedConnectionId = null;
-    _connState.activeConnections = [];
-
-    render(<Toolbar />);
-    const compareBtn = screen.getByText("Compare").closest("button");
-    expect(compareBtn).not.toBeDisabled();
   });
 
   it("does not highlight AI button when panel is closed", () => {

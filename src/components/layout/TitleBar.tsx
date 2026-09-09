@@ -2,7 +2,6 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { clsx } from "clsx";
 import {
   Activity,
-  ArrowLeftRight,
   HardDriveDownload,
   HardDriveUpload,
   Minus,
@@ -62,7 +61,6 @@ export function TitleBar(
     if (!selectedConnectionId) return;
     useEditorStore.getState().addAdminTab(selectedConnectionId);
   };
-  const handleOpenCompare = () => useEditorStore.getState().addCompareTab();
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -157,10 +155,6 @@ export function TitleBar(
 
       {/* Toolbar buttons */}
       <div className="flex items-center gap-0.5 px-1" onContextMenu={(e) => e.stopPropagation()}>
-        <button onClick={handleOpenCompare} title="Compare Schemas" className={toolBtn()}>
-          <ArrowLeftRight className="h-3.5 w-3.5" />
-          <span>Compare</span>
-        </button>
         <button
           onClick={handleOpenAdmin}
           disabled={!selectedConnectionId}

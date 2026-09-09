@@ -1,14 +1,4 @@
-import {
-  Activity,
-  ArrowLeftRight,
-  HardDriveDownload,
-  HardDriveUpload,
-  Monitor,
-  Moon,
-  Sparkles,
-  Sun,
-  Upload,
-} from "lucide-react";
+import { Activity, HardDriveDownload, HardDriveUpload, Monitor, Moon, Sparkles, Sun, Upload } from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { type ThemeMode, useThemeStore } from "../../stores/themeStore";
@@ -37,23 +27,11 @@ export function Toolbar(
     useEditorStore.getState().addAdminTab(selectedConnectionId);
   };
 
-  const handleOpenCompare = () => {
-    useEditorStore.getState().addCompareTab();
-  };
-
   const ThemeIcon = themeIcons[theme];
 
   return (
     <div className="flex h-10 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3">
       <div className="flex-1" />
-      <button
-        onClick={handleOpenCompare}
-        title="Compare Schemas"
-        className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors mr-1"
-      >
-        <ArrowLeftRight className="h-3.5 w-3.5" />
-        <span>Compare</span>
-      </button>
       <button
         onClick={handleOpenAdmin}
         disabled={!selectedConnectionId}

@@ -21,10 +21,6 @@ vi.mock(
 );
 vi.mock("../../admin/AdminPanel", () => ({ AdminPanel: vi.fn(() => <div data-testid="admin-panel">AdminPanel</div>) }));
 vi.mock(
-  "../../compare/SchemaCompare",
-  () => ({ SchemaCompare: vi.fn(() => <div data-testid="schema-compare">SchemaCompare</div>) }),
-);
-vi.mock(
   "../../routine/RoutineViewer",
   () => ({ RoutineViewer: vi.fn(() => <div data-testid="routine-viewer">RoutineViewer</div>) }),
 );
