@@ -10,7 +10,7 @@ import {
   Star,
   Trash2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useEditorStore } from "../../stores/editorStore";
 import { type Favorite, useFavoritesStore } from "../../stores/favoritesStore";
@@ -32,6 +32,14 @@ export function QueryFavorites() {
   });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editValue, setEditValue] = useState("");
+  // Set when the store refuses the new name, so the row can say why instead of
+  // closing the editor as though the rename had taken.
+  const [editError, setEditError] = useState<string | null>(null);
+  // Escape unmounts the input, and whether that fires onBlur is a detail of the
+  // renderer, not something the rename should depend on. The flag makes the
+  // cancel explicit: a blur arriving after one is ignored (#333).
+  const cancelledRef = useRef(false);
+  const descCancelledRef = useRef(false);
   const [editDescId, setEditDescId] = useState<string | null>(null);
   const [editDescValue, setEditDescValue] = useState("");
   const [showNewCategory, setShowNewCategory] = useState(false);
@@ -122,22 +130,45 @@ export function QueryFavorites() {
   const handleRenameStart = (fav: Favorite) => {
     setEditingId(fav.id);
     setEditValue(fav.name);
+    setEditError(null);
+    cancelledRef.current = false;
   };
 
-  const handleRenameConfirm = () => {
-    if (editingId && editValue.trim()) {
-      renameFavorite(editingId, editValue.trim());
-    }
+  const handleRenameCancel = useCallback(() => {
+    cancelledRef.current = true;
     setEditingId(null);
     setEditValue("");
-  };
+    setEditError(null);
+  }, []);
+
+  const handleRenameConfirm = useCallback(() => {
+    if (cancelledRef.current) return;
+    if (!editingId || !editValue.trim()) {
+      handleRenameCancel();
+      return;
+    }
+
+    const result = renameFavorite(editingId, editValue.trim());
+    if (!result.ok) {
+      // Stay in edit mode. Committing nothing and closing would read as a
+      // successful rename that silently did not happen.
+      setEditError("That name is already used in this category.");
+      return;
+    }
+
+    setEditingId(null);
+    setEditValue("");
+    setEditError(null);
+  }, [editingId, editValue, renameFavorite, handleRenameCancel]);
 
   const handleEditDescStart = (fav: Favorite) => {
     setEditDescId(fav.id);
     setEditDescValue(fav.description ?? "");
+    descCancelledRef.current = false;
   };
 
   const handleEditDescConfirm = () => {
+    if (descCancelledRef.current) return;
     if (editDescId) {
       updateFavorite(editDescId, {
         description: editDescValue.trim() || undefined,
@@ -265,7 +296,22 @@ export function QueryFavorites() {
                       {items.map((fav) => (
                         <div
                           key={fav.id}
-                          onClick={() => handleClick(fav)}
+                          // While this row is being renamed, a press anywhere
+                          // else in it does nothing at all. Without this the
+                          // press blurred the input (committing the rename)
+                          // and the click that followed loaded the query, so
+                          // one click the user read as "open it" also wrote a
+                          // half-typed name (#333).
+                          onMouseDownCapture={(e) => {
+                            if (editingId === fav.id || editDescId === fav.id) {
+                              e.preventDefault();
+                              e.stopPropagation();
+                            }
+                          }}
+                          onClick={() => {
+                            if (editingId === fav.id || editDescId === fav.id) return;
+                            handleClick(fav);
+                          }}
                           onDoubleClick={(e) => {
                             e.stopPropagation();
                             handleDoubleClick(fav);
@@ -321,22 +367,33 @@ export function QueryFavorites() {
                         >
                           {editingId === fav.id
                             ? (
-                              <input
-                                type="text"
-                                value={editValue}
-                                onChange={(e) => setEditValue(e.target.value)}
-                                onBlur={handleRenameConfirm}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") handleRenameConfirm();
-                                  if (e.key === "Escape") {
-                                    setEditingId(null);
-                                    setEditValue("");
-                                  }
-                                }}
-                                autoFocus
-                                onClick={(e) => e.stopPropagation()}
-                                className="w-full rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[11px] text-[var(--color-text-primary)] outline-none ring-1 ring-brand-500"
-                              />
+                              <>
+                                <input
+                                  type="text"
+                                  value={editValue}
+                                  onChange={(e) => {
+                                    setEditValue(e.target.value);
+                                    setEditError(null);
+                                  }}
+                                  onBlur={handleRenameConfirm}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") handleRenameConfirm();
+                                    if (e.key === "Escape") handleRenameCancel();
+                                  }}
+                                  autoFocus
+                                  onClick={(e) => e.stopPropagation()}
+                                  aria-invalid={editError !== null || undefined}
+                                  aria-label="Favorite name"
+                                  className={`w-full rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[11px] text-[var(--color-text-primary)] outline-none ring-1 ${
+                                    editError ? "ring-red-500" : "ring-brand-500"
+                                  }`}
+                                />
+                                {editError && (
+                                  <p role="alert" className="mt-0.5 text-[10px] text-red-400">
+                                    {editError}
+                                  </p>
+                                )}
+                              </>
                             )
                             : (
                               <>
@@ -358,6 +415,7 @@ export function QueryFavorites() {
                                           handleEditDescConfirm();
                                         }
                                         if (e.key === "Escape") {
+                                          descCancelledRef.current = true;
                                           setEditDescId(null);
                                           setEditDescValue("");
                                         }
