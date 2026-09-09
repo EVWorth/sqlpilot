@@ -22,6 +22,8 @@ interface ImportProgress {
   errorCount: number;
   errors: string[];
   done: boolean;
+  /** Set when the run stopped early, so the summary can say it did. */
+  stoppedAt: number | null;
 }
 
 export function ImportDialog({
@@ -39,6 +41,9 @@ export function ImportDialog({
   // SQL mode state
   const [sqlPreview, setSqlPreview] = useState<string[]>([]);
   const [destructiveStatements, setDestructiveStatements] = useState<string[]>([]);
+  // Default on: running the rest of a dump after one statement failed applies
+  // it to a database in a state the file did not expect (#365).
+  const [stopOnError, setStopOnError] = useState(true);
   const [statementCount, setStatementCount] = useState(0);
 
   // CSV mode state
@@ -181,9 +186,14 @@ export function ImportDialog({
       errorCount: 0,
       errors: [],
       done: false,
+      stoppedAt: null,
     };
     setProgress({ ...prog });
 
+    // Every error used to be counted and the run carried on to the end, so a
+    // dump whose CREATE TABLE failed still executed all of its INSERTs
+    // against whatever was already there. Stopping is the default now; going
+    // on is a choice (#365).
     for (let i = 0; i < statements.length; i++) {
       prog.current = i + 1;
       try {
@@ -194,6 +204,11 @@ export function ImportDialog({
         prog.errors.push(
           `Statement ${i + 1}: ${String(e).slice(0, 200)}`,
         );
+        if (stopOnError) {
+          prog.stoppedAt = i + 1;
+          setProgress({ ...prog });
+          break;
+        }
       }
       setProgress({ ...prog });
     }
@@ -201,7 +216,7 @@ export function ImportDialog({
     prog.done = true;
     setProgress({ ...prog });
     setImporting(false);
-  }, [fileContent, connectionId]);
+  }, [fileContent, connectionId, stopOnError]);
 
   const handleImportCsv = useCallback(async () => {
     if (!targetTable || csvRows.length === 0) return;
@@ -229,6 +244,7 @@ export function ImportDialog({
       errorCount: 0,
       errors: [],
       done: false,
+      stoppedAt: null,
     };
     setProgress({ ...prog });
 
@@ -347,6 +363,30 @@ export function ImportDialog({
               <div className="text-xs text-[var(--color-text-muted)]">
                 {statementCount} statement{statementCount !== 1 ? "s" : ""} detected
               </div>
+              <label className="flex cursor-pointer items-start gap-2">
+                <input
+                  type="checkbox"
+                  aria-label="Stop at the first error"
+                  checked={stopOnError}
+                  onChange={(e) => setStopOnError(e.target.checked)}
+                  className="mt-0.5 h-3 w-3 accent-brand-500"
+                />
+                <span className="text-[11px] text-[var(--color-text-secondary)]">
+                  Stop at the first error
+                  {
+                    /*
+                    Said plainly rather than implied. A dump's CREATE, DROP and
+                    ALTER each commit as they run, so what has already been
+                    applied when the import stops cannot be undone — wrapping
+                    the run in a transaction would not change that (#365).
+                  */
+                  }
+                  <span className="mt-0.5 block text-[10px] text-[var(--color-text-muted)]">
+                    Statements that already ran stay applied either way — SQL files containing CREATE, DROP or ALTER
+                    cannot be rolled back.
+                  </span>
+                </span>
+              </label>
               {destructiveStatements.length > 0 && (
                 <div
                   data-testid="destructive-warning"
@@ -559,6 +599,12 @@ export function ImportDialog({
                   <CheckCircle2 className="h-3 w-3" />
                   {progress.successCount} {mode === "sql" ? "succeeded" : "rows imported"}
                 </span>
+                {progress.stoppedAt !== null && (
+                  <span data-testid="stopped-at" className="text-[11px] text-amber-400">
+                    Stopped at statement {progress.stoppedAt} of {progress.total}. {progress.successCount}{" "}
+                    already applied.
+                  </span>
+                )}
                 {progress.errorCount > 0 && (
                   <span className="flex items-center gap-1 text-red-400">
                     <AlertCircle className="h-3 w-3" />

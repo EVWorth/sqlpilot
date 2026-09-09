@@ -247,6 +247,9 @@ describe("ImportDialog (browser)", () => {
     render(<ImportDialog {...defaultProps} />);
     await user.click(screen.getByText("Select file..."));
     await waitFor(() => screen.getByText("Execute SQL"));
+    // The list is what this test is about, so let the run reach both errors —
+    // stopping at the first is the default now (#365).
+    await user.click(screen.getByLabelText("Stop at the first error"));
     await user.click(screen.getByText("Execute SQL"));
 
     await waitFor(() => {
