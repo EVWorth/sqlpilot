@@ -11,6 +11,9 @@ function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
     executionTimeMs: overrides.executionTimeMs ?? 100,
     rowCount: overrides.rowCount ?? 1,
     status: overrides.status ?? "success",
+    // Spread last so fields without an explicit default above — error, the
+    // driver codes, redacted — are not silently dropped.
+    ...overrides,
   };
 }
 
@@ -279,6 +282,50 @@ describe("historyStore", () => {
       const mod = await import("../historyStore");
       expect(mod.useHistoryStore.getState().limit).toBe(DEFAULT_HISTORY_LIMIT);
       expect(mod.useHistoryStore.getState().entries).toHaveLength(1);
+    });
+  });
+
+  describe("credential redaction (#587)", () => {
+    it("never stores the password from a CREATE USER", () => {
+      useHistoryStore.getState().addEntry(
+        makeEntry({ id: "c", sql: "CREATE USER 'a'@'%' IDENTIFIED BY 's3cret'" }),
+      );
+
+      const [stored] = useHistoryStore.getState().entries;
+      expect(stored.sql).not.toContain("s3cret");
+      expect(stored.redacted).toBe(true);
+      expect(localStorage.getItem("mas-query-history")).not.toContain("s3cret");
+    });
+
+    it("redacts a password quoted back by the driver's error message", () => {
+      useHistoryStore.getState().addEntry(
+        makeEntry({
+          id: "e",
+          sql: "SELECT 1",
+          status: "error",
+          error: "near ALTER USER 'a'@'%' IDENTIFIED BY 'leaky': syntax error",
+        }),
+      );
+
+      const [stored] = useHistoryStore.getState().entries;
+      expect(stored.error).not.toContain("leaky");
+      expect(stored.redacted).toBe(true);
+    });
+
+    it("leaves an ordinary statement untouched and unmarked", () => {
+      const entry = makeEntry({ id: "s", sql: "SELECT * FROM users WHERE name = 'alice'" });
+      useHistoryStore.getState().addEntry(entry);
+
+      const [stored] = useHistoryStore.getState().entries;
+      expect(stored.sql).toBe("SELECT * FROM users WHERE name = 'alice'");
+      expect(stored.redacted).toBeUndefined();
+    });
+
+    it("does not mutate the entry the caller passed", () => {
+      const entry = makeEntry({ id: "m", sql: "CREATE USER 'a'@'%' IDENTIFIED BY 'pw'" });
+      useHistoryStore.getState().addEntry(entry);
+
+      expect(entry.sql).toBe("CREATE USER 'a'@'%' IDENTIFIED BY 'pw'");
     });
   });
 });

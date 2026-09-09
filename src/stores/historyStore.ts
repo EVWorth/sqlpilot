@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { redactCredentials } from "../lib/sql-redact";
 
 export interface HistoryEntry {
   id: string;
@@ -21,6 +22,13 @@ export interface HistoryEntry {
   errorCode?: number;
   /** SQLSTATE, where the driver supplies one. MySQL does; SQLite does not. */
   errorSqlState?: string;
+  /**
+   * True when a credential was stripped out of `sql` before it was stored.
+   *
+   * The entry will not run as written, and the panel says so rather than
+   * leaving the user to wonder why re-running it fails (#587).
+   */
+  redacted?: boolean;
 }
 
 interface HistoryState {
@@ -55,10 +63,21 @@ export const useHistoryStore = create<HistoryState>()(
       entries: [],
       limit: DEFAULT_HISTORY_LIMIT,
 
+      // Redaction happens here rather than at the call sites: this is the one
+      // door into storage, and a password must not depend on every future
+      // caller remembering to strip it (#587).
       addEntry: (entry) =>
-        set((state) => ({
-          entries: [entry, ...state.entries].slice(0, state.limit),
-        })),
+        set((state) => {
+          const { sql, redacted } = redactCredentials(entry.sql);
+          // A driver message can quote the statement back, so it gets the same
+          // treatment. Nothing sensitive should reach storage by either route.
+          const error = entry.error ? redactCredentials(entry.error).sql : entry.error;
+          const stored: HistoryEntry = redacted || error !== entry.error
+            ? { ...entry, sql, error, redacted: true }
+            : entry;
+
+          return { entries: [stored, ...state.entries].slice(0, state.limit) };
+        }),
 
       removeEntry: (id) =>
         set((state) => ({
