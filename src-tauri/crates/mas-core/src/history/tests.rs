@@ -349,3 +349,456 @@ fn a_reopened_database_still_holds_its_entries() {
 
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+// ====== FILTERING AND SORTING (#589) ======
+
+/// An entry with the fields the filters read.
+fn filterable(
+    id: &str,
+    connection: &str,
+    database: Option<&str>,
+    status: &str,
+    executed_at: &str,
+    ms: i64,
+) -> HistoryEntry {
+    HistoryEntry {
+        connection_name: connection.to_string(),
+        database: database.map(str::to_string),
+        status: status.to_string(),
+        execution_time_ms: ms,
+        ..entry(id, "SELECT 1", executed_at)
+    }
+}
+
+fn seeded() -> HistoryStore {
+    let s = store();
+    for e in [
+        filterable(
+            "a",
+            "prod",
+            Some("app"),
+            "success",
+            "2026-01-01T10:00:00Z",
+            10,
+        ),
+        filterable(
+            "b",
+            "prod",
+            Some("app"),
+            "error",
+            "2026-01-02T10:00:00Z",
+            900,
+        ),
+        filterable(
+            "c",
+            "staging",
+            Some("app"),
+            "success",
+            "2026-01-03T10:00:00Z",
+            50,
+        ),
+        filterable(
+            "d",
+            "staging",
+            Some("logs"),
+            "error",
+            "2026-01-04T10:00:00Z",
+            300,
+        ),
+    ] {
+        s.add(&e, 500).unwrap();
+    }
+    s
+}
+
+fn ids(store: &HistoryStore, query: HistoryQuery) -> Vec<String> {
+    store
+        .list(&query)
+        .unwrap()
+        .into_iter()
+        .map(|e| e.id)
+        .collect()
+}
+
+#[test]
+fn filters_by_connection() {
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            connection_names: Some(vec!["prod".into()]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["b", "a"]);
+}
+
+#[test]
+fn filters_by_several_connections_at_once() {
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            connection_names: Some(vec!["prod".into(), "staging".into()]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found.len(), 4);
+}
+
+#[test]
+fn filters_by_database() {
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            databases: Some(vec!["logs".into()]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["d"]);
+}
+
+#[test]
+fn filters_by_status() {
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            status: Some("error".into()),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["d", "b"]);
+}
+
+#[test]
+fn filters_by_date_range_inclusively() {
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            executed_after: Some("2026-01-02T00:00:00Z".into()),
+            executed_before: Some("2026-01-03T23:59:59Z".into()),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["c", "b"]);
+}
+
+#[test]
+fn filters_by_minimum_duration() {
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            min_duration_ms: Some(300),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["d", "b"]);
+}
+
+#[test]
+fn combines_filters_with_and() {
+    // "What failed on staging" — the question the panel could not answer.
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            connection_names: Some(vec!["staging".into()]),
+            status: Some("error".into()),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["d"]);
+}
+
+#[test]
+fn a_filter_combines_with_a_search() {
+    let s = store();
+    s.add(
+        &HistoryEntry {
+            connection_name: "prod".into(),
+            ..entry("hit", "SELECT * FROM orders", "2026-01-01T00:00:00Z")
+        },
+        500,
+    )
+    .unwrap();
+    s.add(
+        &HistoryEntry {
+            connection_name: "staging".into(),
+            ..entry("miss", "SELECT * FROM orders", "2026-01-02T00:00:00Z")
+        },
+        500,
+    )
+    .unwrap();
+
+    let found = ids(
+        &s,
+        HistoryQuery {
+            search: Some("orders".into()),
+            connection_names: Some(vec!["prod".into()]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["hit"]);
+}
+
+#[test]
+fn an_empty_filter_list_is_not_a_filter() {
+    // An unticked filter group must mean "all", not "none" — otherwise
+    // clearing the last checkbox empties the panel.
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            connection_names: Some(vec![]),
+            databases: Some(vec![]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found.len(), 4);
+}
+
+#[test]
+fn a_name_containing_sql_is_matched_literally() {
+    // Filter values are bound, not interpolated. A connection called
+    // `prod' OR '1'='1` must match itself and nothing else.
+    let s = seeded();
+    let odd = "prod' OR '1'='1";
+    s.add(
+        &filterable(
+            "odd",
+            odd,
+            Some("app"),
+            "success",
+            "2026-01-05T10:00:00Z",
+            1,
+        ),
+        500,
+    )
+    .unwrap();
+
+    let found = ids(
+        &s,
+        HistoryQuery {
+            connection_names: Some(vec![odd.into()]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["odd"]);
+}
+
+#[test]
+fn sorts_slowest_first() {
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            sort: Some(HistorySort::Slowest),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["b", "d", "c", "a"]);
+}
+
+#[test]
+fn sorts_by_row_count() {
+    let s = store();
+    for (id, rows) in [("few", 1), ("many", 900), ("some", 50)] {
+        s.add(
+            &HistoryEntry {
+                row_count: rows,
+                ..entry(id, "SELECT 1", "2026-01-01T00:00:00Z")
+            },
+            500,
+        )
+        .unwrap();
+    }
+
+    let found = ids(
+        &s,
+        HistoryQuery {
+            sort: Some(HistorySort::MostRows),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["many", "some", "few"]);
+}
+
+#[test]
+fn sorting_still_respects_the_filters() {
+    let s = seeded();
+    let found = ids(
+        &s,
+        HistoryQuery {
+            status: Some("error".into()),
+            sort: Some(HistorySort::Slowest),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found, vec!["b", "d"]);
+}
+
+#[test]
+fn count_matching_ignores_the_page_size() {
+    // The panel says "50 of 812"; without this a full page and a last page
+    // look the same.
+    let s = seeded();
+    let query = HistoryQuery {
+        status: Some("error".into()),
+        limit: Some(1),
+        ..Default::default()
+    };
+
+    assert_eq!(s.list(&query).unwrap().len(), 1);
+    assert_eq!(s.count_matching(&query).unwrap(), 2);
+}
+
+#[test]
+fn facets_list_only_what_the_history_holds() {
+    let s = seeded();
+    let facets = s.facets().unwrap();
+
+    assert_eq!(facets.connection_names, vec!["prod", "staging"]);
+    assert_eq!(facets.databases, vec!["app", "logs"]);
+}
+
+#[test]
+fn facets_skip_entries_with_no_database() {
+    let s = store();
+    s.add(
+        &filterable("none", "prod", None, "success", "2026-01-01T00:00:00Z", 1),
+        500,
+    )
+    .unwrap();
+
+    assert!(s.facets().unwrap().databases.is_empty());
+}
+
+// ====== EXPORT (#589) ======
+
+#[test]
+fn csv_export_has_a_header_and_a_row_each() {
+    let entries = vec![
+        filterable(
+            "a",
+            "prod",
+            Some("app"),
+            "success",
+            "2026-01-01T10:00:00Z",
+            10,
+        ),
+        filterable("b", "prod", None, "error", "2026-01-02T10:00:00Z", 20),
+    ];
+
+    let csv = render_export(&entries, HistoryExportFormat::Csv);
+    let lines: Vec<_> = csv.lines().collect();
+
+    assert!(lines[0].starts_with("executed_at,connection,database,status"));
+    assert_eq!(lines.len(), 3);
+    assert!(lines[1].contains("prod"));
+}
+
+#[test]
+fn csv_quotes_a_statement_containing_commas_and_quotes() {
+    let entries = vec![HistoryEntry {
+        sql: "SELECT 'a,b', \"c\"".into(),
+        ..entry("a", "", "2026-01-01T00:00:00Z")
+    }];
+
+    let csv = render_export(&entries, HistoryExportFormat::Csv);
+
+    // Doubled quotes, whole field wrapped — RFC 4180. Without this the comma
+    // inside the statement shifts every later column by one.
+    assert!(csv.contains("\"SELECT 'a,b', \"\"c\"\"\""));
+}
+
+#[test]
+fn csv_survives_a_statement_with_a_newline() {
+    let entries = vec![HistoryEntry {
+        sql: "SELECT 1\nFROM t".into(),
+        ..entry("a", "", "2026-01-01T00:00:00Z")
+    }];
+
+    let csv = render_export(&entries, HistoryExportFormat::Csv);
+    assert!(csv.contains("\"SELECT 1\nFROM t\""));
+}
+
+#[test]
+fn sql_export_is_runnable() {
+    let entries = vec![filterable(
+        "a",
+        "prod",
+        Some("app"),
+        "success",
+        "2026-01-01T10:00:00Z",
+        10,
+    )];
+
+    let out = render_export(&entries, HistoryExportFormat::Sql);
+
+    assert!(out.contains("-- 2026-01-01T10:00:00Z · prod/app · success · 10ms"));
+    assert!(out.contains("SELECT 1;"));
+}
+
+#[test]
+fn sql_export_does_not_double_a_semicolon() {
+    let entries = vec![entry("a", "SELECT 1;", "2026-01-01T00:00:00Z")];
+    let out = render_export(&entries, HistoryExportFormat::Sql);
+    assert!(!out.contains("SELECT 1;;"));
+}
+
+#[test]
+fn sql_export_keeps_an_error_message_inside_its_comment() {
+    // A newline in the message would end the comment and leave the rest of it
+    // sitting in the file as SQL.
+    let entries = vec![HistoryEntry {
+        status: "error".into(),
+        error: Some("line one\nDROP TABLE users".into()),
+        ..entry("a", "SELECT 1", "2026-01-01T00:00:00Z")
+    }];
+
+    let out = render_export(&entries, HistoryExportFormat::Sql);
+
+    assert!(out.contains("-- error: line one DROP TABLE users"));
+    for line in out.lines() {
+        assert!(
+            !line.starts_with("DROP TABLE"),
+            "an error message must not escape its comment: {line}"
+        );
+    }
+}
+
+#[test]
+fn sql_export_warns_that_a_redacted_entry_will_not_run() {
+    let entries = vec![HistoryEntry {
+        redacted: true,
+        ..entry(
+            "a",
+            "CREATE USER 'a'@'%' IDENTIFIED BY <redacted>",
+            "2026-01-01T00:00:00Z",
+        )
+    }];
+
+    let out = render_export(&entries, HistoryExportFormat::Sql);
+    assert!(out.contains("a credential was removed"));
+}
+
+#[test]
+fn exporting_nothing_still_produces_a_valid_file() {
+    assert!(render_export(&[], HistoryExportFormat::Csv).starts_with("executed_at,"));
+    assert!(render_export(&[], HistoryExportFormat::Sql).starts_with("-- SQLPilot"));
+}
+
+#[test]
+fn an_absent_limit_returns_every_match() {
+    // An export passes no limit and means all of it. A default page size here
+    // would cap the file silently at that number.
+    let s = store();
+    fill(&s, 600, 1000);
+
+    let all = s.list(&HistoryQuery::default()).unwrap();
+    assert_eq!(all.len(), 600);
+}

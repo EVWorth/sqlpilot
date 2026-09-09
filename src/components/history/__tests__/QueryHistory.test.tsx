@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryHistory } from "../QueryHistory";
 
@@ -6,6 +6,16 @@ vi.mock("../../../stores/historyStore", () => ({
   useHistoryStore: Object.assign(vi.fn(), { getState: vi.fn() }),
   HISTORY_LIMITS: [100, 500, 1000, 5000, 10000],
   DEFAULT_HISTORY_LIMIT: 500,
+  // The real predicate: mocking it would let the panel's use of it drift.
+  hasActiveFilters: (f: { connectionNames: string[]; status: string }) =>
+    f.connectionNames.length > 0 || f.status !== "",
+}));
+
+vi.mock("../../../lib/tauri-api", () => ({
+  api: {
+    pickSaveFile: vi.fn().mockResolvedValue("/tmp/history.csv"),
+    writeFileContents: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 vi.mock("../../../stores/editorStore", () => ({
@@ -19,11 +29,40 @@ import { useHistoryStore } from "../../../stores/historyStore";
 
 const mockRemoveEntry = vi.fn();
 const mockSetLimit = vi.fn();
-const mockSetSearch = vi.fn();
+const mockSetFilters = vi.fn().mockResolvedValue(undefined);
+const mockResetFilters = vi.fn().mockResolvedValue(undefined);
+const mockExportMatching = vi.fn().mockResolvedValue("csv,data");
 const mockLoad = vi.fn().mockResolvedValue(undefined);
-// The panel no longer filters in memory — search goes to the database — so
+
+// The panel no longer filters in memory — filtering goes to the database — so
 // tests drive it by setting what the store would have returned.
-let mockSearch = "";
+const NO_FILTERS = {
+  search: "",
+  connectionNames: [] as string[],
+  databases: [] as string[],
+  status: "",
+  executedAfter: "",
+  executedBefore: "",
+  minDurationMs: null as number | null,
+  sort: "recent" as const,
+};
+let mockFilters = { ...NO_FILTERS };
+let mockFacets = { connectionNames: [] as string[], databases: [] as string[] };
+let mockMatchCount = 0;
+
+function storeExtras() {
+  return {
+    filters: mockFilters,
+    setFilters: mockSetFilters,
+    resetFilters: mockResetFilters,
+    matchCount: mockMatchCount,
+    facets: mockFacets,
+    exportMatching: mockExportMatching,
+    load: mockLoad,
+    loading: false,
+    error: null,
+  };
+}
 
 const mockEntries = [
   {
@@ -68,8 +107,13 @@ describe("QueryHistory", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    mockSearch = "";
+    mockFilters = { ...NO_FILTERS };
+    mockFacets = { connectionNames: [], databases: [] };
+    mockMatchCount = 0;
     mockLoad.mockResolvedValue(undefined);
+    mockSetFilters.mockResolvedValue(undefined);
+    mockResetFilters.mockResolvedValue(undefined);
+    mockExportMatching.mockResolvedValue("csv,data");
     vi.mocked(useHistoryStore).mockImplementation((selector) => {
       if (typeof selector === "function") {
         return selector({
@@ -79,11 +123,7 @@ describe("QueryHistory", () => {
           removeEntry: mockRemoveEntry,
           limit: 500,
           setLimit: mockSetLimit,
-          search: mockSearch,
-          setSearch: mockSetSearch,
-          load: mockLoad,
-          loading: false,
-          error: null,
+          ...storeExtras(),
         });
       }
       return mockEntries;
@@ -97,11 +137,7 @@ describe("QueryHistory", () => {
       removeEntry: mockRemoveEntry,
       limit: 500,
       setLimit: mockSetLimit,
-      search: mockSearch,
-      setSearch: mockSetSearch,
-      load: mockLoad,
-      loading: false,
-      error: null,
+      ...storeExtras(),
     }));
   });
 
@@ -129,11 +165,7 @@ describe("QueryHistory", () => {
           removeEntry: mockRemoveEntry,
           limit: 500,
           setLimit: mockSetLimit,
-          search: mockSearch,
-          setSearch: mockSetSearch,
-          load: mockLoad,
-          loading: false,
-          error: null,
+          ...storeExtras(),
         });
       }
       return [];
@@ -148,11 +180,11 @@ describe("QueryHistory", () => {
     fireEvent.change(searchInput, { target: { value: "users" } });
 
     // The database answers the question now, so the panel's job is to ask it.
-    expect(mockSetSearch).toHaveBeenCalledWith("users");
+    expect(mockSetFilters).toHaveBeenCalledWith({ search: "users" });
   });
 
   it("shows 'No matches' when a search returned nothing", () => {
-    mockSearch = "zzzzzz";
+    mockFilters = { ...NO_FILTERS, search: "zzzzzz" };
     vi.mocked(useHistoryStore).mockImplementation((selector) =>
       typeof selector === "function"
         ? selector({
@@ -162,11 +194,7 @@ describe("QueryHistory", () => {
           removeEntry: mockRemoveEntry,
           limit: 500,
           setLimit: mockSetLimit,
-          search: mockSearch,
-          setSearch: mockSetSearch,
-          load: mockLoad,
-          loading: false,
-          error: null,
+          ...storeExtras(),
         })
         : []
     );
@@ -320,6 +348,158 @@ describe("QueryHistory", () => {
       render(<QueryHistory />);
       fireEvent.change(screen.getByLabelText("Keep"), { target: { value: "5000" } });
       expect(mockSetLimit).toHaveBeenCalledWith(5000);
+    });
+  });
+
+  describe("filters, sort and export (#589)", () => {
+    /** Open the filter panel and return nothing — the controls are queried by label. */
+    function openFilters() {
+      fireEvent.click(screen.getByTitle("Filters"));
+    }
+
+    it("keeps the filter panel closed until asked", () => {
+      render(<QueryHistory />);
+      expect(screen.queryByLabelText("Sort")).not.toBeInTheDocument();
+    });
+
+    it("filters by status", () => {
+      render(<QueryHistory />);
+      openFilters();
+
+      fireEvent.change(screen.getByLabelText("Status"), { target: { value: "error" } });
+
+      expect(mockSetFilters).toHaveBeenCalledWith({ status: "error" });
+    });
+
+    it("sorts by duration", () => {
+      render(<QueryHistory />);
+      openFilters();
+
+      fireEvent.change(screen.getByLabelText("Sort"), { target: { value: "slowest" } });
+
+      expect(mockSetFilters).toHaveBeenCalledWith({ sort: "slowest" });
+    });
+
+    it("takes the end date as the end of that day", () => {
+      // "to the 3rd" has to include the 3rd. Midnight would exclude the whole
+      // day the user just named.
+      render(<QueryHistory />);
+      openFilters();
+
+      fireEvent.change(screen.getByLabelText("to"), { target: { value: "2026-01-03" } });
+
+      expect(mockSetFilters).toHaveBeenCalledWith({
+        executedBefore: "2026-01-03T23:59:59Z",
+      });
+    });
+
+    it("clears a date filter when the field is emptied", () => {
+      // Seeded first: React fires no change event when the value is unchanged,
+      // so clearing an already-empty box would prove nothing.
+      mockFilters = { ...NO_FILTERS, executedAfter: "2026-01-01T00:00:00Z" };
+      render(<QueryHistory />);
+      openFilters();
+
+      fireEvent.change(screen.getByLabelText("From"), { target: { value: "" } });
+
+      expect(mockSetFilters).toHaveBeenCalledWith({ executedAfter: "" });
+    });
+
+    it("treats an emptied duration box as no filter, not as zero", () => {
+      mockFilters = { ...NO_FILTERS, minDurationMs: 250 };
+      render(<QueryHistory />);
+      openFilters();
+
+      fireEvent.change(screen.getByLabelText("Slower than"), { target: { value: "" } });
+
+      expect(mockSetFilters).toHaveBeenCalledWith({ minDurationMs: null });
+    });
+
+    it("offers only the connections the history actually holds", () => {
+      mockFacets = { connectionNames: ["prod", "staging"], databases: [] };
+      render(<QueryHistory />);
+      openFilters();
+
+      expect(screen.getByText("prod")).toBeInTheDocument();
+      expect(screen.getByText("staging")).toBeInTheDocument();
+    });
+
+    it("adds a connection to the filter", () => {
+      mockFacets = { connectionNames: ["prod"], databases: [] };
+      render(<QueryHistory />);
+      openFilters();
+
+      fireEvent.click(screen.getByText("prod"));
+
+      expect(mockSetFilters).toHaveBeenCalledWith({ connectionNames: ["prod"] });
+    });
+
+    it("removes a connection that is already filtered on", () => {
+      mockFacets = { connectionNames: ["prod"], databases: [] };
+      mockFilters = { ...NO_FILTERS, connectionNames: ["prod"] };
+      render(<QueryHistory />);
+      fireEvent.click(screen.getByTitle("Filters (active)"));
+
+      fireEvent.click(screen.getByText("prod"));
+
+      expect(mockSetFilters).toHaveBeenCalledWith({ connectionNames: [] });
+    });
+
+    it("marks the filter button when something is narrowing the view", () => {
+      mockFilters = { ...NO_FILTERS, status: "error" };
+      render(<QueryHistory />);
+      expect(screen.getByTitle("Filters (active)")).toBeInTheDocument();
+    });
+
+    it("only enables Reset when there is something to reset", () => {
+      render(<QueryHistory />);
+      openFilters();
+      expect(screen.getByText("Reset")).toBeDisabled();
+    });
+
+    it("resets every filter at once", () => {
+      mockFilters = { ...NO_FILTERS, status: "error" };
+      render(<QueryHistory />);
+      fireEvent.click(screen.getByTitle("Filters (active)"));
+
+      fireEvent.click(screen.getByText("Reset"));
+
+      expect(mockResetFilters).toHaveBeenCalled();
+    });
+
+    it("says how many match when more match than fit", () => {
+      mockMatchCount = 812;
+      render(<QueryHistory />);
+      expect(screen.getByText("3 of 812")).toBeInTheDocument();
+    });
+
+    it("says only the count when everything matching is shown", () => {
+      mockMatchCount = 3;
+      render(<QueryHistory />);
+      expect(screen.getByText("3 shown")).toBeInTheDocument();
+    });
+
+    it("writes an export to the file the user picked", async () => {
+      const { api } = await import("../../../lib/tauri-api");
+      render(<QueryHistory />);
+      openFilters();
+
+      fireEvent.click(screen.getByText("CSV"));
+
+      await waitFor(() => expect(mockExportMatching).toHaveBeenCalledWith("csv"));
+      await waitFor(() => expect(api.writeFileContents).toHaveBeenCalledWith("/tmp/history.csv", "csv,data"));
+    });
+
+    it("writes nothing when the save dialog is cancelled", async () => {
+      const { api } = await import("../../../lib/tauri-api");
+      vi.mocked(api.pickSaveFile).mockResolvedValueOnce(null);
+      render(<QueryHistory />);
+      openFilters();
+
+      fireEvent.click(screen.getByText("SQL"));
+
+      await waitFor(() => expect(mockExportMatching).toHaveBeenCalledWith("sql"));
+      expect(api.writeFileContents).not.toHaveBeenCalled();
     });
   });
 });

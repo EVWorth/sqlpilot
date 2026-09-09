@@ -7,12 +7,31 @@ const historyRemove = vi.hoisted(() => vi.fn());
 const historyClear = vi.hoisted(() => vi.fn());
 const historyPrune = vi.hoisted(() => vi.fn());
 const historyImport = vi.hoisted(() => vi.fn());
+const historyCountMatching = vi.hoisted(() => vi.fn());
+const historyFacets = vi.hoisted(() => vi.fn());
+const historyExport = vi.hoisted(() => vi.fn());
 
 vi.mock("../../lib/tauri-api", () => ({
-  api: { historyAdd, historyList, historyRemove, historyClear, historyPrune, historyImport },
+  api: {
+    historyAdd,
+    historyList,
+    historyRemove,
+    historyClear,
+    historyPrune,
+    historyImport,
+    historyCountMatching,
+    historyFacets,
+    historyExport,
+  },
 }));
 
-import { DEFAULT_HISTORY_LIMIT, type NewHistoryEntry, useHistoryStore } from "../historyStore";
+import {
+  DEFAULT_HISTORY_LIMIT,
+  hasActiveFilters,
+  type NewHistoryEntry,
+  NO_FILTERS,
+  useHistoryStore,
+} from "../historyStore";
 
 function entry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
   return {
@@ -51,10 +70,15 @@ describe("historyStore", () => {
     historyClear.mockResolvedValue(undefined);
     historyPrune.mockResolvedValue(0);
     historyImport.mockResolvedValue(0);
+    historyCountMatching.mockResolvedValue(0);
+    historyFacets.mockResolvedValue({ connectionNames: [], databases: [] });
+    historyExport.mockResolvedValue("");
     useHistoryStore.setState({
       entries: [],
       limit: DEFAULT_HISTORY_LIMIT,
-      search: "",
+      filters: { ...NO_FILTERS },
+      matchCount: 0,
+      facets: { connectionNames: [], databases: [] },
       loading: true,
       error: null,
     });
@@ -159,36 +183,110 @@ describe("historyStore", () => {
     });
   });
 
-  describe("search", () => {
+  describe("filters (#589)", () => {
     it("asks the database rather than filtering in memory", async () => {
       historyList.mockResolvedValue([entry({ id: "match" })]);
 
-      await useHistoryStore.getState().setSearch("orders");
+      await useHistoryStore.getState().setFilters({ search: "orders" });
 
-      expect(historyList).toHaveBeenCalledWith(
-        expect.objectContaining({ search: "orders" }),
-      );
+      expect(historyList).toHaveBeenCalledWith(expect.objectContaining({ search: "orders" }));
       expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["match"]);
     });
 
     it("sends null rather than an empty search", async () => {
-      await useHistoryStore.getState().setSearch("");
+      await useHistoryStore.getState().setFilters({ search: "" });
       expect(historyList).toHaveBeenCalledWith(expect.objectContaining({ search: null }));
     });
 
-    it("ignores a result the user has already typed past", async () => {
-      // Two searches in flight; the first resolves last. Without the guard the
-      // list snaps back to the stale query's matches.
+    it("sends null for an empty filter list, not an empty array", async () => {
+      // An empty list must mean "all"; sending [] would match nothing, so
+      // unticking the last checkbox would empty the panel.
+      await useHistoryStore.getState().setFilters({ connectionNames: [] });
+      expect(historyList).toHaveBeenCalledWith(
+        expect.objectContaining({ connectionNames: null, databases: null }),
+      );
+    });
+
+    it("passes every filter through", async () => {
+      await useHistoryStore.getState().setFilters({
+        connectionNames: ["prod"],
+        databases: ["app"],
+        status: "error",
+        executedAfter: "2026-01-01T00:00:00Z",
+        executedBefore: "2026-01-02T23:59:59Z",
+        minDurationMs: 250,
+        sort: "slowest",
+      });
+
+      expect(historyList).toHaveBeenCalledWith(
+        expect.objectContaining({
+          connectionNames: ["prod"],
+          databases: ["app"],
+          status: "error",
+          executedAfter: "2026-01-01T00:00:00Z",
+          executedBefore: "2026-01-02T23:59:59Z",
+          minDurationMs: 250,
+          sort: "slowest",
+        }),
+      );
+    });
+
+    it("records how many match, not just how many fit on the page", async () => {
+      historyList.mockResolvedValue([entry({ id: "a" })]);
+      historyCountMatching.mockResolvedValue(812);
+
+      await useHistoryStore.getState().setFilters({ status: "error" });
+
+      expect(useHistoryStore.getState().matchCount).toBe(812);
+    });
+
+    it("resets every filter at once", async () => {
+      useHistoryStore.setState({
+        filters: { ...NO_FILTERS, status: "error", connectionNames: ["prod"] },
+      });
+
+      await useHistoryStore.getState().resetFilters();
+
+      expect(useHistoryStore.getState().filters).toEqual(NO_FILTERS);
+    });
+
+    it("ignores a read the user has already filtered past", async () => {
+      // Two reads in flight; the first resolves last. Without the generation
+      // guard the list snaps back to the stale filter's results.
       let resolveFirst: (v: HistoryEntry[]) => void = () => {};
       historyList.mockImplementationOnce(() => new Promise((r) => (resolveFirst = r)));
       historyList.mockImplementationOnce(async () => [entry({ id: "second" })]);
 
-      const first = useHistoryStore.getState().setSearch("ord");
-      await useHistoryStore.getState().setSearch("orders");
+      const first = useHistoryStore.getState().setFilters({ search: "ord" });
+      await useHistoryStore.getState().setFilters({ search: "orders" });
       resolveFirst([entry({ id: "first" })]);
       await first;
 
       expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["second"]);
+    });
+
+    it("knows when nothing is narrowing the view", () => {
+      expect(hasActiveFilters(NO_FILTERS)).toBe(false);
+      // A search is not a "filter" for the reset button's purposes — it has
+      // its own visible box to clear.
+      expect(hasActiveFilters({ ...NO_FILTERS, search: "x" })).toBe(false);
+      expect(hasActiveFilters({ ...NO_FILTERS, status: "error" })).toBe(true);
+      expect(hasActiveFilters({ ...NO_FILTERS, minDurationMs: 1 })).toBe(true);
+    });
+  });
+
+  describe("export (#589)", () => {
+    it("exports everything matching, not just the page", async () => {
+      useHistoryStore.setState({ filters: { ...NO_FILTERS, status: "error" }, limit: 100 });
+      historyExport.mockResolvedValue("executed_at,...");
+
+      const out = await useHistoryStore.getState().exportMatching("csv");
+
+      expect(historyExport).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "error", limit: null }),
+        "csv",
+      );
+      expect(out).toBe("executed_at,...");
     });
   });
 

@@ -1,6 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import type { AiConfig, AiMode, ConnectionProfileInput, QueryResult } from "../types";
-import type { HistoryEntry, HistoryQuery } from "./bindings";
+import type { HistoryEntry, HistoryExportFormat, HistoryQuery } from "./bindings";
 import { commands } from "./bindings";
 
 /**
@@ -119,6 +119,14 @@ export const api = {
 
   historyImport: (entries: HistoryEntry[], limit: number) =>
     unwrap("history_import", () => commands.historyImport(entries, limit)),
+
+  historyCountMatching: (query: HistoryQuery) =>
+    unwrap("history_count_matching", () => commands.historyCountMatching(query)),
+
+  historyFacets: () => unwrap("history_facets", () => commands.historyFacets()),
+
+  historyExport: (query: HistoryQuery, format: HistoryExportFormat) =>
+    unwrap("history_export", () => commands.historyExport(query, format)),
 
   // EXPLAIN goes through its own command rather than executeQuery: ANALYZE runs
   // the statement it measures, so the decision to downgrade a write to a plain

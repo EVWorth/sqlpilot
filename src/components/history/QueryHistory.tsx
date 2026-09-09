@@ -1,7 +1,15 @@
-import { CheckCircle, Clock, Search, Trash2, X, XCircle } from "lucide-react";
+import { CheckCircle, Clock, Download, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { api } from "../../lib/tauri-api";
 import { useEditorStore } from "../../stores/editorStore";
-import { HISTORY_LIMITS, type HistoryEntry, useHistoryStore } from "../../stores/historyStore";
+import {
+  hasActiveFilters,
+  HISTORY_LIMITS,
+  type HistoryEntry,
+  type HistoryExportFormat,
+  type HistorySort,
+  useHistoryStore,
+} from "../../stores/historyStore";
 
 function formatRelativeTime(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();
@@ -15,6 +23,43 @@ function formatRelativeTime(isoDate: string): string {
   return `${days}d ago`;
 }
 
+/** Shared class for the small filter controls, so they line up. */
+const CONTROL =
+  "rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[10px] text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500";
+
+/** A row of toggleable values — connections, databases. */
+function FilterChips(
+  { label, options, selected, onToggle }: {
+    label: string;
+    options: string[];
+    selected: string[];
+    onToggle: (value: string) => void;
+  },
+) {
+  return (
+    <div className="flex flex-wrap items-center gap-1">
+      <span>{label}</span>
+      {options.map((option) => {
+        const on = selected.includes(option);
+        return (
+          <button
+            key={option}
+            onClick={() => onToggle(option)}
+            aria-pressed={on}
+            className={`max-w-[10rem] truncate rounded px-1.5 py-0.5 text-[10px] ring-1 ${
+              on
+                ? "bg-brand-600/20 text-brand-300 ring-brand-500"
+                : "text-[var(--color-text-muted)] ring-[var(--color-border)] hover:text-[var(--color-text-primary)]"
+            }`}
+          >
+            {option}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 export function QueryHistory() {
   const entries = useHistoryStore((s) => s.entries);
   const clearHistory = useHistoryStore((s) => s.clearHistory);
@@ -22,14 +67,23 @@ export function QueryHistory() {
   const setLimit = useHistoryStore((s) => s.setLimit);
   const loading = useHistoryStore((s) => s.loading);
   const storeError = useHistoryStore((s) => s.error);
-  const search = useHistoryStore((s) => s.search);
-  const setSearch = useHistoryStore((s) => s.setSearch);
+  const filters = useHistoryStore((s) => s.filters);
+  const setFilters = useHistoryStore((s) => s.setFilters);
+  const resetFilters = useHistoryStore((s) => s.resetFilters);
+  const matchCount = useHistoryStore((s) => s.matchCount);
+  const facets = useHistoryStore((s) => s.facets);
+  const exportMatching = useHistoryStore((s) => s.exportMatching);
   const load = useHistoryStore((s) => s.load);
+
+  const [showFilters, setShowFilters] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // Entries come from the database now, so the panel has to ask for them.
   useEffect(() => {
     void load();
   }, [load]);
+
+  const active = hasActiveFilters(filters);
   const [confirmClear, setConfirmClear] = useState(false);
   // Failure messages are one line until asked for. A long one would push the
   // rest of the list off the panel, and the entry the user wants is usually
@@ -59,6 +113,29 @@ export function QueryHistory() {
     }
   };
 
+  const handleExport = async (format: HistoryExportFormat) => {
+    setExporting(true);
+    try {
+      const contents = await exportMatching(format);
+      const path = await api.pickSaveFile(
+        "Export query history",
+        format === "csv" ? "query-history.csv" : "query-history.sql",
+        [[format === "csv" ? "CSV" : "SQL", [format]]],
+      );
+      // A cancelled save dialog is not a failure; it is the user changing
+      // their mind, and saying nothing is the right response.
+      if (path) await api.writeFileContents(path, contents);
+    } catch (e) {
+      useHistoryStore.setState({ error: `Could not export history: ${String(e)}` });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  /** Add or remove one value from a multi-select filter. */
+  const toggleIn = (list: string[], value: string) =>
+    list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
+
   const handleRemove = (e: React.MouseEvent, entryId: string) => {
     e.stopPropagation();
     void useHistoryStore.getState().removeEntry(entryId);
@@ -72,11 +149,21 @@ export function QueryHistory() {
           <input
             type="text"
             placeholder="Search history..."
-            value={search}
-            onChange={(e) => void setSearch(e.target.value)}
+            value={filters.search}
+            onChange={(e) => void setFilters({ search: e.target.value })}
             className="w-full rounded bg-[var(--color-bg-primary)] py-1 pl-6 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
           />
         </div>
+        <button
+          onClick={() => setShowFilters((v) => !v)}
+          aria-expanded={showFilters}
+          className={`rounded p-1 hover:bg-[var(--color-bg-tertiary)] ${
+            active ? "text-brand-400" : "text-[var(--color-text-muted)]"
+          }`}
+          title={active ? "Filters (active)" : "Filters"}
+        >
+          <SlidersHorizontal className="h-3.5 w-3.5" />
+        </button>
         <button
           onClick={handleClear}
           className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-red-400"
@@ -86,6 +173,122 @@ export function QueryHistory() {
         </button>
         {confirmClear && <span className="text-[10px] text-red-400">Confirm?</span>}
       </div>
+
+      {showFilters && (
+        <div className="space-y-1.5 border-b border-[var(--color-border)] px-2 py-2 text-[10px] text-[var(--color-text-muted)]">
+          <div className="flex items-center gap-1">
+            <label htmlFor="history-sort">Sort</label>
+            <select
+              id="history-sort"
+              value={filters.sort}
+              onChange={(e) => void setFilters({ sort: e.target.value as HistorySort })}
+              className={CONTROL}
+            >
+              <option value="recent">Most recent</option>
+              <option value="slowest">Slowest first</option>
+              <option value="most_rows">Most rows</option>
+            </select>
+
+            <label htmlFor="history-status" className="ml-2">Status</label>
+            <select
+              id="history-status"
+              value={filters.status}
+              onChange={(e) => void setFilters({ status: e.target.value })}
+              className={CONTROL}
+            >
+              <option value="">Any</option>
+              <option value="success">Succeeded</option>
+              <option value="error">Failed</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-1">
+            <label htmlFor="history-after">From</label>
+            <input
+              id="history-after"
+              type="date"
+              value={filters.executedAfter.slice(0, 10)}
+              onChange={(e) =>
+                void setFilters({
+                  executedAfter: e.target.value ? `${e.target.value}T00:00:00Z` : "",
+                })}
+              className={CONTROL}
+            />
+            <label htmlFor="history-before">to</label>
+            <input
+              id="history-before"
+              type="date"
+              value={filters.executedBefore.slice(0, 10)}
+              onChange={(e) =>
+                // End of day, so "to the 3rd" includes the 3rd rather than
+                // stopping at midnight before it.
+                void setFilters({
+                  executedBefore: e.target.value ? `${e.target.value}T23:59:59Z` : "",
+                })}
+              className={CONTROL}
+            />
+          </div>
+
+          <div className="flex items-center gap-1">
+            <label htmlFor="history-slower">Slower than</label>
+            <input
+              id="history-slower"
+              type="number"
+              min={0}
+              step={100}
+              value={filters.minDurationMs ?? ""}
+              onChange={(e) =>
+                void setFilters({
+                  minDurationMs: e.target.value === "" ? null : Number(e.target.value),
+                })}
+              className={`${CONTROL} w-16`}
+            />
+            <span>ms</span>
+          </div>
+
+          {facets.connectionNames.length > 0 && (
+            <FilterChips
+              label="Connections"
+              options={facets.connectionNames}
+              selected={filters.connectionNames}
+              onToggle={(v) => void setFilters({ connectionNames: toggleIn(filters.connectionNames, v) })}
+            />
+          )}
+          {facets.databases.length > 0 && (
+            <FilterChips
+              label="Databases"
+              options={facets.databases}
+              selected={filters.databases}
+              onToggle={(v) => void setFilters({ databases: toggleIn(filters.databases, v) })}
+            />
+          )}
+
+          <div className="flex items-center gap-2 pt-0.5">
+            <button
+              onClick={() => void resetFilters()}
+              disabled={!active}
+              className="rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-40"
+            >
+              Reset
+            </button>
+            <span className="ml-auto">Export what matches:</span>
+            <button
+              onClick={() => void handleExport("csv")}
+              disabled={exporting}
+              className="rounded px-1.5 py-0.5 text-[10px] text-brand-400 hover:bg-[var(--color-bg-tertiary)] disabled:opacity-40"
+            >
+              <Download className="mr-0.5 inline h-2.5 w-2.5" />CSV
+            </button>
+            <button
+              onClick={() => void handleExport("sql")}
+              disabled={exporting}
+              className="rounded px-1.5 py-0.5 text-[10px] text-brand-400 hover:bg-[var(--color-bg-tertiary)] disabled:opacity-40"
+            >
+              <Download className="mr-0.5 inline h-2.5 w-2.5" />SQL
+            </button>
+          </div>
+        </div>
+      )}
 
       {
         /* Retention. Lives here rather than in a settings dialog because it is
@@ -106,7 +309,12 @@ export function QueryHistory() {
           ))}
         </select>
         <span>queries</span>
-        <span className="ml-auto">{entries.length.toLocaleString()} shown</span>
+        {/* "50 of 812": a full page and a last page look identical without it. */}
+        <span className="ml-auto">
+          {matchCount > entries.length
+            ? `${entries.length.toLocaleString()} of ${matchCount.toLocaleString()}`
+            : `${entries.length.toLocaleString()} shown`}
+        </span>
       </div>
 
       {storeError && (
@@ -125,7 +333,7 @@ export function QueryHistory() {
           : entries.length === 0
           ? (
             <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
-              {search.trim() ? "No matches" : "No history yet"}
+              {filters.search.trim() || active ? "No matches" : "No history yet"}
             </p>
           )
           : (
