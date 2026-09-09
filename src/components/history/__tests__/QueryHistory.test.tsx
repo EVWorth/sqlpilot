@@ -4,6 +4,8 @@ import { QueryHistory } from "../QueryHistory";
 
 vi.mock("../../../stores/historyStore", () => ({
   useHistoryStore: Object.assign(vi.fn(), { getState: vi.fn() }),
+  HISTORY_LIMITS: [100, 500, 1000, 5000, 10000],
+  DEFAULT_HISTORY_LIMIT: 500,
 }));
 
 vi.mock("../../../stores/editorStore", () => ({
@@ -16,6 +18,7 @@ import { useEditorStore } from "../../../stores/editorStore";
 import { useHistoryStore } from "../../../stores/historyStore";
 
 const mockRemoveEntry = vi.fn();
+const mockSetLimit = vi.fn();
 
 const mockEntries = [
   {
@@ -67,6 +70,8 @@ describe("QueryHistory", () => {
           clearHistory: mockClearHistory,
           addEntry: vi.fn(),
           removeEntry: mockRemoveEntry,
+          limit: 500,
+          setLimit: mockSetLimit,
         });
       }
       return mockEntries;
@@ -78,6 +83,8 @@ describe("QueryHistory", () => {
       clearHistory: mockClearHistory,
       addEntry: vi.fn(),
       removeEntry: mockRemoveEntry,
+      limit: 500,
+      setLimit: mockSetLimit,
     }));
   });
 
@@ -258,6 +265,20 @@ describe("QueryHistory", () => {
       render(<QueryHistory />);
       expect(screen.queryByText(/doesn't exist/)).toBeInTheDocument();
       expect(screen.queryAllByText(/·/)).toHaveLength(1);
+    });
+  });
+
+  describe("retention (#323)", () => {
+    it("shows the current limit and how much is stored", () => {
+      render(<QueryHistory />);
+      expect(screen.getByLabelText("Keep")).toHaveValue("500");
+      expect(screen.getByText("3 stored")).toBeInTheDocument();
+    });
+
+    it("changes the limit through the store", () => {
+      render(<QueryHistory />);
+      fireEvent.change(screen.getByLabelText("Keep"), { target: { value: "5000" } });
+      expect(mockSetLimit).toHaveBeenCalledWith(5000);
     });
   });
 });

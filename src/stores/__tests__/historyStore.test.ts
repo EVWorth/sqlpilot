@@ -1,5 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { type HistoryEntry, useHistoryStore } from "../historyStore";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { DEFAULT_HISTORY_LIMIT, type HistoryEntry, useHistoryStore } from "../historyStore";
 
 function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
   return {
@@ -16,7 +16,7 @@ function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
 
 describe("historyStore", () => {
   beforeEach(() => {
-    useHistoryStore.setState({ entries: [] });
+    useHistoryStore.setState({ entries: [], limit: DEFAULT_HISTORY_LIMIT });
   });
 
   describe("addEntry", () => {
@@ -43,7 +43,7 @@ describe("historyStore", () => {
       expect(entries[0].connectionName).toBe("Test Connection");
     });
 
-    it("enforces MAX_ENTRIES of 500", () => {
+    it("keeps at most the configured limit, 500 by default", () => {
       const store = useHistoryStore.getState();
       for (let i = 0; i < 600; i++) {
         store.addEntry(makeEntry({ id: `entry-${i}`, sql: `SELECT ${i}` }));
@@ -229,6 +229,56 @@ describe("historyStore", () => {
       const raw = localStorage.getItem("mas-query-history");
       const parsed = JSON.parse(raw!);
       expect(parsed.state.entries).toEqual([]);
+    });
+  });
+
+  describe("retention limit (#323)", () => {
+    function fill(n: number) {
+      const store = useHistoryStore.getState();
+      for (let i = 0; i < n; i++) store.addEntry(makeEntry({ id: `e-${i}` }));
+    }
+
+    it("defaults to 500", () => {
+      expect(useHistoryStore.getState().limit).toBe(DEFAULT_HISTORY_LIMIT);
+      expect(DEFAULT_HISTORY_LIMIT).toBe(500);
+    });
+
+    it("honours a raised limit", () => {
+      useHistoryStore.getState().setLimit(1000);
+      fill(1100);
+
+      expect(useHistoryStore.getState().entries).toHaveLength(1000);
+    });
+
+    it("trims immediately when the limit is lowered", () => {
+      fill(300);
+      useHistoryStore.getState().setLimit(100);
+
+      const { entries } = useHistoryStore.getState();
+      expect(entries).toHaveLength(100);
+      // The newest survive: the oldest are what a lower cap is asking to drop.
+      expect(entries[0].id).toBe("e-299");
+      expect(entries[99].id).toBe("e-200");
+    });
+
+    it("persists the limit across a reload", async () => {
+      useHistoryStore.getState().setLimit(5000);
+
+      vi.resetModules();
+      const mod = await import("../historyStore");
+      expect(mod.useHistoryStore.getState().limit).toBe(5000);
+    });
+
+    it("falls back to the default for a history stored before the limit existed", async () => {
+      localStorage.setItem(
+        "mas-query-history",
+        JSON.stringify({ state: { entries: [makeEntry({ id: "old" })] }, version: 1 }),
+      );
+
+      vi.resetModules();
+      const mod = await import("../historyStore");
+      expect(mod.useHistoryStore.getState().limit).toBe(DEFAULT_HISTORY_LIMIT);
+      expect(mod.useHistoryStore.getState().entries).toHaveLength(1);
     });
   });
 });

@@ -1578,7 +1578,7 @@ No `password_ref` column (passwords live in OS keyring, not SQL). No `sort_order
 
 `query_history` table from earlier drafts was never implemented. Today:
 
-- `historyStore.ts` — last ~200 queries per session, in-memory + `localStorage` via `zustand/middleware::persist` keyed `mas-query-history`.
+- `historyStore.ts` — in-memory + `localStorage` via `zustand/middleware::persist` keyed `mas-query-history`. Keeps the last `limit` queries, default 500, which the user changes from the history panel (`HISTORY_LIMITS` in the store). The default is a localStorage figure, not a considered retention policy: one pasted migration script is worth hundreds of ordinary entries, so the cap that matters is bytes.
 - `favoritesStore.ts` — saved queries + categories, `localStorage` via `persist` keyed `mas-query-favorites`.
 
 A future migration to SQLite (`history.db`) is plausible but not in scope.
