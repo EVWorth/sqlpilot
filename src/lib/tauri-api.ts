@@ -23,6 +23,35 @@ const isTauri = "__TAURI_INTERNALS__" in window;
 type CommandResult<T, E> = { status: "ok"; data: T } | { status: "error"; error: E };
 
 /**
+ * An error a command rejected with, keeping whatever structure it carried.
+ *
+ * Most commands fail with a bare string. The query commands fail with a
+ * `QueryError`, which adds the driver's own error number and SQLSTATE — the
+ * difference between "something went wrong" and "table `app.user` does not
+ * exist, code 1146" in the history panel (#324).
+ *
+ * It extends Error so that every existing `String(e)` and `e.message` caller
+ * keeps working unchanged; the extra fields are there for the ones that ask.
+ */
+export class CommandError extends Error {
+  readonly code?: number;
+  readonly sqlState?: string;
+
+  constructor(message: string, fields?: { code?: number | null; sqlState?: string | null }) {
+    super(message);
+    // Left as "Error" deliberately: the app shows raw `String(e)` in
+    // several places, and renaming would prefix every one of them.
+    if (fields?.code != null) this.code = fields.code;
+    if (fields?.sqlState != null) this.sqlState = fields.sqlState;
+  }
+}
+
+/** True for the structured payload the query commands reject with. */
+function isQueryError(e: unknown): e is { message: string; code: number | null; sqlState: string | null } {
+  return typeof e === "object" && e !== null && typeof (e as { message?: unknown }).message === "string";
+}
+
+/**
  * Turn a generated command's result union into the throwing promise the rest
  * of the app is written against.
  */
@@ -36,7 +65,12 @@ async function unwrap<T, E>(
   }
   const result = await run();
   if (result.status === "error") {
-    throw new Error(typeof result.error === "string" ? result.error : String(result.error));
+    if (isQueryError(result.error)) {
+      throw new CommandError(result.error.message, result.error);
+    }
+    throw new CommandError(
+      typeof result.error === "string" ? result.error : String(result.error),
+    );
   }
   return result.data;
 }

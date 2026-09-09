@@ -1839,3 +1839,53 @@ fn an_edit_that_omits_the_password_keeps_the_stored_one() {
         "the stored password must survive an edit that did not touch it"
     );
 }
+
+// ====== STRUCTURED QUERY ERRORS ======
+//
+// The executor used to flatten a failure to `CoreError::Query(e.to_string())`,
+// which threw away the driver's error number and SQLSTATE before anything
+// could read them. The history panel could then only say that a query failed,
+// not which failure it was (#324).
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_failed_query_keeps_the_driver_error_number() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let err = executor
+        .execute(&info.id, "SELECT * FROM definitely_not_a_table", None, None)
+        .await
+        .unwrap_err();
+
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.code, Some(1146), "unknown table");
+    assert_eq!(reported.sql_state.as_deref(), Some("42S02"));
+    assert!(
+        reported.message.contains("definitely_not_a_table"),
+        "the message should name the table: {}",
+        reported.message
+    );
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_syntax_error_is_distinguishable_from_a_missing_table() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let err = executor
+        .execute(&info.id, "SELECT FROM WHERE", None, None)
+        .await
+        .unwrap_err();
+
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.code, Some(1064), "parse error");
+    assert_eq!(reported.sql_state.as_deref(), Some("42000"));
+
+    manager.disconnect(&info.id).await.unwrap();
+}

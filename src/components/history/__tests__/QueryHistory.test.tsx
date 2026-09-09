@@ -47,7 +47,9 @@ const mockEntries = [
     executionTimeMs: 100,
     rowCount: 0,
     status: "error" as const,
-    error: "Table not found",
+    error: "Table 'otherdb.nonexistent' doesn't exist",
+    errorCode: 1146,
+    errorSqlState: "42S02",
   },
 ];
 
@@ -218,5 +220,44 @@ describe("QueryHistory", () => {
     expect(mockUpdateTabContent).not.toHaveBeenCalled();
     expect(mockAddTab).not.toHaveBeenCalled();
     expect(mockRemoveEntry).toHaveBeenCalledWith("entry-3");
+  });
+
+  describe("failed entries (#324)", () => {
+    it("shows the error message inline", () => {
+      render(<QueryHistory />);
+      expect(screen.getByText("Table 'otherdb.nonexistent' doesn't exist")).toBeInTheDocument();
+    });
+
+    it("shows the driver code and SQLSTATE", () => {
+      render(<QueryHistory />);
+      expect(screen.getByText("1146 · 42S02")).toBeInTheDocument();
+    });
+
+    it("carries the full message in a tooltip while it is truncated", () => {
+      render(<QueryHistory />);
+      const message = screen.getByText("Table 'otherdb.nonexistent' doesn't exist");
+      expect(message).toHaveAttribute("title", "Table 'otherdb.nonexistent' doesn't exist");
+      expect(message.className).toContain("truncate");
+    });
+
+    it("expands the message on click without loading the query into the editor", () => {
+      const store = { tabs: [], activeTabId: null, addTab: mockAddTab, updateTabContent: mockUpdateTabContent };
+      vi.mocked(useEditorStore.getState).mockReturnValue(store as never);
+      render(<QueryHistory />);
+
+      const message = screen.getByText("Table 'otherdb.nonexistent' doesn't exist");
+      fireEvent.click(message);
+
+      expect(message.className).not.toContain("truncate");
+      expect(message).toHaveAttribute("aria-expanded", "true");
+      expect(mockUpdateTabContent).not.toHaveBeenCalled();
+      expect(mockAddTab).not.toHaveBeenCalled();
+    });
+
+    it("shows nothing extra for a successful entry", () => {
+      render(<QueryHistory />);
+      expect(screen.queryByText(/doesn't exist/)).toBeInTheDocument();
+      expect(screen.queryAllByText(/·/)).toHaveLength(1);
+    });
   });
 });

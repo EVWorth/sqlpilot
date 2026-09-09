@@ -14,7 +14,7 @@ export const commands = {
 	connect: (profileId: string) => typedError<ConnectionInfo, string>(__TAURI_INVOKE("connect", { profileId })),
 	disconnect: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("disconnect", { connectionId })),
 	listConnections: () => typedError<ConnectionInfo[], string>(__TAURI_INVOKE("list_connections")),
-	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null) => typedError<QueryResult_Serialize[], string>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit })),
+	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null) => typedError<QueryResult_Serialize[], QueryError>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit })),
 	/**
 	 *  Plan a single statement.
 	 * 
@@ -72,7 +72,7 @@ export const commands = {
 	sqliteOpen: (path: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_open", { path })),
 	sqliteClose: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("sqlite_close", { connectionId })),
 	sqliteList: () => typedError<string[], string>(__TAURI_INVOKE("sqlite_list")),
-	sqliteExecute: (connectionId: string, sql: string) => typedError<SqliteQueryResult[], string>(__TAURI_INVOKE("sqlite_execute", { connectionId, sql })),
+	sqliteExecute: (connectionId: string, sql: string) => typedError<SqliteQueryResult[], QueryError>(__TAURI_INVOKE("sqlite_execute", { connectionId, sql })),
 	sqliteGetTables: (connectionId: string) => typedError<SqliteTableInfo[], string>(__TAURI_INVOKE("sqlite_get_tables", { connectionId })),
 	sqliteGetColumns: (connectionId: string, table: string) => typedError<SqliteColumnInfo[], string>(__TAURI_INVOKE("sqlite_get_columns", { connectionId, table })),
 	sqliteGetIndexes: (connectionId: string, table: string) => typedError<SqliteIndexInfo[], string>(__TAURI_INVOKE("sqlite_get_indexes", { connectionId, table })),
@@ -353,6 +353,32 @@ export type ProcessInfo = {
 	time: number,
 	state: string | null,
 	info: string | null,
+};
+
+/**
+ *  A query failure in the shape the frontend can act on.
+ * 
+ *  Commands hand the frontend `Result<_, String>`, which is enough to show a
+ *  message and nothing else: the history panel could not tell a missing table
+ *  from a syntax error, and a user debugging a recurring failure had to rerun
+ *  the query to find out which table was missing (#324).
+ * 
+ *  The driver already knows more than the message says. MySQL reports an error
+ *  number (1146 for an unknown table) and a SQLSTATE (42S02); SQLite reports an
+ *  extended result code. Both are stable identifiers worth keeping, so this
+ *  carries them alongside the text rather than flattening everything to one
+ *  string at the boundary.
+ */
+export type QueryError = {
+	/**  The message the user reads. Always present. */
+	message: string,
+	/**
+	 *  Driver error number: MySQL's error code, or SQLite's extended result
+	 *  code. `None` for failures that never reached a server.
+	 */
+	code: number | null,
+	/**  SQLSTATE, where the driver supplies one. MySQL does; SQLite does not. */
+	sqlState: string | null,
 };
 
 export type QueryResult = QueryResult_Serialize | QueryResult_Deserialize;

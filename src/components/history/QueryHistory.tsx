@@ -20,6 +20,10 @@ export function QueryHistory() {
   const clearHistory = useHistoryStore((s) => s.clearHistory);
   const [search, setSearch] = useState("");
   const [confirmClear, setConfirmClear] = useState(false);
+  // Failure messages are one line until asked for. A long one would push the
+  // rest of the list off the panel, and the entry the user wants is usually
+  // identified by its SQL, not by the wording of the error.
+  const [expandedError, setExpandedError] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return entries;
@@ -115,7 +119,29 @@ export function QueryHistory() {
                   </span>
                   <span>{entry.executionTimeMs}ms</span>
                   {entry.status === "success" && <span>{entry.rowCount} rows</span>}
+                  {entry.status === "error" && entry.errorCode !== undefined && (
+                    <span className="font-mono text-red-400/80">
+                      {entry.errorCode}
+                      {entry.errorSqlState ? ` · ${entry.errorSqlState}` : ""}
+                    </span>
+                  )}
                 </div>
+                {entry.status === "error" && entry.error && (
+                  <span
+                    role="button"
+                    aria-expanded={expandedError === entry.id}
+                    title={entry.error}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setExpandedError((prev) => (prev === entry.id ? null : entry.id));
+                    }}
+                    className={`cursor-pointer text-[10px] text-red-400 ${
+                      expandedError === entry.id ? "whitespace-pre-wrap break-words" : "truncate"
+                    }`}
+                  >
+                    {entry.error}
+                  </span>
+                )}
               </button>
             ))
           )}

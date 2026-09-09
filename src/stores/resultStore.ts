@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { connectionKind, dataSourceFor } from "../lib/datasource";
 import { isDestructiveStatement } from "../lib/sql-safety";
-import { api } from "../lib/tauri-api";
+import { api, CommandError } from "../lib/tauri-api";
 import type { QueryResult } from "../types";
 import { useConnectionStore } from "./connectionStore";
 import { useHistoryStore } from "./historyStore";
@@ -275,6 +275,9 @@ async function doExecuteQuery(
     if (cancelGeneration !== myGeneration) return;
     set({ error: String(e), isExecuting: false, results: [] });
 
+    // The driver's code and SQLSTATE ride along where it supplied them, so the
+    // history panel can say which failure this was (#324).
+    const structured = e instanceof CommandError ? e : undefined;
     useHistoryStore.getState().addEntry({
       id: crypto.randomUUID(),
       sql,
@@ -284,7 +287,9 @@ async function doExecuteQuery(
       executionTimeMs: Date.now() - startTime,
       rowCount: 0,
       status: "error",
-      error: String(e),
+      error: structured?.message ?? String(e),
+      errorCode: structured?.code,
+      errorSqlState: structured?.sqlState,
     });
   } finally {
     endExecution(myGeneration);
