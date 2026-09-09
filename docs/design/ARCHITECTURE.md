@@ -611,7 +611,7 @@ src/stores/
 ├── favoritesStore.ts     — Saved queries, pinned favorites, folders
 ├── settingsStore.ts      — User preferences, keybindings, editor config
 ├── aiStore.ts            — AI chat history, pending suggestions, provider status
-├── historyStore.ts       — Query history (loaded from mas-sqlite)
+├── historyStore.ts       — Query history (a view over history.db)
 └── themeStore.ts         — Active theme, mode (light/dark/system), accent
 ```
 
@@ -1537,7 +1537,7 @@ Feature availability when dependencies are unavailable:
 
 ## 9. Local Storage Architecture
 
-Two-tier storage: filesystem (`connections.db` + logs + keyring) on the Rust side, and `localStorage` for everything UI-facing on the frontend.
+Two-tier storage: filesystem (`connections.db` + `history.db` + logs + keyring) on the Rust side, and `localStorage` for the small UI preferences that are cheap to lose.
 
 ### Directory Structure (filesystem / Rust)
 
@@ -1551,6 +1551,13 @@ Two-tier storage: filesystem (`connections.db` + logs + keyring) on the Rust sid
 |                                          storage" below)
 |-- connections.db-wal                   -- SQLite write-ahead-log (auto)
 |-- connections.db-shm                   -- SQLite shared-memory file (auto)
+|
+|-- history.db                           -- SQLite: query history (#585)
+|                                          (separate file so an append-only log
+|                                          that grows without bound cannot take
+|                                          the connection profiles with it)
+|-- history.db-wal                       -- SQLite write-ahead-log (auto)
+|-- history.db-shm                       -- SQLite shared-memory file (auto)
 |
 \-- logs/                                -- Structured log files (tracing-subscriber)
     |-- sqlpilot.log.YYYY-MM-DD          -- Current day, rolling
@@ -1566,7 +1573,7 @@ Two-tier storage: filesystem (`connections.db` + logs + keyring) on the Rust sid
 | `theme`                       | `themeStore.ts`                | single string: `"dark"` or `"light"` or `"system"` |
 | `sqlpilot-formatter-settings` | `settingsStore.ts`             | JSON: full `FormatterSettings`                     |
 | `sqlpilot-query-settings`     | `settingsStore.ts`             | JSON: `{ maxResultRows, limitEnabled }`            |
-| `mas-query-history`           | `historyStore.ts`              | JSON via `zustand/middleware::persist`             |
+| `sqlpilot-history-limit`      | `historyStore.ts`              | single number: the retention count (#585)          |
 | `mas-query-favorites`         | `favoritesStore.ts`            | JSON via `zustand/middleware::persist`             |
 | `sqlpilot-editor-session`     | `editorStore.ts` (manual save) | JSON: `{ tabs, activeTabId }` debounced ~150ms     |
 
@@ -1617,11 +1624,11 @@ Migration chain (each `.ok()` swallows failures — silent failure mode that nee
 
 No `password_ref` column (passwords live in OS keyring, not SQL). No `sort_order` column (ordering derived from `updated_at` at read time). No `pool_config` JSON blob (pool settings are two separate columns `pool_min` / `pool_max`).
 
-### Query history / favorites — not in SQLite
+### Query history — in SQLite; favorites — not
 
-`query_history` table from earlier drafts was never implemented. Today:
+The `query_history` table from earlier drafts went unimplemented for a long time and history lived in `localStorage` instead. It is implemented now (#585). Today:
 
-- `historyStore.ts` — in-memory + `localStorage` via `zustand/middleware::persist` keyed `mas-query-history`. Keeps the last `limit` queries, default 500, which the user changes from the history panel (`HISTORY_LIMITS` in the store). The default is a localStorage figure, not a considered retention policy: one pasted migration script is worth hundreds of ordinary entries, so the cap that matters is bytes.
+- `historyStore.ts` — a view over `history.db`, a SQLite database beside `connections.db` with its own `PRAGMA user_version` migrations (`mas_core::history`). Its own file rather than a table in `connections.db`: history is append-only and much larger, and a corrupt or oversized history should not be able to take the connection profiles down with it. Keeps the last `limit` queries, default 500, changed from the history panel. Search is a `LIKE` with an explicit `ESCAPE`, not an array scan. A statement over `MAX_SQL_BYTES` (256 KB) is stored cut and marked `truncated`. On first run the old `mas-query-history` localStorage key is imported and then removed; ids carry across, so an interrupted handover resumes rather than duplicating.
 - `favoritesStore.ts` — saved queries + categories, `localStorage` via `persist` keyed `mas-query-favorites`.
 
 A future migration to SQLite (`history.db`) is plausible but not in scope.
