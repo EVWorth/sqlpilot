@@ -6,6 +6,8 @@ vi.mock("../../../stores/historyStore", () => ({
   useHistoryStore: Object.assign(vi.fn(), { getState: vi.fn() }),
   HISTORY_LIMITS: [100, 500, 1000, 5000, 10000],
   DEFAULT_HISTORY_LIMIT: 500,
+  HISTORY_MAX_AGE_DAYS: [0, 7, 30, 90, 365],
+  DEFAULT_HISTORY_MAX_AGE_DAYS: 0,
   // The real predicate: mocking it would let the panel's use of it drift.
   hasActiveFilters: (f: { connectionNames: string[]; status: string }) =>
     f.connectionNames.length > 0 || f.status !== "",
@@ -78,6 +80,8 @@ const mockResetFilters = vi.fn().mockResolvedValue(undefined);
 const mockExportMatching = vi.fn().mockResolvedValue("csv,data");
 const mockLoad = vi.fn().mockResolvedValue(undefined);
 const mockExecuteQuery = vi.fn().mockResolvedValue(undefined);
+const mockSetMaxAgeDays = vi.fn().mockResolvedValue(undefined);
+let mockMaxAgeDays = 0;
 let mockActiveConnections: { id: string; name: string }[] = [];
 
 // The panel no longer filters in memory — filtering goes to the database — so
@@ -107,6 +111,8 @@ function storeExtras() {
     load: mockLoad,
     loading: false,
     error: null,
+    maxAgeDays: mockMaxAgeDays,
+    setMaxAgeDays: mockSetMaxAgeDays,
   };
 }
 
@@ -166,6 +172,8 @@ describe("QueryHistory", () => {
     mockExecuteQuery.mockResolvedValue(undefined);
     mockActiveConnections = [{ id: "conn-other", name: "OtherDB" }];
     mockEntries = baseEntries;
+    mockMaxAgeDays = 0;
+    mockSetMaxAgeDays.mockResolvedValue(undefined);
     vi.mocked(useHistoryStore).mockImplementation((selector) => {
       if (typeof selector === "function") {
         return selector({
@@ -639,6 +647,50 @@ describe("QueryHistory", () => {
       fireEvent.click(screen.getByTestId("ctx-item-Delete"));
 
       expect(mockRemoveEntry).toHaveBeenCalledWith("entry-3");
+    });
+  });
+
+  describe("retention period (#592) and repeats (#590)", () => {
+    it("keeps history forever by default", () => {
+      render(<QueryHistory />);
+      expect(screen.getByLabelText("for")).toHaveValue("0");
+    });
+
+    it("sets a retention period", () => {
+      render(<QueryHistory />);
+      fireEvent.change(screen.getByLabelText("for"), { target: { value: "30" } });
+      expect(mockSetMaxAgeDays).toHaveBeenCalledWith(30);
+    });
+
+    it("collapses a run of the same statement into one row", () => {
+      mockEntries = [
+        { ...baseEntries[0], id: "r1" },
+        { ...baseEntries[0], id: "r2" },
+        { ...baseEntries[0], id: "r3" },
+      ];
+      render(<QueryHistory />);
+
+      expect(screen.getAllByText("SELECT * FROM users")).toHaveLength(1);
+      expect(screen.getByText("×3")).toBeInTheDocument();
+    });
+
+    it("does not collapse when sorted by anything but recency", () => {
+      // Adjacency means nothing once the order is by duration, so collapsing
+      // would merge runs that were nowhere near each other in time.
+      mockEntries = [
+        { ...baseEntries[0], id: "r1" },
+        { ...baseEntries[0], id: "r2" },
+      ];
+      mockFilters = { ...NO_FILTERS, sort: "slowest" };
+      render(<QueryHistory />);
+
+      expect(screen.getAllByText("SELECT * FROM users")).toHaveLength(2);
+      expect(screen.queryByText("×2")).not.toBeInTheDocument();
+    });
+
+    it("marks nothing when every row is distinct", () => {
+      render(<QueryHistory />);
+      expect(screen.queryByText(/^×/)).not.toBeInTheDocument();
     });
   });
 });

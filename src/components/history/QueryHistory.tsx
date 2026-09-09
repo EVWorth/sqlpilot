@@ -10,14 +10,16 @@ import {
   X,
   XCircle,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { groupConsecutive } from "../../lib/history-grouping";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import {
   hasActiveFilters,
   HISTORY_LIMITS,
+  HISTORY_MAX_AGE_DAYS,
   type HistoryEntry,
   type HistoryExportFormat,
   type HistorySort,
@@ -79,6 +81,8 @@ export function QueryHistory() {
   const clearHistory = useHistoryStore((s) => s.clearHistory);
   const limit = useHistoryStore((s) => s.limit);
   const setLimit = useHistoryStore((s) => s.setLimit);
+  const maxAgeDays = useHistoryStore((s) => s.maxAgeDays);
+  const setMaxAgeDays = useHistoryStore((s) => s.setMaxAgeDays);
   const loading = useHistoryStore((s) => s.loading);
   const storeError = useHistoryStore((s) => s.error);
   const filters = useHistoryStore((s) => s.filters);
@@ -99,6 +103,12 @@ export function QueryHistory() {
   }, [load]);
 
   const active = hasActiveFilters(filters);
+  // Sorting by anything other than recency makes adjacency meaningless, so
+  // there is nothing sensible to collapse (#590).
+  const rows = useMemo(
+    () => filters.sort === "recent" ? groupConsecutive(entries) : entries.map((e) => ({ entry: e, runs: [e] })),
+    [entries, filters.sort],
+  );
   const [confirmClear, setConfirmClear] = useState(false);
   // Failure messages are one line until asked for. A long one would push the
   // rest of the list off the panel, and the entry the user wants is usually
@@ -367,6 +377,19 @@ export function QueryHistory() {
           ))}
         </select>
         <span>queries</span>
+        <label htmlFor="history-max-age" className="ml-1">for</label>
+        <select
+          id="history-max-age"
+          value={maxAgeDays}
+          onChange={(e) => void setMaxAgeDays(Number(e.target.value))}
+          className="rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[10px] text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
+        >
+          {HISTORY_MAX_AGE_DAYS.map((d) => (
+            <option key={d} value={d}>
+              {d === 0 ? "ever" : `${d} days`}
+            </option>
+          ))}
+        </select>
         {/* "50 of 812": a full page and a last page look identical without it. */}
         <span className="ml-auto">
           {matchCount > entries.length
@@ -395,7 +418,7 @@ export function QueryHistory() {
             </p>
           )
           : (
-            entries.map((entry) => (
+            rows.map(({ entry, runs }) => (
               <button
                 key={entry.id}
                 onClick={() => handleClick(entry)}
@@ -458,6 +481,14 @@ export function QueryHistory() {
                     {formatRelativeTime(entry.executedAt)}
                   </span>
                   <span>{entry.executionTimeMs}ms</span>
+                  {runs.length > 1 && (
+                    <span
+                      className="rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px]"
+                      title={`Run ${runs.length} times in a row`}
+                    >
+                      ×{runs.length}
+                    </span>
+                  )}
                   {entry.status === "success" && <span>{entry.rowCount} rows</span>}
                   {entry.redacted && (
                     <span

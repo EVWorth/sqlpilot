@@ -32,8 +32,22 @@ export type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistorySort };
 export const DEFAULT_HISTORY_LIMIT = 500;
 export const HISTORY_LIMITS = [100, 500, 1000, 5000, 10000] as const;
 
+/**
+ * How long an entry is kept, in days. 0 means forever.
+ *
+ * The other half of FR-9.1.3, which asked for a retention period and only
+ * ever got a count (#592). Both apply, and whichever bites first wins: they
+ * answer different questions — how much clutter to tolerate, and how long any
+ * of it should be kept at all. Forever is the default because that is what
+ * the app has always done, and quietly starting to delete someone's history
+ * on upgrade would be the wrong way to introduce the setting.
+ */
+export const DEFAULT_HISTORY_MAX_AGE_DAYS = 0;
+export const HISTORY_MAX_AGE_DAYS = [0, 7, 30, 90, 365] as const;
+
 /** Where the retention choice lives. The entries no longer live in the DOM. */
 const LIMIT_KEY = "sqlpilot-history-limit";
+const MAX_AGE_KEY = "sqlpilot-history-max-age-days";
 /** The key history used before it moved to SQLite. Read once, then removed. */
 const LEGACY_KEY = "mas-query-history";
 
@@ -83,6 +97,8 @@ export function hasActiveFilters(f: HistoryFilters): boolean {
 interface HistoryState {
   entries: HistoryEntry[];
   limit: number;
+  /** Days to keep an entry, or 0 for forever. */
+  maxAgeDays: number;
   /** What the current `entries` were read with. */
   filters: HistoryFilters;
   /** How many entries match the filters, ignoring the page size. */
@@ -102,6 +118,7 @@ interface HistoryState {
   removeEntry: (id: string) => Promise<void>;
   clearHistory: () => Promise<void>;
   setLimit: (limit: number) => Promise<void>;
+  setMaxAgeDays: (days: number) => Promise<void>;
 }
 
 /**
@@ -112,14 +129,21 @@ interface HistoryState {
  */
 export type NewHistoryEntry = Omit<HistoryEntry, "redacted" | "truncated">;
 
-function readLimit(): number {
+/** Read a stored number, ignoring anything not on the offered list. */
+function readChoice<T extends number>(key: string, allowed: readonly T[], fallback: T): T {
   try {
-    const stored = Number(localStorage.getItem(LIMIT_KEY));
-    if (HISTORY_LIMITS.includes(stored as (typeof HISTORY_LIMITS)[number])) return stored;
+    const stored = Number(localStorage.getItem(key));
+    if (allowed.includes(stored as T)) return stored as T;
   } catch {
     // A blocked localStorage is not a reason to fail: the default is fine.
   }
-  return DEFAULT_HISTORY_LIMIT;
+  return fallback;
+}
+
+/** The ISO timestamp entries must be at or after, or null for "keep all". */
+export function retentionCutoff(maxAgeDays: number, now: Date = new Date()): string | null {
+  if (maxAgeDays <= 0) return null;
+  return new Date(now.getTime() - maxAgeDays * 24 * 60 * 60 * 1000).toISOString();
 }
 
 /**
@@ -227,7 +251,8 @@ async function refresh(
 
 export const useHistoryStore = create<HistoryState>((set, get) => ({
   entries: [],
-  limit: readLimit(),
+  limit: readChoice(LIMIT_KEY, HISTORY_LIMITS, DEFAULT_HISTORY_LIMIT),
+  maxAgeDays: readChoice(MAX_AGE_KEY, HISTORY_MAX_AGE_DAYS, DEFAULT_HISTORY_MAX_AGE_DAYS),
   filters: { ...NO_FILTERS },
   matchCount: 0,
   facets: { connectionNames: [], databases: [] },
@@ -235,6 +260,18 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   error: null,
 
   load: async () => {
+    // Age retention is applied at startup rather than on a timer: a session
+    // that stays open for a week should not start deleting rows under the
+    // user while they are reading them.
+    const cutoff = retentionCutoff(get().maxAgeDays);
+    if (cutoff) {
+      try {
+        await api.historyPruneOlderThan(cutoff);
+      } catch (e) {
+        console.warn("Could not apply history age retention", e);
+      }
+    }
+
     try {
       await migrateLegacyHistory(get().limit);
     } catch {
@@ -330,6 +367,28 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       await api.historyPrune(limit);
     } catch (e) {
       set({ error: `Could not apply the history limit: ${String(e)}` });
+      return;
+    }
+    await refresh(set, get);
+  },
+
+  setMaxAgeDays: async (days) => {
+    set({ maxAgeDays: days });
+    try {
+      localStorage.setItem(MAX_AGE_KEY, String(days));
+    } catch {
+      // The setting not persisting is worth less than the trim below.
+    }
+
+    const cutoff = retentionCutoff(days);
+    // Raising it back to "forever" cannot bring anything back, so there is
+    // nothing to do but remember the choice.
+    if (!cutoff) return;
+
+    try {
+      await api.historyPruneOlderThan(cutoff);
+    } catch (e) {
+      set({ error: `Could not apply the retention period: ${String(e)}` });
       return;
     }
     await refresh(set, get);

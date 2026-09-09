@@ -86,6 +86,8 @@ export const commands = {
 	historyFacets: () => typedError<HistoryFacets, string>(__TAURI_INVOKE("history_facets")),
 	/**  Render everything the filter matches, not only the page on screen. */
 	historyExport: (query: HistoryQuery, format: HistoryExportFormat) => typedError<string, string>(__TAURI_INVOKE("history_export", { query, format })),
+	/**  Drop history older than `cutoff` (ISO 8601). The age half of FR-9.1.3. */
+	historyPruneOlderThan: (cutoff: string) => typedError<number, string>(__TAURI_INVOKE("history_prune_older_than", { cutoff })),
 	/**  Whether connection passwords can be stored between sessions. */
 	keyringAvailable: () => __TAURI_INVOKE<boolean>("keyring_available"),
 	sqliteOpen: (path: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_open", { path })),
