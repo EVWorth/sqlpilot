@@ -592,12 +592,12 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 #### FR-9.2: Favorites
 
-| ID       | Requirement             | Acceptance Criteria                                                                                                                                                                                                                                          |
-| -------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| FR-9.2.1 | Bookmark queries        | Save a query as a favorite with a custom name and optional description                                                                                                                                                                                       |
-| FR-9.2.2 | Organize in folders     | Create hierarchical folders to organize favorites; drag-and-drop reordering                                                                                                                                                                                  |
-| FR-9.2.3 | Quick access            | Favorites panel in sidebar; keyboard shortcut to open favorites search                                                                                                                                                                                       |
-| FR-9.2.4 | Import/Export favorites | Export as a versioned JSON file; import merges rather than replacing. Identity for merging is name-and-category, so importing the same file twice imports nothing the second time. Credentials are stripped from an import written before that rule existed. |
+| ID       | Requirement             | Acceptance Criteria                                                                                                                                                                                                                                                          |
+| -------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-9.2.1 | Bookmark queries        | Save a query as a favorite with a custom name and optional description                                                                                                                                                                                                       |
+| FR-9.2.2 | Organize in folders     | Categories are paths, so "Reports/Daily" is one category to the store and two nested folders in the sidebar. Drag a favorite onto a folder to move it. No drag-reordering _within_ a folder — favorites sort by recency, and a manual order would be a second thing to keep. |
+| FR-9.2.3 | Quick access            | Favorites panel in sidebar; keyboard shortcut to open favorites search                                                                                                                                                                                                       |
+| FR-9.2.4 | Import/Export favorites | Export as a versioned JSON file; import merges rather than replacing. Identity for merging is name-and-category, so importing the same file twice imports nothing the second time. Credentials are stripped from an import written before that rule existed.                 |
 
 ---
 

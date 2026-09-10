@@ -15,6 +15,12 @@ import {
 import { useMemo, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useInlineEdit } from "../../hooks/useInlineEdit";
+import {
+  buildCategoryTree,
+  isUnderCategory,
+  normaliseCategoryPath,
+  visibleCategoryRows,
+} from "../../lib/category-tree";
 import { api } from "../../lib/tauri-api";
 import { useEditorStore } from "../../stores/editorStore";
 import { type Favorite, useFavoritesStore } from "../../stores/favoritesStore";
@@ -55,6 +61,8 @@ export function QueryFavorites() {
   const importFavorites = useFavoritesStore((s) => s.importFavorites);
   /** What the last import or export did. Cleared on the next one. */
   const [notice, setNotice] = useState<string | null>(null);
+  /** The folder a drag is currently over, for the drop highlight. */
+  const [dropTarget, setDropTarget] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return favorites;
@@ -123,9 +131,21 @@ export function QueryFavorites() {
   };
 
   const handleAddCategory = () => {
-    if (newCategoryName.trim()) {
-      addCategory(newCategoryName.trim());
-      setExpanded((prev) => ({ ...prev, [newCategoryName.trim()]: true }));
+    // "Reports/Daily" makes both folders — the separator is what people
+    // already type when they mean nesting (#334).
+    const path = normaliseCategoryPath(newCategoryName);
+    if (path) {
+      addCategory(path);
+      // Open every folder on the way down, or the new one is created out of
+      // sight underneath a collapsed parent.
+      setExpanded((prev) => {
+        const next = { ...prev };
+        const segments = path.split("/");
+        for (let i = 1; i <= segments.length; i++) {
+          next[segments.slice(0, i).join("/")] = true;
+        }
+        return next;
+      });
       setNewCategoryName("");
     }
     setShowNewCategory(false);
@@ -182,9 +202,25 @@ export function QueryFavorites() {
     setExpanded((prev) => ({ ...prev, [cat]: !prev[cat] }));
   };
 
-  const catOrder = categories.filter(
-    (c) => groupedByCategory[c]?.length > 0 || !search.trim(),
-  );
+  // Categories are paths, so the flat list renders as a tree (#334). A
+  // search hides folders it found nothing in, at any depth.
+  const categoryRows = useMemo(() => {
+    const rows = visibleCategoryRows(
+      buildCategoryTree(categories),
+      (path) => expanded[path] ?? false,
+    );
+    if (!search.trim()) return rows;
+    return rows.filter((row) =>
+      categories.some((c) => isUnderCategory(c, row.path) && groupedByCategory[c]?.length > 0)
+    );
+  }, [categories, expanded, search, groupedByCategory]);
+
+  /** Move a favorite into a category, reporting a refusal. */
+  const dropFavoriteInto = (favoriteId: string, category: string) => {
+    if (!moveToCategory(favoriteId, category).ok) {
+      setNotice("A favorite with that name is already in that category.");
+    }
+  };
 
   return (
     <div className="flex h-full flex-col">
@@ -229,7 +265,7 @@ export function QueryFavorites() {
         <div className="flex items-center gap-1 border-b border-[var(--color-border)] px-2 py-1.5">
           <input
             type="text"
-            placeholder="Category name..."
+            placeholder="Category, or Parent/Child"
             value={newCategoryName}
             onChange={(e) => setNewCategoryName(e.target.value)}
             onKeyDown={(e) => {
@@ -291,11 +327,26 @@ export function QueryFavorites() {
             </p>
           )
           : (
-            catOrder.map((cat) => {
+            categoryRows.map((node) => {
+              const cat = node.path;
               const items = groupedByCategory[cat] ?? [];
               return (
                 <div key={cat}>
                   <button
+                    // A favorite can be dropped onto a folder to move it, which
+                    // is the other half of FR-9.2.2 (#334).
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = "move";
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      const id = e.dataTransfer.getData("text/sqlpilot-favorite");
+                      if (id) dropFavoriteInto(id, cat);
+                      setDropTarget(null);
+                    }}
+                    onDragEnter={() => setDropTarget(cat)}
+                    onDragLeave={() => setDropTarget((t) => t === cat ? null : t)}
                     onClick={() => toggleCategory(cat)}
                     onContextMenu={(e) => {
                       if (cat !== "Uncategorized") {
@@ -312,12 +363,16 @@ export function QueryFavorites() {
                         ]);
                       }
                     }}
-                    className="flex w-full items-center gap-1 px-2 py-1 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                    style={{ paddingLeft: `${0.5 + node.depth * 0.75}rem` }}
+                    className={`flex w-full items-center gap-1 py-1 pr-2 text-[11px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] ${
+                      dropTarget === cat ? "bg-brand-600/20 ring-1 ring-brand-500" : ""
+                    }`}
                   >
                     {expanded[cat]
                       ? <ChevronDown className="h-3 w-3 shrink-0" />
                       : <ChevronRight className="h-3 w-3 shrink-0" />}
-                    <span className="truncate">{cat}</span>
+                    {/* The leaf name: the parents are already the indentation. */}
+                    <span className="truncate" title={cat}>{node.name}</span>
                     <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
                       {items.length}
                     </span>
@@ -327,6 +382,13 @@ export function QueryFavorites() {
                       {items.map((fav) => (
                         <div
                           key={fav.id}
+                          draggable={rename.editingId !== fav.id}
+                          onDragStart={(e) => {
+                            // A private type rather than text/plain: dragging a
+                            // favorite onto anything else should do nothing.
+                            e.dataTransfer.setData("text/sqlpilot-favorite", fav.id);
+                            e.dataTransfer.effectAllowed = "move";
+                          }}
                           // While this row is being renamed, a press anywhere
                           // else in it does nothing at all. Without this the
                           // press blurred the input (committing the rename)
