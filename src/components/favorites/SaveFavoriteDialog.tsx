@@ -49,6 +49,25 @@ export function SaveFavoriteDialog({
   // unknown category itself; the overwrite path has to ask for it.
   const targetCategory = showNewCategory && newCategory.trim() ? newCategory.trim() : category;
 
+  /**
+   * Commit the typed category and collapse back to the dropdown.
+   *
+   * Without this the category only came into being when the favorite was
+   * saved, so the user typed a name, watched the field clear, and never saw
+   * it take (#338). Saving without pressing Add still works — the name is
+   * read from the field either way — so this adds a confirmation step
+   * without making one mandatory.
+   */
+  const handleAddCategory = () => {
+    const created = newCategory.trim();
+    if (!created) return;
+    addCategory(created);
+    setCategory(created);
+    setNewCategory("");
+    setShowNewCategory(false);
+    setConflictId(null);
+  };
+
   const handleSave = () => {
     if (!name.trim()) return;
 
@@ -161,10 +180,35 @@ export function SaveFavoriteDialog({
                     value={newCategory}
                     onChange={(e) => setNewCategory(e.target.value)}
                     placeholder="New category name"
+                    onKeyDown={(e) => {
+                      // Handled here rather than letting the dialog's Enter
+                      // handler save the favorite: the user is naming a
+                      // category, not finishing.
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        handleAddCategory();
+                      }
+                    }}
+                    autoFocus
                     className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-brand-500"
                   />
                   <button
-                    onClick={() => setShowNewCategory(false)}
+                    onClick={handleAddCategory}
+                    disabled={!newCategory.trim()}
+                    className="rounded px-2 text-[11px] text-brand-400 hover:text-brand-300 disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    Add
+                  </button>
+                  <button
+                    onClick={() => {
+                      setNewCategory("");
+                      setShowNewCategory(false);
+                    }}
+                    // The dialog's footer has a Cancel too. Two buttons with
+                    // the same accessible name doing different things is a
+                    // problem for anyone not reading the layout.
+                    aria-label="Cancel new category"
                     className="rounded px-2 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
                   >
                     Cancel

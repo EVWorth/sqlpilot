@@ -168,7 +168,8 @@ vi.mock("../../../stores/connectionStore", () => ({
 }));
 
 vi.mock("../../favorites/SaveFavoriteDialog", () => ({
-  SaveFavoriteDialog: () => null,
+  SaveFavoriteDialog: ({ isOpen, sql }: { isOpen: boolean; sql: string }) =>
+    isOpen ? <div data-testid="save-favorite-dialog" data-sql={sql} /> : null,
 }));
 
 describe("QueryToolbar", () => {
@@ -465,5 +466,39 @@ describe("QueryToolbar", () => {
 
     render(<QueryToolbar />);
     expect(screen.getByText("AI Optimize").closest("button")).toBeDisabled();
+  });
+
+  describe("save as favorite (#342)", () => {
+    it("offers a Save button, not only Ctrl+S", () => {
+      // The sidebar's empty state tells people to "Use ⭐ to save queries",
+      // so there has to be one to find.
+      render(<QueryToolbar />);
+      expect(screen.getByTitle("Save as Favorite (Ctrl+S)")).toBeInTheDocument();
+    });
+
+    it("opens the dialog with the tab's SQL", () => {
+      render(<QueryToolbar />);
+
+      fireEvent.click(screen.getByTitle("Save as Favorite (Ctrl+S)"));
+
+      const dialog = screen.getByTestId("save-favorite-dialog");
+      expect(dialog.getAttribute("data-sql")).toBe(mockActiveTabContent);
+    });
+
+    it("is disabled with nothing to save", () => {
+      mockActiveTabContent = "   ";
+      render(<QueryToolbar />);
+      expect(screen.getByTitle("Save as Favorite (Ctrl+S)")).toBeDisabled();
+    });
+
+    it("still opens from the Ctrl+S event", () => {
+      render(<QueryToolbar />);
+
+      act(() => {
+        window.dispatchEvent(new CustomEvent("open-save-favorite"));
+      });
+
+      expect(screen.getByTestId("save-favorite-dialog")).toBeInTheDocument();
+    });
   });
 });
