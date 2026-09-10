@@ -399,4 +399,62 @@ describe("favoritesStore", () => {
         .toBe(true);
     });
   });
+
+  describe("credential redaction (#339)", () => {
+    const base = { category: "Uncategorized", name: "Reset a password" };
+
+    it("never stores the password from a saved statement", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, sql: "CREATE USER 'a'@'%' IDENTIFIED BY 's3cret'" });
+
+      const [stored] = useFavoritesStore.getState().favorites;
+      expect(stored.sql).not.toContain("s3cret");
+      expect(stored.redacted).toBe(true);
+      expect(localStorage.getItem("mas-query-favorites")).not.toContain("s3cret");
+    });
+
+    it("catches a credential introduced by an edit", () => {
+      const store = useFavoritesStore.getState();
+      const added = store.addFavorite({ ...base, sql: "SELECT 1" });
+      const id = added.ok ? added.id : "";
+
+      store.updateFavorite(id, { sql: "ALTER USER 'a'@'%' IDENTIFIED BY 'later'" });
+
+      const [stored] = useFavoritesStore.getState().favorites;
+      expect(stored.sql).not.toContain("later");
+      expect(stored.redacted).toBe(true);
+    });
+
+    it("leaves an ordinary query alone, values and all", () => {
+      // A favorite exists to be run again. Blanking its values would leave a
+      // broken query rather than a saved one.
+      const store = useFavoritesStore.getState();
+      const sql = "SELECT * FROM users WHERE email = 'alice@example.com' AND id = 42";
+      store.addFavorite({ ...base, sql });
+
+      const [stored] = useFavoritesStore.getState().favorites;
+      expect(stored.sql).toBe(sql);
+      expect(stored.redacted).toBeUndefined();
+    });
+
+    it("does not mark an edit that introduced nothing", () => {
+      const store = useFavoritesStore.getState();
+      const added = store.addFavorite({ ...base, sql: "SELECT 1" });
+      const id = added.ok ? added.id : "";
+
+      store.updateFavorite(id, { sql: "SELECT 2" });
+
+      expect(useFavoritesStore.getState().favorites[0].redacted).toBeUndefined();
+    });
+
+    it("does not touch an edit that leaves the SQL alone", () => {
+      const store = useFavoritesStore.getState();
+      const added = store.addFavorite({ ...base, sql: "SELECT 'kept'" });
+      const id = added.ok ? added.id : "";
+
+      store.updateFavorite(id, { description: "just a note" });
+
+      expect(useFavoritesStore.getState().favorites[0].sql).toBe("SELECT 'kept'");
+    });
+  });
 });

@@ -397,6 +397,14 @@ export function QueryFavorites() {
                                   <span className="truncate text-[11px] text-[var(--color-text-primary)]">
                                     {fav.name}
                                   </span>
+                                  {fav.redacted && (
+                                    <span
+                                      className="shrink-0 rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px] uppercase tracking-wide"
+                                      title="A password was removed before this was saved, so it will not run as written."
+                                    >
+                                      redacted
+                                    </span>
+                                  )}
                                 </div>
                                 {editDescId === fav.id
                                   ? (

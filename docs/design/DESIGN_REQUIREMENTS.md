@@ -571,7 +571,8 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 > tagged by origin (#586), never stores credentials (#587), and filters, sorts
 > and exports (#589).
 >
-> Favorites is the outstanding half: no hierarchical folders (#334), no
+> Favorites: credentials are stripped before a favorite is stored, and a new
+> category can be created before saving. Outstanding: no hierarchical folders (#334), no
 > import/export (#335), context-menu focus traps (#336), the +New category
 > commit is invisible (#338), no scrubbing (#339), a god-component (#340), and
 > no Save as Favorite button in the toolbar (#342).
