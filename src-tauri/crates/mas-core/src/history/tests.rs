@@ -802,3 +802,41 @@ fn an_absent_limit_returns_every_match() {
     let all = s.list(&HistoryQuery::default()).unwrap();
     assert_eq!(all.len(), 600);
 }
+
+// ====== AGE-BASED RETENTION (#592) ======
+
+#[test]
+fn prune_older_than_drops_only_what_predates_the_cutoff() {
+    let s = store();
+    s.add(&entry("old", "SELECT 1", "2026-01-01T00:00:00Z"), 500)
+        .unwrap();
+    s.add(&entry("new", "SELECT 2", "2026-03-01T00:00:00Z"), 500)
+        .unwrap();
+
+    let removed = s.prune_older_than("2026-02-01T00:00:00Z").unwrap();
+
+    assert_eq!(removed, 1);
+    let ids: Vec<_> = s
+        .list(&HistoryQuery::default())
+        .unwrap()
+        .into_iter()
+        .map(|e| e.id)
+        .collect();
+    assert_eq!(ids, vec!["new"]);
+}
+
+#[test]
+fn an_entry_exactly_at_the_cutoff_is_kept() {
+    // "Keep 30 days" must keep the entry from 30 days ago, not drop it.
+    let s = store();
+    s.add(&entry("edge", "SELECT 1", "2026-02-01T00:00:00Z"), 500)
+        .unwrap();
+
+    assert_eq!(s.prune_older_than("2026-02-01T00:00:00Z").unwrap(), 0);
+    assert_eq!(s.count().unwrap(), 1);
+}
+
+#[test]
+fn pruning_an_empty_history_by_age_is_not_an_error() {
+    assert_eq!(store().prune_older_than("2026-01-01T00:00:00Z").unwrap(), 0);
+}

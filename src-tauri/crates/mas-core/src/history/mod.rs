@@ -268,6 +268,21 @@ impl HistoryStore {
         prune_locked(&db, limit)
     }
 
+    /// Drop entries older than `cutoff` (ISO 8601). Returns how many went.
+    ///
+    /// The other half of FR-9.1.3, which asked for a retention *period* and
+    /// only ever got a count (#592). Both apply; whichever bites first wins,
+    /// because they answer different questions — "how much clutter will I
+    /// tolerate" and "how long should this be kept at all".
+    pub fn prune_older_than(&self, cutoff: &str) -> Result<usize, CoreError> {
+        let db = self.conn()?;
+        let removed = db.execute(
+            "DELETE FROM query_history WHERE executed_at < ?1",
+            params![cutoff],
+        )?;
+        Ok(removed)
+    }
+
     /// Insert entries that predate the SQLite store, skipping ids already held.
     ///
     /// Runs once, when the renderer hands over what was in `localStorage`. Ids

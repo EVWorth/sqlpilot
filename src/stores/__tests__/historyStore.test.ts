@@ -10,6 +10,7 @@ const historyImport = vi.hoisted(() => vi.fn());
 const historyCountMatching = vi.hoisted(() => vi.fn());
 const historyFacets = vi.hoisted(() => vi.fn());
 const historyExport = vi.hoisted(() => vi.fn());
+const historyPruneOlderThan = vi.hoisted(() => vi.fn());
 
 vi.mock("../../lib/tauri-api", () => ({
   api: {
@@ -22,14 +23,17 @@ vi.mock("../../lib/tauri-api", () => ({
     historyCountMatching,
     historyFacets,
     historyExport,
+    historyPruneOlderThan,
   },
 }));
 
 import {
   DEFAULT_HISTORY_LIMIT,
+  DEFAULT_HISTORY_MAX_AGE_DAYS,
   hasActiveFilters,
   type NewHistoryEntry,
   NO_FILTERS,
+  retentionCutoff,
   useHistoryStore,
 } from "../historyStore";
 
@@ -73,6 +77,7 @@ describe("historyStore", () => {
     historyCountMatching.mockResolvedValue(0);
     historyFacets.mockResolvedValue({ connectionNames: [], databases: [] });
     historyExport.mockResolvedValue("");
+    historyPruneOlderThan.mockResolvedValue(0);
     useHistoryStore.setState({
       entries: [],
       limit: DEFAULT_HISTORY_LIMIT,
@@ -81,6 +86,7 @@ describe("historyStore", () => {
       facets: { connectionNames: [], databases: [] },
       loading: true,
       error: null,
+      maxAgeDays: DEFAULT_HISTORY_MAX_AGE_DAYS,
     });
   });
 
@@ -425,6 +431,68 @@ describe("historyStore", () => {
     it("does nothing when there is no legacy history", async () => {
       await useHistoryStore.getState().load();
       expect(historyImport).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("age-based retention (#592)", () => {
+    it("keeps everything by default", () => {
+      expect(DEFAULT_HISTORY_MAX_AGE_DAYS).toBe(0);
+      expect(retentionCutoff(0)).toBeNull();
+    });
+
+    it("computes the cutoff from the period", () => {
+      const now = new Date("2026-03-01T00:00:00.000Z");
+      expect(retentionCutoff(30, now)).toBe("2026-01-30T00:00:00.000Z");
+    });
+
+    it("prunes by age when the panel loads", async () => {
+      useHistoryStore.setState({ maxAgeDays: 30 });
+
+      await useHistoryStore.getState().load();
+
+      expect(historyPruneOlderThan).toHaveBeenCalledWith(expect.stringMatching(/^\d{4}-/));
+    });
+
+    it("does not prune on load when set to forever", async () => {
+      await useHistoryStore.getState().load();
+      expect(historyPruneOlderThan).not.toHaveBeenCalled();
+    });
+
+    it("applies a newly chosen period straight away", async () => {
+      await useHistoryStore.getState().setMaxAgeDays(7);
+
+      expect(historyPruneOlderThan).toHaveBeenCalled();
+      expect(useHistoryStore.getState().maxAgeDays).toBe(7);
+    });
+
+    it("does nothing but remember when set back to forever", async () => {
+      // Raising the period cannot bring deleted entries back, so there is
+      // nothing to apply.
+      useHistoryStore.setState({ maxAgeDays: 7 });
+
+      await useHistoryStore.getState().setMaxAgeDays(0);
+
+      expect(historyPruneOlderThan).not.toHaveBeenCalled();
+      expect(useHistoryStore.getState().maxAgeDays).toBe(0);
+    });
+
+    it("still shows the history when the age prune fails", async () => {
+      // Retention is housekeeping. Failing at it must not stop the panel.
+      useHistoryStore.setState({ maxAgeDays: 30 });
+      historyPruneOlderThan.mockRejectedValue(new Error("locked"));
+      historyList.mockResolvedValue([entry({ id: "a" })]);
+
+      await useHistoryStore.getState().load();
+
+      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["a"]);
+    });
+
+    it("remembers the period across a reload", async () => {
+      await useHistoryStore.getState().setMaxAgeDays(90);
+
+      vi.resetModules();
+      const mod = await import("../historyStore");
+      expect(mod.useHistoryStore.getState().maxAgeDays).toBe(90);
     });
   });
 });

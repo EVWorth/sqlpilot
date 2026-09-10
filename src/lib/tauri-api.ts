@@ -123,6 +123,9 @@ export const api = {
   historyCountMatching: (query: HistoryQuery) =>
     unwrap("history_count_matching", () => commands.historyCountMatching(query)),
 
+  historyPruneOlderThan: (cutoff: string) =>
+    unwrap("history_prune_older_than", () => commands.historyPruneOlderThan(cutoff)),
+
   historyFacets: () => unwrap("history_facets", () => commands.historyFacets()),
 
   historyExport: (query: HistoryQuery, format: HistoryExportFormat) =>

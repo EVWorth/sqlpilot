@@ -1282,6 +1282,21 @@ pub async fn history_prune(state: State<'_, AppState>, limit: u32) -> Result<u32
         .map_err(|e| e.to_string())
 }
 
+/// Drop history older than `cutoff` (ISO 8601). The age half of FR-9.1.3.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_prune_older_than(
+    state: State<'_, AppState>,
+    cutoff: String,
+) -> Result<u32, String> {
+    state
+        .history_store
+        .prune_older_than(&cutoff)
+        .map(|n| n as u32)
+        .map_err(|e| e.to_string())
+}
+
 /// Take over a history that was still in localStorage. Ids carry across, so
 /// running this twice imports nothing the second time.
 #[tauri::command]
