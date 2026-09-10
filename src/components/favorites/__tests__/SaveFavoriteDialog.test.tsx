@@ -187,4 +187,79 @@ describe("SaveFavoriteDialog", () => {
       expect(mockAddCategory).not.toHaveBeenCalled();
     });
   });
+
+  describe("naming a new category (#338)", () => {
+    /** Open the new-category field and type a name into it. */
+    function typeCategory(value: string) {
+      fireEvent.click(screen.getByText("+ New"));
+      fireEvent.change(screen.getByPlaceholderText("New category name"), { target: { value } });
+    }
+
+    it("cannot add an empty category", () => {
+      render(<SaveFavoriteDialog {...dp()} />);
+      fireEvent.click(screen.getByText("+ New"));
+
+      expect(screen.getByText("Add")).toBeDisabled();
+    });
+
+    it("commits the category and collapses back to the dropdown", () => {
+      // The category used to come into being only when the favorite was
+      // saved, so the user never saw it take.
+      render(<SaveFavoriteDialog {...dp()} />);
+      typeCategory("Daily Reports");
+
+      fireEvent.click(screen.getByText("Add"));
+
+      expect(mockAddCategory).toHaveBeenCalledWith("Daily Reports");
+      expect(screen.queryByPlaceholderText("New category name")).not.toBeInTheDocument();
+    });
+
+    it("selects the category it just created", () => {
+      render(<SaveFavoriteDialog {...dp()} />);
+      typeCategory("Daily Reports");
+      fireEvent.click(screen.getByText("Add"));
+
+      save("Nightly rollup");
+
+      expect(mockAddFavorite).toHaveBeenCalledWith(
+        expect.objectContaining({ category: "Daily Reports" }),
+      );
+    });
+
+    it("adds on Enter without saving the favorite", () => {
+      // The user is naming a category, not finishing the dialog.
+      render(<SaveFavoriteDialog {...dp()} />);
+      typeCategory("Daily Reports");
+
+      fireEvent.keyDown(screen.getByPlaceholderText("New category name"), { key: "Enter" });
+
+      expect(mockAddCategory).toHaveBeenCalledWith("Daily Reports");
+      expect(mockAddFavorite).not.toHaveBeenCalled();
+    });
+
+    it("still saves under a typed category the user never pressed Add on", () => {
+      // Adding a confirmation step should not make one mandatory.
+      render(<SaveFavoriteDialog {...dp()} />);
+      typeCategory("Ad Hoc");
+
+      save("Nightly rollup");
+
+      expect(mockAddFavorite).toHaveBeenCalledWith(
+        expect.objectContaining({ category: "Ad Hoc" }),
+      );
+    });
+
+    it("forgets a cancelled category", () => {
+      render(<SaveFavoriteDialog {...dp()} />);
+      typeCategory("Discarded");
+
+      fireEvent.click(screen.getByLabelText("Cancel new category"));
+      save("Nightly rollup");
+
+      expect(mockAddCategory).not.toHaveBeenCalled();
+      expect(mockAddFavorite).toHaveBeenCalledWith(
+        expect.objectContaining({ category: "Uncategorized" }),
+      );
+    });
+  });
 });
