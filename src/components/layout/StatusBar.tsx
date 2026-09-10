@@ -1,16 +1,13 @@
 import {
   AlertCircle,
   AlertTriangle,
-  Bug,
   Check,
   Copy,
   Download,
-  ExternalLink,
   KeyRound,
   Loader2,
   RefreshCw,
   Terminal,
-  X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { api } from "../../lib/tauri-api";
@@ -20,6 +17,7 @@ import { useResultStore } from "../../stores/resultStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { type StorageErrorKey, useStorageErrorStore } from "../../stores/storageErrorStore";
 import type { ConnectionEnvironment } from "../../types";
+import { UpdateErrorDetails } from "./UpdateErrorDetails";
 
 const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
   production: { label: "PROD", className: "bg-red-500/20 text-red-400" },
@@ -78,15 +76,12 @@ export function StatusBar() {
   const storageErrorEntries = Object.entries(storageErrors);
 
   const [showFullError, setShowFullError] = useState(false);
-  const [showUpdateDetails, setShowUpdateDetails] = useState(false);
   const [showUpdateConfirm, setShowUpdateConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [copiedDiagnostic, setCopiedDiagnostic] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(false);
   const [appVersion, setAppVersion] = useState("");
   const updateStatus = useSettingsStore((s) => s.updateStatus);
   const updateVersion = useSettingsStore((s) => s.updateVersion);
-  const updateError = useSettingsStore((s) => s.updateError);
   const manualUpdateCommand = useSettingsStore((s) => s.manualUpdateCommand);
   const packageFormat = useSettingsStore((s) => s.packageFormat);
   const downloadProgress = useSettingsStore((s) => s.downloadProgress);
@@ -95,7 +90,6 @@ export function StatusBar() {
   const restartToApply = useSettingsStore((s) => s.restartToApply);
   const dismissUpdate = useSettingsStore((s) => s.dismissUpdate);
   const dismissedVersion = useSettingsStore((s) => s.dismissedVersion);
-  const updateDetailsRef = useRef<HTMLDivElement | null>(null);
   const updateConfirmRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -111,21 +105,6 @@ export function StatusBar() {
   useEffect(() => {
     if (updateStatus === "idle") void checkForUpdates();
   }, [checkForUpdates, updateStatus]);
-
-  useEffect(() => {
-    if (updateStatus !== "error") setShowUpdateDetails(false);
-  }, [updateStatus]);
-
-  useEffect(() => {
-    if (!showUpdateDetails) return;
-    const onDocClick = (e: MouseEvent) => {
-      if (updateDetailsRef.current && !updateDetailsRef.current.contains(e.target as Node)) {
-        setShowUpdateDetails(false);
-      }
-    };
-    document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
-  }, [showUpdateDetails]);
 
   useEffect(() => {
     if (!showUpdateConfirm) return;
@@ -161,39 +140,6 @@ export function StatusBar() {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });
-  };
-
-  const diagnosticBlob = [
-    `SQLPilot v${appVersion || "unknown"}`,
-    `Platform: ${navigator.platform} (${navigator.userAgent})`,
-    `Install type: ${packageFormat ?? "unknown"}`,
-    `Update status: ${updateStatus}${updateVersion ? ` (target v${updateVersion})` : ""}`,
-    updateError ? `Error: ${updateError}` : null,
-    `Timestamp: ${new Date().toISOString()}`,
-  ].filter(Boolean).join("\n");
-
-  const handleCopyDiagnostic = () => {
-    void navigator.clipboard.writeText(diagnosticBlob).then(() => {
-      setCopiedDiagnostic(true);
-      setTimeout(() => setCopiedDiagnostic(false), 2000);
-    });
-  };
-
-  const handleReportIssue = () => {
-    const body = [
-      "## What happened",
-      "<!-- Describe what you were doing when the update failed. -->",
-      "",
-      "## Diagnostic",
-      "```",
-      diagnosticBlob,
-      "```",
-    ].join("\n");
-    const url = `https://github.com/EVWorth/sqlpilot/issues/new`
-      + `?title=${encodeURIComponent("Auto-update failed: <one-line summary>")}`
-      + `&labels=${encodeURIComponent("bug,auto-update")}`
-      + `&body=${encodeURIComponent(body)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const handleCopyManualCommand = () => {
@@ -422,76 +368,7 @@ export function StatusBar() {
               : null}
           </span>
         )}
-        {updateStatus === "error" && (
-          <div className="relative flex items-center gap-1" ref={updateDetailsRef}>
-            <button
-              onClick={() => setShowUpdateDetails((v) => !v)}
-              className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
-              title={updateError
-                ? `Update failed: ${updateError} — click for details`
-                : "Update check failed — click for details"}
-            >
-              <RefreshCw className="h-3 w-3" />
-              Update failed
-            </button>
-            {showUpdateDetails && (
-              <div
-                role="dialog"
-                aria-label="Update error details"
-                className="absolute bottom-full right-0 mb-2 w-[420px] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3 shadow-lg text-left"
-              >
-                <div className="flex items-start justify-between gap-2 mb-2">
-                  <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-primary)]">
-                    <Bug className="h-3.5 w-3.5 text-red-400" />
-                    Update failed
-                  </div>
-                  <button
-                    onClick={() => setShowUpdateDetails(false)}
-                    className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                    title="Close"
-                    aria-label="Close update error details"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-                {updateError && (
-                  <pre className="max-h-32 overflow-auto rounded bg-[var(--color-bg-secondary)] p-2 text-[10px] font-mono whitespace-pre-wrap break-words text-red-400 mb-2">
-                    {updateError}
-                  </pre>
-                )}
-                <pre className="max-h-32 overflow-auto rounded bg-[var(--color-bg-secondary)] p-2 text-[10px] font-mono whitespace-pre-wrap text-[var(--color-text-muted)] mb-3">
-                  {diagnosticBlob}
-                </pre>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    onClick={handleCopyDiagnostic}
-                    className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-muted)]"
-                  >
-                    <Copy className="h-3 w-3" />
-                    {copiedDiagnostic ? "Copied" : "Copy diagnostic"}
-                  </button>
-                  <button
-                    onClick={handleReportIssue}
-                    className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:border-[var(--color-text-muted)]"
-                  >
-                    <ExternalLink className="h-3 w-3" />
-                    Report issue
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowUpdateDetails(false);
-                      void checkForUpdates(true);
-                    }}
-                    className="flex items-center gap-1 rounded bg-yellow-500/20 px-2 py-1 text-[10px] text-yellow-400 hover:bg-yellow-500/30"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                    Retry
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+        <UpdateErrorDetails appVersion={appVersion} packageFormat={packageFormat} />
         <button
           onClick={() => void checkForUpdates(true)}
           className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
