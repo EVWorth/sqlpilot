@@ -944,6 +944,26 @@ async fn delete_connection_profile(
 ) -> Result<(), AppError>;
 ```
 
+```rust
+/// Every saved profile, without credentials.
+///
+/// The summary shape is deliberate: `ConnectionProfile`'s secret fields are
+/// `#[serde(skip_serializing)]`, and a list command that returned the full
+/// profile would be one `serde` attribute away from leaking every password.
+#[tauri::command]
+async fn list_connection_profiles(
+    state: State<'_, AppState>,
+) -> Result<Vec<ConnectionProfileSummary>, String>;
+
+/// Whether an OS keyring answered at startup.
+///
+/// Not a capability probe run on demand — the answer is recorded once during
+/// setup, because a keyring that is merely locked must not read as absent and
+/// send the app down the "this profile has no password" path (#527).
+#[tauri::command]
+fn keyring_available() -> bool;
+```
+
 ### 5.2 Query Commands
 
 ```rust
@@ -983,6 +1003,9 @@ async fn explain_query(
     state: State<'_, AppState>,
 ) -> Result<ExplainResult, AppError>;
 
+/// NOT IMPLEMENTED, and not planned. Formatting is the frontend's, via the
+/// `sql-formatter` npm package driven by `FormatterSettings` — a round trip to
+/// Rust to reformat the text the user is typing would buy nothing.
 /// Format/beautify a SQL string.
 #[tauri::command]
 fn format_sql(sql: String) -> Result<String, AppError>;
@@ -996,6 +1019,29 @@ async fn get_query_history(
     limit: Option<u32>,
     state: State<'_, AppState>,
 ) -> Result<Vec<HistoryEntry>, AppError>;
+```
+
+```rust
+/// Kill another connection's thread, from the process list.
+///
+/// Separate from `cancel_query`, which stops what *this* connection is
+/// running. This one ends someone else's, so it is an admin action.
+#[tauri::command]
+async fn kill_query(
+    state: State<'_, AppState>,
+    connection_id: String,
+    process_id: ProcessId,
+) -> Result<(), String>;
+
+/// The server thread ids this app owns on a connection.
+///
+/// The process list needs them to refuse to kill the user's own session, which
+/// would otherwise disconnect them with no explanation.
+#[tauri::command]
+async fn get_own_thread_ids(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<ProcessId>, String>;
 ```
 
 ### 5.3 Schema Commands
@@ -1079,6 +1125,46 @@ async fn refresh_schema(
 ) -> Result<(), AppError>;
 ```
 
+```rust
+/// Views in a database, listed separately from tables because the tree shows
+/// them separately and a view has no row count worth fetching.
+#[tauri::command]
+async fn get_views(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+) -> Result<Vec<ViewInfo>, String>;
+
+/// `SHOW CREATE` for the objects that have one. Three commands rather than one
+/// with a kind parameter, because the underlying statement differs per object
+/// type and a single entry point would only branch on the parameter anyway.
+#[tauri::command]
+async fn get_view_ddl(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    view_name: String,
+) -> Result<String, String>;
+
+#[tauri::command]
+async fn get_routine_ddl(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    routine_name: String,
+    /// "PROCEDURE" or "FUNCTION".
+    routine_type: String,
+) -> Result<String, String>;
+
+#[tauri::command]
+async fn get_trigger_ddl(
+    state: State<'_, AppState>,
+    connection_id: String,
+    database: String,
+    trigger_name: String,
+) -> Result<String, String>;
+```
+
 ### 5.4 AI Commands
 
 ```rust
@@ -1123,6 +1209,36 @@ async fn ai_chat(
 async fn ai_status(
     state: State<'_, AppState>,
 ) -> Result<AIStatus, AppError>;
+```
+
+The AI commands are behind the `beta-ai` cargo feature and are not registered
+in a default build.
+
+```rust
+/// Whether AI is configured and reachable, for the panel's own state.
+#[tauri::command]
+async fn ai_get_status(state: State<'_, AppState>) -> Result<AiStatus, String>;
+
+/// Store the provider, model and key. The key goes to the OS keyring, not to
+/// the profile database.
+#[tauri::command]
+async fn ai_set_config(state: State<'_, AppState>, config: AiConfig) -> Result<(), String>;
+
+/// Stop an in-flight conversation.
+#[tauri::command]
+async fn ai_cancel(state: State<'_, AppState>, conversation_id: String) -> Result<(), String>;
+
+/// Answer a tool-use permission prompt the assistant raised.
+///
+/// The assistant cannot run anything against a database without one: the
+/// approval is per request, not a mode the user switches on.
+#[tauri::command]
+async fn ai_approve_permission(
+    state: State<'_, AppState>,
+    conversation_id: String,
+    request_id: String,
+    approved: bool,
+) -> Result<(), String>;
 ```
 
 ### 5.5 Export / Import Commands
@@ -1186,7 +1302,154 @@ answer for free.
 limit above is what keeps that from being fatal, not a substitute for
 streaming.
 
-### 5.6 Admin Commands
+### 5.6 History Commands
+
+Query history lives in `history.db` rather than the renderer's `localStorage`,
+so every read and write crosses the IPC boundary (#585). See §9.4.
+
+```rust
+/// Record one executed statement, then trim to `limit`.
+///
+/// The limit is passed per call rather than held as backend state: it is a UI
+/// preference, and two sources of truth for it would drift.
+#[tauri::command]
+async fn history_add(
+    state: State<'_, AppState>,
+    entry: HistoryEntry,
+    limit: u32,
+) -> Result<HistoryEntry, String>;
+
+/// Read a filtered, sorted page. Filtering is a WHERE clause rather than an
+/// array scan, which is most of why history moved to SQLite (#589).
+#[tauri::command]
+async fn history_list(
+    state: State<'_, AppState>,
+    query: HistoryQuery,
+) -> Result<Vec<HistoryEntry>, String>;
+
+/// How many the same filter matches, ignoring its page size — so the panel can
+/// say "50 of 812" rather than leaving a full page and a last page identical.
+#[tauri::command]
+async fn history_count_matching(
+    state: State<'_, AppState>,
+    query: HistoryQuery,
+) -> Result<u32, String>;
+
+/// The connections, databases and origins that appear in the history, so the
+/// filter offers only values that would return something.
+#[tauri::command]
+async fn history_facets(state: State<'_, AppState>) -> Result<HistoryFacets, String>;
+
+/// Render everything the filter matches as CSV or SQL — all of it, not the
+/// page on screen.
+#[tauri::command]
+async fn history_export(
+    state: State<'_, AppState>,
+    query: HistoryQuery,
+    format: HistoryExportFormat,
+) -> Result<String, String>;
+
+#[tauri::command]
+async fn history_remove(state: State<'_, AppState>, id: String) -> Result<(), String>;
+
+#[tauri::command]
+async fn history_clear(state: State<'_, AppState>) -> Result<(), String>;
+
+#[tauri::command]
+async fn history_count(state: State<'_, AppState>) -> Result<u32, String>;
+
+/// Apply a lowered count limit straight away, rather than waiting for the next
+/// query to trim.
+#[tauri::command]
+async fn history_prune(state: State<'_, AppState>, limit: u32) -> Result<u32, String>;
+
+/// Apply the retention period. Run at startup rather than on a timer, so a
+/// long-lived session does not delete rows under the user (#592).
+#[tauri::command]
+async fn history_prune_older_than(
+    state: State<'_, AppState>,
+    cutoff: String,
+) -> Result<u32, String>;
+
+/// Take over a history still held in localStorage. Ids carry across, so
+/// running it twice imports nothing the second time.
+#[tauri::command]
+async fn history_import(
+    state: State<'_, AppState>,
+    entries: Vec<HistoryEntry>,
+    limit: u32,
+) -> Result<u32, String>;
+```
+
+### 5.7 SQLite Commands
+
+A second backend behind the same shared pane (#461). SQLite has no server, no
+users and no databases to switch between, so it registers its own commands
+rather than pretending to answer the MySQL ones — `datasource.ts` is what makes
+the two look alike to the UI.
+
+```rust
+/// Open a file and return a connection id. `:memory:` is accepted.
+#[tauri::command]
+async fn sqlite_open(state: State<'_, AppState>, path: String) -> Result<String, String>;
+
+#[tauri::command]
+async fn sqlite_close(state: State<'_, AppState>, connection_id: String) -> Result<(), String>;
+
+#[tauri::command]
+async fn sqlite_list(state: State<'_, AppState>) -> Result<Vec<String>, String>;
+
+/// Fails with the same `QueryError` as the MySQL path, carrying SQLite's
+/// extended result code where MySQL would carry its error number (#324).
+#[tauri::command]
+async fn sqlite_execute(
+    state: State<'_, AppState>,
+    connection_id: String,
+    sql: String,
+) -> Result<Vec<SqliteQueryResult>, QueryError>;
+
+#[tauri::command]
+async fn sqlite_get_tables(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Vec<SqliteTableInfo>, String>;
+
+#[tauri::command]
+async fn sqlite_get_columns(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+) -> Result<Vec<SqliteColumnInfo>, String>;
+
+#[tauri::command]
+async fn sqlite_get_indexes(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+) -> Result<Vec<SqliteIndexInfo>, String>;
+
+#[tauri::command]
+async fn sqlite_get_table_ddl(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+) -> Result<String, String>;
+```
+
+### 5.8 Platform Commands
+
+```rust
+/// How this build was installed, and for which architecture.
+///
+/// The updater needs it: an in-app update must not run against a Flatpak,
+/// Snap or rpm-ostree install, where the package manager owns the binary
+/// (#343). Probed rather than compiled in, because one Linux binary can be
+/// shipped through several of them.
+#[tauri::command]
+async fn get_platform_info() -> Result<PlatformInfo, String>;
+```
+
+### 5.9 Admin Commands
 
 ```rust
 /// Get the MySQL process list.
@@ -1242,7 +1505,7 @@ async fn table_maintenance(
 ) -> Result<Vec<MaintenanceResult>, AppError>;
 ```
 
-### 5.7 Tauri Events (Backend → Frontend)
+### 5.10 Tauri Events (Backend → Frontend)
 
 | Event Name               | Payload                                    | Description                     |
 | ------------------------ | ------------------------------------------ | ------------------------------- |

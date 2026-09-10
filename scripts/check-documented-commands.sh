@@ -20,21 +20,31 @@ root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 arch="$root/docs/design/ARCHITECTURE.md"
 lib="$root/src-tauri/src/lib.rs"
 
-# Documented: `async fn name(` inside section 5's rust blocks, minus the ones
+# Documented: `fn name(` — with or without `async` — inside section 5's rust
+# blocks, minus the ones
 # the section itself marks as not implemented. Marking one is an accepted
 # answer — the section is then describing a plan rather than claiming a
 # surface — so those are listed at the end rather than failing the check.
 section="$(awk '/^## 5\./,/^## 6\./' "$arch")"
 
 documented="$(
-  echo "$section" | grep -oE 'async fn [a-z0-9_]+' | awk '{print $3}' | sort -u
+  echo "$section" | grep -oE '(async )?fn [a-z0-9_]+' | awk '{print $NF}' | sort -u
 )"
 
 # A name is "planned" when NOT IMPLEMENTED appears in the block above it.
 planned="$(
   echo "$section" |
     awk '/NOT IMPLEMENTED/ { flag = 1 }
-         /^async fn / { if (flag) { sub(/\(.*/, "", $3); print $3 }; flag = 0 }' |
+         /^(async )?fn / {
+           if (flag) {
+             # The name is the token after `fn`, not the last field — a
+             # one-line signature ends in its return type.
+             name = ($1 == "async") ? $3 : $2
+             sub(/\(.*/, "", name)
+             print name
+           }
+           flag = 0
+         }' |
     sort -u
 )"
 documented="$(comm -23 <(echo "$documented") <(echo "$planned"))"
