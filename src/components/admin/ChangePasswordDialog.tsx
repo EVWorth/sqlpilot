@@ -2,6 +2,7 @@ import { Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useState } from "react";
 import { runStatement } from "../../lib/run-statement";
 import { quoteStringLiteral } from "../../lib/sql-quote";
+import { confirmDestructive } from "../../stores/productionGuardStore";
 
 interface Props {
   isOpen: boolean;
@@ -36,6 +37,17 @@ export function ChangePasswordDialog({
       const sql = `ALTER USER ${quoteStringLiteral(user)}@${quoteStringLiteral(host)} IDENTIFIED BY ${
         quoteStringLiteral(password)
       }`;
+      // ALTER USER is destructive by the app's own definition, so on a
+      // production connection it gets the same confirmation as anything else
+      // that changes who can reach the data (#456).
+      if (
+        !(await confirmDestructive({
+          connectionId,
+          sql,
+          action: `Change the password for ${user}@${host}?`,
+        }))
+      ) return;
+
       await runStatement({ connectionId, sql, origin: "admin" });
       onClose();
     } catch (e) {
