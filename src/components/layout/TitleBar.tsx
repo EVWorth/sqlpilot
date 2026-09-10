@@ -1,28 +1,12 @@
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { clsx } from "clsx";
-import {
-  Activity,
-  HardDriveDownload,
-  HardDriveUpload,
-  Minus,
-  Monitor,
-  Moon,
-  Sparkles,
-  Square,
-  Sun,
-  Upload,
-  X,
-} from "lucide-react";
+import { Minus, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { useEditorStore } from "../../stores/editorStore";
-import { type ThemeMode, useThemeStore } from "../../stores/themeStore";
+import { useThemeStore } from "../../stores/themeStore";
+import { FeatureButtons } from "./FeatureButtons";
 import { MenuBar } from "./MenuBar";
 
 const appWindow = getCurrentWindow();
-
-const themeIcons: Record<ThemeMode, typeof Sun> = { dark: Moon, light: Sun, system: Monitor };
-const themeLabels: Record<ThemeMode, string> = { dark: "Dark", light: "Light", system: "System" };
 
 // Restore icon: two overlapping squares
 function RestoreIcon() {
@@ -52,15 +36,9 @@ export function TitleBar(
   const menuRef = useRef<HTMLDivElement>(null);
   const lastClickTime = useRef(0);
 
-  const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
-  const theme = useThemeStore((s) => s.theme);
-  const cycleTheme = useThemeStore((s) => s.cycleTheme);
-  const ThemeIcon = themeIcons[theme];
-
-  const handleOpenAdmin = () => {
-    if (!selectedConnectionId) return;
-    useEditorStore.getState().addAdminTab(selectedConnectionId);
-  };
+  // Subscribed so the bar re-renders on a theme change; the icon and label
+  // live in FeatureButtons.
+  useThemeStore((s) => s.theme);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -155,60 +133,19 @@ export function TitleBar(
 
       {/* Toolbar buttons */}
       <div className="flex items-center gap-0.5 px-1" onContextMenu={(e) => e.stopPropagation()}>
-        <button
-          onClick={handleOpenAdmin}
-          disabled={!selectedConnectionId}
-          title="Admin Tools"
-          className={toolBtn(!selectedConnectionId)}
-        >
-          <Activity className="h-3.5 w-3.5" />
-          <span>Admin</span>
-        </button>
-        <button
-          onClick={onShowImport}
-          disabled={!selectedConnectionId}
-          title="Import Data"
-          className={toolBtn(!selectedConnectionId)}
-        >
-          <Upload className="h-3.5 w-3.5" />
-          <span>Import</span>
-        </button>
-        <button
-          onClick={onShowBackup}
-          disabled={!selectedConnectionId}
-          title="Backup Database"
-          className={toolBtn(!selectedConnectionId)}
-        >
-          <HardDriveDownload className="h-3.5 w-3.5" />
-          <span>Backup</span>
-        </button>
-        <button
-          onClick={onShowRestore}
-          disabled={!selectedConnectionId}
-          title="Restore Database"
-          className={toolBtn(!selectedConnectionId)}
-        >
-          <HardDriveUpload className="h-3.5 w-3.5" />
-          <span>Restore</span>
-        </button>
-        {aiEnabled && (
-          <button
-            onClick={onToggleAI}
-            title="Toggle AI Assistant"
-            className={clsx(
-              "flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
-              aiPanelOpen
-                ? "bg-brand-600/20 text-brand-400"
-                : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]",
-            )}
-          >
-            <Sparkles className="h-3.5 w-3.5" />
-            <span>AI</span>
-          </button>
-        )}
-        <button onClick={cycleTheme} title={`Theme: ${themeLabels[theme]} (click to cycle)`} className={toolBtn()}>
-          <ThemeIcon className="h-3.5 w-3.5" />
-        </button>
+        <FeatureButtons
+          onShowImport={onShowImport}
+          onShowBackup={onShowBackup}
+          onShowRestore={onShowRestore}
+          onToggleAI={onToggleAI}
+          aiPanelOpen={aiPanelOpen}
+          aiEnabled={aiEnabled}
+          buttonClassName={toolBtn}
+          activeButtonClassName={clsx(
+            "flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
+            "bg-brand-600/20 text-brand-400",
+          )}
+        />
       </div>
 
       {/* Divider */}
