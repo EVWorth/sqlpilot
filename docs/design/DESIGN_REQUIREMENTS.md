@@ -510,12 +510,12 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 #### FR-7.2: Server Monitoring
 
-| ID       | Requirement            | Acceptance Criteria                                                                                                                       |
-| -------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-7.2.1 | Process list           | Real-time view of active connections/queries; filterable by user, database, state; kill query / kill connection buttons with confirmation |
-| FR-7.2.2 | Server variables       | Searchable list of all global and session variables; inline editing for settable variables; show variable description                     |
-| FR-7.2.3 | Server status          | Display key server metrics: uptime, threads, queries/second, connections, buffer pool usage                                               |
-| FR-7.2.4 | Replication monitoring | Show replication status for source and replica servers; lag indicators; error highlighting                                                |
+| ID       | Requirement            | Acceptance Criteria                                                                                                                                                                                                                                     |
+| -------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-7.2.1 | Process list           | `SHOW PROCESSLIST` on a user-chosen interval (off, 2s, 5s, 10s), with `KILL` and `KILL QUERY`. Filterable by user, database and state — each a dropdown offering only values that are actually connected — plus a free-text search across every column. |
+| FR-7.2.2 | Server variables       | Searchable list of all global and session variables; inline editing for settable variables; show variable description                                                                                                                                   |
+| FR-7.2.3 | Server status          | Display key server metrics: uptime, threads, queries/second, connections, buffer pool usage                                                                                                                                                             |
+| FR-7.2.4 | Replication monitoring | Show replication status for source and replica servers; lag indicators; error highlighting                                                                                                                                                              |
 
 #### FR-7.3: Maintenance
 

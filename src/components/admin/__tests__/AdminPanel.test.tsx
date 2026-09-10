@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AdminPanel } from "../AdminPanel";
 
@@ -110,7 +110,7 @@ describe("ProcessListTab", () => {
     // which never told the user they had disconnected themselves (#433).
     vi.mocked(api.getOwnThreadIds).mockResolvedValue([mockProcesses[0].id]);
     render(<AdminPanel connectionId={mockConnectionId} />);
-    await screen.findByText("root");
+    await screen.findAllByText("root");
 
     const buttons = screen.getAllByTitle(/Kill process|own connection/);
     const ownButton = buttons.find((b) => b.getAttribute("title")?.includes("own connection"));
@@ -121,7 +121,7 @@ describe("ProcessListTab", () => {
   it("leaves other sessions killable", async () => {
     vi.mocked(api.getOwnThreadIds).mockResolvedValue([mockProcesses[0].id]);
     render(<AdminPanel connectionId={mockConnectionId} />);
-    await screen.findByText("root");
+    await screen.findAllByText("root");
 
     const killable = screen
       .getAllByTitle(/Kill process/)
@@ -136,10 +136,13 @@ describe("ProcessListTab", () => {
   });
 
   it("renders process list after loading", async () => {
+    // Scoped to the table: the user filter's dropdown now carries the same
+    // names as options, so a bare getByText is ambiguous (#437).
     render(<AdminPanel connectionId={mockConnectionId} />);
-    expect(await screen.findByText("root")).toBeDefined();
-    expect(screen.getByText("app")).toBeDefined();
-    expect(screen.getByText("admin")).toBeDefined();
+    const table = await screen.findByRole("table");
+    for (const user of ["root", "app", "admin"]) {
+      expect(within(table).getByText(user)).toBeDefined();
+    }
   });
 
   it("displays error on fetch failure", async () => {
@@ -150,24 +153,27 @@ describe("ProcessListTab", () => {
 
   it("filters processes by search input", async () => {
     render(<AdminPanel connectionId={mockConnectionId} />);
-    await screen.findByText("root");
-    const filterInput = screen.getByPlaceholderText("Filter processes…");
-    fireEvent.change(filterInput, { target: { value: "app" } });
-    expect(screen.queryByText("root")).toBeNull();
-    expect(screen.getByText("app")).toBeDefined();
+    const table = await screen.findByRole("table");
+
+    fireEvent.change(screen.getByPlaceholderText("Filter processes…"), {
+      target: { value: "app" },
+    });
+
+    expect(within(table).getByText("app")).toBeDefined();
+    expect(within(table).queryByText("root")).toBeNull();
   });
 
-  it("shows 'No processes match the filter' when filter yields no results", async () => {
+  it("shows 'No processes match the filters' when filters yield no results", async () => {
     render(<AdminPanel connectionId={mockConnectionId} />);
-    await screen.findByText("root");
+    await screen.findByRole("table");
     const filterInput = screen.getByPlaceholderText("Filter processes…");
     fireEvent.change(filterInput, { target: { value: "nonexistent" } });
-    expect(screen.getByText("No processes match the filter")).toBeDefined();
+    expect(screen.getByText("No processes match the filters")).toBeDefined();
   });
 
   it("shows confirm kill on skull button click", async () => {
     render(<AdminPanel connectionId={mockConnectionId} />);
-    await screen.findByText("root");
+    await screen.findAllByText("root");
     const skullButtons = screen.getAllByTitle(/Kill process/);
     fireEvent.click(skullButtons[0]);
     expect(screen.getByText("Kill connection")).toBeDefined();
@@ -177,7 +183,7 @@ describe("ProcessListTab", () => {
 
   it("calls killProcess and refreshes on confirm", async () => {
     render(<AdminPanel connectionId={mockConnectionId} />);
-    await screen.findByText("root");
+    await screen.findAllByText("root");
     const skullButtons = screen.getAllByTitle(/Kill process/);
     fireEvent.click(skullButtons[0]);
     fireEvent.click(screen.getByText("Kill connection"));
@@ -188,7 +194,7 @@ describe("ProcessListTab", () => {
     // Aborting a long SELECT should not also discard the session's
     // transaction and prepared statements (#430).
     render(<AdminPanel connectionId={mockConnectionId} />);
-    await screen.findByText("root");
+    await screen.findAllByText("root");
     fireEvent.click(screen.getAllByTitle(/Kill process/)[0]);
     await act(async () => {
       fireEvent.click(screen.getByText("Kill query"));
@@ -200,7 +206,7 @@ describe("ProcessListTab", () => {
   it("shows error on kill failure", async () => {
     vi.mocked(api.killProcess).mockRejectedValue("Kill failed");
     render(<AdminPanel connectionId={mockConnectionId} />);
-    await screen.findByText("root");
+    await screen.findAllByText("root");
     const skullButtons = screen.getAllByTitle(/Kill process/);
     fireEvent.click(skullButtons[0]);
     await act(async () => {
