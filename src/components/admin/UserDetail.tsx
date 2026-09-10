@@ -1,4 +1,4 @@
-import { ChevronRight, Database, KeyRound, Loader2, Shield, ShieldCheck, Trash2 } from "lucide-react";
+import { ChevronRight, Database, KeyRound, Loader2, Pencil, Shield, ShieldCheck, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { quoteStringLiteral } from "../../lib/sql-quote";
 import { api } from "../../lib/tauri-api";
@@ -15,6 +15,7 @@ export function UserDetail({
   setConfirmDrop,
   onDropUser,
   onChangePassword,
+  onEditUser,
 }: {
   connectionId: string;
   user: string;
@@ -23,6 +24,7 @@ export function UserDetail({
   setConfirmDrop: (v: boolean) => void;
   onDropUser: () => void;
   onChangePassword: () => void;
+  onEditUser: () => void;
 }) {
   const [detailTab, setDetailTab] = useState<DetailTab>("grants");
 
@@ -37,6 +39,13 @@ export function UserDetail({
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={onEditUser}
+            className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Edit
+          </button>
           <button
             onClick={onChangePassword}
             className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] transition-colors"

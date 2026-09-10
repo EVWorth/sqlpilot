@@ -6,6 +6,7 @@ import { cn } from "../../lib/utils";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import { ChangePasswordDialog } from "./ChangePasswordDialog";
 import { CreateUserDialog } from "./CreateUserDialog";
+import { EditUserDialog } from "./EditUserDialog";
 import { UserDetail } from "./UserDetail";
 
 export interface UserRow {
@@ -30,6 +31,7 @@ export function UserManagement({ connectionId }: UserManagementProps) {
   const [selectedUser, setSelectedUser] = useState<UserRow | null>(null);
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [showChangePassword, setShowChangePassword] = useState(false);
+  const [showEditUser, setShowEditUser] = useState(false);
   const [confirmDrop, setConfirmDrop] = useState(false);
   // True when the lock/expiry columns could not be read, so the UI can say so
   // rather than showing every account as unremarkable (#440).
@@ -277,6 +279,7 @@ export function UserManagement({ connectionId }: UserManagementProps) {
               setConfirmDrop={setConfirmDrop}
               onDropUser={handleDropUser}
               onChangePassword={() => setShowChangePassword(true)}
+              onEditUser={() => setShowEditUser(true)}
             />
           )
           : (
@@ -299,6 +302,16 @@ export function UserManagement({ connectionId }: UserManagementProps) {
           onClose={() => setShowChangePassword(false)}
           connectionId={connectionId}
           user={selectedUser.user}
+          host={selectedUser.host}
+        />
+      )}
+      {selectedUser && (
+        <EditUserDialog
+          isOpen={showEditUser}
+          onClose={() => setShowEditUser(false)}
+          onSaved={handleRefresh}
+          connectionId={connectionId}
+          username={selectedUser.user}
           host={selectedUser.host}
         />
       )}

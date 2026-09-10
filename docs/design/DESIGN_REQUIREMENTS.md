@@ -499,14 +499,14 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 #### FR-7.1: User Management
 
-| ID       | Requirement             | Acceptance Criteria                                                                                                                 |
-| -------- | ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
-| FR-7.1.1 | List users              | Display all MySQL users with host, authentication plugin, and account status                                                        |
-| FR-7.1.2 | Create user             | Create new user with username, host, authentication method, password, and default role; generate CREATE USER statement              |
-| FR-7.1.3 | Edit user               | Modify user properties: password, host, account lock/unlock, password expiration                                                    |
-| FR-7.1.4 | Drop user               | Drop user with confirmation dialog; show dependent grants that will be removed                                                      |
-| FR-7.1.5 | Grant/Revoke privileges | Visual privilege editor: select database > table > columns > privileges; generate GRANT/REVOKE statements; preview before execution |
-| FR-7.1.6 | Role management         | Create, assign, and manage MySQL roles (MySQL 8.0+)                                                                                 |
+| ID       | Requirement             | Acceptance Criteria                                                                                                                                                                                                                                                                                                            |
+| -------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| FR-7.1.1 | List users              | Display all MySQL users with host, authentication plugin, and account status                                                                                                                                                                                                                                                   |
+| FR-7.1.2 | Create user             | Create new user with username, host, authentication method, password, and default role; generate CREATE USER statement                                                                                                                                                                                                         |
+| FR-7.1.3 | Edit user               | Password, account lock/unlock, password expiry (now, interval, never, server default), connection limit, and host (which renames the user). Every control defaults to "leave unchanged" and only what is set is emitted — MariaDB does not report lock or expiry state, so a pre-filled form would be pre-filled with guesses. |
+| FR-7.1.4 | Drop user               | Drop user with confirmation dialog; show dependent grants that will be removed                                                                                                                                                                                                                                                 |
+| FR-7.1.5 | Grant/Revoke privileges | Visual privilege editor: select database > table > columns > privileges; generate GRANT/REVOKE statements; preview before execution                                                                                                                                                                                            |
+| FR-7.1.6 | Role management         | Create, assign, and manage MySQL roles (MySQL 8.0+)                                                                                                                                                                                                                                                                            |
 
 #### FR-7.2: Server Monitoring
 
