@@ -1,12 +1,13 @@
-import { Activity, List, Server, Users } from "lucide-react";
+import { Activity, List, Server, Shield, Users } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { ProcessListTab } from "./ProcessListTab";
+import { RolesTab } from "./RolesTab";
 import { ServerStatusTab } from "./ServerStatusTab";
 import { ServerVariablesTab } from "./ServerVariablesTab";
 import { UserManagement } from "./UserManagement";
 
-type AdminSubTab = "processes" | "variables" | "status" | "users";
+type AdminSubTab = "processes" | "variables" | "status" | "users" | "roles";
 
 /**
  * The admin tab bar and content area, and nothing else.
@@ -33,6 +34,7 @@ export function AdminPanel({ connectionId }: AdminPanelProps) {
     { key: "variables", label: "Server Variables", icon: Server },
     { key: "status", label: "Server Status", icon: Activity },
     { key: "users", label: "Users", icon: Users },
+    { key: "roles", label: "Roles", icon: Shield },
   ];
 
   return (
@@ -59,6 +61,7 @@ export function AdminPanel({ connectionId }: AdminPanelProps) {
         {activeSubTab === "variables" && <ServerVariablesTab connectionId={connectionId} />}
         {activeSubTab === "status" && <ServerStatusTab connectionId={connectionId} />}
         {activeSubTab === "users" && <UserManagement connectionId={connectionId} />}
+        {activeSubTab === "roles" && <RolesTab connectionId={connectionId} />}
       </div>
     </div>
   );
