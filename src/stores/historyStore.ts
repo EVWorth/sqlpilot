@@ -1,9 +1,9 @@
 import { create } from "zustand";
-import type { HistoryEntry } from "../lib/bindings";
+import type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistorySort } from "../lib/bindings";
 import { redactCredentials } from "../lib/sql-redact";
 import { api } from "../lib/tauri-api";
 
-export type { HistoryEntry };
+export type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistorySort };
 
 /**
  * The query history panel's state, backed by SQLite.
@@ -37,18 +37,67 @@ const LIMIT_KEY = "sqlpilot-history-limit";
 /** The key history used before it moved to SQLite. Read once, then removed. */
 const LEGACY_KEY = "mas-query-history";
 
+/**
+ * Everything narrowing the current view.
+ *
+ * Held as one object so the query the store sends is built in a single place:
+ * a filter that some code paths forget to include is how a panel starts
+ * disagreeing with itself about what it is showing.
+ */
+export interface HistoryFilters {
+  search: string;
+  connectionNames: string[];
+  databases: string[];
+  /** "success", "error", or "" for both. */
+  status: string;
+  /** ISO 8601 date, inclusive. "" for unbounded. */
+  executedAfter: string;
+  executedBefore: string;
+  minDurationMs: number | null;
+  sort: HistorySort;
+}
+
+export const NO_FILTERS: HistoryFilters = {
+  search: "",
+  connectionNames: [],
+  databases: [],
+  status: "",
+  executedAfter: "",
+  executedBefore: "",
+  minDurationMs: null,
+  sort: "recent",
+};
+
+/** True when anything is narrowing the view, so the panel can offer a reset. */
+export function hasActiveFilters(f: HistoryFilters): boolean {
+  return (
+    f.connectionNames.length > 0
+    || f.databases.length > 0
+    || f.status !== ""
+    || f.executedAfter !== ""
+    || f.executedBefore !== ""
+    || f.minDurationMs !== null
+  );
+}
+
 interface HistoryState {
   entries: HistoryEntry[];
   limit: number;
-  /** The search the current `entries` were read with. */
-  search: string;
+  /** What the current `entries` were read with. */
+  filters: HistoryFilters;
+  /** How many entries match the filters, ignoring the page size. */
+  matchCount: number;
+  /** Connections and databases that appear in the history, for the filter UI. */
+  facets: HistoryFacets;
   /** True while the first read is outstanding, so the panel can say so. */
   loading: boolean;
   /** Set when talking to the store failed, so the panel can say that too. */
   error: string | null;
 
   load: () => Promise<void>;
-  setSearch: (search: string) => Promise<void>;
+  setFilters: (patch: Partial<HistoryFilters>) => Promise<void>;
+  resetFilters: () => Promise<void>;
+  exportMatching: (format: HistoryExportFormat) => Promise<string>;
   addEntry: (entry: NewHistoryEntry) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
   clearHistory: () => Promise<void>;
@@ -126,36 +175,94 @@ function toBackendEntry(raw: unknown): HistoryEntry {
   };
 }
 
+/** Turn the panel's filters into the query the backend understands. */
+function toQuery(filters: HistoryFilters, limit: number | null): HistoryQuery {
+  return {
+    search: filters.search.trim() || null,
+    // An empty list means "no filter", not "match nothing" — otherwise
+    // unticking the last checkbox would empty the panel.
+    connectionNames: filters.connectionNames.length ? filters.connectionNames : null,
+    databases: filters.databases.length ? filters.databases : null,
+    status: filters.status || null,
+    executedAfter: filters.executedAfter || null,
+    executedBefore: filters.executedBefore || null,
+    minDurationMs: filters.minDurationMs,
+    sort: filters.sort,
+    limit,
+    offset: null,
+  };
+}
+
+/** A generation counter so a slow read cannot overwrite a newer one. */
+let readGeneration = 0;
+
+/**
+ * Re-read the current view.
+ *
+ * Every path that changes what should be on screen goes through here, so the
+ * entries, the match count and the filters can never disagree.
+ */
+async function refresh(
+  set: (partial: Partial<HistoryState>) => void,
+  get: () => HistoryState,
+): Promise<void> {
+  const generation = ++readGeneration;
+  const { filters, limit } = get();
+  const query = toQuery(filters, limit);
+
+  try {
+    const [entries, matchCount] = await Promise.all([
+      api.historyList(query),
+      api.historyCountMatching(query),
+    ]);
+    // A read that finished after a newer one started is stale. Without this
+    // the list flickers back to an earlier filter's results.
+    if (generation !== readGeneration) return;
+    set({ entries, matchCount, loading: false, error: null });
+  } catch (e) {
+    if (generation !== readGeneration) return;
+    set({ loading: false, error: `Could not read query history: ${String(e)}` });
+  }
+}
+
 export const useHistoryStore = create<HistoryState>((set, get) => ({
   entries: [],
   limit: readLimit(),
-  search: "",
+  filters: { ...NO_FILTERS },
+  matchCount: 0,
+  facets: { connectionNames: [], databases: [] },
   loading: true,
   error: null,
 
   load: async () => {
-    const { limit, search } = get();
     try {
-      await migrateLegacyHistory(limit);
-      const entries = await api.historyList({ search: search || null, limit, offset: null });
-      set({ entries, loading: false, error: null });
-    } catch (e) {
-      set({ loading: false, error: `Could not read query history: ${String(e)}` });
+      await migrateLegacyHistory(get().limit);
+    } catch {
+      // migrateLegacyHistory already reports; a failed handover must not stop
+      // the panel showing whatever the database does hold.
+    }
+    await refresh(set, get);
+    try {
+      set({ facets: await api.historyFacets() });
+    } catch {
+      // Without facets the filter lists are empty, which is a smaller problem
+      // than the panel refusing to render.
     }
   },
 
-  setSearch: async (search) => {
-    set({ search });
-    const { limit } = get();
-    try {
-      const entries = await api.historyList({ search: search || null, limit, offset: null });
-      // Ignore a result that arrived after the user typed on. Without this the
-      // list flickers back to an earlier query's matches.
-      if (get().search !== search) return;
-      set({ entries, error: null });
-    } catch (e) {
-      set({ error: `Could not search query history: ${String(e)}` });
-    }
+  setFilters: async (patch) => {
+    set((state) => ({ filters: { ...state.filters, ...patch } }));
+    await refresh(set, get);
+  },
+
+  resetFilters: async () => {
+    set({ filters: { ...NO_FILTERS } });
+    await refresh(set, get);
+  },
+
+  exportMatching: async (format) => {
+    // No limit: exporting a filtered view means all of it, not the page.
+    return api.historyExport(toQuery(get().filters, null), format);
   },
 
   // Redaction happens here rather than at the call sites: this is the one door
@@ -221,14 +328,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       // for the next query: the user asked to keep fewer, and a panel still
       // showing the old count would look like the setting had not taken.
       await api.historyPrune(limit);
-      const entries = await api.historyList({
-        search: get().search || null,
-        limit,
-        offset: null,
-      });
-      set({ entries, error: null });
     } catch (e) {
       set({ error: `Could not apply the history limit: ${String(e)}` });
+      return;
     }
+    await refresh(set, get);
   },
 }));

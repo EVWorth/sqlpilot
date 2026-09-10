@@ -58,14 +58,60 @@ pub struct HistoryEntry {
     pub truncated: bool,
 }
 
+/// How to sort a history listing.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum HistorySort {
+    /// Newest first. What the panel shows unless asked otherwise.
+    #[default]
+    Recent,
+    /// Slowest first — the "what is costing me time" view.
+    Slowest,
+    /// Largest result first.
+    MostRows,
+}
+
 /// What to return from [`HistoryStore::list`].
+///
+/// Everything recorded on an entry used to be unusable for finding it: the
+/// panel matched a substring of the SQL and nothing else, so "what did I run
+/// against staging yesterday that failed" and "what were my slowest queries"
+/// were both unanswerable (#589). Filtering is a WHERE clause rather than an
+/// array scan, which is the other half of why history moved to SQLite.
 #[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "camelCase")]
 pub struct HistoryQuery {
     /// Substring match over the SQL text. Case-insensitive.
     pub search: Option<String>,
+    /// Keep only these connections. Empty or absent means all of them.
+    pub connection_names: Option<Vec<String>>,
+    /// Keep only these databases.
+    pub databases: Option<Vec<String>>,
+    /// "success" or "error". Absent means both.
+    pub status: Option<String>,
+    /// ISO 8601, inclusive. Compared as text, which sorts chronologically.
+    pub executed_after: Option<String>,
+    pub executed_before: Option<String>,
+    /// Keep only entries at least this slow, in milliseconds.
+    pub min_duration_ms: Option<u32>,
+    pub sort: Option<HistorySort>,
+    /// Page size. Absent means every match — which is what an export wants.
     pub limit: Option<u32>,
     pub offset: Option<u32>,
+}
+
+/// The distinct values a filter can offer, read from what is actually stored.
+///
+/// Offering every connection the user has ever configured would list ones with
+/// no history; offering these lists only what filtering by would return
+/// something.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct HistoryFacets {
+    pub connection_names: Vec<String>,
+    pub databases: Vec<String>,
 }
 
 pub struct HistoryStore {
@@ -140,34 +186,60 @@ impl HistoryStore {
 
     pub fn list(&self, query: &HistoryQuery) -> Result<Vec<HistoryEntry>, CoreError> {
         let db = self.conn()?;
-
-        // LIKE with an explicit ESCAPE: a user searching for `100%` or a
-        // snake_case column name would otherwise get every row, because % and _
-        // are LIKE's own wildcards.
-        let (where_clause, pattern) = match query.search.as_deref().map(str::trim) {
-            Some(s) if !s.is_empty() => (
-                "WHERE sql LIKE ?1 ESCAPE '\\'",
-                Some(format!("%{}%", escape_like(s))),
-            ),
-            _ => ("", None),
-        };
+        let (where_clause, args) = build_filter(query);
 
         let sql = format!(
             "SELECT id, sql, connection_name, database, executed_at, execution_time_ms,
                     row_count, status, error, error_code, error_sql_state, redacted, truncated
              FROM query_history {where_clause}
-             ORDER BY executed_at DESC, rowid DESC
+             ORDER BY {}
              LIMIT {} OFFSET {}",
-            query.limit.unwrap_or(500),
+            order_by(query.sort.unwrap_or_default()),
+            // -1 is SQLite's "no limit". Defaulting to a number here would
+            // have quietly capped an export at that number.
+            query.limit.map(i64::from).unwrap_or(-1),
             query.offset.unwrap_or(0),
         );
 
         let mut stmt = db.prepare(&sql)?;
-        let rows: rusqlite::Result<Vec<HistoryEntry>> = match pattern {
-            Some(p) => stmt.query_map(params![p], row_to_entry)?.collect(),
-            None => stmt.query_map([], row_to_entry)?.collect(),
-        };
+        let rows: rusqlite::Result<Vec<HistoryEntry>> = stmt
+            .query_map(rusqlite::params_from_iter(args.iter()), row_to_entry)?
+            .collect();
         rows.map_err(CoreError::from)
+    }
+
+    /// How many entries the same filter matches, ignoring limit and offset.
+    ///
+    /// The panel needs this to say "showing 50 of 812": without it a full page
+    /// of results is indistinguishable from a page that happens to be the last.
+    pub fn count_matching(&self, query: &HistoryQuery) -> Result<i64, CoreError> {
+        let db = self.conn()?;
+        let (where_clause, args) = build_filter(query);
+        let sql = format!("SELECT COUNT(*) FROM query_history {where_clause}");
+        let n = db.query_row(&sql, rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
+        Ok(n)
+    }
+
+    /// The connections and databases that actually appear in the history.
+    pub fn facets(&self) -> Result<HistoryFacets, CoreError> {
+        let db = self.conn()?;
+
+        let mut stmt = db.prepare(
+            "SELECT DISTINCT connection_name FROM query_history ORDER BY connection_name",
+        )?;
+        let connection_names: rusqlite::Result<Vec<String>> =
+            stmt.query_map([], |r| r.get(0))?.collect();
+
+        let mut stmt = db.prepare(
+            "SELECT DISTINCT database FROM query_history
+             WHERE database IS NOT NULL AND database <> '' ORDER BY database",
+        )?;
+        let databases: rusqlite::Result<Vec<String>> = stmt.query_map([], |r| r.get(0))?.collect();
+
+        Ok(HistoryFacets {
+            connection_names: connection_names?,
+            databases: databases?,
+        })
     }
 
     pub fn remove(&self, id: &str) -> Result<(), CoreError> {
@@ -235,6 +307,167 @@ impl HistoryStore {
         prune_locked(&tx, limit)?;
         tx.commit()?;
         Ok(imported)
+    }
+}
+
+/// Build the WHERE clause and its bound values for a query.
+///
+/// Every value is bound rather than interpolated. The search text is the one a
+/// user types, and the connection and database names come from rows written by
+/// the app — but a name is still data, and building SQL by concatenation here
+/// would be the one place in the app that does.
+fn build_filter(query: &HistoryQuery) -> (String, Vec<Box<dyn rusqlite::ToSql>>) {
+    let mut clauses: Vec<String> = Vec::new();
+    let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+    if let Some(search) = query.search.as_deref().map(str::trim) {
+        if !search.is_empty() {
+            // ESCAPE, or a search for `100%` matches every row containing 100
+            // and a search for `_` matches everything.
+            clauses.push(format!("sql LIKE ?{} ESCAPE '\\'", args.len() + 1));
+            args.push(Box::new(format!("%{}%", escape_like(search))));
+        }
+    }
+
+    if let Some(names) = query.connection_names.as_ref().filter(|n| !n.is_empty()) {
+        clauses.push(format!(
+            "connection_name IN ({})",
+            placeholders(args.len(), names.len())
+        ));
+        for name in names {
+            args.push(Box::new(name.clone()));
+        }
+    }
+
+    if let Some(databases) = query.databases.as_ref().filter(|d| !d.is_empty()) {
+        clauses.push(format!(
+            "database IN ({})",
+            placeholders(args.len(), databases.len())
+        ));
+        for database in databases {
+            args.push(Box::new(database.clone()));
+        }
+    }
+
+    if let Some(status) = query.status.as_deref().filter(|s| !s.is_empty()) {
+        clauses.push(format!("status = ?{}", args.len() + 1));
+        args.push(Box::new(status.to_string()));
+    }
+
+    if let Some(after) = query.executed_after.as_deref().filter(|s| !s.is_empty()) {
+        clauses.push(format!("executed_at >= ?{}", args.len() + 1));
+        args.push(Box::new(after.to_string()));
+    }
+
+    if let Some(before) = query.executed_before.as_deref().filter(|s| !s.is_empty()) {
+        clauses.push(format!("executed_at <= ?{}", args.len() + 1));
+        args.push(Box::new(before.to_string()));
+    }
+
+    if let Some(min) = query.min_duration_ms {
+        clauses.push(format!("execution_time_ms >= ?{}", args.len() + 1));
+        args.push(Box::new(i64::from(min)));
+    }
+
+    let where_clause = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", clauses.join(" AND "))
+    };
+    (where_clause, args)
+}
+
+/// `?n, ?n+1, …` for an IN list, continuing from the arguments already bound.
+fn placeholders(bound: usize, count: usize) -> String {
+    (1..=count)
+        .map(|i| format!("?{}", bound + i))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+fn order_by(sort: HistorySort) -> &'static str {
+    match sort {
+        // rowid breaks the tie: timestamps have second resolution, so a fast
+        // pair would otherwise come back in whatever order SQLite chose.
+        HistorySort::Recent => "executed_at DESC, rowid DESC",
+        HistorySort::Slowest => "execution_time_ms DESC, executed_at DESC",
+        HistorySort::MostRows => "row_count DESC, executed_at DESC",
+    }
+}
+
+/// What an export is written as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum HistoryExportFormat {
+    /// Every column, for a spreadsheet.
+    Csv,
+    /// The statements alone, each with a comment carrying its context, so the
+    /// file can be read back by any SQL client — including this one.
+    Sql,
+}
+
+/// One CSV field, quoted the way RFC 4180 asks.
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
+}
+
+/// Render entries as CSV or as a runnable SQL file.
+pub fn render_export(entries: &[HistoryEntry], format: HistoryExportFormat) -> String {
+    match format {
+        HistoryExportFormat::Csv => {
+            let mut out = String::from(
+                "executed_at,connection,database,status,duration_ms,rows,error_code,sql,error\n",
+            );
+            for e in entries {
+                out.push_str(&format!(
+                    "{},{},{},{},{},{},{},{},{}\n",
+                    csv_field(&e.executed_at),
+                    csv_field(&e.connection_name),
+                    csv_field(e.database.as_deref().unwrap_or("")),
+                    csv_field(&e.status),
+                    e.execution_time_ms,
+                    e.row_count,
+                    e.error_code.map(|c| c.to_string()).unwrap_or_default(),
+                    csv_field(&e.sql),
+                    csv_field(e.error.as_deref().unwrap_or("")),
+                ));
+            }
+            out
+        }
+        HistoryExportFormat::Sql => {
+            let mut out = String::from("-- SQLPilot query history export\n\n");
+            for e in entries {
+                out.push_str(&format!(
+                    "-- {} · {}{} · {} · {}ms\n",
+                    e.executed_at,
+                    e.connection_name,
+                    e.database
+                        .as_deref()
+                        .map(|d| format!("/{d}"))
+                        .unwrap_or_default(),
+                    e.status,
+                    e.execution_time_ms,
+                ));
+                if let Some(err) = &e.error {
+                    // A newline inside the message would end the comment and
+                    // leave the rest of it as SQL.
+                    out.push_str(&format!("-- error: {}\n", err.replace('\n', " ")));
+                }
+                if e.redacted {
+                    out.push_str("-- a credential was removed; this will not run as written\n");
+                }
+                out.push_str(e.sql.trim_end());
+                if !e.sql.trim_end().ends_with(';') {
+                    out.push(';');
+                }
+                out.push_str("\n\n");
+            }
+            out
+        }
     }
 }
 

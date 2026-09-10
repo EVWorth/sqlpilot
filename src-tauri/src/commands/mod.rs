@@ -4,7 +4,9 @@ pub mod sqlite;
 
 use mas_admin::AdminService;
 use mas_core::connection::{ConnectionManager, ConnectionStore};
-use mas_core::history::{HistoryEntry, HistoryQuery, HistoryStore};
+use mas_core::history::{
+    render_export, HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistoryStore,
+};
 use mas_core::models::{
     ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, TestConnectionResult,
 };
@@ -1295,4 +1297,47 @@ pub async fn history_import(
         .import(&entries, limit)
         .map(|n| n as u32)
         .map_err(|e| e.to_string())
+}
+
+/// How many entries the same filter matches, ignoring its page size.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_count_matching(
+    state: State<'_, AppState>,
+    query: HistoryQuery,
+) -> Result<u32, String> {
+    state
+        .history_store
+        .count_matching(&query)
+        .map(|n| n.clamp(0, i64::from(u32::MAX)) as u32)
+        .map_err(|e| e.to_string())
+}
+
+/// The connections and databases that appear in the history, for the filters.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_facets(state: State<'_, AppState>) -> Result<HistoryFacets, String> {
+    state.history_store.facets().map_err(|e| e.to_string())
+}
+
+/// Render everything the filter matches, not only the page on screen.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_export(
+    state: State<'_, AppState>,
+    query: HistoryQuery,
+    format: HistoryExportFormat,
+) -> Result<String, String> {
+    // The caller's page size describes the panel, not the export: someone
+    // exporting a filtered view means all of it.
+    let full = HistoryQuery {
+        limit: None,
+        offset: None,
+        ..query
+    };
+    let entries = state.history_store.list(&full).map_err(|e| e.to_string())?;
+    Ok(render_export(&entries, format))
 }

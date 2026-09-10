@@ -80,6 +80,12 @@ export const commands = {
 	 *  running this twice imports nothing the second time.
 	 */
 	historyImport: (entries: HistoryEntry[], limit: number) => typedError<number, string>(__TAURI_INVOKE("history_import", { entries, limit })),
+	/**  How many entries the same filter matches, ignoring its page size. */
+	historyCountMatching: (query: HistoryQuery) => typedError<number, string>(__TAURI_INVOKE("history_count_matching", { query })),
+	/**  The connections and databases that appear in the history, for the filters. */
+	historyFacets: () => typedError<HistoryFacets, string>(__TAURI_INVOKE("history_facets")),
+	/**  Render everything the filter matches, not only the page on screen. */
+	historyExport: (query: HistoryQuery, format: HistoryExportFormat) => typedError<string, string>(__TAURI_INVOKE("history_export", { query, format })),
 	/**  Whether connection passwords can be stored between sessions. */
 	keyringAvailable: () => __TAURI_INVOKE<boolean>("keyring_available"),
 	sqliteOpen: (path: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_open", { path })),
@@ -325,13 +331,65 @@ export type HistoryEntry = {
 	truncated: boolean,
 };
 
-/**  What to return from [`HistoryStore::list`]. */
+/**  What an export is written as. */
+export type HistoryExportFormat = 
+/**  Every column, for a spreadsheet. */
+"csv" | 
+/**
+ *  The statements alone, each with a comment carrying its context, so the
+ *  file can be read back by any SQL client — including this one.
+ */
+"sql";
+
+/**
+ *  The distinct values a filter can offer, read from what is actually stored.
+ * 
+ *  Offering every connection the user has ever configured would list ones with
+ *  no history; offering these lists only what filtering by would return
+ *  something.
+ */
+export type HistoryFacets = {
+	connectionNames: string[],
+	databases: string[],
+};
+
+/**
+ *  What to return from [`HistoryStore::list`].
+ * 
+ *  Everything recorded on an entry used to be unusable for finding it: the
+ *  panel matched a substring of the SQL and nothing else, so "what did I run
+ *  against staging yesterday that failed" and "what were my slowest queries"
+ *  were both unanswerable (#589). Filtering is a WHERE clause rather than an
+ *  array scan, which is the other half of why history moved to SQLite.
+ */
 export type HistoryQuery = {
 	/**  Substring match over the SQL text. Case-insensitive. */
 	search: string | null,
+	/**  Keep only these connections. Empty or absent means all of them. */
+	connectionNames: string[] | null,
+	/**  Keep only these databases. */
+	databases: string[] | null,
+	/**  "success" or "error". Absent means both. */
+	status: string | null,
+	/**  ISO 8601, inclusive. Compared as text, which sorts chronologically. */
+	executedAfter: string | null,
+	executedBefore: string | null,
+	/**  Keep only entries at least this slow, in milliseconds. */
+	minDurationMs: number | null,
+	sort: HistorySort | null,
+	/**  Page size. Absent means every match — which is what an export wants. */
 	limit: number | null,
 	offset: number | null,
 };
+
+/**  How to sort a history listing. */
+export type HistorySort = 
+/**  Newest first. What the panel shows unless asked otherwise. */
+"recent" | 
+/**  Slowest first — the "what is costing me time" view. */
+"slowest" | 
+/**  Largest result first. */
+"most_rows";
 
 export type IndexInfo = {
 	name: string,
