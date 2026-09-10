@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computeMetrics } from "../AdminPanel";
+import { computeMetrics } from "../serverStatus";
 
 /** SHOW GLOBAL STATUS rows, as the panel receives them. */
 function status(overrides: Record<string, number | string> = {}) {
