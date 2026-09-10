@@ -2,13 +2,13 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionDialog } from "../ConnectionDialog";
 
-vi.mock("../../stores/connectionStore", () => ({
+vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: vi.fn((selector: (s: unknown) => unknown) => {
     return selector({ saveProfile: vi.fn().mockResolvedValue(undefined) });
   }),
 }));
 
-vi.mock("../../lib/tauri-api", () => ({
+vi.mock("../../../lib/tauri-api", () => ({
   api: { testConnection: vi.fn().mockResolvedValue({ success: true, message: "Connected", latency_ms: 12 }) },
 }));
 

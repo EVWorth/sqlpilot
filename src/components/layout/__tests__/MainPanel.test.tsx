@@ -40,11 +40,11 @@ vi.mock("react-resizable-panels", () => ({
   activeTabId: "tab1",
 };
 
-vi.mock("../../stores/editorStore", () => ({
+vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: vi.fn((s: (v: unknown) => unknown) => s((globalThis as any).__mainPanelEditorState)),
 }));
 
-vi.mock("../../stores/resultStore", () => ({
+vi.mock("../../../stores/resultStore", () => ({
   useResultStore: vi.fn((s: (v: unknown) => unknown) =>
     s({ showExplain: false, explainResult: null, setShowExplain: vi.fn(), results: [] })
   ),
