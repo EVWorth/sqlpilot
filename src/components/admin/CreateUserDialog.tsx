@@ -4,6 +4,7 @@ import { authPluginsFor, buildCreateUser, SERVER_DEFAULT_PLUGIN } from "../../li
 import { runStatement } from "../../lib/run-statement";
 import { serverFlavour } from "../../lib/server-flavour";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { confirmDestructive } from "../../stores/productionGuardStore";
 
 interface Props {
   isOpen: boolean;
@@ -68,7 +69,18 @@ export function CreateUserDialog({
     setCreating(true);
     setError(null);
     try {
-      await runStatement({ connectionId, sql: buildSql(), origin: "admin" });
+      const sql = buildSql();
+      // CREATE USER changes who can reach the data, which is what the
+      // production gate is for (#456).
+      if (
+        !(await confirmDestructive({
+          connectionId,
+          sql,
+          action: `Create user ${username.trim()}@${effectiveHost.trim()}?`,
+        }))
+      ) return;
+
+      await runStatement({ connectionId, sql, origin: "admin" });
       onCreated();
       onClose();
     } catch (e) {

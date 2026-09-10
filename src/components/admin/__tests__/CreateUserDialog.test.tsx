@@ -1,6 +1,19 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useProductionGuardStore } from "../../../stores/productionGuardStore";
 import { CreateUserDialog } from "../CreateUserDialog";
+
+// The production guard reads these; without them it cannot tell whether the
+// connection is production (#456).
+const connState = { activeConnections: [] as any[], profiles: [] as any[] };
+
+vi.mock("../../../stores/connectionStore", () => ({
+  // The component selects from it as a hook; the guard reads getState().
+  useConnectionStore: Object.assign(
+    (selector?: (s: unknown) => unknown) => (selector ? selector(connState) : connState),
+    { getState: () => connState },
+  ),
+}));
 
 vi.mock("../../../lib/tauri-api", () => ({
   api: {
@@ -216,5 +229,73 @@ describe("CreateUserDialog", () => {
     render(<CreateUserDialog {...mockProps} />);
     fireEvent.click(screen.getByText("Cancel"));
     expect(mockProps.onClose).toHaveBeenCalled();
+  });
+  /** Fill the form enough to be valid and press Create. */
+  async function submit() {
+    vi.mocked(api.executeQuery).mockResolvedValue([]);
+    render(<CreateUserDialog {...mockProps} />);
+    fireEvent.change(screen.getByPlaceholderText("e.g. app_user"), {
+      target: { value: "newuser" },
+    });
+    const passwords = document.querySelectorAll(
+      "input[type=\"password\"]",
+    ) as NodeListOf<HTMLInputElement>;
+    fireEvent.change(passwords[0], { target: { value: "pass123" } });
+    fireEvent.change(passwords[1], { target: { value: "pass123" } });
+
+    const buttons = screen.getAllByText("Create User");
+    await act(async () => {
+      fireEvent.click(buttons[buttons.length - 1]);
+    });
+  }
+
+  describe("on a production connection (#456)", () => {
+    beforeEach(() => {
+      connState.activeConnections = [{ id: "conn-1", profile_id: "p1", name: "prod" }];
+      connState.profiles = [{ id: "p1", environment: "production" }];
+      useProductionGuardStore.setState({ pending: null, resolve: null });
+    });
+
+    afterEach(() => {
+      connState.activeConnections = [];
+      connState.profiles = [];
+    });
+
+    it("asks before running, and runs nothing until answered", async () => {
+      await submit();
+
+      await waitFor(() => {
+        expect(useProductionGuardStore.getState().pending).not.toBeNull();
+      });
+      expect(api.executeQuery).not.toHaveBeenCalled();
+    });
+
+    it("runs nothing when the user declines", async () => {
+      await submit();
+      await waitFor(() => expect(useProductionGuardStore.getState().pending).not.toBeNull());
+
+      useProductionGuardStore.getState().answer(false);
+
+      await waitFor(() => expect(useProductionGuardStore.getState().pending).toBeNull());
+      expect(api.executeQuery).not.toHaveBeenCalled();
+    });
+
+    it("runs once the user confirms", async () => {
+      await submit();
+      await waitFor(() => expect(useProductionGuardStore.getState().pending).not.toBeNull());
+
+      useProductionGuardStore.getState().answer(true);
+
+      await waitFor(() => expect(api.executeQuery).toHaveBeenCalled());
+    });
+
+    it("does not ask on a connection that is not production", async () => {
+      connState.profiles = [{ id: "p1", environment: "staging" }];
+
+      await submit();
+
+      await waitFor(() => expect(api.executeQuery).toHaveBeenCalled());
+      expect(useProductionGuardStore.getState().pending).toBeNull();
+    });
   });
 });
