@@ -340,7 +340,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   icon: <RefreshCw className="h-3.5 w-3.5" />,
                   onClick: () => refreshTables(db.name),
                 },
-                { label: "", separator: true, onClick: () => {} },
+                { separator: true },
                 {
                   label: "Backup Database",
                   icon: <HardDriveDownload className="h-3.5 w-3.5" />,
@@ -453,7 +453,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                                 openDdlTab(db.name, t.name, `SHOW CREATE TABLE \`${db.name}\`.\`${t.name}\``);
                               },
                             },
-                            { label: "", separator: true, onClick: () => {} },
+                            { separator: true },
                             {
                               label: "Drop Table",
                               icon: <Trash2 className="h-3.5 w-3.5" />,
@@ -548,7 +548,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                               openDdlTab(db.name, v.name, `SHOW CREATE VIEW \`${db.name}\`.\`${v.name}\``);
                             },
                           },
-                          { label: "", separator: true, onClick: () => {} },
+                          { separator: true },
                           {
                             label: "Drop View",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
@@ -618,7 +618,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                               openDdlTab(db.name, r.name, `SHOW CREATE PROCEDURE \`${db.name}\`.\`${r.name}\``);
                             },
                           },
-                          { label: "", separator: true, onClick: () => {} },
+                          { separator: true },
                           {
                             label: "Drop Procedure",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
@@ -690,7 +690,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                               openDdlTab(db.name, r.name, `SHOW CREATE FUNCTION \`${db.name}\`.\`${r.name}\``);
                             },
                           },
-                          { label: "", separator: true, onClick: () => {} },
+                          { separator: true },
                           {
                             label: "Drop Function",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
@@ -755,7 +755,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                               openDdlTab(db.name, t.name, `SHOW CREATE TRIGGER \`${db.name}\`.\`${t.name}\``);
                             },
                           },
-                          { label: "", separator: true, onClick: () => {} },
+                          { separator: true },
                           {
                             label: "Drop Trigger",
                             icon: <Trash2 className="h-3.5 w-3.5" />,

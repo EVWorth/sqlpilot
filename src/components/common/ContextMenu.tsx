@@ -2,16 +2,37 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../lib/utils";
 
-export interface MenuItem {
+/** A line between groups. Carries nothing, because it does nothing. */
+export interface MenuSeparator {
+  separator: true;
+}
+
+/** Something the user can pick. */
+export interface MenuAction {
   label: string;
-  icon?: React.ReactNode;
   onClick: () => void;
+  icon?: React.ReactNode;
   danger?: boolean;
-  separator?: boolean;
   disabled?: boolean;
   /** Hover text. A disabled item is otherwise silent about why. */
   title?: string;
+  separator?: false;
 }
+
+/**
+ * An entry in a context menu.
+ *
+ * A union rather than one interface with an optional `separator`, which made
+ * every separator carry a meaningless label and an empty onClick — twelve
+ * copies of `{ separator: true }` across the app
+ * (#336). A separator now needs neither, and the type says why: it is not a
+ * thing you can click.
+ *
+ * Separators render as a `<div>`, never a button, so they were not the focus
+ * traps the issue supposed. The no-op handlers were noise, not a bug — the
+ * fix is to stop writing them, not to guard against them.
+ */
+export type MenuItem = MenuSeparator | MenuAction;
 
 interface ContextMenuProps {
   x: number;

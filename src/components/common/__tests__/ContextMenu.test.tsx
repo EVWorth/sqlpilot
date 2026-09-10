@@ -1,12 +1,14 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ContextMenu, type MenuItem } from "../ContextMenu";
+import { ContextMenu, type MenuAction, type MenuItem } from "../ContextMenu";
 
 describe("ContextMenu", () => {
-  const createItems = (overrides: Partial<Record<string, Partial<MenuItem>>> = {}): MenuItem[] => [
+  const createItems = (overrides: Partial<Record<string, Partial<MenuAction>>> = {}): MenuItem[] => [
     { label: "Copy", onClick: vi.fn(), ...overrides.copy },
     { label: "Paste", onClick: vi.fn(), ...overrides.paste },
-    { label: "Separator", onClick: vi.fn(), separator: true, ...overrides.separator },
+    // A separator carries nothing: the union no longer lets it claim a label
+    // or a handler it would never use (#336).
+    { separator: true },
     { label: "Delete", onClick: vi.fn(), danger: true, ...overrides.delete },
   ];
 
@@ -28,12 +30,24 @@ describe("ContextMenu", () => {
     expect(screen.getByText("Delete")).toBeInTheDocument();
   });
 
-  it("renders separator items as horizontal rules (not buttons)", () => {
+  it("renders a separator as a rule, not a button", () => {
+    // Four items, one of them a separator: three things the user can reach.
+    // Checking for the absence of a label the separator no longer has would
+    // pass whatever the component did (#336).
     render(
       <ContextMenu x={0} y={0} items={createItems()} onClose={vi.fn()} />,
     );
-    // "Separator" text should NOT appear as a button since separator items are divs
-    expect(screen.queryByText("Separator")).not.toBeInTheDocument();
+
+    expect(screen.getAllByRole("button")).toHaveLength(3);
+  });
+
+  it("keeps a separator out of the tab order", () => {
+    render(
+      <ContextMenu x={0} y={0} items={[{ separator: true }]} onClose={vi.fn()} />,
+    );
+
+    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(document.querySelectorAll("[tabindex]")).toHaveLength(0);
   });
 
   it("calls item onClick and onClose when a menu item is clicked", () => {

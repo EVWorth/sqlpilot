@@ -177,7 +177,7 @@ export function ConnectionTabs() {
                     icon: <X className="h-3.5 w-3.5" />,
                     onClick: () => disconnect(conn.id),
                   },
-                  { label: "", separator: true, onClick: () => {} },
+                  { separator: true },
                   {
                     label: "Delete Profile",
                     icon: <Trash2 className="h-3.5 w-3.5" />,

@@ -51,6 +51,7 @@ import { confirmDestructive } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
 import type { SqlValue } from "../../types";
 import { SqlValueGuard } from "../../types";
+import type { MenuItem } from "../common/ContextMenu";
 import { CellViewerModal } from "./CellViewerModal";
 import { EditableCell } from "./EditableCell";
 import { EditToolbar } from "./EditToolbar";
@@ -288,7 +289,9 @@ export function ResultsGrid() {
         ...activeResult.rows.map((r) => r.map((v) => SqlValueGuard.toString(v)).join("\t")),
       ].join("\n");
 
-      const menuItems = [
+      // Annotated: without it the separators widen to `separator: boolean`
+      // and stop matching the union.
+      const menuItems: MenuItem[] = [
         {
           label: "Copy Cell",
           icon: <Copy className="h-3.5 w-3.5" />,
@@ -314,7 +317,7 @@ export function ResultsGrid() {
             if (insertStmt !== null) navigator.clipboard.writeText(insertStmt);
           },
         },
-        { label: "", separator: true, onClick: () => {} },
+        { separator: true },
         {
           label: "Copy All Results",
           icon: <ClipboardCopy className="h-3.5 w-3.5" />,
@@ -326,7 +329,7 @@ export function ResultsGrid() {
 
       if (editing.editMode) {
         menuItems.push(
-          { label: "", separator: true, onClick: () => {} },
+          { separator: true },
           {
             label: editing.isRowDeleted(rowIdx)
               ? "Unmark Delete"
