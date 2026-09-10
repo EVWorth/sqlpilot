@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryFavorites } from "../QueryFavorites";
 
@@ -14,6 +14,15 @@ const { useFavoritesStoreFn, updateTabContent, addTab, editorState } = vi.hoiste
 
 vi.mock("../../../stores/favoritesStore", () => ({
   useFavoritesStore: useFavoritesStoreFn,
+}));
+
+vi.mock("../../../lib/tauri-api", () => ({
+  api: {
+    pickSaveFile: vi.fn().mockResolvedValue("/tmp/favorites.json"),
+    pickFile: vi.fn().mockResolvedValue("/tmp/favorites.json"),
+    writeFileContents: vi.fn().mockResolvedValue(undefined),
+    readFileContents: vi.fn().mockResolvedValue("{}"),
+  },
 }));
 
 vi.mock("../../../stores/editorStore", () => ({
@@ -98,19 +107,31 @@ const storeState = {
   updateFavorite: vi.fn(),
   addCategory: vi.fn(),
   deleteCategory: vi.fn(),
+  exportFavorites: vi.fn(() => "{}"),
+  importFavorites: vi.fn(() => ({ imported: 0, skipped: 0, invalid: 0 })),
 };
 
 beforeAll(() => {
   useFavoritesStoreFn.mockImplementation((s: (v: typeof storeState) => unknown) => s(storeState));
 });
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The api mocks live in a module factory, so they keep their calls between
+  // tests unless cleared — a previous export would look like this one's.
+  const { api } = await import("../../../lib/tauri-api");
+  vi.mocked(api.pickSaveFile).mockReset().mockResolvedValue("/tmp/favorites.json");
+  vi.mocked(api.pickFile).mockReset().mockResolvedValue("/tmp/favorites.json");
+  vi.mocked(api.writeFileContents).mockReset().mockResolvedValue(undefined);
+  vi.mocked(api.readFileContents).mockReset().mockResolvedValue("{}");
+
   storeState.deleteFavorite.mockClear();
   storeState.renameFavorite.mockClear().mockReturnValue({ ok: true, id: "fav1" });
   storeState.moveToCategory.mockClear().mockReturnValue({ ok: true, id: "fav1" });
   storeState.updateFavorite.mockClear().mockReturnValue({ ok: true, id: "fav1" });
   storeState.addCategory.mockClear();
   storeState.deleteCategory.mockClear();
+  storeState.exportFavorites.mockClear().mockReturnValue("{}");
+  storeState.importFavorites.mockClear().mockReturnValue({ imported: 0, skipped: 0, invalid: 0 });
   updateTabContent.mockReset();
   addTab.mockReset().mockReturnValue("newTabId");
   editorState.tabs = [
@@ -410,6 +431,89 @@ describe("QueryFavorites — dirty-tab overwrite confirmation (#341)", () => {
     it("marks nothing on an ordinary favorite", () => {
       render(<QueryFavorites />);
       expect(screen.queryByText("redacted")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("import and export (#335)", () => {
+    it("writes an export to the file the user picked", async () => {
+      const { api } = await import("../../../lib/tauri-api");
+      storeState.exportFavorites.mockReturnValue("{\"kind\":\"sqlpilot-favorites\"}");
+      render(<QueryFavorites />);
+
+      fireEvent.click(screen.getByTitle("Export favorites"));
+
+      await waitFor(() =>
+        expect(api.writeFileContents).toHaveBeenCalledWith(
+          "/tmp/favorites.json",
+          "{\"kind\":\"sqlpilot-favorites\"}",
+        )
+      );
+    });
+
+    it("writes nothing when the save dialog is cancelled", async () => {
+      const { api } = await import("../../../lib/tauri-api");
+      vi.mocked(api.pickSaveFile).mockResolvedValueOnce(null);
+      render(<QueryFavorites />);
+
+      fireEvent.click(screen.getByTitle("Export favorites"));
+
+      await waitFor(() => expect(api.pickSaveFile).toHaveBeenCalled());
+      expect(api.writeFileContents).not.toHaveBeenCalled();
+    });
+
+    it("cannot export an empty library", () => {
+      storeState.favorites = [];
+      render(<QueryFavorites />);
+      expect(screen.getByTitle("Export favorites")).toBeDisabled();
+    });
+
+    it("reports what an import did to everything in the file", async () => {
+      // "Imported 3" when the file held 40 is a report worth doubting.
+      storeState.importFavorites.mockReturnValue({ imported: 3, skipped: 2, invalid: 1 });
+      render(<QueryFavorites />);
+
+      fireEvent.click(screen.getByTitle("Import favorites"));
+
+      const notice = await screen.findByRole("status");
+      expect(notice).toHaveTextContent("Imported 3");
+      expect(notice).toHaveTextContent("2 already here");
+      expect(notice).toHaveTextContent("1 unreadable");
+    });
+
+    it("says so when the file is not a favorites export", async () => {
+      storeState.importFavorites.mockReturnValue({
+        imported: 0,
+        skipped: 0,
+        invalid: 0,
+        error: "That file is not a SQLPilot favorites export.",
+      });
+      render(<QueryFavorites />);
+
+      fireEvent.click(screen.getByTitle("Import favorites"));
+
+      expect(await screen.findByRole("status")).toHaveTextContent("not a SQLPilot favorites export");
+    });
+
+    it("imports nothing when the open dialog is cancelled", async () => {
+      const { api } = await import("../../../lib/tauri-api");
+      vi.mocked(api.pickFile).mockResolvedValueOnce(null);
+      render(<QueryFavorites />);
+
+      fireEvent.click(screen.getByTitle("Import favorites"));
+
+      await waitFor(() => expect(api.pickFile).toHaveBeenCalled());
+      expect(storeState.importFavorites).not.toHaveBeenCalled();
+    });
+
+    it("lets the report be dismissed", async () => {
+      storeState.importFavorites.mockReturnValue({ imported: 1, skipped: 0, invalid: 0 });
+      render(<QueryFavorites />);
+      fireEvent.click(screen.getByTitle("Import favorites"));
+      await screen.findByRole("status");
+
+      fireEvent.click(screen.getByLabelText("Dismiss"));
+
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
   });
 });

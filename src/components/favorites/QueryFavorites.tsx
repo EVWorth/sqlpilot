@@ -2,6 +2,7 @@ import {
   ChevronDown,
   ChevronRight,
   Database,
+  Download,
   FileText,
   FolderInput,
   FolderPlus,
@@ -9,9 +10,11 @@ import {
   Search,
   Star,
   Trash2,
+  Upload,
 } from "lucide-react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { api } from "../../lib/tauri-api";
 import { useEditorStore } from "../../stores/editorStore";
 import { type Favorite, useFavoritesStore } from "../../stores/favoritesStore";
 import { ConfirmDialog } from "../common/ConfirmDialog";
@@ -52,6 +55,10 @@ export function QueryFavorites() {
   );
 
   const { contextMenu, showContextMenu } = useContextMenu();
+  const exportFavorites = useFavoritesStore((s) => s.exportFavorites);
+  const importFavorites = useFavoritesStore((s) => s.importFavorites);
+  /** What the last import or export did. Cleared on the next one. */
+  const [notice, setNotice] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return favorites;
@@ -128,6 +135,42 @@ export function QueryFavorites() {
     setShowNewCategory(false);
   };
 
+  const handleExport = async () => {
+    try {
+      const path = await api.pickSaveFile("Export favorites", "sqlpilot-favorites.json", [[
+        "JSON",
+        ["json"],
+      ]]);
+      // A cancelled dialog is the user changing their mind, not a failure.
+      if (!path) return;
+      await api.writeFileContents(path, exportFavorites());
+      setNotice(`Exported ${favorites.length} favorite(s).`);
+    } catch (e) {
+      setNotice(`Could not export: ${String(e)}`);
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const path = await api.pickFile("Import favorites", [["JSON", ["json"]]]);
+      if (!path) return;
+      const result = importFavorites(await api.readFileContents(path));
+
+      if (result.error) {
+        setNotice(result.error);
+        return;
+      }
+      // Says what happened to everything in the file, not just the good half:
+      // "imported 3" when the file held 40 is a report worth doubting.
+      const parts = [`Imported ${result.imported}`];
+      if (result.skipped > 0) parts.push(`${result.skipped} already here`);
+      if (result.invalid > 0) parts.push(`${result.invalid} unreadable`);
+      setNotice(`${parts.join(", ")}.`);
+    } catch (e) {
+      setNotice(`Could not import: ${String(e)}`);
+    }
+  };
+
   const handleRenameStart = (fav: Favorite) => {
     setEditingId(fav.id);
     setEditValue(fav.name);
@@ -202,6 +245,21 @@ export function QueryFavorites() {
           />
         </div>
         <button
+          onClick={() => void handleExport()}
+          disabled={favorites.length === 0}
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-40 disabled:cursor-not-allowed"
+          title="Export favorites"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={() => void handleImport()}
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+          title="Import favorites"
+        >
+          <Upload className="h-3.5 w-3.5" />
+        </button>
+        <button
           onClick={() => setShowNewCategory(true)}
           className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
           title="New Category"
@@ -244,6 +302,22 @@ export function QueryFavorites() {
             ✕
           </button>
         </div>
+      )}
+
+      {notice && (
+        <p
+          role="status"
+          className="flex items-start gap-1 border-b border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-text-secondary)]"
+        >
+          <span className="flex-1">{notice}</span>
+          <button
+            onClick={() => setNotice(null)}
+            aria-label="Dismiss"
+            className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+          >
+            ✕
+          </button>
+        </p>
       )}
 
       {/* Favorites List */}
