@@ -194,7 +194,24 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ## 3. Functional Requirements
 
-### FR-1: Connection Management [done]
+Each FR carries a status flag. They had no defined meaning, which is most of
+why they drifted: six sections read `[done]` while carrying dozens of open P0
+and P1 issues, because nobody had said what the word claimed (#459).
+
+| Flag        | Means                                                                                                   |
+| ----------- | ------------------------------------------------------------------------------------------------------- |
+| `[done]`    | Every acceptance criterion in the section is met, and no open issue contradicts one.                    |
+| `[partial]` | Some criteria are met. The section says which are not, so the flag can be checked rather than believed. |
+| `[dropped]` | Deliberately not built. The section says why.                                                           |
+
+A flag is a claim about the code, not an aspiration. If an open issue
+contradicts a criterion, the section is `[partial]` until the issue closes.
+
+### FR-1: Connection Management [partial]
+
+> Outstanding: no reconnect backoff (#276), no pool statistics (#279).
+> Everything else in this section is implemented — SSH tunnelling, keyring
+> storage, read-only enforcement and query cancellation all landed.
 
 **Priority:** P0 — Critical\
 **Description:** Manage MySQL server connections with support for multiple authentication methods, tunneling, and organizational features.
@@ -233,7 +250,11 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-2: SQL Editor [done]
+### FR-2: SQL Editor [partial]
+
+> Outstanding: no Ctrl+. cancel binding (#282), `query_timeout` is not
+> enforced (#283), streaming is not implemented (#284), no query parameters
+> (#285), and a cancel race remains (#287).
 
 **Priority:** P0 — Critical\
 **Description:** A Monaco-based SQL editor with rich language features, schema awareness, and multi-tab support.
@@ -277,7 +298,12 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-3: Data Grid / Results [done]
+### FR-3: Data Grid / Results [partial]
+
+> Outstanding: no in-grid filters or pagination (#391), no column reorder or
+> multi-sort (#392), no BLOB preview (#401), no total row count (#402), the
+> Set NULL context item is missing (#403), no column type indicators (#414),
+> selection and copy are incomplete (#416), and a ResizeObserver leak (#417).
 
 **Priority:** P0 — Critical\
 **Description:** A high-performance, virtualized data grid for displaying and editing query results.
@@ -333,7 +359,12 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-4: Schema Browser / Object Explorer [done]
+### FR-4: Schema Browser / Object Explorer [partial]
+
+> Outstanding: a connection-switch leak (#288), refresh does not refresh
+> (#289), `USE` and `SHOW CREATE` can land on different pooled connections
+> (#290), Events, drag and system databases are missing (#291), object details
+> are incomplete (#292), and most context-menu operations do not exist (#293).
 
 **Priority:** P0 — Critical\
 **Description:** A tree-view navigator for browsing and managing database objects.
@@ -410,7 +441,11 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-6: AI Features (Copilot Integration) [done]
+### FR-6: AI Features (Copilot Integration) [partial]
+
+> Behind the `beta-ai` cargo feature and not built by default, with twelve open
+> issues including prompt injection (#309) and a `.expect()` panic (#314).
+> Nothing in this section should be read as shipped.
 
 **Priority:** P0 — Critical\
 **Description:** AI-powered features using GitHub Copilot to assist with SQL development, optimization, and documentation.
@@ -530,7 +565,16 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ---
 
-### FR-9: Query History & Favorites [done]
+### FR-9: Query History & Favorites [partial]
+
+> Query history is complete: it moved to SQLite (#585), records every statement
+> tagged by origin (#586), never stores credentials (#587), and filters, sorts
+> and exports (#589).
+>
+> Favorites is the outstanding half: no hierarchical folders (#334), no
+> import/export (#335), context-menu focus traps (#336), the +New category
+> commit is invisible (#338), no scrubbing (#339), a god-component (#340), and
+> no Save as Favorite button in the toolbar (#342).
 
 **Priority:** P1 — High\
 **Description:** Persistent query history and favorites system for efficient query management.
