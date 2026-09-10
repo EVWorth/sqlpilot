@@ -1,5 +1,23 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { redactCredentials } from "../lib/sql-redact";
+
+/**
+ * Strip credentials out of a favorite's SQL before it is stored.
+ *
+ * Same rule as query history (#587), for the same reason: a statement
+ * carrying a password in its text walks straight past the keyring, and a
+ * favorite is kept deliberately and for longer than a history entry (#339).
+ *
+ * Only credentials. History offers to blank every literal for shared or
+ * regulated machines, and that setting deliberately does *not* reach here — a
+ * favorite exists to be run again, and one whose values have been blanked is
+ * not a saved query, it is a broken one. If a favorite should not carry a
+ * value, the value does not belong in it.
+ */
+function scrub(sql: string): { sql: string; redacted: boolean } {
+  return redactCredentials(sql);
+}
 
 export interface Favorite {
   id: string;
@@ -11,6 +29,8 @@ export interface Favorite {
   database?: string;
   createdAt: string;
   updatedAt: string;
+  /** True when a credential was stripped out of `sql` before it was stored. */
+  redacted?: boolean;
 }
 
 /**
@@ -83,9 +103,12 @@ export const useFavoritesStore = create<FavoritesState>()(
         const clash = findDuplicate(get().favorites, fav.name, fav.category);
         if (clash) return { ok: false, reason: "duplicate", existingId: clash.id };
 
+        const { sql, redacted } = scrub(fav.sql);
         const now = new Date().toISOString();
         const newFav: Favorite = {
           ...fav,
+          sql,
+          ...(redacted ? { redacted: true } : {}),
           id: generateId(),
           createdAt: now,
           updatedAt: now,
@@ -113,10 +136,16 @@ export const useFavoritesStore = create<FavoritesState>()(
         const clash = findDuplicate(get().favorites, name, category, id);
         if (clash) return { ok: false, reason: "duplicate", existingId: clash.id };
 
+        // An edit can introduce a credential the original did not have.
+        const scrubbed = updates.sql !== undefined ? scrub(updates.sql) : null;
+        const patch = scrubbed
+          ? { ...updates, sql: scrubbed.sql, redacted: scrubbed.redacted || undefined }
+          : updates;
+
         set((state) => ({
           favorites: state.favorites.map((f) =>
             f.id === id
-              ? { ...f, ...updates, updatedAt: new Date().toISOString() }
+              ? { ...f, ...patch, updatedAt: new Date().toISOString() }
               : f
           ),
         }));

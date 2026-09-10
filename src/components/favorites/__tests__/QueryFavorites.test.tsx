@@ -388,4 +388,28 @@ describe("QueryFavorites — dirty-tab overwrite confirmation (#341)", () => {
       expect(screen.getByDisplayValue(/typed|Order Summary/)).toBeInTheDocument();
     });
   });
+
+  describe("redacted favorites (#339)", () => {
+    it("marks one whose credential was stripped", () => {
+      storeState.favorites = [{ ...baselineFavorites[0], redacted: true }];
+      render(<QueryFavorites />);
+
+      expect(screen.getByText("redacted")).toBeInTheDocument();
+    });
+
+    it("says why it will not run as written", () => {
+      storeState.favorites = [{ ...baselineFavorites[0], redacted: true }];
+      render(<QueryFavorites />);
+
+      expect(screen.getByText("redacted")).toHaveAttribute(
+        "title",
+        expect.stringContaining("will not run as written"),
+      );
+    });
+
+    it("marks nothing on an ordinary favorite", () => {
+      render(<QueryFavorites />);
+      expect(screen.queryByText("redacted")).not.toBeInTheDocument();
+    });
+  });
 });
