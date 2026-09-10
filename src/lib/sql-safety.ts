@@ -55,6 +55,12 @@ const DESTRUCTIVE_VERBS = [
 /** Multi-word forms that a single leading verb would miss. */
 const DESTRUCTIVE_PHRASES = [
   /\bSET\s+PASSWORD\b/i,
+  // Server configuration, not a query. `SET GLOBAL max_connections = 1` or
+  // `innodb_buffer_pool_size = 0` takes a production server down as surely as
+  // a DROP does, and it is one keystroke from a session-scoped change that is
+  // harmless (#438). SET SESSION is deliberately absent: it reaches only the
+  // connection that issued it.
+  /\bSET\s+(GLOBAL|PERSIST|PERSIST_ONLY)\b/i,
   /\bLOCK\s+TABLES\b/i,
   /\bCREATE\s+USER\b/i,
   /\bDROP\s+USER\b/i,

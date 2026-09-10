@@ -45,10 +45,23 @@ pub struct ProcessInfo {
     pub info: Option<String>,
 }
 
+// camelCase to match every other type crossing the boundary. `name` and
+// `value` are unaffected; the new fields would otherwise arrive snake_case.
 #[derive(Debug, Clone, Serialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerVariable {
     pub name: String,
     pub value: String,
+    /// What the variable is for, where the server will say.
+    ///
+    /// MariaDB carries it in `information_schema.SYSTEM_VARIABLES`. MySQL has
+    /// no equivalent — `performance_schema.variables_info` holds where a value
+    /// came from and its bounds, but no prose — so this is `None` there rather
+    /// than invented (#438).
+    pub description: Option<String>,
+    /// Whether the server will refuse to set it. `None` when unknown, which
+    /// is MySQL: it reports read-only only by failing the SET with 1238.
+    pub read_only: Option<bool>,
 }
 
 impl AdminService {
@@ -114,13 +127,51 @@ impl AdminService {
             .await
             .map_err(|e| CoreError::Query(e.to_string()))?;
 
-        let variables: Vec<ServerVariable> = rows
+        let mut variables: Vec<ServerVariable> = rows
             .iter()
             .map(|row| ServerVariable {
                 name: row.try_get("Variable_name").unwrap_or_default(),
                 value: row.try_get("Value").unwrap_or_default(),
+                description: None,
+                read_only: None,
             })
             .collect();
+
+        // MariaDB documents its variables in a table; MySQL does not. Asking
+        // and tolerating the failure is simpler than branching on a version
+        // string, and it is one extra query on a screen the user opened to
+        // read variables.
+        if let Ok(meta) = sqlx::query(
+            "SELECT VARIABLE_NAME, VARIABLE_COMMENT, READ_ONLY \
+             FROM information_schema.SYSTEM_VARIABLES",
+        )
+        .fetch_all(&pool)
+        .await
+        {
+            let by_name: std::collections::HashMap<String, (String, String)> = meta
+                .iter()
+                .map(|row| {
+                    (
+                        row.try_get::<String, _>("VARIABLE_NAME")
+                            .unwrap_or_default()
+                            .to_lowercase(),
+                        (
+                            row.try_get("VARIABLE_COMMENT").unwrap_or_default(),
+                            row.try_get("READ_ONLY").unwrap_or_default(),
+                        ),
+                    )
+                })
+                .collect();
+
+            for v in &mut variables {
+                if let Some((comment, read_only)) = by_name.get(&v.name.to_lowercase()) {
+                    if !comment.is_empty() {
+                        v.description = Some(comment.clone());
+                    }
+                    v.read_only = Some(read_only.eq_ignore_ascii_case("YES"));
+                }
+            }
+        }
         tracing::debug!(count = variables.len(), "Retrieved server variables");
         Ok(variables)
     }
