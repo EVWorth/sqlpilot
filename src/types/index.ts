@@ -137,19 +137,56 @@ export const SqlValueGuard = {
 } as const;
 
 // Editor types
-export interface EditorTab {
+/** What a routine tab is showing. The server has no third kind. */
+export type RoutineKind = "PROCEDURE" | "FUNCTION";
+
+/** Fields every tab has, whatever it shows. */
+interface EditorTabBase {
   id: string;
   title: string;
   content: string;
+  isDirty: boolean;
+  /** Absent until the user picks a connection for the tab. */
   connectionId?: string;
   profileId?: string;
   database?: string;
-  tableName?: string;
-  routineName?: string;
-  routineType?: string;
-  type?: "query" | "structure" | "admin" | "designer" | "routine";
-  isDirty: boolean;
 }
+
+/**
+ * An editor tab, by kind.
+ *
+ * This was one flat interface with eight optional fields, so nothing could
+ * tell a structure tab from a routine tab whose fields had not been filled in
+ * yet — every consumer re-checked them, and `routineType` was typed as a bare
+ * string, which is why MainPanel narrowed it back to PROCEDURE or FUNCTION
+ * with a fallback that could never fire (#449).
+ *
+ * Narrowing on `type` now tells the compiler what is present. The fields a
+ * kind requires are required on that kind, and absent from the others.
+ */
+export type EditorTab =
+  | (EditorTabBase & { type: "query" })
+  | (EditorTabBase & {
+    type: "structure";
+    connectionId: string;
+    database: string;
+    tableName: string;
+  })
+  | (EditorTabBase & { type: "admin"; connectionId: string })
+  | (EditorTabBase & {
+    type: "designer";
+    connectionId: string;
+    database: string;
+    /** Absent when designing a new table rather than editing one. */
+    tableName?: string;
+  })
+  | (EditorTabBase & {
+    type: "routine";
+    connectionId: string;
+    database: string;
+    routineName: string;
+    routineType: RoutineKind;
+  });
 
 export type AiStreamEvent =
   | { type: "text_delta"; conversation_id: string; content: string }
