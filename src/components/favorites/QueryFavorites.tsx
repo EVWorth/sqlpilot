@@ -12,8 +12,9 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { useInlineEdit } from "../../hooks/useInlineEdit";
 import { api } from "../../lib/tauri-api";
 import { useEditorStore } from "../../stores/editorStore";
 import { type Favorite, useFavoritesStore } from "../../stores/favoritesStore";
@@ -34,18 +35,13 @@ export function QueryFavorites() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({
     Uncategorized: true,
   });
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editValue, setEditValue] = useState("");
-  // Set when the store refuses the new name, so the row can say why instead of
-  // closing the editor as though the rename had taken.
-  const [editError, setEditError] = useState<string | null>(null);
-  // Escape unmounts the input, and whether that fires onBlur is a detail of the
-  // renderer, not something the rename should depend on. The flag makes the
-  // cancel explicit: a blur arriving after one is ignored (#333).
-  const cancelledRef = useRef(false);
-  const descCancelledRef = useRef(false);
-  const [editDescId, setEditDescId] = useState<string | null>(null);
-  const [editDescValue, setEditDescValue] = useState("");
+  // Two inline editors, one hook each. Both had to get the same subtleties
+  // right — Escape must not commit, a refused value keeps the editor open —
+  // and both used to spell them out separately (#340).
+  const rename = useInlineEdit();
+  // Clearing a description is the only way to remove one, so an emptied
+  // field is a value here rather than a cancel.
+  const describe_ = useInlineEdit({ allowEmpty: true });
   const [showNewCategory, setShowNewCategory] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [pendingFavorite, setPendingFavorite] = useState<Favorite | null>(null);
@@ -171,56 +167,16 @@ export function QueryFavorites() {
     }
   };
 
-  const handleRenameStart = (fav: Favorite) => {
-    setEditingId(fav.id);
-    setEditValue(fav.name);
-    setEditError(null);
-    cancelledRef.current = false;
-  };
+  const handleRenameConfirm = () =>
+    rename.confirm((id, value) => renameFavorite(id, value).ok ? null : "That name is already used in this category.");
 
-  const handleRenameCancel = useCallback(() => {
-    cancelledRef.current = true;
-    setEditingId(null);
-    setEditValue("");
-    setEditError(null);
-  }, []);
-
-  const handleRenameConfirm = useCallback(() => {
-    if (cancelledRef.current) return;
-    if (!editingId || !editValue.trim()) {
-      handleRenameCancel();
-      return;
-    }
-
-    const result = renameFavorite(editingId, editValue.trim());
-    if (!result.ok) {
-      // Stay in edit mode. Committing nothing and closing would read as a
-      // successful rename that silently did not happen.
-      setEditError("That name is already used in this category.");
-      return;
-    }
-
-    setEditingId(null);
-    setEditValue("");
-    setEditError(null);
-  }, [editingId, editValue, renameFavorite, handleRenameCancel]);
-
-  const handleEditDescStart = (fav: Favorite) => {
-    setEditDescId(fav.id);
-    setEditDescValue(fav.description ?? "");
-    descCancelledRef.current = false;
-  };
-
-  const handleEditDescConfirm = () => {
-    if (descCancelledRef.current) return;
-    if (editDescId) {
-      updateFavorite(editDescId, {
-        description: editDescValue.trim() || undefined,
-      });
-    }
-    setEditDescId(null);
-    setEditDescValue("");
-  };
+  const handleEditDescConfirm = () =>
+    describe_.confirm((id, value) => {
+      // undefined rather than "", so an empty description is absent rather
+      // than present-and-blank.
+      updateFavorite(id, { description: value || undefined });
+      return null;
+    });
 
   const toggleCategory = (cat: string) => {
     setExpanded((prev) => ({ ...prev, [cat]: !prev[cat] }));
@@ -378,13 +334,13 @@ export function QueryFavorites() {
                           // one click the user read as "open it" also wrote a
                           // half-typed name (#333).
                           onMouseDownCapture={(e) => {
-                            if (editingId === fav.id || editDescId === fav.id) {
+                            if (rename.editingId === fav.id || describe_.editingId === fav.id) {
                               e.preventDefault();
                               e.stopPropagation();
                             }
                           }}
                           onClick={() => {
-                            if (editingId === fav.id || editDescId === fav.id) return;
+                            if (rename.editingId === fav.id || describe_.editingId === fav.id) return;
                             handleClick(fav);
                           }}
                           onDoubleClick={(e) => {
@@ -404,12 +360,12 @@ export function QueryFavorites() {
                               {
                                 label: "Rename",
                                 icon: <Pencil className="h-3.5 w-3.5" />,
-                                onClick: () => handleRenameStart(fav),
+                                onClick: () => rename.start(fav.id, fav.name),
                               },
                               {
                                 label: "Edit Description",
                                 icon: <Pencil className="h-3.5 w-3.5" />,
-                                onClick: () => handleEditDescStart(fav),
+                                onClick: () => describe_.start(fav.id, fav.description ?? ""),
                               },
                               ...(otherCategories.length > 0
                                 // Typed, or the spread widens `separator` to
@@ -434,32 +390,29 @@ export function QueryFavorites() {
                           }}
                           className="group cursor-pointer rounded px-2 py-1.5 hover:bg-[var(--color-bg-tertiary)]"
                         >
-                          {editingId === fav.id
+                          {rename.editingId === fav.id
                             ? (
                               <>
                                 <input
                                   type="text"
-                                  value={editValue}
-                                  onChange={(e) => {
-                                    setEditValue(e.target.value);
-                                    setEditError(null);
-                                  }}
+                                  value={rename.value}
+                                  onChange={(e) => rename.setValue(e.target.value)}
                                   onBlur={handleRenameConfirm}
                                   onKeyDown={(e) => {
                                     if (e.key === "Enter") handleRenameConfirm();
-                                    if (e.key === "Escape") handleRenameCancel();
+                                    if (e.key === "Escape") rename.cancel();
                                   }}
                                   autoFocus
                                   onClick={(e) => e.stopPropagation()}
-                                  aria-invalid={editError !== null || undefined}
+                                  aria-invalid={rename.error !== null || undefined}
                                   aria-label="Favorite name"
                                   className={`w-full rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[11px] text-[var(--color-text-primary)] outline-none ring-1 ${
-                                    editError ? "ring-red-500" : "ring-brand-500"
+                                    rename.error ? "ring-red-500" : "ring-brand-500"
                                   }`}
                                 />
-                                {editError && (
+                                {rename.error && (
                                   <p role="alert" className="mt-0.5 text-[10px] text-red-400">
-                                    {editError}
+                                    {rename.error}
                                   </p>
                                 )}
                               </>
@@ -480,22 +433,18 @@ export function QueryFavorites() {
                                     </span>
                                   )}
                                 </div>
-                                {editDescId === fav.id
+                                {describe_.editingId === fav.id
                                   ? (
                                     <input
                                       type="text"
-                                      value={editDescValue}
-                                      onChange={(e) => setEditDescValue(e.target.value)}
+                                      value={describe_.value}
+                                      onChange={(e) => describe_.setValue(e.target.value)}
                                       onBlur={handleEditDescConfirm}
                                       onKeyDown={(e) => {
                                         if (e.key === "Enter") {
                                           handleEditDescConfirm();
                                         }
-                                        if (e.key === "Escape") {
-                                          descCancelledRef.current = true;
-                                          setEditDescId(null);
-                                          setEditDescValue("");
-                                        }
+                                        if (e.key === "Escape") describe_.cancel();
                                       }}
                                       autoFocus
                                       onClick={(e) => e.stopPropagation()}

@@ -516,4 +516,51 @@ describe("QueryFavorites — dirty-tab overwrite confirmation (#341)", () => {
       expect(screen.queryByRole("status")).not.toBeInTheDocument();
     });
   });
+
+  describe("editing a description (#340)", () => {
+    /** Put the first favorite's description into edit mode. */
+    function startEditing() {
+      fireEvent.contextMenu(screen.getByText("Get Active Users"));
+      fireEvent.click(screen.getByTestId("ctx-item-Edit Description"));
+      return screen.getByDisplayValue("Returns all active users");
+    }
+
+    it("saves an edited description", () => {
+      render(<QueryFavorites />);
+      const input = startEditing();
+
+      fireEvent.change(input, { target: { value: "Updated note" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(storeState.updateFavorite).toHaveBeenCalledWith("fav1", {
+        description: "Updated note",
+      });
+    });
+
+    it("clears a description when the field is emptied", () => {
+      // Emptying the field is the only way to remove a description. Treating
+      // it as a cancel would make that impossible — which is exactly what
+      // extracting the shared editor nearly did.
+      render(<QueryFavorites />);
+      const input = startEditing();
+
+      fireEvent.change(input, { target: { value: "" } });
+      fireEvent.keyDown(input, { key: "Enter" });
+
+      expect(storeState.updateFavorite).toHaveBeenCalledWith("fav1", {
+        description: undefined,
+      });
+    });
+
+    it("does not save after Escape", () => {
+      render(<QueryFavorites />);
+      const input = startEditing();
+
+      fireEvent.change(input, { target: { value: "Discarded" } });
+      fireEvent.keyDown(input, { key: "Escape" });
+      fireEvent.blur(input);
+
+      expect(storeState.updateFavorite).not.toHaveBeenCalled();
+    });
+  });
 });
