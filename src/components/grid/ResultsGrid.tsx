@@ -30,7 +30,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
-import { nextEditableCell } from "../../lib/grid-navigation";
+import { describeGridChanges, nextEditableCell } from "../../lib/grid-navigation";
 import {
   columnTypesOf,
   generateDelete,
@@ -46,6 +46,7 @@ import { truncationMessage } from "../../lib/truncation";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { confirmDestructive } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
 import type { SqlValue } from "../../types";
 import { SqlValueGuard } from "../../types";
@@ -445,6 +446,27 @@ export function ResultsGrid() {
       // Wrap in a transaction so partial failures roll back.
       let matched = 0;
       if (statements.length > 0) {
+        // The gate lives in resultStore, which this path does not go through
+        // — so until #588 a cell edit on production wrote with no
+        // confirmation at all. Asked once for the batch, and about every
+        // write rather than only the destructive verbs, because editing a
+        // cell is direct manipulation rather than a composed statement.
+        const confirmed = await confirmDestructive({
+          connectionId: connId,
+          sql: statements,
+          action: `Apply ${statements.length} change(s) to \`${tableName}\`?`,
+          detail: describeGridChanges({
+            updates: editing.updates.size,
+            inserts: editing.inserts.length,
+            deletes: editing.deletes.size,
+          }),
+          alwaysAsk: true,
+        });
+        if (!confirmed) {
+          setIsSaving(false);
+          return;
+        }
+
         const batch = "START TRANSACTION;\n" + statements.join(";\n") + ";\nCOMMIT;";
         const results = await api.executeQuery(connId, batch);
         matched = results.reduce((sum, r) => sum + Number(r.rows_affected ?? 0), 0);

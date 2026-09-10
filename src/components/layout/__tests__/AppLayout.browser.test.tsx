@@ -335,10 +335,17 @@ describe("AppLayout (browser)", () => {
   });
 
   // ─── ConfirmDialog ───
+  //
+  // Two are mounted: the resultStore one, which runs the statement itself, and
+  // the production guard added in #588, which only answers yes or no. They
+  // render in that order.
+  const QUERY_DIALOG = 0;
+  const GUARD_DIALOG = 1;
+
   it("renders ConfirmDialog when confirmDialog state is set", async () => {
     resultState.confirmDialog = { isOpen: true };
     await renderApp();
-    const el = screen.getByTestId("confirm-dialog");
+    const el = screen.getAllByTestId("confirm-dialog")[QUERY_DIALOG];
     expect(el.getAttribute("data-open")).toBe("true");
     // Confirm/cancel buttons are inside the real ConfirmDialog; we mock it,
     // but the prop binding verifies it receives isOpen=true
@@ -347,7 +354,13 @@ describe("AppLayout (browser)", () => {
   it("ConfirmDialog is closed when confirmDialog state is null", async () => {
     resultState.confirmDialog = null;
     await renderApp();
-    const el = screen.getByTestId("confirm-dialog");
+    const el = screen.getAllByTestId("confirm-dialog")[QUERY_DIALOG];
+    expect(el.getAttribute("data-open")).toBe("false");
+  });
+
+  it("keeps the production guard closed until something asks", async () => {
+    await renderApp();
+    const el = screen.getAllByTestId("confirm-dialog")[GUARD_DIALOG];
     expect(el.getAttribute("data-open")).toBe("false");
   });
 

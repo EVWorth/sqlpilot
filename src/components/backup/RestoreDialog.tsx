@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from "react";
 import { splitSqlStatements } from "../../lib/sql-import";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { confirmDestructive } from "../../stores/productionGuardStore";
 import type { DatabaseInfo } from "../../types";
 
 interface RestoreDialogProps {
@@ -126,11 +127,25 @@ export function RestoreDialog({
 
     try {
       const content = await api.readFileContents(filePath);
+      const statements = splitSqlStatements(content);
+
+      // Once for the restore, not per statement (#588). A dump is the most
+      // destructive thing this app runs — it typically drops and recreates
+      // every table it touches — and it was the one path with no gate at all.
+      if (
+        !(await confirmDestructive({
+          connectionId,
+          sql: statements,
+          action: `Restore ${statements.length} statement(s) into \`${database}\`?`,
+          detail: "A dump usually drops and recreates the objects it restores.",
+        }))
+      ) {
+        setRestoring(false);
+        return;
+      }
 
       // Use the database
       await api.executeQuery(connectionId, `USE \`${database.replace(/`/g, "``")}\``);
-
-      const statements = splitSqlStatements(content);
       let successCount = 0;
       let errorCount = 0;
       const errors: string[] = [];
