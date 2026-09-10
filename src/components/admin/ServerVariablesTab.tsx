@@ -1,7 +1,10 @@
-import { ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, Loader2, Search } from "lucide-react";
+import { ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, Loader2, Pencil, Search } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { serverFlavour } from "../../lib/server-flavour";
 import { api } from "../../lib/tauri-api";
+import { useConnectionStore } from "../../stores/connectionStore";
 import type { ServerVariable } from "../../types";
+import { SetVariableDialog } from "./SetVariableDialog";
 
 type SortField = "name" | "value";
 type SortDir = "asc" | "desc";
@@ -15,6 +18,14 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  /** The variable being edited, or null. */
+  const [editing, setEditing] = useState<ServerVariable | null>(null);
+  const flavour = serverFlavour(
+    useConnectionStore((c) => c.activeConnections).find((c) => c.id === connectionId)
+      ?.server_version,
+  );
+
+  const [reloadToken, setReloadToken] = useState(0);
 
   useEffect(() => {
     setLoading(true);
@@ -26,7 +37,7 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
       })
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
-  }, [connectionId]);
+  }, [connectionId, reloadToken]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -143,11 +154,19 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
                 onToggle={() => toggleGroup(group)}
                 onCopy={handleCopy}
                 copiedKey={copiedKey}
+                onEdit={setEditing}
               />
             ))}
           </tbody>
         </table>
       </div>
+      <SetVariableDialog
+        variable={editing}
+        connectionId={connectionId}
+        flavour={flavour}
+        onClose={() => setEditing(null)}
+        onChanged={() => setReloadToken((t) => t + 1)}
+      />
     </div>
   );
 }
@@ -159,6 +178,7 @@ function GroupRows({
   onToggle,
   onCopy,
   copiedKey,
+  onEdit,
 }: {
   group: string;
   variables: ServerVariable[];
@@ -166,6 +186,7 @@ function GroupRows({
   onToggle: () => void;
   onCopy: (text: string, key: string) => void;
   copiedKey: string | null;
+  onEdit: (v: ServerVariable) => void;
 }) {
   return (
     <>
@@ -200,16 +221,33 @@ function GroupRows({
               </button>
             </td>
             <td className="px-3 py-1.5">
-              <button
-                onClick={() => onCopy(v.value, `value:${v.name}`)}
-                className="group flex items-center gap-1 font-mono text-[var(--color-text-secondary)] hover:text-brand-400"
-                title="Copy value"
-              >
-                <span className="max-w-[600px] truncate">{v.value}</span>
-                {copiedKey === `value:${v.name}`
-                  ? <Check className="h-3 w-3 text-green-400" />
-                  : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => onCopy(v.value, `value:${v.name}`)}
+                  className="group flex items-center gap-1 font-mono text-[var(--color-text-secondary)] hover:text-brand-400"
+                  title="Copy value"
+                >
+                  <span className="max-w-[520px] truncate">{v.value}</span>
+                  {copiedKey === `value:${v.name}`
+                    ? <Check className="h-3 w-3 text-green-400" />
+                    : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />}
+                </button>
+                <button
+                  onClick={() => onEdit(v)}
+                  disabled={v.readOnly === true}
+                  title={v.readOnly === true
+                    ? "The server reports this variable as read-only"
+                    : `Change ${v.name}`}
+                  className="ml-auto shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed group-hover:opacity-100 [tr:hover_&]:opacity-100"
+                >
+                  <Pencil className="h-3 w-3" />
+                </button>
+              </div>
+              {v.description && (
+                <p className="mt-0.5 max-w-[600px] text-[10px] leading-tight text-[var(--color-text-muted)]">
+                  {v.description}
+                </p>
+              )}
             </td>
           </tr>
         ))}

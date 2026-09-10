@@ -76,4 +76,32 @@ describe("stripNonExecutable", () => {
     expect(out).toContain("SELECT");
     expect(out).toContain("FROM t");
   });
+
+  describe("server configuration (#438)", () => {
+    it("treats SET GLOBAL as destructive", () => {
+      // `SET GLOBAL max_connections = 1` takes a server down as surely as a
+      // DROP does.
+      expect(isDestructiveStatement("SET GLOBAL max_connections = 1")).toBe(true);
+    });
+
+    it("treats SET PERSIST and PERSIST_ONLY as destructive", () => {
+      expect(isDestructiveStatement("SET PERSIST max_connections = 1")).toBe(true);
+      expect(isDestructiveStatement("SET PERSIST_ONLY max_connections = 1")).toBe(true);
+    });
+
+    it("leaves SET SESSION alone", () => {
+      // It reaches only the connection that issued it, and prompting for
+      // ordinary work trains people to dismiss the dialog.
+      expect(isDestructiveStatement("SET SESSION sql_mode = 'STRICT_TRANS_TABLES'")).toBe(false);
+    });
+
+    it("leaves a bare SET alone", () => {
+      expect(isDestructiveStatement("SET @x = 1")).toBe(false);
+      expect(isDestructiveStatement("SET autocommit = 0")).toBe(false);
+    });
+
+    it("is not fooled by GLOBAL appearing elsewhere", () => {
+      expect(isDestructiveStatement("SELECT * FROM global_settings")).toBe(false);
+    });
+  });
 });

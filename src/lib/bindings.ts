@@ -606,6 +606,20 @@ export type SSLMode = "Disabled" | "Preferred" | "Required" | "VerifyCA" | "Veri
 export type ServerVariable = {
 	name: string,
 	value: string,
+	/**
+	 *  What the variable is for, where the server will say.
+	 * 
+	 *  MariaDB carries it in `information_schema.SYSTEM_VARIABLES`. MySQL has
+	 *  no equivalent — `performance_schema.variables_info` holds where a value
+	 *  came from and its bounds, but no prose — so this is `None` there rather
+	 *  than invented (#438).
+	 */
+	description: string | null,
+	/**
+	 *  Whether the server will refuse to set it. `None` when unknown, which
+	 *  is MySQL: it reports read-only only by failing the SET with 1238.
+	 */
+	readOnly: boolean | null,
 };
 
 export type SqlValue = "Null" | boolean | number | number | null | string | number[];
