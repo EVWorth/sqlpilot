@@ -143,6 +143,14 @@ export function QueryHistory() {
                   </span>
                   <span>{entry.executionTimeMs}ms</span>
                   {entry.status === "success" && <span>{entry.rowCount} rows</span>}
+                  {entry.redacted && (
+                    <span
+                      className="rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px] uppercase tracking-wide"
+                      title="A password was removed before this was saved, so it will not run as written."
+                    >
+                      redacted
+                    </span>
+                  )}
                   {entry.status === "error" && entry.errorCode !== undefined && (
                     <span className="font-mono text-red-400/80">
                       {entry.errorCode}
