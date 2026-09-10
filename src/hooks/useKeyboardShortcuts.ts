@@ -5,6 +5,7 @@ export function useKeyboardShortcuts(
   onToggleSidebar?: () => void,
   onShowShortcuts?: () => void,
   onSaveFavorite?: () => void,
+  onQueryHistory?: () => void,
 ) {
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -71,6 +72,15 @@ export function useKeyboardShortcuts(
         return;
       }
 
+      // Ctrl+Shift+H — query history picker over the editor (#591).
+      // Shifted because Ctrl+H is find-and-replace in Monaco, and taking that
+      // from someone mid-edit would be worse than the shortcut being longer.
+      if (shift && e.key === "H") {
+        e.preventDefault();
+        onQueryHistory?.();
+        return;
+      }
+
       // Ctrl+B or Ctrl+Shift+C — toggle sidebar (Ctrl+B is industry standard, Ctrl+Shift+C is the SQLPilot default)
       if ((!shift && e.key === "b") || (shift && e.key === "C")) {
         e.preventDefault();
@@ -81,5 +91,5 @@ export function useKeyboardShortcuts(
 
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [onToggleSidebar, onShowShortcuts, onSaveFavorite]);
+  }, [onToggleSidebar, onShowShortcuts, onSaveFavorite, onQueryHistory]);
 }

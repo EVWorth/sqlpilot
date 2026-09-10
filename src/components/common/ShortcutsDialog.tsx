@@ -44,6 +44,7 @@ const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
       { keys: "Ctrl+Tab / Ctrl+Shift+Tab", description: "Next / previous tab" },
       { keys: "Ctrl+1..9", description: "Switch to tab by index" },
       { keys: "Ctrl+B / Ctrl+Shift+C", description: "Toggle sidebar" },
+      { keys: "Ctrl+Shift+H", description: "Search query history and insert a statement" },
       { keys: "Ctrl+Shift+O", description: "Focus schema tree filter" },
       { keys: "Ctrl+Shift+R", description: "Refresh schema (menu)" },
     ],
