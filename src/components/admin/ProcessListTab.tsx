@@ -3,13 +3,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import type { ProcessInfo } from "../../types";
+import {
+  filterProcesses,
+  hasProcessFilters,
+  NO_PROCESS_FILTERS,
+  processFilterOptions,
+  type ProcessFilters,
+} from "./processFilter";
 import type { RefreshInterval } from "./serverStatus";
 
 export function ProcessListTab({ connectionId }: { connectionId: string }) {
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState("");
+  const [filters, setFilters] = useState<ProcessFilters>(NO_PROCESS_FILTERS);
   const [refreshInterval, setRefreshInterval] = useState<RefreshInterval>(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [confirmKillId, setConfirmKillId] = useState<number | null>(null);
@@ -70,20 +77,10 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
     }
   };
 
-  const filtered = useMemo(() => {
-    if (!filter) return processes;
-    const lc = filter.toLowerCase();
-    return processes.filter(
-      (p) =>
-        String(p.id).includes(lc)
-        || p.user.toLowerCase().includes(lc)
-        || p.host.toLowerCase().includes(lc)
-        || (p.db ?? "").toLowerCase().includes(lc)
-        || p.command.toLowerCase().includes(lc)
-        || (p.state ?? "").toLowerCase().includes(lc)
-        || (p.info ?? "").toLowerCase().includes(lc),
-    );
-  }, [processes, filter]);
+  const filtered = useMemo(() => filterProcesses(processes, filters), [processes, filters]);
+  // Taken from what is connected, so a dropdown only offers values that would
+  // return something.
+  const options = useMemo(() => processFilterOptions(processes), [processes]);
 
   function timeColor(time: number): string {
     if (time < 5) return "text-green-400";
@@ -108,12 +105,36 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
           <Search className="absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-[var(--color-text-muted)]" />
           <input
             type="text"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
+            value={filters.search}
+            onChange={(e) => setFilters((f) => ({ ...f, search: e.target.value }))}
             placeholder="Filter processes…"
             className="h-7 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-brand-500 focus:outline-none"
           />
         </div>
+        {([
+          ["user", "User", options.users],
+          ["database", "Database", options.databases],
+          ["state", "State", options.states],
+        ] as const).map(([key, label, values]) => (
+          <select
+            key={key}
+            aria-label={label}
+            value={filters[key]}
+            onChange={(e) => setFilters((f) => ({ ...f, [key]: e.target.value }))}
+            className="h-7 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 text-xs text-[var(--color-text-primary)] focus:border-brand-500 focus:outline-none"
+          >
+            <option value="">{label}: any</option>
+            {values.map((v) => <option key={v} value={v}>{v}</option>)}
+          </select>
+        ))}
+        {hasProcessFilters(filters) && (
+          <button
+            onClick={() => setFilters(NO_PROCESS_FILTERS)}
+            className="h-7 rounded px-2 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+          >
+            Clear
+          </button>
+        )}
         <select
           value={refreshInterval}
           onChange={(e) => setRefreshInterval(Number(e.target.value) as RefreshInterval)}
@@ -228,7 +249,7 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={9} className="px-3 py-6 text-center text-[var(--color-text-muted)]">
-                  {filter ? "No processes match the filter" : "No active processes"}
+                  {hasProcessFilters(filters) ? "No processes match the filters" : "No active processes"}
                 </td>
               </tr>
             )}

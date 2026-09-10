@@ -574,26 +574,26 @@ The Admin Service exposes MySQL server administration capabilities through the T
 
 #### Process Monitor Architecture
 
-```
-┌─────────────────────────────────────────────┐
-│           Admin Service                      │
-│                                              │
-│  start_process_monitor(connection_id, 2s)    │
-│           │                                  │
-│           ▼                                  │
-│  ┌─────────────────────┐                    │
-│  │  Background Task    │                    │
-│  │  (tokio::spawn)     │                    │
-│  │                     │                    │
-│  │  loop {             │                    │
-│  │    SHOW PROCESSLIST │                    │
-│  │    emit("process_   │──► Frontend:       │
-│  │      list_update")  │   Process table    │
-│  │    sleep(interval)  │   auto-refreshes   │
-│  │  }                  │                    │
-│  └─────────────────────┘                    │
-└─────────────────────────────────────────────┘
-```
+The diagram that stood here described a `start_process_monitor` command and a
+`process_list_update` event pushed from a tokio background task. Neither was
+ever built (#437), and describing them as though they were sent readers looking
+for a command that does not exist.
+
+What happens instead: the Process List tab calls `SHOW PROCESSLIST` on an
+interval the user picks — off, 2s, 5s or 10s — and holds the result in
+component state.
+
+The load is smaller than it looks, which is why this is adequate rather than
+merely tolerated. Admin is a tab in the editor, one per connection, and
+`AdminPanel` renders only the tab in front of you: at most one process poller
+runs at a time, regardless of how many connections are open or how many admin
+tabs exist.
+
+The backend push would buy two things this does not have — a shared poll
+across several viewers of one connection, and a server-side interval that does
+not drift with the renderer. Neither is a problem anybody has hit. If one is,
+this is the design to build; until then it is a plan, and the section says so
+rather than claiming it.
 
 ---
 
