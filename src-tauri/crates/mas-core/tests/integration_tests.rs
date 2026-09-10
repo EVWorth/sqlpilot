@@ -1889,3 +1889,56 @@ async fn a_syntax_error_is_distinguishable_from_a_missing_table() {
 
     manager.disconnect(&info.id).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_multi_statement_run_says_which_statement_failed() {
+    // One entry for a whole batch meant a script whose third statement failed
+    // showed as one opaque failure (#329).
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let err = executor
+        .execute(
+            &info.id,
+            "SELECT 1; SELECT 2; SELECT * FROM definitely_not_a_table",
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.statement_index, Some(2), "the third statement");
+    assert_eq!(reported.code, Some(1146));
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn each_result_carries_the_statement_it_came_from() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let results = executor
+        .execute(&info.id, "SELECT 1 AS a; SELECT 2 AS b", None, None)
+        .await
+        .unwrap();
+
+    assert_eq!(results.len(), 2);
+    assert!(
+        results[0].sql.contains("SELECT 1"),
+        "got {}",
+        results[0].sql
+    );
+    assert!(
+        results[1].sql.contains("SELECT 2"),
+        "got {}",
+        results[1].sql
+    );
+
+    manager.disconnect(&info.id).await.unwrap();
+}

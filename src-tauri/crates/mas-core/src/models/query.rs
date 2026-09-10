@@ -8,6 +8,14 @@ pub struct QueryResult {
     // changing it. Row counts, byte sizes, timings and ids never approach it.
     #[specta(type = specta_typescript::Number)]
     pub statement_index: usize,
+    /// The statement this result came from.
+    ///
+    /// Carried rather than left to the caller to re-derive: a multi-statement
+    /// run recorded one history entry for the whole batch, so a script whose
+    /// third statement failed showed as one opaque failure (#329). Splitting
+    /// the text again in the frontend would be a second splitter to keep in
+    /// step with this one, and they would drift.
+    pub sql: String,
     pub columns: Vec<ColumnMeta>,
     pub rows: Vec<Vec<SqlValue>>,
     #[specta(type = specta_typescript::Number)]

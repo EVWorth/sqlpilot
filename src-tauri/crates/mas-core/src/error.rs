@@ -41,6 +41,18 @@ pub enum CoreError {
     #[error("Out of memory: {0}")]
     OutOfMemory(String),
 
+    /// Another error, tagged with which statement of a batch raised it.
+    ///
+    /// A wrapper rather than a field on every variant: only the multi-statement
+    /// executor knows the index, and only the frontend that has to point at a
+    /// line cares (#329). Display passes straight through, so nothing that
+    /// only reads the message has to know this exists.
+    #[error("{source}")]
+    AtStatement {
+        index: usize,
+        source: Box<CoreError>,
+    },
+
     #[error(transparent)]
     Sqlx(#[from] sqlx::Error),
 
@@ -85,6 +97,12 @@ pub struct QueryError {
     pub code: Option<u32>,
     /// SQLSTATE, where the driver supplies one. MySQL does; SQLite does not.
     pub sql_state: Option<String>,
+    /// Which statement of a multi-statement run failed, zero-based.
+    ///
+    /// A script whose third statement failed used to surface as one opaque
+    /// failure, with no way to tell which line to look at (#329).
+    #[specta(type = Option<specta_typescript::Number>)]
+    pub statement_index: Option<usize>,
 }
 
 impl QueryError {
@@ -94,6 +112,11 @@ impl QueryError {
     /// statement — has no code to report, and says so with `None` rather than
     /// a placeholder the frontend would have to know to ignore.
     pub fn from_core(err: &CoreError) -> Self {
+        // Unwrap the statement tag first, then read the error underneath it.
+        if let CoreError::AtStatement { index, source } = err {
+            return Self::from_core(source).at_statement(*index);
+        }
+
         let message = err.to_string();
 
         match err {
@@ -108,6 +131,7 @@ impl QueryError {
                     message: db.message().to_string(),
                     code,
                     sql_state,
+                    statement_index: None,
                 }
             }
             CoreError::Rusqlite(e) => Self::from_rusqlite(e, &message),
@@ -115,6 +139,7 @@ impl QueryError {
                 message,
                 code: None,
                 sql_state: None,
+                statement_index: None,
             },
         }
     }
@@ -124,6 +149,7 @@ impl QueryError {
     pub fn from_rusqlite(err: &rusqlite::Error, fallback: &str) -> Self {
         match err {
             rusqlite::Error::SqliteFailure(e, detail) => Self {
+                statement_index: None,
                 message: detail.clone().unwrap_or_else(|| fallback.to_string()),
                 // The extended code is the useful one: it separates a UNIQUE
                 // violation from a NOT NULL violation, where the primary code
@@ -135,8 +161,16 @@ impl QueryError {
                 message: fallback.to_string(),
                 code: None,
                 sql_state: None,
+                statement_index: None,
             },
         }
+    }
+
+    /// Say which statement this was, for a multi-statement run.
+    #[must_use]
+    pub fn at_statement(mut self, index: usize) -> Self {
+        self.statement_index = Some(index);
+        self
     }
 }
 

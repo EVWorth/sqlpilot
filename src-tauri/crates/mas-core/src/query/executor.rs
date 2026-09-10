@@ -233,21 +233,33 @@ impl QueryExecutor {
                 None => stream.next().await,
             };
             let Some(item) = next else { break };
-            let item = item.map_err(|e| {
-                // A pool that has run out reports "pool timed out while waiting
-                // for an open connection", which names neither the pool nor
-                // the limit that caused it (#279).
-                self.connection_manager
-                    .pool_limits(&connection_id)
-                    .and_then(|(name, max, timeout)| {
-                        crate::connection::describe_pool_error(&e, &name, max, timeout)
-                    })
-                    // Kept as the driver's own error rather than flattened to
-                    // a string: the error number and SQLSTATE are the only
-                    // things that let the caller tell a missing table from a
-                    // syntax error, and to_string() drops both (#324).
-                    .unwrap_or_else(|| CoreError::Sqlx(e))
-            })?;
+            // Read out of the loop variable before the closure borrows it.
+            let failing_statement = usize::try_from(stmt_idx).ok();
+            let item = item
+                .map_err(|e| {
+                    // A pool that has run out reports "pool timed out while waiting
+                    // for an open connection", which names neither the pool nor
+                    // the limit that caused it (#279).
+                    self.connection_manager
+                        .pool_limits(&connection_id)
+                        .and_then(|(name, max, timeout)| {
+                            crate::connection::describe_pool_error(&e, &name, max, timeout)
+                        })
+                        // Kept as the driver's own error rather than flattened to
+                        // a string: the error number and SQLSTATE are the only
+                        // things that let the caller tell a missing table from a
+                        // syntax error, and to_string() drops both (#324).
+                        .unwrap_or_else(|| CoreError::Sqlx(e))
+                })
+                .map_err(|e| match failing_statement {
+                    // Which statement broke, so a script's third line can be
+                    // pointed at rather than the whole script blamed (#329).
+                    Some(index) => CoreError::AtStatement {
+                        index,
+                        source: Box::new(e),
+                    },
+                    None => e,
+                })?;
             match item {
                 Either::Right(row) => {
                     // The first prelude row carries CONNECTION_ID(). Record it so
@@ -348,6 +360,7 @@ impl QueryExecutor {
                             results.push(build_select_result(
                                 query_id,
                                 idx,
+                                stmt.clone(),
                                 &current_rows,
                                 execution_time,
                                 truncation,
@@ -394,6 +407,7 @@ impl QueryExecutor {
                             results.push(QueryResult {
                                 query_id,
                                 statement_index: idx,
+                                sql: stmt.clone(),
                                 columns: vec![],
                                 rows: vec![],
                                 rows_affected,
@@ -462,6 +476,7 @@ impl QueryExecutor {
                 results.push(build_select_result(
                     uuid::Uuid::new_v4().to_string(),
                     idx,
+                    stmt.clone(),
                     &current_rows,
                     execution_time,
                     Some(TruncationReason::MemoryGuard),
@@ -739,6 +754,7 @@ fn truncation_for(limit_reached: bool, memory_exhausted: bool) -> Option<Truncat
 fn build_select_result(
     query_id: String,
     statement_index: usize,
+    sql: String,
     rows: &[sqlx::mysql::MySqlRow],
     execution_time_ms: u64,
     truncation: Option<TruncationReason>,
@@ -781,6 +797,7 @@ fn build_select_result(
     QueryResult {
         query_id,
         statement_index,
+        sql,
         columns,
         rows: result_rows,
         rows_affected: row_count,
