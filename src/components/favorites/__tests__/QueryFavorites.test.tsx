@@ -563,4 +563,123 @@ describe("QueryFavorites — dirty-tab overwrite confirmation (#341)", () => {
       expect(storeState.updateFavorite).not.toHaveBeenCalled();
     });
   });
+
+  describe("nested categories (#334)", () => {
+    /** A DataTransfer stub jsdom does not provide. */
+    function dragData(id: string) {
+      const store: Record<string, string> = { "text/sqlpilot-favorite": id };
+      return {
+        getData: (type: string) => store[type] ?? "",
+        setData: (type: string, value: string) => {
+          store[type] = value;
+        },
+        dropEffect: "",
+        effectAllowed: "",
+      };
+    }
+
+    it("shows a path as nested folders", () => {
+      storeState.categories = ["Uncategorized", "Reports", "Reports/Daily"];
+      storeState.favorites = [{ ...baselineFavorites[0], category: "Reports/Daily" }];
+      render(<QueryFavorites />);
+
+      // "Reports" is a folder; "Daily" is its child, shown by its leaf name.
+      expect(screen.getByText("Reports")).toBeInTheDocument();
+      expect(screen.queryByText("Reports/Daily")).not.toBeInTheDocument();
+    });
+
+    it("hides a child until its parent is expanded", () => {
+      storeState.categories = ["Reports", "Reports/Daily"];
+      storeState.favorites = [{ ...baselineFavorites[0], category: "Reports/Daily" }];
+      render(<QueryFavorites />);
+
+      expect(screen.queryByText("Daily")).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText("Reports"));
+      expect(screen.getByText("Daily")).toBeInTheDocument();
+    });
+
+    it("creates a parent nobody declared", () => {
+      // A category called "Reports/Daily" with no "Reports" still has to
+      // appear under one, or the nesting is invisible.
+      storeState.categories = ["Reports/Daily"];
+      storeState.favorites = [{ ...baselineFavorites[0], category: "Reports/Daily" }];
+      render(<QueryFavorites />);
+
+      expect(screen.getByText("Reports")).toBeInTheDocument();
+    });
+
+    it("makes a nested category from the New Category field", () => {
+      render(<QueryFavorites />);
+      fireEvent.click(screen.getByTitle("New Category"));
+
+      const input = screen.getByPlaceholderText("Category, or Parent/Child");
+      fireEvent.change(input, { target: { value: "Reports/Daily" } });
+      fireEvent.click(screen.getByText("Add"));
+
+      expect(storeState.addCategory).toHaveBeenCalledWith("Reports/Daily");
+    });
+
+    it("normalises a messy path", () => {
+      render(<QueryFavorites />);
+      fireEvent.click(screen.getByTitle("New Category"));
+
+      fireEvent.change(screen.getByPlaceholderText("Category, or Parent/Child"), {
+        target: { value: " Reports // Daily / " },
+      });
+      fireEvent.click(screen.getByText("Add"));
+
+      expect(storeState.addCategory).toHaveBeenCalledWith("Reports/Daily");
+    });
+
+    it("moves a favorite when it is dropped on a folder", () => {
+      storeState.categories = ["Uncategorized", "Reports"];
+      render(<QueryFavorites />);
+
+      const row = screen.getByText("Get Active Users").closest("div.group") as HTMLElement;
+      const transfer = dragData("fav1");
+      fireEvent.dragStart(row, { dataTransfer: transfer });
+      fireEvent.drop(screen.getByText("Reports"), { dataTransfer: transfer });
+
+      expect(storeState.moveToCategory).toHaveBeenCalledWith("fav1", "Reports");
+    });
+
+    it("says so when the move would collide", () => {
+      storeState.categories = ["Uncategorized", "Reports"];
+      storeState.moveToCategory.mockReturnValue({
+        ok: false,
+        reason: "duplicate",
+        existingId: "fav9",
+      });
+      render(<QueryFavorites />);
+
+      const row = screen.getByText("Get Active Users").closest("div.group") as HTMLElement;
+      const transfer = dragData("fav1");
+      fireEvent.dragStart(row, { dataTransfer: transfer });
+      fireEvent.drop(screen.getByText("Reports"), { dataTransfer: transfer });
+
+      expect(screen.getByRole("status")).toHaveTextContent("already in that category");
+    });
+
+    it("ignores a drop carrying something that is not a favorite", () => {
+      // Dragging a file onto the panel should do nothing at all.
+      storeState.categories = ["Uncategorized", "Reports"];
+      render(<QueryFavorites />);
+
+      fireEvent.drop(screen.getByText("Reports"), {
+        dataTransfer: { getData: () => "", dropEffect: "" },
+      });
+
+      expect(storeState.moveToCategory).not.toHaveBeenCalled();
+    });
+
+    it("does not drag a row that is being renamed", () => {
+      render(<QueryFavorites />);
+      fireEvent.contextMenu(screen.getByText("Get Active Users"));
+      fireEvent.click(screen.getByTestId("ctx-item-Rename"));
+
+      const row = screen.getByDisplayValue("Get Active Users").closest("div.group") as HTMLElement;
+      expect(row).toHaveAttribute("draggable", "false");
+    });
+  });
 });
