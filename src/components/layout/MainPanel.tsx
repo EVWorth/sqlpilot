@@ -19,16 +19,16 @@ export function MainPanel() {
   const explainResult = useResultStore((s) => s.explainResult);
   const setShowExplain = useResultStore((s) => s.setShowExplain);
 
-  const isAdmin = activeTab?.type === "admin";
-  const isRoutine = activeTab?.type === "routine";
-  const isDesigner = activeTab?.type === "designer";
-
+  // Narrowing on `type` is enough: the union guarantees the fields each kind
+  // needs, so there is nothing left to re-check here (#449). This used to
+  // re-test every field, and coerce routineType back to PROCEDURE through a
+  // branch that could not fire.
   return (
     <div className="flex h-full flex-col min-h-0 bg-[var(--color-bg-primary)]">
       <EditorTabs />
-      {isAdmin && activeTab?.connectionId
+      {activeTab?.type === "admin"
         ? <AdminPanel connectionId={activeTab.connectionId} />
-        : isDesigner && activeTab?.connectionId && activeTab?.database
+        : activeTab?.type === "designer"
         ? (
           <TableDesigner
             connectionId={activeTab.connectionId}
@@ -36,16 +36,13 @@ export function MainPanel() {
             tableName={activeTab.tableName}
           />
         )
-        : isRoutine && activeTab?.connectionId && activeTab?.database && activeTab?.routineName
-            && activeTab?.routineType
+        : activeTab?.type === "routine"
         ? (
           <RoutineViewer
             connectionId={activeTab.connectionId}
             database={activeTab.database}
             routineName={activeTab.routineName}
-            routineType={activeTab.routineType === "PROCEDURE" || activeTab.routineType === "FUNCTION"
-              ? activeTab.routineType
-              : "PROCEDURE"}
+            routineType={activeTab.routineType}
           />
         )
         : (

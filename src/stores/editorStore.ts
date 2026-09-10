@@ -1,6 +1,6 @@
 import type { editor } from "monaco-editor";
 import { create } from "zustand";
-import type { EditorTab } from "../types";
+import type { EditorTab, RoutineKind } from "../types";
 
 interface EditorState {
   tabs: EditorTab[];
@@ -10,7 +10,12 @@ interface EditorState {
   addTab: (connectionId?: string, database?: string) => string;
   addStructureTab: (connectionId: string, database: string, tableName: string) => string;
   addAdminTab: (connectionId: string) => string;
-  addRoutineTab: (connectionId: string, database: string, routineName: string, routineType: string) => string;
+  addRoutineTab: (
+    connectionId: string,
+    database: string,
+    routineName: string,
+    routineType: RoutineKind,
+  ) => string;
   addDesignerTab: (connectionId: string, database: string, tableName?: string) => string;
   closeTab: (id: string) => void;
   closeOtherTabs: (id: string) => void;
@@ -36,16 +41,98 @@ interface PersistedSession {
   activeTabId: string | null;
 }
 
+/**
+ * Turn one persisted tab into a valid `EditorTab`, or drop it.
+ *
+ * The union only holds if what comes back from storage actually satisfies it.
+ * A session written by an older build has no `type` at all — that field used
+ * to be optional and meant "query" — and a tab whose kind requires a database
+ * or a routine name may not have one, in which case rendering it would hand a
+ * panel undefined props. Dropping the tab loses a tab; keeping it loses the
+ * guarantee the rest of the code now relies on (#449).
+ */
+export function parsePersistedTab(raw: unknown): EditorTab | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const t = raw as Record<string, unknown>;
+
+  const str = (k: string) => typeof t[k] === "string" ? t[k] as string : undefined;
+  const id = str("id");
+  const title = str("title");
+  if (!id || !title) return null;
+
+  const base = {
+    id,
+    title,
+    content: str("content") ?? "",
+    // The persisted content is the new baseline, so nothing is dirty on load.
+    isDirty: false,
+    connectionId: str("connectionId"),
+    profileId: str("profileId"),
+    database: str("database"),
+  };
+
+  // Absent means query: that is what the old optional field meant.
+  switch (str("type") ?? "query") {
+    case "query":
+      return { ...base, type: "query" };
+    case "admin":
+      return base.connectionId ? { ...base, type: "admin", connectionId: base.connectionId } : null;
+    case "structure": {
+      const tableName = str("tableName");
+      if (!base.connectionId || !base.database || !tableName) return null;
+      return {
+        ...base,
+        type: "structure",
+        connectionId: base.connectionId,
+        database: base.database,
+        tableName,
+      };
+    }
+    case "designer":
+      if (!base.connectionId || !base.database) return null;
+      return {
+        ...base,
+        type: "designer",
+        connectionId: base.connectionId,
+        database: base.database,
+        tableName: str("tableName"),
+      };
+    case "routine": {
+      const routineName = str("routineName");
+      const routineType = str("routineType");
+      if (!base.connectionId || !base.database || !routineName) return null;
+      if (routineType !== "PROCEDURE" && routineType !== "FUNCTION") return null;
+      return {
+        ...base,
+        type: "routine",
+        connectionId: base.connectionId,
+        database: base.database,
+        routineName,
+        routineType,
+      };
+    }
+    default:
+      // A kind this build does not know — `compare` was one, before it was
+      // cut. Dropping it beats rendering a tab nothing can display.
+      return null;
+  }
+}
+
 function loadSession(): PersistedSession | null {
   try {
     const raw = localStorage.getItem(SESSION_STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as PersistedSession;
+    const parsed = JSON.parse(raw) as { tabs?: unknown; activeTabId?: unknown };
     if (!Array.isArray(parsed.tabs) || parsed.tabs.length === 0) return null;
-    // Clear isDirty — the persisted content is now the baseline
+
+    const tabs = parsed.tabs.map(parsePersistedTab).filter((t): t is EditorTab => t !== null);
+    if (tabs.length === 0) return null;
+
+    // An active id pointing at a dropped tab would leave nothing selected.
+    const activeTabId = typeof parsed.activeTabId === "string" ? parsed.activeTabId : null;
     return {
-      tabs: parsed.tabs.map((t) => ({ ...t, isDirty: false })),
-      activeTabId: parsed.activeTabId,
+      tabs,
+      activeTabId: tabs.some((t) => t.id === activeTabId) ? activeTabId : tabs[0].id,
     };
   } catch {
     return null;
@@ -295,11 +382,18 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTabConnection: (id, connectionId, database, profileId) => {
     set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === id
-          ? { ...t, connectionId, database, ...(profileId !== undefined ? { profileId } : {}) }
-          : t
-      ),
+      tabs: state.tabs.map((t) => {
+        if (t.id !== id) return t;
+        const profile = profileId !== undefined ? { profileId } : {};
+        // A structure, designer or routine tab is *about* a database, so an
+        // undefined one would leave it pointing at nothing. The flat interface
+        // let that through; keep what the tab already has instead. Only a
+        // query tab can legitimately have no database.
+        if (t.type !== "query" && t.type !== "admin") {
+          return { ...t, connectionId, database: database ?? t.database, ...profile };
+        }
+        return { ...t, connectionId, database, ...profile };
+      }),
     }));
   },
 

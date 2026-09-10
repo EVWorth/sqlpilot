@@ -108,15 +108,12 @@ describe("MainPanel", () => {
     expect(screen.getByTestId("admin-panel")).toBeInTheDocument();
   });
 
-  it("does not render AdminPanel when admin tab has no connectionId", () => {
-    mockEditorState({
-      tabs: [{ id: "tab-1", title: "Admin", content: "", type: "admin", isDirty: false }],
-      activeTabId: "tab-1",
-    });
-    render(<MainPanel />);
-    expect(screen.queryByTestId("admin-panel")).not.toBeInTheDocument();
-    expect(screen.getByTestId("query-toolbar")).toBeInTheDocument();
-  });
+  // MainPanel used to re-check every field before rendering a panel, because
+  // EditorTab was one flat interface where an admin tab need not have a
+  // connection. The union makes that unrepresentable, and the guarantee is
+  // enforced where untrusted data enters — see parsePersistedTab, which drops
+  // an admin tab with no connection rather than letting it reach here (#449).
+  // These two cases now belong to editorTabParsing.test.ts.
 
   it("renders TableDesigner when active tab type is designer", () => {
     mockEditorState({
@@ -133,16 +130,6 @@ describe("MainPanel", () => {
     });
     render(<MainPanel />);
     expect(screen.getByTestId("table-designer")).toBeInTheDocument();
-  });
-
-  it("falls back to default view when designer tab is missing database", () => {
-    mockEditorState({
-      tabs: [{ id: "tab-1", title: "Designer", content: "", type: "designer", connectionId: "conn-1", isDirty: false }],
-      activeTabId: "tab-1",
-    });
-    render(<MainPanel />);
-    expect(screen.queryByTestId("table-designer")).not.toBeInTheDocument();
-    expect(screen.getByTestId("query-toolbar")).toBeInTheDocument();
   });
 
   it("renders RoutineViewer when active tab type is routine", () => {
@@ -162,16 +149,6 @@ describe("MainPanel", () => {
     });
     render(<MainPanel />);
     expect(screen.getByTestId("routine-viewer")).toBeInTheDocument();
-  });
-
-  it("falls back to default view when routine tab is missing required fields", () => {
-    mockEditorState({
-      tabs: [{ id: "tab-1", title: "Routine", content: "", type: "routine", connectionId: "conn-1", isDirty: false }],
-      activeTabId: "tab-1",
-    });
-    render(<MainPanel />);
-    expect(screen.queryByTestId("routine-viewer")).not.toBeInTheDocument();
-    expect(screen.getByTestId("query-toolbar")).toBeInTheDocument();
   });
 
   it("renders panel group and separator for default view", () => {
