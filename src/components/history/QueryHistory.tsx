@@ -82,6 +82,8 @@ export function QueryHistory() {
   const limit = useHistoryStore((s) => s.limit);
   const setLimit = useHistoryStore((s) => s.setLimit);
   const maxAgeDays = useHistoryStore((s) => s.maxAgeDays);
+  const redactLiterals = useHistoryStore((s) => s.redactLiterals);
+  const setRedactLiterals = useHistoryStore((s) => s.setRedactLiterals);
   const setMaxAgeDays = useHistoryStore((s) => s.setMaxAgeDays);
   const loading = useHistoryStore((s) => s.loading);
   const storeError = useHistoryStore((s) => s.error);
@@ -322,6 +324,23 @@ export function QueryHistory() {
               onToggle={(v) => void setFilters({ connectionNames: toggleIn(filters.connectionNames, v) })}
             />
           )}
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={redactLiterals}
+              onChange={(e) => setRedactLiterals(e.target.checked)}
+              className="h-3 w-3 accent-brand-500"
+            />
+            {
+              /* Off by default: a redacted entry cannot be rerun and is much
+                harder to read, which is most of what history is for. This is
+                for shared or regulated machines (#330). */
+            }
+            <span title="Applies to entries recorded from now on, not to ones already stored.">
+              Hide values in new entries
+            </span>
+          </label>
+
           <label className="flex items-center gap-1.5">
             <input
               type="checkbox"

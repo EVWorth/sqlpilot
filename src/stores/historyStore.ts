@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistorySort } from "../lib/bindings";
 import { USER_ORIGINS } from "../lib/run-statement";
-import { redactCredentials } from "../lib/sql-redact";
+import { redactCredentials, redactLiterals } from "../lib/sql-redact";
 import { api } from "../lib/tauri-api";
 
 export type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistorySort };
@@ -49,6 +49,7 @@ export const HISTORY_MAX_AGE_DAYS = [0, 7, 30, 90, 365] as const;
 /** Where the retention choice lives. The entries no longer live in the DOM. */
 const LIMIT_KEY = "sqlpilot-history-limit";
 const MAX_AGE_KEY = "sqlpilot-history-max-age-days";
+const REDACT_LITERALS_KEY = "sqlpilot-history-redact-literals";
 /** The key history used before it moved to SQLite. Read once, then removed. */
 const LEGACY_KEY = "mas-query-history";
 
@@ -108,6 +109,8 @@ interface HistoryState {
   limit: number;
   /** Days to keep an entry, or 0 for forever. */
   maxAgeDays: number;
+  /** Blank every literal before storing, not only credentials (#330). */
+  redactLiterals: boolean;
   /** What the current `entries` were read with. */
   filters: HistoryFilters;
   /** How many entries match the filters, ignoring the page size. */
@@ -128,6 +131,7 @@ interface HistoryState {
   clearHistory: () => Promise<void>;
   setLimit: (limit: number) => Promise<void>;
   setMaxAgeDays: (days: number) => Promise<void>;
+  setRedactLiterals: (on: boolean) => void;
 }
 
 /**
@@ -147,6 +151,15 @@ function readChoice<T extends number>(key: string, allowed: readonly T[], fallba
     // A blocked localStorage is not a reason to fail: the default is fine.
   }
   return fallback;
+}
+
+/** Read a stored boolean. Absent means off. */
+function readFlag(key: string): boolean {
+  try {
+    return localStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
 }
 
 /** The ISO timestamp entries must be at or after, or null for "keep all". */
@@ -273,6 +286,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   entries: [],
   limit: readChoice(LIMIT_KEY, HISTORY_LIMITS, DEFAULT_HISTORY_LIMIT),
   maxAgeDays: readChoice(MAX_AGE_KEY, HISTORY_MAX_AGE_DAYS, DEFAULT_HISTORY_MAX_AGE_DAYS),
+  redactLiterals: readFlag(REDACT_LITERALS_KEY),
   filters: { ...NO_FILTERS },
   matchCount: 0,
   facets: { connectionNames: [], databases: [], origins: [] },
@@ -326,10 +340,12 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   // into storage, and a password must not depend on every future caller
   // remembering to strip it (#587).
   addEntry: async (entry) => {
-    const { sql, redacted } = redactCredentials(entry.sql);
+    // Credentials always; everything else only when asked (#330).
+    const scrub = get().redactLiterals ? redactLiterals : redactCredentials;
+    const { sql, redacted } = scrub(entry.sql);
     // A driver message can quote the statement back, so it gets the same
     // treatment. Nothing sensitive should reach storage by either route.
-    const redactedError = entry.error ? redactCredentials(entry.error) : null;
+    const redactedError = entry.error ? scrub(entry.error) : null;
 
     const stored: HistoryEntry = {
       ...entry,
@@ -390,6 +406,19 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
       return;
     }
     await refresh(set, get);
+  },
+
+  setRedactLiterals: (on) => {
+    // Not retroactive, and it cannot be: the literals in entries already
+    // stored are gone from nowhere else, so blanking them now would destroy
+    // history the user chose to keep under the old setting. It applies to
+    // what is recorded from here on.
+    set({ redactLiterals: on });
+    try {
+      localStorage.setItem(REDACT_LITERALS_KEY, String(on));
+    } catch {
+      // Not persisting the choice is a smaller problem than not applying it.
+    }
   },
 
   setMaxAgeDays: async (days) => {

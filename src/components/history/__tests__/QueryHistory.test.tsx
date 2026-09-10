@@ -82,6 +82,8 @@ const mockLoad = vi.fn().mockResolvedValue(undefined);
 const mockExecuteQuery = vi.fn().mockResolvedValue(undefined);
 const mockSetMaxAgeDays = vi.fn().mockResolvedValue(undefined);
 let mockMaxAgeDays = 0;
+const mockSetRedactLiterals = vi.fn();
+let mockRedactLiterals = false;
 let mockActiveConnections: { id: string; name: string }[] = [];
 
 // The panel no longer filters in memory — filtering goes to the database — so
@@ -119,6 +121,8 @@ function storeExtras() {
     error: null,
     maxAgeDays: mockMaxAgeDays,
     setMaxAgeDays: mockSetMaxAgeDays,
+    redactLiterals: mockRedactLiterals,
+    setRedactLiterals: mockSetRedactLiterals,
   };
 }
 
@@ -179,6 +183,7 @@ describe("QueryHistory", () => {
     mockActiveConnections = [{ id: "conn-other", name: "OtherDB" }];
     mockEntries = baseEntries;
     mockMaxAgeDays = 0;
+    mockRedactLiterals = false;
     mockSetMaxAgeDays.mockResolvedValue(undefined);
     vi.mocked(useHistoryStore).mockImplementation((selector) => {
       if (typeof selector === "function") {
@@ -722,6 +727,32 @@ describe("QueryHistory", () => {
       mockEntries = [{ ...baseEntries[0], origin: "editor" }];
       render(<QueryHistory />);
       expect(screen.queryByText("editor")).not.toBeInTheDocument();
+    });
+  });
+
+  describe("value redaction (#330)", () => {
+    it("is off by default", () => {
+      render(<QueryHistory />);
+      fireEvent.click(screen.getByTitle("Filters"));
+      expect(screen.getByLabelText(/Hide values in new entries/)).not.toBeChecked();
+    });
+
+    it("turns on", () => {
+      render(<QueryHistory />);
+      fireEvent.click(screen.getByTitle("Filters"));
+
+      fireEvent.click(screen.getByLabelText(/Hide values in new entries/));
+
+      expect(mockSetRedactLiterals).toHaveBeenCalledWith(true);
+    });
+
+    it("says it is not retroactive", () => {
+      render(<QueryHistory />);
+      fireEvent.click(screen.getByTitle("Filters"));
+      expect(screen.getByText(/Hide values in new entries/)).toHaveAttribute(
+        "title",
+        expect.stringContaining("not to ones already stored"),
+      );
     });
   });
 });
