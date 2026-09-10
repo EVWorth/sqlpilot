@@ -67,6 +67,19 @@ export const commands = {
 	writeFileContents: (path: string, contents: string) => typedError<null, string>(__TAURI_INVOKE("write_file_contents", { path, contents })),
 	pickSaveFile: (title: string, defaultName: string, filters: ([string, string[]])[]) => typedError<string | null, string>(__TAURI_INVOKE("pick_save_file", { title, defaultName, filters })),
 	getPlatformInfo: () => typedError<PlatformInfo, string>(__TAURI_INVOKE("get_platform_info")),
+	/**  Record one executed statement, then trim to `limit`. */
+	historyAdd: (entry: HistoryEntry, limit: number) => typedError<HistoryEntry, string>(__TAURI_INVOKE("history_add", { entry, limit })),
+	historyList: (query: HistoryQuery) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_list", { query })),
+	historyRemove: (id: string) => typedError<null, string>(__TAURI_INVOKE("history_remove", { id })),
+	historyClear: () => typedError<null, string>(__TAURI_INVOKE("history_clear")),
+	historyCount: () => typedError<number, string>(__TAURI_INVOKE("history_count")),
+	/**  Apply a lowered retention limit straight away. */
+	historyPrune: (limit: number) => typedError<number, string>(__TAURI_INVOKE("history_prune", { limit })),
+	/**
+	 *  Take over a history that was still in localStorage. Ids carry across, so
+	 *  running this twice imports nothing the second time.
+	 */
+	historyImport: (entries: HistoryEntry[], limit: number) => typedError<number, string>(__TAURI_INVOKE("history_import", { entries, limit })),
 	/**  Whether connection passwords can be stored between sessions. */
 	keyringAvailable: () => __TAURI_INVOKE<boolean>("keyring_available"),
 	sqliteOpen: (path: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_open", { path })),
@@ -289,6 +302,35 @@ export type ForeignKeyInfo = {
 	referenced_columns: string[],
 	on_update: string,
 	on_delete: string,
+};
+
+export type HistoryEntry = {
+	id: string,
+	sql: string,
+	connectionName: string,
+	database: string | null,
+	/**  ISO 8601, UTC. */
+	executedAt: string,
+	executionTimeMs: number,
+	rowCount: number,
+	/**  "success" or "error". */
+	status: string,
+	error: string | null,
+	/**  Driver error number — MySQL's code, SQLite's extended result code. */
+	errorCode: number | null,
+	errorSqlState: string | null,
+	/**  A credential was stripped before this was stored (#587). */
+	redacted: boolean,
+	/**  The statement was longer than [`MAX_SQL_BYTES`] and is stored cut. */
+	truncated: boolean,
+};
+
+/**  What to return from [`HistoryStore::list`]. */
+export type HistoryQuery = {
+	/**  Substring match over the SQL text. Case-insensitive. */
+	search: string | null,
+	limit: number | null,
+	offset: number | null,
 };
 
 export type IndexInfo = {

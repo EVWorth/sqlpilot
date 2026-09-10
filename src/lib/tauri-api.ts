@@ -1,5 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import type { AiConfig, AiMode, ConnectionProfileInput, QueryResult } from "../types";
+import type { HistoryEntry, HistoryQuery } from "./bindings";
 import { commands } from "./bindings";
 
 /**
@@ -101,6 +102,23 @@ export const api = {
   // Queries
   executeQuery: (connectionId: string, sql: string, database?: string, limit?: number) =>
     unwrap("execute_query", () => commands.executeQuery(connectionId, sql, orNull(database), orNull(limit))),
+
+  // History (#585). Stored in SQLite rather than localStorage, so every read
+  // and write crosses the IPC boundary.
+  historyAdd: (entry: HistoryEntry, limit: number) => unwrap("history_add", () => commands.historyAdd(entry, limit)),
+
+  historyList: (query: HistoryQuery) => unwrap("history_list", () => commands.historyList(query)),
+
+  historyRemove: (id: string) => unwrap("history_remove", () => commands.historyRemove(id)),
+
+  historyClear: () => unwrap("history_clear", () => commands.historyClear()),
+
+  historyCount: () => unwrap("history_count", () => commands.historyCount()),
+
+  historyPrune: (limit: number) => unwrap("history_prune", () => commands.historyPrune(limit)),
+
+  historyImport: (entries: HistoryEntry[], limit: number) =>
+    unwrap("history_import", () => commands.historyImport(entries, limit)),
 
   // EXPLAIN goes through its own command rather than executeQuery: ANALYZE runs
   // the statement it measures, so the decision to downgrade a write to a plain

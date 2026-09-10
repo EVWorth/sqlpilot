@@ -270,15 +270,17 @@ describe("resultStore", () => {
       );
     });
 
-    it("leaves the code fields unset when the failure carried none", async () => {
+    it("leaves the code fields empty when the failure carried none", async () => {
       executeQueryMock.mockRejectedValue(new Error("connection reset"));
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
       const entry = addEntryMock.mock.calls.at(-1)?.[0];
       expect(entry.error).toContain("connection reset");
-      expect(entry.errorCode).toBeUndefined();
-      expect(entry.errorSqlState).toBeUndefined();
+      // null rather than undefined: Rust's Option round-trips as null, and the
+      // entry now goes straight to a Tauri command (#585).
+      expect(entry.errorCode).toBeNull();
+      expect(entry.errorSqlState).toBeNull();
     });
 
     it("shows confirm dialog for destructive SQL on production", async () => {

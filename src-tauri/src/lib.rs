@@ -154,6 +154,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::write_file_contents,
             commands::pick_save_file,
             commands::get_platform_info,
+            commands::history_add,
+            commands::history_list,
+            commands::history_remove,
+            commands::history_clear,
+            commands::history_count,
+            commands::history_prune,
+            commands::history_import,
             commands::keyring_available,
             commands::sqlite::sqlite_open,
             commands::sqlite::sqlite_close,
@@ -212,6 +219,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::write_file_contents,
             commands::pick_save_file,
             commands::get_platform_info,
+            commands::history_add,
+            commands::history_list,
+            commands::history_remove,
+            commands::history_clear,
+            commands::history_count,
+            commands::history_prune,
+            commands::history_import,
             commands::keyring_available,
             commands::sqlite::sqlite_open,
             commands::sqlite::sqlite_close,
@@ -277,6 +291,12 @@ pub fn run() {
     let store = ConnectionStore::new(&data_dir.join("connections.db"))
         .expect("Failed to initialize connection store");
 
+    // Its own file rather than a table in connections.db: history is append-only
+    // and much larger, and keeping it separate means a corrupt or oversized
+    // history cannot take the connection profiles down with it (#585).
+    let history_store = mas_core::history::HistoryStore::new(&data_dir.join("history.db"))
+        .expect("Failed to initialize history store");
+
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
     let inspector = SchemaInspector::new(manager.clone());
@@ -329,6 +349,7 @@ pub fn run() {
             connection_store: store,
             query_executor: executor,
             schema_inspector: inspector,
+            history_store,
             admin_service: admin,
             #[cfg(feature = "beta-ai")]
             ai_service: Some(ai),

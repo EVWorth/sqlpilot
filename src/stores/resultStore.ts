@@ -254,11 +254,16 @@ async function doExecuteQuery(
       id: crypto.randomUUID(),
       sql,
       connectionName,
-      database: effectiveDatabase,
+      // Rust's Option round-trips as null, so an absent field is null here
+      // rather than undefined.
+      database: effectiveDatabase ?? null,
       executedAt: new Date().toISOString(),
       executionTimeMs: Date.now() - startTime,
       rowCount: totalRows,
       status: "success",
+      error: null,
+      errorCode: null,
+      errorSqlState: null,
     });
   } catch (e) {
     // A cancel kills the statement server-side, so this rejects with the
@@ -275,14 +280,14 @@ async function doExecuteQuery(
       id: crypto.randomUUID(),
       sql,
       connectionName,
-      database: effectiveDatabase,
+      database: effectiveDatabase ?? null,
       executedAt: new Date().toISOString(),
       executionTimeMs: Date.now() - startTime,
       rowCount: 0,
       status: "error",
       error: structured?.message ?? String(e),
-      errorCode: structured?.code,
-      errorSqlState: structured?.sqlState,
+      errorCode: structured?.code ?? null,
+      errorSqlState: structured?.sqlState ?? null,
     });
   } finally {
     endExecution(myGeneration);

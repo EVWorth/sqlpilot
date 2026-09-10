@@ -1,331 +1,332 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { DEFAULT_HISTORY_LIMIT, type HistoryEntry, useHistoryStore } from "../historyStore";
+import type { HistoryEntry } from "../../lib/bindings";
 
-function makeEntry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
+const historyAdd = vi.hoisted(() => vi.fn());
+const historyList = vi.hoisted(() => vi.fn());
+const historyRemove = vi.hoisted(() => vi.fn());
+const historyClear = vi.hoisted(() => vi.fn());
+const historyPrune = vi.hoisted(() => vi.fn());
+const historyImport = vi.hoisted(() => vi.fn());
+
+vi.mock("../../lib/tauri-api", () => ({
+  api: { historyAdd, historyList, historyRemove, historyClear, historyPrune, historyImport },
+}));
+
+import { DEFAULT_HISTORY_LIMIT, type NewHistoryEntry, useHistoryStore } from "../historyStore";
+
+function entry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
   return {
-    id: overrides.id ?? "entry-1",
-    sql: overrides.sql ?? "SELECT 1",
-    connectionName: overrides.connectionName ?? "Test Connection",
-    database: overrides.database ?? "test",
-    executedAt: overrides.executedAt ?? "2024-01-01T00:00:00Z",
-    executionTimeMs: overrides.executionTimeMs ?? 100,
-    rowCount: overrides.rowCount ?? 1,
-    status: overrides.status ?? "success",
-    // Spread last so fields without an explicit default above — error, the
-    // driver codes, redacted — are not silently dropped.
+    id: "entry-1",
+    sql: "SELECT 1",
+    connectionName: "Test Connection",
+    database: "test",
+    executedAt: "2026-01-01T00:00:00Z",
+    executionTimeMs: 100,
+    rowCount: 1,
+    status: "success",
+    error: null,
+    errorCode: null,
+    errorSqlState: null,
+    redacted: false,
+    truncated: false,
     ...overrides,
   };
 }
 
+/** What a caller hands to addEntry — the store decides the rest. */
+function newEntry(overrides: Partial<NewHistoryEntry> = {}): NewHistoryEntry {
+  const { redacted: _r, truncated: _t, ...rest } = entry();
+  return { ...rest, ...overrides };
+}
+
 describe("historyStore", () => {
   beforeEach(() => {
-    useHistoryStore.setState({ entries: [], limit: DEFAULT_HISTORY_LIMIT });
+    vi.clearAllMocks();
+    localStorage.clear();
+    // The backend echoes back what it stored, so by default it stores what it
+    // was given.
+    historyAdd.mockImplementation(async (e: HistoryEntry) => e);
+    historyList.mockResolvedValue([]);
+    historyRemove.mockResolvedValue(undefined);
+    historyClear.mockResolvedValue(undefined);
+    historyPrune.mockResolvedValue(0);
+    historyImport.mockResolvedValue(0);
+    useHistoryStore.setState({
+      entries: [],
+      limit: DEFAULT_HISTORY_LIMIT,
+      search: "",
+      loading: true,
+      error: null,
+    });
+  });
+
+  describe("load", () => {
+    it("reads the entries the database holds", async () => {
+      historyList.mockResolvedValue([entry({ id: "a" }), entry({ id: "b" })]);
+
+      await useHistoryStore.getState().load();
+
+      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["a", "b"]);
+      expect(useHistoryStore.getState().loading).toBe(false);
+    });
+
+    it("reports a failure instead of showing an empty history", async () => {
+      historyList.mockRejectedValue(new Error("database is locked"));
+
+      await useHistoryStore.getState().load();
+
+      const state = useHistoryStore.getState();
+      expect(state.loading).toBe(false);
+      expect(state.error).toContain("database is locked");
+    });
   });
 
   describe("addEntry", () => {
-    it("adds entry to the beginning of entries", () => {
-      const store = useHistoryStore.getState();
-      store.addEntry(makeEntry({ id: "first", sql: "SELECT 1" }));
-      store.addEntry(makeEntry({ id: "second", sql: "SELECT 2" }));
+    it("writes through to the backend with the current limit", async () => {
+      useHistoryStore.setState({ limit: 1000 });
 
-      const entries = useHistoryStore.getState().entries;
-      expect(entries).toHaveLength(2);
-      expect(entries[0].id).toBe("second");
-      expect(entries[0].sql).toBe("SELECT 2");
-      expect(entries[1].id).toBe("first");
-      expect(entries[1].sql).toBe("SELECT 1");
+      await useHistoryStore.getState().addEntry(newEntry({ sql: "SELECT 2" }));
+
+      expect(historyAdd).toHaveBeenCalledWith(
+        expect.objectContaining({ sql: "SELECT 2" }),
+        1000,
+      );
     });
 
-    it("adds single entry correctly", () => {
-      useHistoryStore.getState().addEntry(makeEntry({ id: "single-entry", sql: "SELECT * FROM users" }));
+    it("shows what the backend stored, not what was sent", async () => {
+      // The backend cuts an over-long statement. Echoing the sent value would
+      // show the user a row the database does not hold.
+      historyAdd.mockResolvedValue(entry({ sql: "SELECT …cut", truncated: true }));
 
-      const entries = useHistoryStore.getState().entries;
-      expect(entries).toHaveLength(1);
-      expect(entries[0].id).toBe("single-entry");
-      expect(entries[0].sql).toBe("SELECT * FROM users");
-      expect(entries[0].connectionName).toBe("Test Connection");
+      await useHistoryStore.getState().addEntry(newEntry({ sql: "SELECT " + "x".repeat(100) }));
+
+      const [stored] = useHistoryStore.getState().entries;
+      expect(stored.sql).toBe("SELECT …cut");
+      expect(stored.truncated).toBe(true);
     });
 
-    it("keeps at most the configured limit, 500 by default", () => {
-      const store = useHistoryStore.getState();
-      for (let i = 0; i < 600; i++) {
-        store.addEntry(makeEntry({ id: `entry-${i}`, sql: `SELECT ${i}` }));
-      }
+    it("puts the newest entry first", async () => {
+      useHistoryStore.setState({ entries: [entry({ id: "old" })] });
+      historyAdd.mockResolvedValue(entry({ id: "new" }));
 
-      const entries = useHistoryStore.getState().entries;
-      expect(entries).toHaveLength(500);
-      expect(entries[0].id).toBe("entry-599");
-      expect(entries[entries.length - 1].id).toBe("entry-100");
+      await useHistoryStore.getState().addEntry(newEntry());
+
+      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["new", "old"]);
     });
 
-    it("preserves all entry fields", () => {
-      const entry: HistoryEntry = {
-        id: "full-entry",
-        sql: "SELECT * FROM users WHERE active = true",
-        connectionName: "Production DB",
-        database: "app_db",
-        executedAt: "2024-06-15T12:30:00Z",
-        executionTimeMs: 250,
-        rowCount: 42,
-        status: "success",
-      };
+    it("does not throw when the history write fails", async () => {
+      // Recording is a side effect of running a query. Failing to record must
+      // not surface as the query having failed.
+      historyAdd.mockRejectedValue(new Error("disk full"));
 
-      useHistoryStore.getState().addEntry(entry);
+      await expect(useHistoryStore.getState().addEntry(newEntry())).resolves.toBeUndefined();
+      expect(useHistoryStore.getState().error).toContain("disk full");
+    });
+  });
 
-      const stored = useHistoryStore.getState().entries[0];
-      expect(stored).toEqual(entry);
+  describe("credential redaction (#587)", () => {
+    it("never sends the password from a CREATE USER", async () => {
+      await useHistoryStore.getState().addEntry(
+        newEntry({ sql: "CREATE USER 'a'@'%' IDENTIFIED BY 's3cret'" }),
+      );
+
+      const [sent] = historyAdd.mock.calls[0];
+      expect(sent.sql).not.toContain("s3cret");
+      expect(sent.redacted).toBe(true);
+    });
+
+    it("redacts a password quoted back by the driver's error", async () => {
+      await useHistoryStore.getState().addEntry(
+        newEntry({
+          status: "error",
+          error: "near ALTER USER 'a'@'%' IDENTIFIED BY 'leaky': syntax error",
+        }),
+      );
+
+      const [sent] = historyAdd.mock.calls[0];
+      expect(sent.error).not.toContain("leaky");
+      expect(sent.redacted).toBe(true);
+    });
+
+    it("leaves an ordinary statement unmarked", async () => {
+      await useHistoryStore.getState().addEntry(
+        newEntry({ sql: "SELECT * FROM users WHERE name = 'alice'" }),
+      );
+
+      const [sent] = historyAdd.mock.calls[0];
+      expect(sent.sql).toBe("SELECT * FROM users WHERE name = 'alice'");
+      expect(sent.redacted).toBe(false);
+    });
+  });
+
+  describe("search", () => {
+    it("asks the database rather than filtering in memory", async () => {
+      historyList.mockResolvedValue([entry({ id: "match" })]);
+
+      await useHistoryStore.getState().setSearch("orders");
+
+      expect(historyList).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "orders" }),
+      );
+      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["match"]);
+    });
+
+    it("sends null rather than an empty search", async () => {
+      await useHistoryStore.getState().setSearch("");
+      expect(historyList).toHaveBeenCalledWith(expect.objectContaining({ search: null }));
+    });
+
+    it("ignores a result the user has already typed past", async () => {
+      // Two searches in flight; the first resolves last. Without the guard the
+      // list snaps back to the stale query's matches.
+      let resolveFirst: (v: HistoryEntry[]) => void = () => {};
+      historyList.mockImplementationOnce(() => new Promise((r) => (resolveFirst = r)));
+      historyList.mockImplementationOnce(async () => [entry({ id: "second" })]);
+
+      const first = useHistoryStore.getState().setSearch("ord");
+      await useHistoryStore.getState().setSearch("orders");
+      resolveFirst([entry({ id: "first" })]);
+      await first;
+
+      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["second"]);
     });
   });
 
   describe("removeEntry", () => {
-    it("removes an entry by id", () => {
-      const store = useHistoryStore.getState();
-      store.addEntry(makeEntry({ id: "keep", sql: "SELECT 1" }));
-      store.addEntry(makeEntry({ id: "remove", sql: "SELECT 2" }));
+    it("drops the row and tells the backend", async () => {
+      useHistoryStore.setState({ entries: [entry({ id: "a" }), entry({ id: "b" })] });
 
-      store.removeEntry("remove");
+      await useHistoryStore.getState().removeEntry("a");
 
-      const entries = useHistoryStore.getState().entries;
-      expect(entries).toHaveLength(1);
-      expect(entries[0].id).toBe("keep");
+      expect(historyRemove).toHaveBeenCalledWith("a");
+      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["b"]);
     });
 
-    it("does nothing if entry id not found", () => {
-      const store = useHistoryStore.getState();
-      store.addEntry(makeEntry({ id: "entry-1" }));
-      store.addEntry(makeEntry({ id: "entry-2" }));
+    it("puts the row back when the delete fails", async () => {
+      useHistoryStore.setState({ entries: [entry({ id: "a" })] });
+      historyRemove.mockRejectedValue(new Error("locked"));
 
-      store.removeEntry("non-existent");
+      await useHistoryStore.getState().removeEntry("a");
 
-      const entries = useHistoryStore.getState().entries;
-      expect(entries).toHaveLength(2);
-    });
-
-    it("results in empty array when removing the only entry", () => {
-      const store = useHistoryStore.getState();
-      store.addEntry(makeEntry({ id: "only" }));
-
-      store.removeEntry("only");
-
-      expect(useHistoryStore.getState().entries).toEqual([]);
+      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["a"]);
+      expect(useHistoryStore.getState().error).toContain("locked");
     });
   });
 
   describe("clearHistory", () => {
-    it("removes all entries", () => {
-      const store = useHistoryStore.getState();
-      store.addEntry(makeEntry({ id: "entry-1" }));
-      store.addEntry(makeEntry({ id: "entry-2" }));
-      store.addEntry(makeEntry({ id: "entry-3" }));
+    it("empties the panel and the database", async () => {
+      useHistoryStore.setState({ entries: [entry()] });
 
-      store.clearHistory();
+      await useHistoryStore.getState().clearHistory();
 
+      expect(historyClear).toHaveBeenCalled();
       expect(useHistoryStore.getState().entries).toEqual([]);
     });
 
-    it("works on already empty history", () => {
-      useHistoryStore.getState().clearHistory();
-      expect(useHistoryStore.getState().entries).toEqual([]);
-    });
-  });
+    it("restores the entries when the clear fails", async () => {
+      useHistoryStore.setState({ entries: [entry({ id: "a" })] });
+      historyClear.mockRejectedValue(new Error("locked"));
 
-  describe("entry shape edge cases", () => {
-    it("preserves a failure entry with status=error and error message", () => {
-      const entry: HistoryEntry = {
-        id: "fail-1",
-        sql: "SELECT * FROM missing_table",
-        connectionName: "Test",
-        database: "test",
-        executedAt: "2024-01-01T00:00:00Z",
-        executionTimeMs: 5,
-        rowCount: 0,
-        status: "error",
-        error: "ERROR 1146 (42S02): Table 'x.y' doesn't exist",
-      };
-      useHistoryStore.getState().addEntry(entry);
+      await useHistoryStore.getState().clearHistory();
 
-      const stored = useHistoryStore.getState().entries[0];
-      expect(stored.status).toBe("error");
-      expect(stored.error).toBe("ERROR 1146 (42S02): Table 'x.y' doesn't exist");
-      expect(stored.rowCount).toBe(0);
-    });
-
-    it("accepts an entry without the optional database field", () => {
-      const entry: HistoryEntry = {
-        id: "no-db",
-        sql: "SELECT 1",
-        connectionName: "Test",
-        executedAt: "2024-01-01T00:00:00Z",
-        executionTimeMs: 5,
-        rowCount: 1,
-        status: "success",
-      };
-      useHistoryStore.getState().addEntry(entry);
-
-      const stored = useHistoryStore.getState().entries[0];
-      expect(stored.database).toBeUndefined();
-    });
-
-    it("preserves very long SQL strings exactly (no truncation)", () => {
-      const longSql = "SELECT " + "a, ".repeat(2000) + "b FROM huge_table";
-      useHistoryStore.getState().addEntry(makeEntry({ id: "long", sql: longSql }));
-
-      const stored = useHistoryStore.getState().entries[0];
-      expect(stored.sql).toBe(longSql);
-      expect(stored.sql.length).toBe(longSql.length);
-    });
-
-    it("accepts an empty SQL string without crashing", () => {
-      useHistoryStore.getState().addEntry(makeEntry({ id: "empty", sql: "" }));
-
-      const stored = useHistoryStore.getState().entries[0];
-      expect(stored.sql).toBe("");
-    });
-  });
-
-  describe("removeEntry idempotency", () => {
-    it("calling removeEntry twice on the same id is a no-op the second time", () => {
-      const store = useHistoryStore.getState();
-      store.addEntry(makeEntry({ id: "a" }));
-      store.addEntry(makeEntry({ id: "b" }));
-
-      store.removeEntry("a");
-      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["b"]);
-
-      // Second remove should be safe (no throw, no state change).
-      store.removeEntry("a");
-      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["b"]);
-    });
-  });
-
-  describe("persistence", () => {
-    it("writes entries to localStorage under the persistence key", () => {
-      useHistoryStore.getState().addEntry(makeEntry({ id: "persist-1", sql: "SELECT 9" }));
-
-      const raw = localStorage.getItem("mas-query-history");
-      expect(raw).not.toBeNull();
-      const parsed = JSON.parse(raw!);
-      // zustand/persist wraps state under `state`
-      expect(parsed.state.entries).toHaveLength(1);
-      expect(parsed.state.entries[0].id).toBe("persist-1");
-    });
-
-    it("entries survive a store reinit (simulated reload)", async () => {
-      const store = useHistoryStore.getState();
-      store.addEntry(makeEntry({ id: "reload-1", sql: "SELECT 1" }));
-      store.addEntry(makeEntry({ id: "reload-2", sql: "SELECT 2" }));
-
-      // Simulate app reload: reset modules and re-import the store.
-      vi.resetModules();
-      const mod = await import("../historyStore");
-      const restored = mod.useHistoryStore.getState().entries;
-      expect(restored.map((e) => e.id)).toEqual(["reload-2", "reload-1"]);
-    });
-
-    it("clearHistory also clears the persisted localStorage entry", () => {
-      const store = useHistoryStore.getState();
-      store.addEntry(makeEntry({ id: "x" }));
-      expect(localStorage.getItem("mas-query-history")).not.toBeNull();
-
-      store.clearHistory();
-
-      const raw = localStorage.getItem("mas-query-history");
-      const parsed = JSON.parse(raw!);
-      expect(parsed.state.entries).toEqual([]);
+      expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["a"]);
     });
   });
 
   describe("retention limit (#323)", () => {
-    function fill(n: number) {
-      const store = useHistoryStore.getState();
-      for (let i = 0; i < n; i++) store.addEntry(makeEntry({ id: `e-${i}` }));
-    }
-
     it("defaults to 500", () => {
-      expect(useHistoryStore.getState().limit).toBe(DEFAULT_HISTORY_LIMIT);
       expect(DEFAULT_HISTORY_LIMIT).toBe(500);
     });
 
-    it("honours a raised limit", () => {
-      useHistoryStore.getState().setLimit(1000);
-      fill(1100);
+    it("prunes straight away rather than waiting for the next query", async () => {
+      await useHistoryStore.getState().setLimit(100);
 
-      expect(useHistoryStore.getState().entries).toHaveLength(1000);
+      expect(historyPrune).toHaveBeenCalledWith(100);
+      expect(historyList).toHaveBeenCalledWith(expect.objectContaining({ limit: 100 }));
     });
 
-    it("trims immediately when the limit is lowered", () => {
-      fill(300);
-      useHistoryStore.getState().setLimit(100);
-
-      const { entries } = useHistoryStore.getState();
-      expect(entries).toHaveLength(100);
-      // The newest survive: the oldest are what a lower cap is asking to drop.
-      expect(entries[0].id).toBe("e-299");
-      expect(entries[99].id).toBe("e-200");
-    });
-
-    it("persists the limit across a reload", async () => {
-      useHistoryStore.getState().setLimit(5000);
+    it("remembers the choice across a reload", async () => {
+      await useHistoryStore.getState().setLimit(5000);
 
       vi.resetModules();
       const mod = await import("../historyStore");
       expect(mod.useHistoryStore.getState().limit).toBe(5000);
     });
 
-    it("falls back to the default for a history stored before the limit existed", async () => {
-      localStorage.setItem(
-        "mas-query-history",
-        JSON.stringify({ state: { entries: [makeEntry({ id: "old" })] }, version: 1 }),
-      );
+    it("ignores a stored limit that is not one of the offered values", async () => {
+      localStorage.setItem("sqlpilot-history-limit", "7");
 
       vi.resetModules();
       const mod = await import("../historyStore");
       expect(mod.useHistoryStore.getState().limit).toBe(DEFAULT_HISTORY_LIMIT);
-      expect(mod.useHistoryStore.getState().entries).toHaveLength(1);
     });
   });
 
-  describe("credential redaction (#587)", () => {
-    it("never stores the password from a CREATE USER", () => {
-      useHistoryStore.getState().addEntry(
-        makeEntry({ id: "c", sql: "CREATE USER 'a'@'%' IDENTIFIED BY 's3cret'" }),
+  describe("handover from localStorage (#585)", () => {
+    const legacy = JSON.stringify({
+      state: { entries: [{ id: "old-1", sql: "SELECT 1", connectionName: "Old" }] },
+    });
+
+    it("imports what was there and then forgets the key", async () => {
+      localStorage.setItem("mas-query-history", legacy);
+
+      await useHistoryStore.getState().load();
+
+      expect(historyImport).toHaveBeenCalledWith(
+        [expect.objectContaining({ id: "old-1", sql: "SELECT 1" })],
+        DEFAULT_HISTORY_LIMIT,
       );
-
-      const [stored] = useHistoryStore.getState().entries;
-      expect(stored.sql).not.toContain("s3cret");
-      expect(stored.redacted).toBe(true);
-      expect(localStorage.getItem("mas-query-history")).not.toContain("s3cret");
+      expect(localStorage.getItem("mas-query-history")).toBeNull();
     });
 
-    it("redacts a password quoted back by the driver's error message", () => {
-      useHistoryStore.getState().addEntry(
-        makeEntry({
-          id: "e",
-          sql: "SELECT 1",
-          status: "error",
-          error: "near ALTER USER 'a'@'%' IDENTIFIED BY 'leaky': syntax error",
-        }),
-      );
+    it("fills in fields the old entries never had", async () => {
+      localStorage.setItem("mas-query-history", legacy);
 
-      const [stored] = useHistoryStore.getState().entries;
-      expect(stored.error).not.toContain("leaky");
-      expect(stored.redacted).toBe(true);
+      await useHistoryStore.getState().load();
+
+      const [[imported]] = historyImport.mock.calls;
+      expect(imported[0]).toMatchObject({
+        database: null,
+        errorCode: null,
+        redacted: false,
+        truncated: false,
+        status: "success",
+      });
+      expect(typeof imported[0].executedAt).toBe("string");
     });
 
-    it("leaves an ordinary statement untouched and unmarked", () => {
-      const entry = makeEntry({ id: "s", sql: "SELECT * FROM users WHERE name = 'alice'" });
-      useHistoryStore.getState().addEntry(entry);
+    it("keeps the old data when the import fails", async () => {
+      // Deleting someone's only copy of their history because we could not
+      // read it is the one outcome worth designing against.
+      localStorage.setItem("mas-query-history", legacy);
+      historyImport.mockRejectedValue(new Error("locked"));
 
-      const [stored] = useHistoryStore.getState().entries;
-      expect(stored.sql).toBe("SELECT * FROM users WHERE name = 'alice'");
-      expect(stored.redacted).toBeUndefined();
+      await useHistoryStore.getState().load();
+
+      expect(localStorage.getItem("mas-query-history")).toBe(legacy);
     });
 
-    it("does not mutate the entry the caller passed", () => {
-      const entry = makeEntry({ id: "m", sql: "CREATE USER 'a'@'%' IDENTIFIED BY 'pw'" });
-      useHistoryStore.getState().addEntry(entry);
+    it("keeps the old data when it cannot be parsed", async () => {
+      localStorage.setItem("mas-query-history", "{ not json");
 
-      expect(entry.sql).toBe("CREATE USER 'a'@'%' IDENTIFIED BY 'pw'");
+      await useHistoryStore.getState().load();
+
+      expect(localStorage.getItem("mas-query-history")).toBe("{ not json");
+      expect(historyImport).not.toHaveBeenCalled();
+    });
+
+    it("clears an empty legacy history without calling import", async () => {
+      localStorage.setItem("mas-query-history", JSON.stringify({ state: { entries: [] } }));
+
+      await useHistoryStore.getState().load();
+
+      expect(historyImport).not.toHaveBeenCalled();
+      expect(localStorage.getItem("mas-query-history")).toBeNull();
+    });
+
+    it("does nothing when there is no legacy history", async () => {
+      await useHistoryStore.getState().load();
+      expect(historyImport).not.toHaveBeenCalled();
     });
   });
 });

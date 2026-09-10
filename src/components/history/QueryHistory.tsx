@@ -1,5 +1,5 @@
 import { CheckCircle, Clock, Search, Trash2, X, XCircle } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useEditorStore } from "../../stores/editorStore";
 import { HISTORY_LIMITS, type HistoryEntry, useHistoryStore } from "../../stores/historyStore";
 
@@ -20,19 +20,24 @@ export function QueryHistory() {
   const clearHistory = useHistoryStore((s) => s.clearHistory);
   const limit = useHistoryStore((s) => s.limit);
   const setLimit = useHistoryStore((s) => s.setLimit);
-  const [search, setSearch] = useState("");
+  const loading = useHistoryStore((s) => s.loading);
+  const storeError = useHistoryStore((s) => s.error);
+  const search = useHistoryStore((s) => s.search);
+  const setSearch = useHistoryStore((s) => s.setSearch);
+  const load = useHistoryStore((s) => s.load);
+
+  // Entries come from the database now, so the panel has to ask for them.
+  useEffect(() => {
+    void load();
+  }, [load]);
   const [confirmClear, setConfirmClear] = useState(false);
   // Failure messages are one line until asked for. A long one would push the
   // rest of the list off the panel, and the entry the user wants is usually
   // identified by its SQL, not by the wording of the error.
   const [expandedError, setExpandedError] = useState<string | null>(null);
 
-  const filtered = useMemo(() => {
-    if (!search.trim()) return entries;
-    const q = search.toLowerCase();
-    return entries.filter((e) => e.sql.toLowerCase().includes(q));
-  }, [entries, search]);
-
+  // Filtering is a WHERE clause now rather than an array scan, so `entries`
+  // already holds only what matches.
   const handleClick = (entry: HistoryEntry) => {
     const store = useEditorStore.getState();
     const activeTab = store.tabs.find((t) => t.id === store.activeTabId);
@@ -46,7 +51,7 @@ export function QueryHistory() {
 
   const handleClear = () => {
     if (confirmClear) {
-      clearHistory();
+      void clearHistory();
       setConfirmClear(false);
     } else {
       setConfirmClear(true);
@@ -56,7 +61,7 @@ export function QueryHistory() {
 
   const handleRemove = (e: React.MouseEvent, entryId: string) => {
     e.stopPropagation();
-    useHistoryStore.getState().removeEntry(entryId);
+    void useHistoryStore.getState().removeEntry(entryId);
   };
 
   return (
@@ -68,7 +73,7 @@ export function QueryHistory() {
             type="text"
             placeholder="Search history..."
             value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            onChange={(e) => void setSearch(e.target.value)}
             className="w-full rounded bg-[var(--color-bg-primary)] py-1 pl-6 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
           />
         </div>
@@ -91,7 +96,7 @@ export function QueryHistory() {
         <select
           id="history-limit"
           value={limit}
-          onChange={(e) => setLimit(Number(e.target.value))}
+          onChange={(e) => void setLimit(Number(e.target.value))}
           className="rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[10px] text-[var(--color-text-primary)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
         >
           {HISTORY_LIMITS.map((n) => (
@@ -101,18 +106,30 @@ export function QueryHistory() {
           ))}
         </select>
         <span>queries</span>
-        <span className="ml-auto">{entries.length.toLocaleString()} stored</span>
+        <span className="ml-auto">{entries.length.toLocaleString()} shown</span>
       </div>
 
+      {storeError && (
+        <p role="alert" className="border-b border-[var(--color-border)] px-2 py-1 text-[10px] text-red-400">
+          {storeError}
+        </p>
+      )}
+
       <div className="flex-1 overflow-y-auto">
-        {filtered.length === 0
+        {loading
           ? (
             <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
-              {entries.length === 0 ? "No history yet" : "No matches"}
+              Loading history…
+            </p>
+          )
+          : entries.length === 0
+          ? (
+            <p className="p-3 text-center text-[11px] text-[var(--color-text-muted)]">
+              {search.trim() ? "No matches" : "No history yet"}
             </p>
           )
           : (
-            filtered.map((entry) => (
+            entries.map((entry) => (
               <button
                 key={entry.id}
                 onClick={() => handleClick(entry)}

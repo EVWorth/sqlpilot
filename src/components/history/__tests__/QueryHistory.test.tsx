@@ -19,6 +19,11 @@ import { useHistoryStore } from "../../../stores/historyStore";
 
 const mockRemoveEntry = vi.fn();
 const mockSetLimit = vi.fn();
+const mockSetSearch = vi.fn();
+const mockLoad = vi.fn().mockResolvedValue(undefined);
+// The panel no longer filters in memory — search goes to the database — so
+// tests drive it by setting what the store would have returned.
+let mockSearch = "";
 
 const mockEntries = [
   {
@@ -63,6 +68,8 @@ describe("QueryHistory", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockSearch = "";
+    mockLoad.mockResolvedValue(undefined);
     vi.mocked(useHistoryStore).mockImplementation((selector) => {
       if (typeof selector === "function") {
         return selector({
@@ -72,6 +79,11 @@ describe("QueryHistory", () => {
           removeEntry: mockRemoveEntry,
           limit: 500,
           setLimit: mockSetLimit,
+          search: mockSearch,
+          setSearch: mockSetSearch,
+          load: mockLoad,
+          loading: false,
+          error: null,
         });
       }
       return mockEntries;
@@ -85,6 +97,11 @@ describe("QueryHistory", () => {
       removeEntry: mockRemoveEntry,
       limit: 500,
       setLimit: mockSetLimit,
+      search: mockSearch,
+      setSearch: mockSetSearch,
+      load: mockLoad,
+      loading: false,
+      error: null,
     }));
   });
 
@@ -110,6 +127,13 @@ describe("QueryHistory", () => {
           clearHistory: mockClearHistory,
           addEntry: vi.fn(),
           removeEntry: mockRemoveEntry,
+          limit: 500,
+          setLimit: mockSetLimit,
+          search: mockSearch,
+          setSearch: mockSetSearch,
+          load: mockLoad,
+          loading: false,
+          error: null,
         });
       }
       return [];
@@ -118,19 +142,36 @@ describe("QueryHistory", () => {
     expect(screen.getByText("No history yet")).toBeDefined();
   });
 
-  it("filters entries by search", () => {
+  it("searches through the store rather than filtering in memory (#585)", () => {
     render(<QueryHistory />);
     const searchInput = screen.getByPlaceholderText("Search history...");
     fireEvent.change(searchInput, { target: { value: "users" } });
 
-    expect(screen.getByText("SELECT * FROM users")).toBeDefined();
-    expect(screen.queryByText(/INSERT INTO logs/)).toBeNull();
+    // The database answers the question now, so the panel's job is to ask it.
+    expect(mockSetSearch).toHaveBeenCalledWith("users");
   });
 
-  it("shows 'No matches' when search yields no results", () => {
+  it("shows 'No matches' when a search returned nothing", () => {
+    mockSearch = "zzzzzz";
+    vi.mocked(useHistoryStore).mockImplementation((selector) =>
+      typeof selector === "function"
+        ? selector({
+          entries: [],
+          clearHistory: mockClearHistory,
+          addEntry: vi.fn(),
+          removeEntry: mockRemoveEntry,
+          limit: 500,
+          setLimit: mockSetLimit,
+          search: mockSearch,
+          setSearch: mockSetSearch,
+          load: mockLoad,
+          loading: false,
+          error: null,
+        })
+        : []
+    );
+
     render(<QueryHistory />);
-    const searchInput = screen.getByPlaceholderText("Search history...");
-    fireEvent.change(searchInput, { target: { value: "zzzzzz" } });
     expect(screen.getByText("No matches")).toBeDefined();
   });
 
@@ -272,7 +313,7 @@ describe("QueryHistory", () => {
     it("shows the current limit and how much is stored", () => {
       render(<QueryHistory />);
       expect(screen.getByLabelText("Keep")).toHaveValue("500");
-      expect(screen.getByText("3 stored")).toBeInTheDocument();
+      expect(screen.getByText("3 shown")).toBeInTheDocument();
     });
 
     it("changes the limit through the store", () => {

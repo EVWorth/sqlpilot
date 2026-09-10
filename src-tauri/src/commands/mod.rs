@@ -4,6 +4,7 @@ pub mod sqlite;
 
 use mas_admin::AdminService;
 use mas_core::connection::{ConnectionManager, ConnectionStore};
+use mas_core::history::{HistoryEntry, HistoryQuery, HistoryStore};
 use mas_core::models::{
     ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, TestConnectionResult,
 };
@@ -30,6 +31,7 @@ pub struct AppState {
     pub connection_store: ConnectionStore,
     pub query_executor: QueryExecutor,
     pub schema_inspector: SchemaInspector,
+    pub history_store: HistoryStore,
     pub admin_service: AdminService,
     #[cfg(feature = "beta-ai")]
     pub ai_service: Option<mas_ai::AiService>,
@@ -1208,4 +1210,89 @@ mod file_command_tests {
         assert_eq!(super::human_bytes(512), "512 bytes");
         assert_eq!(super::human_bytes(256 * 1024 * 1024), "256.0 MB");
     }
+}
+
+// History commands
+//
+// History moved out of the renderer's localStorage (#585): that medium shares
+// a small origin quota with settings and favorites, drops writes silently when
+// it fills, and is wiped when the user clears site data.
+
+/// Record one executed statement, then trim to `limit`.
+#[tauri::command]
+#[tracing::instrument(skip(state, entry))]
+#[specta::specta]
+pub async fn history_add(
+    state: State<'_, AppState>,
+    entry: HistoryEntry,
+    limit: u32,
+) -> Result<HistoryEntry, String> {
+    state.history_store.add(&entry, limit).map_err(|e| {
+        tracing::error!(error = %e, "Recording history failed");
+        e.to_string()
+    })
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_list(
+    state: State<'_, AppState>,
+    query: HistoryQuery,
+) -> Result<Vec<HistoryEntry>, String> {
+    state.history_store.list(&query).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_remove(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    state.history_store.remove(&id).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_clear(state: State<'_, AppState>) -> Result<(), String> {
+    state.history_store.clear().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_count(state: State<'_, AppState>) -> Result<u32, String> {
+    state
+        .history_store
+        .count()
+        .map(|n| n.clamp(0, i64::from(u32::MAX)) as u32)
+        .map_err(|e| e.to_string())
+}
+
+/// Apply a lowered retention limit straight away.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn history_prune(state: State<'_, AppState>, limit: u32) -> Result<u32, String> {
+    state
+        .history_store
+        .prune(limit)
+        .map(|n| n as u32)
+        .map_err(|e| e.to_string())
+}
+
+/// Take over a history that was still in localStorage. Ids carry across, so
+/// running this twice imports nothing the second time.
+#[tauri::command]
+#[tracing::instrument(skip(state, entries), fields(count = entries.len()))]
+#[specta::specta]
+pub async fn history_import(
+    state: State<'_, AppState>,
+    entries: Vec<HistoryEntry>,
+    limit: u32,
+) -> Result<u32, String> {
+    state
+        .history_store
+        .import(&entries, limit)
+        .map(|n| n as u32)
+        .map_err(|e| e.to_string())
 }
