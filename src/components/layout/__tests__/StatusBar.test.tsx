@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { act } from "react";
+import { act, Profiler } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
@@ -571,5 +571,97 @@ describe("keyring availability (#278)", () => {
     render(<StatusBar />);
     await screen.findByText(/MySQL/);
     expect(screen.queryByText("Passwords not saved")).toBeNull();
+  });
+
+  describe("re-rendering (#458)", () => {
+    /**
+     * Render StatusBar under a Profiler and return a live render count.
+     *
+     * Awaits a flush first: the component kicks off version, platform and
+     * update lookups on mount, and counting renders while those are still
+     * resolving measures their timing rather than the selector.
+     */
+    async function renderCounted() {
+      const renders = { count: 0 };
+      render(
+        <Profiler id="status-bar" onRender={() => renders.count++}>
+          <StatusBar />
+        </Profiler>,
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      renders.count = 0;
+      return renders;
+    }
+
+    it("does not re-render when an unrelated tab field changes", async () => {
+      const renders = await renderCounted();
+
+      // Typing in the editor rewrites the tabs array on a debounce. Reading
+      // the whole array meant every one of those re-rendered this component
+      // and reflowed its update overlay, for a value that had not changed.
+      await act(async () => {
+        useEditorStore.setState((state) => ({
+          tabs: state.tabs.map((t) => ({ ...t, content: "SELECT 1" })),
+        }));
+      });
+
+      expect(renders.count).toBe(0);
+    });
+
+    it("does not re-render when a different tab's database changes", async () => {
+      act(() => {
+        useEditorStore.setState((state) => ({
+          tabs: [
+            ...state.tabs,
+            { id: "tab-1", title: "Other", content: "", type: "query", isDirty: false, database: "other" },
+          ],
+        }));
+      });
+      const renders = await renderCounted();
+
+      await act(async () => {
+        useEditorStore.setState((state) => ({
+          tabs: state.tabs.map((t) => t.id === "tab-1" ? { ...t, database: "changed" } : t),
+        }));
+      });
+
+      expect(renders.count).toBe(0);
+    });
+
+    it("still re-renders when the active tab's database changes", async () => {
+      // The narrowing must not be so tight that the bar stops updating.
+      const renders = await renderCounted();
+
+      await act(async () => {
+        useEditorStore.setState((state) => ({
+          tabs: state.tabs.map((t) => ({ ...t, database: "warehouse" })),
+        }));
+      });
+
+      expect(renders.count).toBeGreaterThan(0);
+    });
+
+    it("still re-renders when the active tab changes", async () => {
+      // Both tabs seeded here rather than leaning on the shared beforeEach, so
+      // the two databases are unambiguously different before the switch.
+      await act(async () => {
+        useEditorStore.setState({
+          tabs: [
+            { id: "a", title: "A", content: "", type: "query", isDirty: false, database: "one" },
+            { id: "b", title: "B", content: "", type: "query", isDirty: false, database: "two" },
+          ],
+          activeTabId: "a",
+        });
+      });
+      const renders = await renderCounted();
+
+      await act(async () => {
+        useEditorStore.setState({ activeTabId: "b" });
+      });
+
+      expect(renders.count).toBeGreaterThan(0);
+    });
   });
 });

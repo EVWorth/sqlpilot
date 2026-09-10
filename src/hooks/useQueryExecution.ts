@@ -4,9 +4,22 @@ import { useEditorStore } from "../stores/editorStore";
 import { useResultStore } from "../stores/resultStore";
 
 /**
- * Centralizes query execution context so callers never have to thread
- * connectionId/database manually. Reads both from the active tab and
- * the selected connection, then exposes pre-bound execute/explain helpers.
+ * The editor toolbar's execution context, pre-bound.
+ *
+ * Deliberately scoped to the editor, and named for what it does rather than
+ * what it once claimed. The old comment said it "centralizes query execution
+ * context so callers never have to thread connectionId/database manually",
+ * which read as a general abstraction that eleven other features were ignoring
+ * (#448). They were not ignoring it — they could not use it. It resolves the
+ * connection and database from the *selected connection and active editor tab*,
+ * which is the wrong answer for a dialog that already knows which connection
+ * it was opened for.
+ *
+ * The centralizing that issue wanted does exist, one layer down: every
+ * statement the app runs goes through `lib/run-statement.ts` or
+ * `resultStore.executeQuery`, and nothing calls `api.executeQuery` directly
+ * any more (#586). This hook sits above that and answers a narrower question —
+ * what would the Run button run?
  */
 export function useQueryExecution() {
   const selectedConnectionId = useConnectionStore(

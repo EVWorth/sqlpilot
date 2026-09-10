@@ -66,8 +66,14 @@ export function StatusBar() {
   const results = useResultStore((s) => s.results);
   const activeResultIndex = useResultStore((s) => s.activeResultIndex);
   const error = useResultStore((s) => s.error);
-  const tabs = useEditorStore((s) => s.tabs);
-  const activeTabId = useEditorStore((s) => s.activeTabId);
+  // Derived in the selector, not from the whole array. Reading `tabs` meant a
+  // new array identity on every keystroke-debounced content write re-rendered
+  // this 400-line component and reflowed its update overlay, for a value that
+  // had not changed (#458). A string compares by value, so the render only
+  // happens when the active tab's database actually differs.
+  const activeTabDatabase = useEditorStore(
+    (s) => s.tabs.find((t) => t.id === s.activeTabId)?.database,
+  );
 
   const storageErrorEntries = Object.entries(storageErrors);
 
@@ -143,8 +149,7 @@ export function StatusBar() {
     ? ENV_BADGES[activeProfile.environment]
     : undefined;
   const activeResult = results[activeResultIndex];
-  const activeTab = tabs.find((t) => t.id === activeTabId);
-  const selectedDatabase = activeTab?.database ?? activeConn?.database;
+  const selectedDatabase = activeTabDatabase ?? activeConn?.database;
   const warningsCount = activeResult?.warnings?.length ?? 0;
 
   const handleCopyConnection = () => {
