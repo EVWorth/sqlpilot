@@ -1,5 +1,6 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useDialogStore } from "../../../stores/dialogStore";
 import { AppLayout } from "../AppLayout";
 
 vi.mock("../Sidebar", () => ({
@@ -211,6 +212,12 @@ vi.mock("../../../stores/aiStore", () => ({
 }));
 
 describe("AppLayout", () => {
+  beforeEach(() => {
+    // Dialog state is module-level now (#450), so it leaks between tests
+    // unless reset — one test opening backup would leave it open for the next.
+    useDialogStore.setState({ open: null, target: {}, helpTab: "shortcuts" });
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     connectionState = {

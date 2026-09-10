@@ -6,6 +6,7 @@ import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useTheme } from "../../hooks/useTheme";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useDialogStore } from "../../stores/dialogStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useProductionGuardStore } from "../../stores/productionGuardStore";
 import type { PendingKind } from "../../stores/resultStore";
@@ -52,19 +53,14 @@ const CONFIRM_COPY: Record<PendingKind, { title: string; message: string; confir
 
 export function AppLayout() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [showShortcuts, setShowShortcuts] = useState(false);
-  const [helpTab, setHelpTab] = useState<"shortcuts" | "about">("shortcuts");
-  const [showImport, setShowImport] = useState(false);
-  const [showBackup, setShowBackup] = useState(false);
-  const [showRestore, setShowRestore] = useState(false);
-  const [backupPreselect, setBackupPreselect] = useState<{
-    connectionId?: string;
-    database?: string;
-  }>({});
-  const [restorePreselect, setRestorePreselect] = useState<{
-    connectionId?: string;
-    database?: string;
-  }>({});
+  // Which dialog is open lives in a store, so the menu dispatcher, the
+  // sidebar's context menus and the toolbar can all open one without reaching
+  // into this component (#450).
+  const openDialogName = useDialogStore((s) => s.open);
+  const dialogTarget = useDialogStore((s) => s.target);
+  const helpTab = useDialogStore((s) => s.helpTab);
+  const openDialog = useDialogStore((s) => s.openDialog);
+  const closeDialog = useDialogStore((s) => s.closeDialog);
   const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
@@ -86,19 +82,10 @@ export function AppLayout() {
     () => setAiPanelOpen((prev) => !prev),
     [],
   );
-  const openShortcuts = useCallback(() => {
-    setHelpTab("shortcuts");
-    setShowShortcuts(true);
-  }, []);
-  const openImport = useCallback(() => setShowImport(true), []);
-  const openBackup = useCallback(() => {
-    setBackupPreselect({});
-    setShowBackup(true);
-  }, []);
-  const openRestore = useCallback(() => {
-    setRestorePreselect({});
-    setShowRestore(true);
-  }, []);
+  const openShortcuts = useCallback(() => useDialogStore.getState().openHelp("shortcuts"), []);
+  const openImport = useCallback(() => openDialog("import"), [openDialog]);
+  const openBackup = useCallback(() => openDialog("backup"), [openDialog]);
+  const openRestore = useCallback(() => openDialog("restore"), [openDialog]);
   const openSaveFavorite = useCallback(() => {
     window.dispatchEvent(new CustomEvent("open-save-favorite"));
   }, []);
@@ -136,15 +123,13 @@ export function AppLayout() {
           addTab(selectedConnectionId ?? undefined);
           break;
         case "import":
-          if (selectedConnectionId) setShowImport(true);
+          if (selectedConnectionId) useDialogStore.getState().openDialog("import");
           break;
         case "backup":
-          setBackupPreselect({});
-          setShowBackup(true);
+          useDialogStore.getState().openDialog("backup");
           break;
         case "restore":
-          setRestorePreselect({});
-          setShowRestore(true);
+          useDialogStore.getState().openDialog("restore");
           break;
         case "undo":
           editorInstance?.trigger("menu", "undo", null);
@@ -193,8 +178,7 @@ export function AppLayout() {
           if (useAiStore.getState().aiEnabled) setAiPanelOpen((prev) => !prev);
           break;
         case "keyboard-shortcuts":
-          setHelpTab("shortcuts");
-          setShowShortcuts(true);
+          useDialogStore.getState().openHelp("shortcuts");
           break;
         case "check-for-updates":
           void useSettingsStore.getState().checkForUpdates();
@@ -205,8 +189,7 @@ export function AppLayout() {
           useThemeStore.getState().cycleTheme();
           break;
         case "about":
-          setHelpTab("about");
-          setShowShortcuts(true);
+          useDialogStore.getState().openHelp("about");
           break;
         case "quit":
           getCurrentWindow().close();
@@ -229,22 +212,15 @@ export function AppLayout() {
 
   // Listen for sidebar context menu events
   useEffect(() => {
-    const handleOpenBackup = (e: Event) => {
+    const openFromEvent = (dialog: "backup" | "restore") => (e: Event) => {
       const detail = (e as CustomEvent).detail;
-      setBackupPreselect({
+      useDialogStore.getState().openDialog(dialog, {
         connectionId: detail?.connectionId,
         database: detail?.database,
       });
-      setShowBackup(true);
     };
-    const handleOpenRestore = (e: Event) => {
-      const detail = (e as CustomEvent).detail;
-      setRestorePreselect({
-        connectionId: detail?.connectionId,
-        database: detail?.database,
-      });
-      setShowRestore(true);
-    };
+    const handleOpenBackup = openFromEvent("backup");
+    const handleOpenRestore = openFromEvent("restore");
     window.addEventListener("open-backup", handleOpenBackup);
     window.addEventListener("open-restore", handleOpenRestore);
     return () => {
@@ -310,29 +286,29 @@ export function AppLayout() {
       </div>
       <StatusBar />
       <ShortcutsDialog
-        isOpen={showShortcuts}
-        onClose={() => setShowShortcuts(false)}
+        isOpen={openDialogName === "help"}
+        onClose={closeDialog}
         initialTab={helpTab}
       />
       {selectedConnectionId && selectedConnection && (
         <ImportDialog
-          isOpen={showImport}
-          onClose={() => setShowImport(false)}
+          isOpen={openDialogName === "import"}
+          onClose={closeDialog}
           connectionId={selectedConnectionId}
           database={selectedConnection.database ?? ""}
         />
       )}
       <BackupDialog
-        isOpen={showBackup}
-        onClose={() => setShowBackup(false)}
-        preSelectedConnectionId={backupPreselect.connectionId}
-        preSelectedDatabase={backupPreselect.database}
+        isOpen={openDialogName === "backup"}
+        onClose={closeDialog}
+        preSelectedConnectionId={dialogTarget.connectionId}
+        preSelectedDatabase={dialogTarget.database}
       />
       <RestoreDialog
-        isOpen={showRestore}
-        onClose={() => setShowRestore(false)}
-        preSelectedConnectionId={restorePreselect.connectionId}
-        preSelectedDatabase={restorePreselect.database}
+        isOpen={openDialogName === "restore"}
+        onClose={closeDialog}
+        preSelectedConnectionId={dialogTarget.connectionId}
+        preSelectedDatabase={dialogTarget.database}
       />
       <HistoryQuickOpen
         isOpen={showHistoryPicker}
