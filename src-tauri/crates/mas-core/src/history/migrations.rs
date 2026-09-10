@@ -12,13 +12,14 @@ pub struct Migration {
     pub up: &'static str,
 }
 
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    v: 1,
-    name: "create_query_history",
-    // `executed_at` is ISO 8601 in UTC, stored as text. SQLite has no date
-    // type, and the string form sorts chronologically, so a range filter is a
-    // plain BETWEEN rather than a conversion per row.
-    up: "CREATE TABLE IF NOT EXISTS query_history (
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        v: 1,
+        name: "create_query_history",
+        // `executed_at` is ISO 8601 in UTC, stored as text. SQLite has no date
+        // type, and the string form sorts chronologically, so a range filter is a
+        // plain BETWEEN rather than a conversion per row.
+        up: "CREATE TABLE IF NOT EXISTS query_history (
             id TEXT PRIMARY KEY,
             sql TEXT NOT NULL,
             connection_name TEXT NOT NULL,
@@ -37,7 +38,19 @@ pub const MIGRATIONS: &[Migration] = &[Migration {
         -- order, so this index carries both.
         CREATE INDEX IF NOT EXISTS idx_query_history_executed_at
             ON query_history (executed_at DESC);",
-}];
+    },
+    Migration {
+        v: 2,
+        name: "add_origin",
+        // Defaults to 'editor' because that is the only thing that recorded
+        // history before this column existed, so every row already in the
+        // table came from there (#586).
+        up: "ALTER TABLE query_history
+                ADD COLUMN origin TEXT NOT NULL DEFAULT 'editor';
+             CREATE INDEX IF NOT EXISTS idx_query_history_origin
+                ON query_history (origin);",
+    },
+];
 
 /// Apply anything the database has not seen. Returns the migrations applied.
 pub fn run(db: &SqliteConn) -> Result<Vec<&'static str>, rusqlite::Error> {

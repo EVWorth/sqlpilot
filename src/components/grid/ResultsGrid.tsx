@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
 import { describeGridChanges, nextEditableCell } from "../../lib/grid-navigation";
+import { runStatement } from "../../lib/run-statement";
 import {
   columnTypesOf,
   generateDelete,
@@ -468,7 +469,11 @@ export function ResultsGrid() {
         }
 
         const batch = "START TRANSACTION;\n" + statements.join(";\n") + ";\nCOMMIT;";
-        const results = await api.executeQuery(connId, batch);
+        const results = await runStatement({
+          connectionId: connId,
+          sql: batch,
+          origin: "grid",
+        });
         matched = results.reduce((sum, r) => sum + Number(r.rows_affected ?? 0), 0);
       }
 

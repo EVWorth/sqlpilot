@@ -331,6 +331,17 @@ export type HistoryEntry = {
 	redacted: boolean,
 	/**  The statement was longer than [`MAX_SQL_BYTES`] and is stored cut. */
 	truncated: boolean,
+	/**
+	 *  What issued this statement — "editor", "grid", "admin", "import",
+	 *  "restore", "designer", "routine" or "internal".
+	 * 
+	 *  Only editor queries were ever recorded, so which statements appeared in
+	 *  history was an accident of which call sites had been refactored rather
+	 *  than a decision (#586). Everything is recorded now and tagged with where
+	 *  it came from, which is what makes it possible to show the user's own
+	 *  work by default without hiding the rest.
+	 */
+	origin: string,
 };
 
 /**  What an export is written as. */
@@ -353,6 +364,7 @@ export type HistoryExportFormat =
 export type HistoryFacets = {
 	connectionNames: string[],
 	databases: string[],
+	origins: string[],
 };
 
 /**
@@ -371,6 +383,8 @@ export type HistoryQuery = {
 	connectionNames: string[] | null,
 	/**  Keep only these databases. */
 	databases: string[] | null,
+	/**  Keep only these origins. Absent means every origin. */
+	origins: string[] | null,
 	/**  "success" or "error". Absent means both. */
 	status: string | null,
 	/**  ISO 8601, inclusive. Compared as text, which sorts chronologically. */

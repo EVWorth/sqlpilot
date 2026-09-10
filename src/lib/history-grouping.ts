@@ -37,6 +37,7 @@ export function groupConsecutive(entries: HistoryEntry[]): HistoryGroup[] {
       && last.entry.connectionName === entry.connectionName
       && last.entry.database === entry.database
       && last.entry.status === entry.status
+      && last.entry.origin === entry.origin
     ) {
       last.runs.push(entry);
       continue;

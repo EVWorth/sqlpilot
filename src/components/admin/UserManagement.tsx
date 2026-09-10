@@ -15,6 +15,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { runStatement } from "../../lib/run-statement";
 import { quoteIdentifier, quoteStringLiteral } from "../../lib/sql-quote";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
@@ -60,10 +61,12 @@ export function UserManagement({ connectionId }: UserManagementProps) {
   const fetchUsers = useCallback(async () => {
     let degraded = false;
     try {
-      const results = await api.executeQuery(
+      const results = await runStatement({
         connectionId,
-        "SELECT User, Host, account_locked, password_expired, password_last_changed FROM mysql.user ORDER BY User, Host",
-      );
+        sql:
+          "SELECT User, Host, account_locked, password_expired, password_last_changed FROM mysql.user ORDER BY User, Host",
+        origin: "internal",
+      });
       if (results.length > 0 && results[0].rows.length > 0) {
         setUsers(
           results[0].rows.map((row) => ({
@@ -88,10 +91,11 @@ export function UserManagement({ connectionId }: UserManagementProps) {
       degraded = true;
     }
     try {
-      const results = await api.executeQuery(
+      const results = await runStatement({
         connectionId,
-        "SELECT DISTINCT User, Host FROM mysql.user ORDER BY User, Host",
-      );
+        sql: "SELECT DISTINCT User, Host FROM mysql.user ORDER BY User, Host",
+        origin: "internal",
+      });
       if (results.length > 0) {
         setUsers(
           results[0].rows.map((row) => ({
@@ -135,7 +139,7 @@ export function UserManagement({ connectionId }: UserManagementProps) {
       }))
     ) return;
     try {
-      await api.executeQuery(connectionId, sql);
+      await runStatement({ connectionId, sql, origin: "admin" });
       setSelectedUser(null);
       setConfirmDrop(false);
       handleRefresh();
@@ -650,10 +654,11 @@ function PrivilegesEditor({
     setLoading(true);
     setError(null);
     try {
-      const results = await api.executeQuery(
+      const results = await runStatement({
         connectionId,
-        `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
-      );
+        sql: `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
+        origin: "internal",
+      });
       if (results.length > 0) {
         const rawGrants = results[0].rows.map((row) => String(row[0] ?? ""));
         const parsed = parseGrantStatements(rawGrants);
@@ -870,7 +875,7 @@ function PrivilegesEditor({
     let failureReport: string | null = null;
     try {
       for (const sql of statements) {
-        await api.executeQuery(connectionId, sql);
+        await runStatement({ connectionId, sql, origin: "admin" });
         applied.push(sql);
       }
       setSuccessMsg(

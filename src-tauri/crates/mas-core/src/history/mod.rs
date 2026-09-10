@@ -56,6 +56,15 @@ pub struct HistoryEntry {
     pub redacted: bool,
     /// The statement was longer than [`MAX_SQL_BYTES`] and is stored cut.
     pub truncated: bool,
+    /// What issued this statement — "editor", "grid", "admin", "import",
+    /// "restore", "designer", "routine" or "internal".
+    ///
+    /// Only editor queries were ever recorded, so which statements appeared in
+    /// history was an accident of which call sites had been refactored rather
+    /// than a decision (#586). Everything is recorded now and tagged with where
+    /// it came from, which is what makes it possible to show the user's own
+    /// work by default without hiding the rest.
+    pub origin: String,
 }
 
 /// How to sort a history listing.
@@ -89,6 +98,8 @@ pub struct HistoryQuery {
     pub connection_names: Option<Vec<String>>,
     /// Keep only these databases.
     pub databases: Option<Vec<String>>,
+    /// Keep only these origins. Absent means every origin.
+    pub origins: Option<Vec<String>>,
     /// "success" or "error". Absent means both.
     pub status: Option<String>,
     /// ISO 8601, inclusive. Compared as text, which sorts chronologically.
@@ -112,6 +123,7 @@ pub struct HistoryQuery {
 pub struct HistoryFacets {
     pub connection_names: Vec<String>,
     pub databases: Vec<String>,
+    pub origins: Vec<String>,
 }
 
 pub struct HistoryStore {
@@ -161,8 +173,9 @@ impl HistoryStore {
         db.execute(
             "INSERT INTO query_history (
                 id, sql, connection_name, database, executed_at, execution_time_ms,
-                row_count, status, error, error_code, error_sql_state, redacted, truncated
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                row_count, status, error, error_code, error_sql_state, redacted, truncated,
+                origin
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
             params![
                 stored.id,
                 stored.sql,
@@ -177,6 +190,7 @@ impl HistoryStore {
                 stored.error_sql_state,
                 stored.redacted as i64,
                 stored.truncated as i64,
+                stored.origin,
             ],
         )?;
 
@@ -190,7 +204,8 @@ impl HistoryStore {
 
         let sql = format!(
             "SELECT id, sql, connection_name, database, executed_at, execution_time_ms,
-                    row_count, status, error, error_code, error_sql_state, redacted, truncated
+                    row_count, status, error, error_code, error_sql_state, redacted, truncated,
+                    origin
              FROM query_history {where_clause}
              ORDER BY {}
              LIMIT {} OFFSET {}",
@@ -236,9 +251,13 @@ impl HistoryStore {
         )?;
         let databases: rusqlite::Result<Vec<String>> = stmt.query_map([], |r| r.get(0))?.collect();
 
+        let mut stmt = db.prepare("SELECT DISTINCT origin FROM query_history ORDER BY origin")?;
+        let origins: rusqlite::Result<Vec<String>> = stmt.query_map([], |r| r.get(0))?.collect();
+
         Ok(HistoryFacets {
             connection_names: connection_names?,
             databases: databases?,
+            origins: origins?,
         })
     }
 
@@ -298,8 +317,9 @@ impl HistoryStore {
             let changed = tx.execute(
                 "INSERT OR IGNORE INTO query_history (
                     id, sql, connection_name, database, executed_at, execution_time_ms,
-                    row_count, status, error, error_code, error_sql_state, redacted, truncated
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    row_count, status, error, error_code, error_sql_state, redacted, truncated,
+                    origin
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
                 params![
                     stored.id,
                     stored.sql,
@@ -314,6 +334,7 @@ impl HistoryStore {
                     stored.error_sql_state,
                     stored.redacted as i64,
                     stored.truncated as i64,
+                    stored.origin,
                 ],
             )?;
             imported += changed;
@@ -361,6 +382,16 @@ fn build_filter(query: &HistoryQuery) -> (String, Vec<Box<dyn rusqlite::ToSql>>)
         ));
         for database in databases {
             args.push(Box::new(database.clone()));
+        }
+    }
+
+    if let Some(origins) = query.origins.as_ref().filter(|o| !o.is_empty()) {
+        clauses.push(format!(
+            "origin IN ({})",
+            placeholders(args.len(), origins.len())
+        ));
+        for origin in origins {
+            args.push(Box::new(origin.clone()));
         }
     }
 
@@ -513,6 +544,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<HistoryEntry> {
         error_sql_state: row.get(10)?,
         redacted: row.get::<_, i64>(11)? != 0,
         truncated: row.get::<_, i64>(12)? != 0,
+        origin: row.get(13)?,
     })
 }
 

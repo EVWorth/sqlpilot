@@ -1,7 +1,7 @@
 import { Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useState } from "react";
+import { runStatement } from "../../lib/run-statement";
 import { quoteStringLiteral } from "../../lib/sql-quote";
-import { api } from "../../lib/tauri-api";
 
 interface Props {
   isOpen: boolean;
@@ -36,7 +36,7 @@ export function ChangePasswordDialog({
       const sql = `ALTER USER ${quoteStringLiteral(user)}@${quoteStringLiteral(host)} IDENTIFIED BY ${
         quoteStringLiteral(password)
       }`;
-      await api.executeQuery(connectionId, sql);
+      await runStatement({ connectionId, sql, origin: "admin" });
       onClose();
     } catch (e) {
       setError(String(e));

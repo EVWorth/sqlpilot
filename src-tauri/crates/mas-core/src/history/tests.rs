@@ -15,6 +15,7 @@ fn entry(id: &str, sql: &str, executed_at: &str) -> HistoryEntry {
         error_sql_state: None,
         redacted: false,
         truncated: false,
+        origin: "editor".to_string(),
     }
 }
 
@@ -839,4 +840,101 @@ fn an_entry_exactly_at_the_cutoff_is_kept() {
 #[test]
 fn pruning_an_empty_history_by_age_is_not_an_error() {
     assert_eq!(store().prune_older_than("2026-01-01T00:00:00Z").unwrap(), 0);
+}
+
+// ====== ORIGIN (#586) ======
+
+#[test]
+fn an_origin_round_trips() {
+    let s = store();
+    s.add(
+        &HistoryEntry {
+            origin: "grid".into(),
+            ..entry("g", "UPDATE t SET a = 1", "2026-01-01T00:00:00Z")
+        },
+        500,
+    )
+    .unwrap();
+
+    assert_eq!(s.list(&HistoryQuery::default()).unwrap()[0].origin, "grid");
+}
+
+#[test]
+fn filters_by_origin() {
+    let s = store();
+    for (id, origin) in [("e", "editor"), ("g", "grid"), ("i", "import")] {
+        s.add(
+            &HistoryEntry {
+                origin: origin.into(),
+                ..entry(id, "SELECT 1", "2026-01-01T00:00:00Z")
+            },
+            500,
+        )
+        .unwrap();
+    }
+
+    let found = ids(
+        &s,
+        HistoryQuery {
+            origins: Some(vec!["editor".into(), "grid".into()]),
+            ..Default::default()
+        },
+    );
+
+    assert_eq!(found.len(), 2);
+    assert!(!found.contains(&"i".to_string()));
+}
+
+#[test]
+fn an_empty_origin_list_is_not_a_filter() {
+    let s = store();
+    s.add(&entry("a", "SELECT 1", "2026-01-01T00:00:00Z"), 500)
+        .unwrap();
+
+    let found = ids(
+        &s,
+        HistoryQuery {
+            origins: Some(vec![]),
+            ..Default::default()
+        },
+    );
+    assert_eq!(found.len(), 1);
+}
+
+#[test]
+fn facets_list_the_origins_present() {
+    let s = store();
+    for (id, origin) in [("a", "editor"), ("b", "grid"), ("c", "grid")] {
+        s.add(
+            &HistoryEntry {
+                origin: origin.into(),
+                ..entry(id, "SELECT 1", "2026-01-01T00:00:00Z")
+            },
+            500,
+        )
+        .unwrap();
+    }
+
+    assert_eq!(s.facets().unwrap().origins, vec!["editor", "grid"]);
+}
+
+#[test]
+fn a_row_written_before_the_column_existed_reads_as_editor() {
+    // The migration defaults to 'editor' because that is the only thing that
+    // recorded history before the column existed.
+    let s = store();
+    {
+        let db = s.db.lock().unwrap();
+        db.execute(
+            "INSERT INTO query_history (id, sql, connection_name, executed_at, status)
+             VALUES ('old', 'SELECT 1', 'prod', '2026-01-01T00:00:00Z', 'success')",
+            [],
+        )
+        .unwrap();
+    }
+
+    assert_eq!(
+        s.list(&HistoryQuery::default()).unwrap()[0].origin,
+        "editor"
+    );
 }

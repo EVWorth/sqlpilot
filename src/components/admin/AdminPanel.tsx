@@ -14,6 +14,7 @@ import {
   Users,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { runStatement } from "../../lib/run-statement";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import type { ProcessInfo, ServerVariable } from "../../types";
@@ -640,7 +641,13 @@ function ServerStatusTab({ connectionId }: { connectionId: string }) {
 
   const fetchStatus = useCallback(async () => {
     try {
-      const results = await api.executeQuery(connectionId, "SHOW GLOBAL STATUS");
+      const results = await runStatement({
+        connectionId,
+        sql: "SHOW GLOBAL STATUS",
+        // A read the app makes on the user's behalf. Recorded so it can be
+        // found when something looks odd, hidden unless asked for (#586).
+        origin: "internal",
+      });
       if (results.length > 0) {
         const rows = results[0].rows.map((row) => ({
           name: String(row[0] ?? ""),

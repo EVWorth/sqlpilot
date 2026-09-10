@@ -9,8 +9,8 @@ vi.mock("../../../stores/historyStore", () => ({
   HISTORY_MAX_AGE_DAYS: [0, 7, 30, 90, 365],
   DEFAULT_HISTORY_MAX_AGE_DAYS: 0,
   // The real predicate: mocking it would let the panel's use of it drift.
-  hasActiveFilters: (f: { connectionNames: string[]; status: string }) =>
-    f.connectionNames.length > 0 || f.status !== "",
+  hasActiveFilters: (f: { connectionNames: string[]; status: string; includeAppOrigins?: boolean }) =>
+    f.connectionNames.length > 0 || f.status !== "" || Boolean(f.includeAppOrigins),
 }));
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -95,9 +95,15 @@ const NO_FILTERS = {
   executedBefore: "",
   minDurationMs: null as number | null,
   sort: "recent" as const,
+  origins: [] as string[],
+  includeAppOrigins: false,
 };
 let mockFilters = { ...NO_FILTERS };
-let mockFacets = { connectionNames: [] as string[], databases: [] as string[] };
+let mockFacets = {
+  connectionNames: [] as string[],
+  databases: [] as string[],
+  origins: [] as string[],
+};
 let mockMatchCount = 0;
 
 function storeExtras() {
@@ -163,7 +169,7 @@ describe("QueryHistory", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockFilters = { ...NO_FILTERS };
-    mockFacets = { connectionNames: [], databases: [] };
+    mockFacets = { connectionNames: [], databases: [], origins: [] };
     mockMatchCount = 0;
     mockLoad.mockResolvedValue(undefined);
     mockSetFilters.mockResolvedValue(undefined);
@@ -691,6 +697,31 @@ describe("QueryHistory", () => {
     it("marks nothing when every row is distinct", () => {
       render(<QueryHistory />);
       expect(screen.queryByText(/^×/)).not.toBeInTheDocument();
+    });
+  });
+
+  describe("statement origin (#586)", () => {
+    it("offers to include what the app ran, off by default", () => {
+      render(<QueryHistory />);
+      fireEvent.click(screen.getByTitle("Filters"));
+
+      const toggle = screen.getByLabelText(/Include imports, restores/);
+      expect(toggle).not.toBeChecked();
+
+      fireEvent.click(toggle);
+      expect(mockSetFilters).toHaveBeenCalledWith({ includeAppOrigins: true });
+    });
+
+    it("badges an entry the app issued", () => {
+      mockEntries = [{ ...baseEntries[0], origin: "grid" }];
+      render(<QueryHistory />);
+      expect(screen.getByText("grid")).toBeInTheDocument();
+    });
+
+    it("does not badge an ordinary editor query", () => {
+      mockEntries = [{ ...baseEntries[0], origin: "editor" }];
+      render(<QueryHistory />);
+      expect(screen.queryByText("editor")).not.toBeInTheDocument();
     });
   });
 });
