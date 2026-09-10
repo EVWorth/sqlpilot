@@ -81,9 +81,37 @@ interface FavoritesState {
   addCategory: (name: string) => void;
   deleteCategory: (name: string) => void;
 
+  exportFavorites: () => string;
+  importFavorites: (json: string) => ImportResult;
+
   getByCategory: (category: string) => Favorite[];
   findDuplicate: (name: string, category: string, exceptId?: string) => Favorite | undefined;
   searchFavorites: (query: string) => Favorite[];
+}
+
+/**
+ * The shape written by {@link FavoritesState.exportFavorites}.
+ *
+ * Versioned from the start. A file people are told to keep and share will
+ * outlive the shape that wrote it, and a reader that cannot tell which
+ * version it has is left guessing (#335).
+ */
+export interface FavoritesExport {
+  kind: "sqlpilot-favorites";
+  version: 1;
+  exportedAt: string;
+  categories: string[];
+  favorites: Favorite[];
+}
+
+export interface ImportResult {
+  imported: number;
+  /** Already present under the same name and category. */
+  skipped: number;
+  /** Entries that were not favorites at all. */
+  invalid: number;
+  /** Set when the file could not be read as an export. */
+  error?: string;
 }
 
 let idCounter = 0;
@@ -232,6 +260,104 @@ export const useFavoritesStore = create<FavoritesState>()(
             favorites: state.favorites.map((f) => byId.get(f.id) ?? f),
           };
         }),
+
+      exportFavorites: () => {
+        const { favorites, categories } = get();
+        const payload: FavoritesExport = {
+          kind: "sqlpilot-favorites",
+          version: 1,
+          exportedAt: new Date().toISOString(),
+          categories,
+          favorites,
+        };
+        return JSON.stringify(payload, null, 2);
+      },
+
+      /**
+       * Merge a file in, rather than replacing what is here.
+       *
+       * Ids are regenerated: they are per-install counters, so a file from
+       * someone else's machine could collide with a local one. Identity for
+       * merging is name-and-category, which is what the store already refuses
+       * to duplicate — so importing the same file twice imports nothing the
+       * second time.
+       */
+      importFavorites: (json) => {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(json);
+        } catch {
+          return { imported: 0, skipped: 0, invalid: 0, error: "That file is not JSON." };
+        }
+
+        const payload = parsed as Partial<FavoritesExport>;
+        if (payload?.kind !== "sqlpilot-favorites" || !Array.isArray(payload.favorites)) {
+          return {
+            imported: 0,
+            skipped: 0,
+            invalid: 0,
+            error: "That file is not a SQLPilot favorites export.",
+          };
+        }
+
+        let imported = 0;
+        let skipped = 0;
+        let invalid = 0;
+        const now = new Date().toISOString();
+
+        set((state) => {
+          const favorites = [...state.favorites];
+          const categories = [...state.categories];
+
+          for (const raw of payload.favorites ?? []) {
+            const name = typeof raw?.name === "string" ? raw.name.trim() : "";
+            const sql = typeof raw?.sql === "string" ? raw.sql : "";
+            if (!name || !sql) {
+              invalid++;
+              continue;
+            }
+            const category = typeof raw?.category === "string" && raw.category.trim()
+              ? raw.category
+              : "Uncategorized";
+
+            if (findDuplicate(favorites, name, category)) {
+              skipped++;
+              continue;
+            }
+
+            // An export written before #339 can carry a credential.
+            const scrubbed = scrub(sql);
+            favorites.unshift({
+              id: generateId(),
+              name,
+              sql: scrubbed.sql,
+              category,
+              description: typeof raw?.description === "string" ? raw.description : undefined,
+              connectionName: typeof raw?.connectionName === "string"
+                ? raw.connectionName
+                : undefined,
+              database: typeof raw?.database === "string" ? raw.database : undefined,
+              createdAt: typeof raw?.createdAt === "string" ? raw.createdAt : now,
+              updatedAt: now,
+              ...(scrubbed.redacted ? { redacted: true } : {}),
+            });
+            if (!categories.includes(category)) categories.push(category);
+            imported++;
+          }
+
+          // Empty categories carry across too: someone who organised their
+          // library before filling it should get the shelves as well.
+          for (const category of payload.categories ?? []) {
+            if (typeof category === "string" && category && !categories.includes(category)) {
+              categories.push(category);
+            }
+          }
+
+          return { favorites, categories };
+        });
+
+        return { imported, skipped, invalid };
+      },
 
       getByCategory: (category) => get().favorites.filter((f) => f.category === category),
 

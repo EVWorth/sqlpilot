@@ -592,12 +592,12 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 #### FR-9.2: Favorites
 
-| ID       | Requirement             | Acceptance Criteria                                                                       |
-| -------- | ----------------------- | ----------------------------------------------------------------------------------------- |
-| FR-9.2.1 | Bookmark queries        | Save a query as a favorite with a custom name and optional description                    |
-| FR-9.2.2 | Organize in folders     | Create hierarchical folders to organize favorites; drag-and-drop reordering               |
-| FR-9.2.3 | Quick access            | Favorites panel in sidebar; keyboard shortcut to open favorites search                    |
-| FR-9.2.4 | Import/Export favorites | Export favorites as JSON file; import from the same format; merge with existing favorites |
+| ID       | Requirement             | Acceptance Criteria                                                                                                                                                                                                                                          |
+| -------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| FR-9.2.1 | Bookmark queries        | Save a query as a favorite with a custom name and optional description                                                                                                                                                                                       |
+| FR-9.2.2 | Organize in folders     | Create hierarchical folders to organize favorites; drag-and-drop reordering                                                                                                                                                                                  |
+| FR-9.2.3 | Quick access            | Favorites panel in sidebar; keyboard shortcut to open favorites search                                                                                                                                                                                       |
+| FR-9.2.4 | Import/Export favorites | Export as a versioned JSON file; import merges rather than replacing. Identity for merging is name-and-category, so importing the same file twice imports nothing the second time. Credentials are stripped from an import written before that rule existed. |
 
 ---
 

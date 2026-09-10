@@ -457,4 +457,152 @@ describe("favoritesStore", () => {
       expect(useFavoritesStore.getState().favorites[0].sql).toBe("SELECT 'kept'");
     });
   });
+
+  describe("export and import (#335)", () => {
+    const base = { category: "Uncategorized", sql: "SELECT 1" };
+
+    /** A file this build would write. */
+    function exportOf(favorites: unknown[], categories: string[] = ["Uncategorized"]) {
+      return JSON.stringify({
+        kind: "sqlpilot-favorites",
+        version: 1,
+        exportedAt: "2026-01-01T00:00:00Z",
+        categories,
+        favorites,
+      });
+    }
+
+    it("exports what is there, in a shape it can read back", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Active users" });
+
+      const parsed = JSON.parse(store.exportFavorites());
+
+      expect(parsed.kind).toBe("sqlpilot-favorites");
+      expect(parsed.version).toBe(1);
+      expect(parsed.favorites).toHaveLength(1);
+      expect(parsed.favorites[0].name).toBe("Active users");
+    });
+
+    it("round-trips through an empty store", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Active users", description: "who is on" });
+      const file = store.exportFavorites();
+
+      store.deleteFavorite(useFavoritesStore.getState().favorites[0].id);
+      const result = store.importFavorites(file);
+
+      expect(result.imported).toBe(1);
+      const [restored] = useFavoritesStore.getState().favorites;
+      expect(restored.name).toBe("Active users");
+      expect(restored.description).toBe("who is on");
+    });
+
+    it("merges rather than replacing", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Mine" });
+
+      store.importFavorites(exportOf([{ name: "Theirs", sql: "SELECT 2", category: "Uncategorized" }]));
+
+      const names = useFavoritesStore.getState().favorites.map((f) => f.name).sort();
+      expect(names).toEqual(["Mine", "Theirs"]);
+    });
+
+    it("importing the same file twice imports nothing the second time", () => {
+      const store = useFavoritesStore.getState();
+      const file = exportOf([{ name: "Active users", sql: "SELECT 1", category: "Uncategorized" }]);
+
+      expect(store.importFavorites(file).imported).toBe(1);
+      const second = store.importFavorites(file);
+
+      expect(second.imported).toBe(0);
+      expect(second.skipped).toBe(1);
+      expect(useFavoritesStore.getState().favorites).toHaveLength(1);
+    });
+
+    it("gives an imported favorite a fresh id", () => {
+      // Ids are per-install counters, so a file from someone else's machine
+      // could collide with a local one.
+      const store = useFavoritesStore.getState();
+      store.importFavorites(
+        exportOf([{ id: "fav-1-1", name: "Theirs", sql: "SELECT 1", category: "Uncategorized" }]),
+      );
+
+      expect(useFavoritesStore.getState().favorites[0].id).not.toBe("fav-1-1");
+    });
+
+    it("brings across categories that hold nothing yet", () => {
+      const store = useFavoritesStore.getState();
+      store.importFavorites(exportOf([], ["Uncategorized", "Reports"]));
+
+      expect(useFavoritesStore.getState().categories).toContain("Reports");
+    });
+
+    it("creates a category an imported favorite needs", () => {
+      const store = useFavoritesStore.getState();
+      store.importFavorites(exportOf([{ name: "Daily", sql: "SELECT 1", category: "Reports" }]));
+
+      expect(useFavoritesStore.getState().categories).toContain("Reports");
+    });
+
+    it("strips a credential from an export written before #339", () => {
+      const store = useFavoritesStore.getState();
+      store.importFavorites(
+        exportOf([{
+          name: "Reset",
+          sql: "CREATE USER 'a'@'%' IDENTIFIED BY 's3cret'",
+          category: "Uncategorized",
+        }]),
+      );
+
+      const [imported] = useFavoritesStore.getState().favorites;
+      expect(imported.sql).not.toContain("s3cret");
+      expect(imported.redacted).toBe(true);
+    });
+
+    it("counts entries it could not read rather than dropping them silently", () => {
+      const store = useFavoritesStore.getState();
+      const result = store.importFavorites(
+        exportOf([
+          { name: "Good", sql: "SELECT 1", category: "Uncategorized" },
+          { name: "", sql: "SELECT 2" },
+          { name: "No SQL" },
+        ]),
+      );
+
+      expect(result).toMatchObject({ imported: 1, invalid: 2 });
+    });
+
+    it("defaults a missing category rather than refusing the favorite", () => {
+      const store = useFavoritesStore.getState();
+      store.importFavorites(exportOf([{ name: "Loose", sql: "SELECT 1" }]));
+
+      expect(useFavoritesStore.getState().favorites[0].category).toBe("Uncategorized");
+    });
+
+    it("refuses something that is not JSON", () => {
+      const result = useFavoritesStore.getState().importFavorites("{ not json");
+      expect(result.error).toContain("not JSON");
+      expect(result.imported).toBe(0);
+    });
+
+    it("refuses JSON that is not a favorites export", () => {
+      // Someone will pick the wrong file. Saying so beats importing nothing
+      // and reporting success.
+      const result = useFavoritesStore.getState().importFavorites(
+        JSON.stringify({ some: "other file" }),
+      );
+
+      expect(result.error).toContain("not a SQLPilot favorites export");
+    });
+
+    it("changes nothing when the file is refused", () => {
+      const store = useFavoritesStore.getState();
+      store.addFavorite({ ...base, name: "Mine" });
+
+      store.importFavorites("{ not json");
+
+      expect(useFavoritesStore.getState().favorites).toHaveLength(1);
+    });
+  });
 });
