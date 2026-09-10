@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactCredentials, REDACTION } from "../sql-redact";
+import { redactCredentials, REDACTION, redactLiterals } from "../sql-redact";
 
 /** Assert the secret is gone and the statement still reads as itself. */
 function expectRedacted(sql: string, secret: string) {
@@ -170,5 +170,58 @@ describe("redactCredentials", () => {
     const original = "CREATE USER 'a'@'%' IDENTIFIED BY 'pw'";
     redactCredentials(original);
     expect(original).toBe("CREATE USER 'a'@'%' IDENTIFIED BY 'pw'");
+  });
+});
+
+describe("redactLiterals (#330)", () => {
+  it("blanks a string literal", () => {
+    const { sql, redacted } = redactLiterals(
+      "SELECT * FROM users WHERE email = 'alice@example.com'",
+    );
+    expect(redacted).toBe(true);
+    expect(sql).toBe(`SELECT * FROM users WHERE email = ${REDACTION}`);
+  });
+
+  it("blanks a numeric literal", () => {
+    // An account id or a salary is as identifying as an email.
+    const { sql } = redactLiterals("SELECT * FROM accounts WHERE id = 90210");
+    expect(sql).not.toContain("90210");
+  });
+
+  it("keeps table and column names readable", () => {
+    // An entry whose identifiers were also blanked would be unreadable rather
+    // than merely unrunnable, which defeats the point of keeping it.
+    const { sql } = redactLiterals("SELECT `email` FROM `users` WHERE id = 1");
+    expect(sql).toContain("`email`");
+    expect(sql).toContain("`users`");
+  });
+
+  it("leaves LIMIT and OFFSET alone", () => {
+    // They say nothing about anyone, and losing them makes the entry harder
+    // to read for no gain.
+    const { sql } = redactLiterals("SELECT * FROM t WHERE id = 5 LIMIT 100 OFFSET 20");
+    expect(sql).toContain("LIMIT 100");
+    expect(sql).toContain("OFFSET 20");
+    expect(sql).not.toContain("= 5");
+  });
+
+  it("does not touch a number inside an identifier", () => {
+    const { sql } = redactLiterals("SELECT col2 FROM t1");
+    expect(sql).toBe("SELECT col2 FROM t1");
+  });
+
+  it("reports nothing redacted for a statement with no literals", () => {
+    expect(redactLiterals("SHOW GRANTS")).toEqual({ sql: "SHOW GRANTS", redacted: false });
+  });
+
+  it("blanks a credential too, so it is never the weaker option", () => {
+    const { sql } = redactLiterals("CREATE USER 'a'@'%' IDENTIFIED BY 's3cret'");
+    expect(sql).not.toContain("s3cret");
+  });
+
+  it("does not alter the statement that runs", () => {
+    const original = "SELECT * FROM t WHERE a = 'x'";
+    redactLiterals(original);
+    expect(original).toBe("SELECT * FROM t WHERE a = 'x'");
   });
 });

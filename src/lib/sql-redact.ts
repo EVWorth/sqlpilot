@@ -126,6 +126,55 @@ function findLiterals(sql: string): Literal[] {
 }
 
 /**
+ * Replace *every* string and numeric literal, not only credential ones.
+ *
+ * For shared or regulated machines: history is a file on disk for the life of
+ * the install, and `SELECT * FROM patients WHERE nhs_number = '...'` sits in
+ * it (#330). Redaction happens on the way into storage, so the plaintext is
+ * never written; the statement that runs is untouched.
+ *
+ * Off by default, and it should be. A redacted entry cannot be rerun and is
+ * much harder to read, which is most of what history is for — DBeaver and
+ * DataGrip both store literals as typed. This is for people who have a reason
+ * to give that up, not a default anyone should be opted into.
+ *
+ * Identifiers are left alone: backtick-quoted names are not literals, and a
+ * statement whose table and column names were also blanked would be unreadable
+ * rather than merely unrunnable.
+ */
+export function redactLiterals(sql: string): RedactionResult {
+  const literals = findLiterals(sql);
+  let out = "";
+  let cursor = 0;
+  let redacted = false;
+
+  for (const lit of literals) {
+    out += sql.slice(cursor, lit.start);
+    cursor = lit.end;
+    out += REDACTION;
+    redacted = true;
+  }
+  out += sql.slice(cursor);
+
+  // Numbers carry just as much as strings — an account id, a salary, a date.
+  // Bare digits only: this must not touch a number inside an identifier
+  // (`col2`), inside an already-redacted marker, or a LIMIT/OFFSET, which say
+  // nothing about anyone and whose loss makes the entry harder to read for
+  // nothing.
+  const withNumbers = out.replace(
+    /(^|[^\w.])(\d+(?:\.\d+)?)(?![\w.])/g,
+    (match, before: string, _digits: string, offset: number) => {
+      const preceding = out.slice(Math.max(0, offset - 24), offset + before.length);
+      if (/\b(LIMIT|OFFSET|TOP)\s*$/i.test(preceding)) return match;
+      return `${before}${REDACTION}`;
+    },
+  );
+  if (withNumbers !== out) redacted = true;
+
+  return { sql: withNumbers, redacted };
+}
+
+/**
  * Replace credential literals in `sql` with {@link REDACTION}.
  *
  * The result is deliberately not runnable where a literal was removed. A

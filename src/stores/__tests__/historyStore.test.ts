@@ -88,6 +88,7 @@ describe("historyStore", () => {
       loading: true,
       error: null,
       maxAgeDays: DEFAULT_HISTORY_MAX_AGE_DAYS,
+      redactLiterals: false,
     });
   });
 
@@ -538,6 +539,61 @@ describe("historyStore", () => {
 
       const [[imported]] = historyImport.mock.calls;
       expect(imported[0].origin).toBe("editor");
+    });
+  });
+
+  describe("value redaction (#330)", () => {
+    it("is off by default, so entries stay readable and rerunnable", () => {
+      expect(useHistoryStore.getState().redactLiterals).toBe(false);
+    });
+
+    it("stores values as typed while it is off", async () => {
+      await useHistoryStore.getState().addEntry(
+        newEntry({ sql: "SELECT * FROM users WHERE email = 'alice@example.com'" }),
+      );
+
+      const [sent] = historyAdd.mock.calls[0];
+      expect(sent.sql).toContain("alice@example.com");
+    });
+
+    it("blanks values once it is on", async () => {
+      useHistoryStore.getState().setRedactLiterals(true);
+
+      await useHistoryStore.getState().addEntry(
+        newEntry({ sql: "SELECT * FROM users WHERE email = 'alice@example.com'" }),
+      );
+
+      const [sent] = historyAdd.mock.calls[0];
+      expect(sent.sql).not.toContain("alice@example.com");
+      expect(sent.redacted).toBe(true);
+    });
+
+    it("still blanks credentials while it is off", async () => {
+      // The credential rule is not a preference and must not become one.
+      await useHistoryStore.getState().addEntry(
+        newEntry({ sql: "CREATE USER 'a'@'%' IDENTIFIED BY 's3cret'" }),
+      );
+
+      const [sent] = historyAdd.mock.calls[0];
+      expect(sent.sql).not.toContain("s3cret");
+    });
+
+    it("is not retroactive", async () => {
+      // The literals in stored entries are gone from nowhere else; blanking
+      // them now would destroy history kept under the old setting.
+      useHistoryStore.setState({ entries: [entry({ sql: "SELECT 'kept'" })] });
+
+      useHistoryStore.getState().setRedactLiterals(true);
+
+      expect(useHistoryStore.getState().entries[0].sql).toBe("SELECT 'kept'");
+    });
+
+    it("remembers the choice across a reload", async () => {
+      useHistoryStore.getState().setRedactLiterals(true);
+
+      vi.resetModules();
+      const mod = await import("../historyStore");
+      expect(mod.useHistoryStore.getState().redactLiterals).toBe(true);
     });
   });
 });
