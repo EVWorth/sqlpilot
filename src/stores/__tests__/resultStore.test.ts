@@ -100,9 +100,13 @@ describe("resultStore", () => {
     });
     explainQueryMock.mockResolvedValue(makeExplainResponse());
     executeQueryMock.mockResolvedValue([]);
+    // A connection that exists is the ordinary case. Leaving the list empty
+    // modelled a state the app should not be in — executing against a
+    // connection it does not hold — and #328 turns that into "record nothing",
+    // so the default has to be realistic.
     connectionStoreState = {
-      activeConnections: [],
-      profiles: [],
+      activeConnections: [{ id: "conn-1", profile_id: "p1", name: "Test DB" }],
+      profiles: [{ id: "p1", environment: "development" }],
     };
     settingsStoreState = {
       querySettings: { limitEnabled: true, maxResultRows: 1000 },
@@ -179,7 +183,7 @@ describe("resultStore", () => {
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: "SELECT 1",
-          connectionName: "Unknown",
+          connectionName: "Test DB",
           status: "success",
         }),
       );
@@ -754,6 +758,43 @@ describe("resultStore", () => {
 
       // Results should be empty since the query was cancelled
       expect(useResultStore.getState().results).toEqual([]);
+    });
+  });
+
+  describe("an execution with no live connection (#328)", () => {
+    it("records nothing when the failed query never had a connection", async () => {
+      connectionStoreState.activeConnections = [];
+      executeQueryMock.mockRejectedValue(new Error("connection not found"));
+
+      await useResultStore.getState().executeQuery("gone", "SELECT 1");
+
+      // Fifty rows saying "Unknown connection" are fifty rows nobody can act
+      // on or trace back to anything.
+      expect(addEntryMock).not.toHaveBeenCalled();
+      expect(useResultStore.getState().error).toContain("connection not found");
+    });
+
+    it("still records a query that succeeded, even unattributed", async () => {
+      // The statement ran. Dropping the record because the frontend's
+      // connection list is out of step would lose a real event.
+      connectionStoreState.activeConnections = [];
+      executeQueryMock.mockResolvedValue([{ columns: [], rows: [] }]);
+
+      await useResultStore.getState().executeQuery("gone", "SELECT 1");
+
+      expect(addEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "success", connectionName: "Unknown connection" }),
+      );
+    });
+
+    it("records a failure normally when the connection is there", async () => {
+      executeQueryMock.mockRejectedValue(new Error("syntax error"));
+
+      await useResultStore.getState().executeQuery("conn-1", "BAD SQL");
+
+      expect(addEntryMock).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "error", connectionName: "Test DB" }),
+      );
     });
   });
 });

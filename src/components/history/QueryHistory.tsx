@@ -1,6 +1,19 @@
-import { CheckCircle, Clock, Download, Search, SlidersHorizontal, Trash2, X, XCircle } from "lucide-react";
+import {
+  CheckCircle,
+  Clock,
+  Download,
+  FileText,
+  Play,
+  Search,
+  SlidersHorizontal,
+  Trash2,
+  X,
+  XCircle,
+} from "lucide-react";
 import { useEffect, useState } from "react";
+import { useContextMenu } from "../../hooks/useContextMenu";
 import { api } from "../../lib/tauri-api";
+import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import {
   hasActiveFilters,
@@ -10,6 +23,7 @@ import {
   type HistorySort,
   useHistoryStore,
 } from "../../stores/historyStore";
+import { useResultStore } from "../../stores/resultStore";
 
 function formatRelativeTime(isoDate: string): string {
   const diff = Date.now() - new Date(isoDate).getTime();
@@ -75,6 +89,7 @@ export function QueryHistory() {
   const exportMatching = useHistoryStore((s) => s.exportMatching);
   const load = useHistoryStore((s) => s.load);
 
+  const { contextMenu, showContextMenu } = useContextMenu();
   const [showFilters, setShowFilters] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -92,15 +107,58 @@ export function QueryHistory() {
 
   // Filtering is a WHERE clause now rather than an array scan, so `entries`
   // already holds only what matches.
-  const handleClick = (entry: HistoryEntry) => {
+  /** Put the statement in the active tab, opening one if there is none. */
+  const insertIntoEditor = (entry: HistoryEntry): string => {
     const store = useEditorStore.getState();
     const activeTab = store.tabs.find((t) => t.id === store.activeTabId);
     if (activeTab) {
       store.updateTabContent(activeTab.id, entry.sql);
-    } else {
-      const tabId = store.addTab();
-      store.updateTabContent(tabId, entry.sql);
+      return activeTab.id;
     }
+    const tabId = store.addTab();
+    store.updateTabContent(tabId, entry.sql);
+    return tabId;
+  };
+
+  const handleClick = (entry: HistoryEntry) => {
+    insertIntoEditor(entry);
+  };
+
+  /**
+   * The live connection this entry came from, if it is still open.
+   *
+   * Entries record the connection's name rather than its id — an id is a
+   * per-session UUID and would stop resolving the moment the app restarted,
+   * which is exactly when someone reaches for an old entry.
+   */
+  const liveConnectionFor = (entry: HistoryEntry) =>
+    useConnectionStore
+      .getState()
+      .activeConnections.find((c) => c.name === entry.connectionName);
+
+  /**
+   * Insert and run, which is the half of FR-9.1.4 that was never built (#325).
+   *
+   * Runs against the connection the entry came from, not whichever one happens
+   * to be selected: rerunning yesterday's staging query against production
+   * because the sidebar moved on is the mistake worth designing out.
+   */
+  const handleRunNow = async (entry: HistoryEntry) => {
+    const connection = liveConnectionFor(entry);
+    if (!connection) {
+      useHistoryStore.setState({
+        error: `${entry.connectionName} is not connected, so this cannot be run from here.`,
+      });
+      return;
+    }
+
+    const tabId = insertIntoEditor(entry);
+    useEditorStore.getState().setActiveTab(tabId);
+    await useResultStore.getState().executeQuery(
+      connection.id,
+      entry.sql,
+      entry.database ?? undefined,
+    );
   };
 
   const handleClear = () => {
@@ -341,6 +399,39 @@ export function QueryHistory() {
               <button
                 key={entry.id}
                 onClick={() => handleClick(entry)}
+                onContextMenu={(e) => {
+                  const live = liveConnectionFor(entry);
+                  showContextMenu(e, [
+                    {
+                      label: "Insert into editor",
+                      icon: <FileText className="h-3.5 w-3.5" />,
+                      onClick: () => handleClick(entry),
+                    },
+                    {
+                      label: live
+                        ? `Run now on ${entry.connectionName}`
+                        : "Run now",
+                      icon: <Play className="h-3.5 w-3.5" />,
+                      // A redacted entry is missing the password it needs, so
+                      // running it would fail in a way nobody could act on
+                      // (#587).
+                      disabled: !live || entry.redacted,
+                      title: entry.redacted
+                        ? "A credential was removed from this entry, so it will not run as written."
+                        : live
+                        ? undefined
+                        : `${entry.connectionName} is not connected.`,
+                      onClick: () => void handleRunNow(entry),
+                    },
+                    { label: "", separator: true as const, onClick: () => {} },
+                    {
+                      label: "Delete",
+                      icon: <Trash2 className="h-3.5 w-3.5" />,
+                      danger: true,
+                      onClick: () => void useHistoryStore.getState().removeEntry(entry.id),
+                    },
+                  ]);
+                }}
                 className="group flex w-full flex-col gap-0.5 border-b border-[var(--color-border)] px-2.5 py-2 text-left hover:bg-[var(--color-bg-tertiary)]"
               >
                 <div className="flex items-start justify-between gap-1">
@@ -403,6 +494,7 @@ export function QueryHistory() {
             ))
           )}
       </div>
+      {contextMenu}
     </div>
   );
 }

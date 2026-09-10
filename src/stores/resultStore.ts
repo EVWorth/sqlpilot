@@ -223,7 +223,10 @@ async function doExecuteQuery(
   const conn = connState.activeConnections.find(
     (c) => c.id === connectionId,
   );
-  const connectionName = conn?.name ?? "Unknown";
+  // A missing `conn` means the id is not in activeConnections at the moment
+  // the statement starts. See the two history writes below for what that
+  // means for each outcome (#328).
+  const connectionName = conn?.name ?? "Unknown connection";
   // Explicit database selection takes precedence over the connection's default
   // conn.database is `string | null` from Rust; internal state uses undefined
   const effectiveDatabase = database ?? conn?.database ?? undefined;
@@ -250,7 +253,16 @@ async function doExecuteQuery(
     set({ results, activeResultIndex: 0, isExecuting: false });
 
     const totalRows = results.reduce((sum, r) => sum + r.rows.length, 0);
-    useHistoryStore.getState().addEntry({
+    if (!conn) {
+      // The statement ran and succeeded, so it is a real record and worth
+      // keeping even unattributed — but the frontend's connection list
+      // disagreeing with the backend's is a bug in its own right, and a
+      // silent "Unknown connection" row is how it stayed invisible (#328).
+      console.warn(
+        `Recorded a successful query against ${connectionId}, which is not in activeConnections`,
+      );
+    }
+    void useHistoryStore.getState().addEntry({
       id: crypto.randomUUID(),
       sql,
       connectionName,
@@ -276,7 +288,15 @@ async function doExecuteQuery(
     // The driver's code and SQLSTATE ride along where it supplied them, so the
     // history panel can say which failure this was (#324).
     const structured = e instanceof CommandError ? e : undefined;
-    useHistoryStore.getState().addEntry({
+
+    // Nothing to remember. Without a connection the statement never reached a
+    // server, so the entry would record an attempt rather than a query — and
+    // fifty rows saying "Unknown connection" are fifty rows a user cannot act
+    // on or trace back to anything (#328).
+    // `finally` below still releases the execution slot.
+    if (!conn) return;
+
+    void useHistoryStore.getState().addEntry({
       id: crypto.randomUUID(),
       sql,
       connectionName,
