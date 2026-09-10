@@ -1,13 +1,14 @@
-import { Activity, List, Server, Shield, Users } from "lucide-react";
+import { Activity, GitBranch, List, Server, Shield, Users } from "lucide-react";
 import { useState } from "react";
 import { cn } from "../../lib/utils";
 import { ProcessListTab } from "./ProcessListTab";
+import { ReplicationTab } from "./ReplicationTab";
 import { RolesTab } from "./RolesTab";
 import { ServerStatusTab } from "./ServerStatusTab";
 import { ServerVariablesTab } from "./ServerVariablesTab";
 import { UserManagement } from "./UserManagement";
 
-type AdminSubTab = "processes" | "variables" | "status" | "users" | "roles";
+type AdminSubTab = "processes" | "variables" | "status" | "users" | "roles" | "replication";
 
 /**
  * The admin tab bar and content area, and nothing else.
@@ -35,6 +36,7 @@ export function AdminPanel({ connectionId }: AdminPanelProps) {
     { key: "status", label: "Server Status", icon: Activity },
     { key: "users", label: "Users", icon: Users },
     { key: "roles", label: "Roles", icon: Shield },
+    { key: "replication", label: "Replication", icon: GitBranch },
   ];
 
   return (
@@ -62,6 +64,7 @@ export function AdminPanel({ connectionId }: AdminPanelProps) {
         {activeSubTab === "status" && <ServerStatusTab connectionId={connectionId} />}
         {activeSubTab === "users" && <UserManagement connectionId={connectionId} />}
         {activeSubTab === "roles" && <RolesTab connectionId={connectionId} />}
+        {activeSubTab === "replication" && <ReplicationTab connectionId={connectionId} />}
       </div>
     </div>
   );
