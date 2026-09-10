@@ -479,7 +479,7 @@ export function QueryHistory() {
                         : `${entry.connectionName} is not connected.`,
                       onClick: () => void handleRunNow(entry),
                     },
-                    { label: "", separator: true as const, onClick: () => {} },
+                    { separator: true },
                     {
                       label: "Delete",
                       icon: <Trash2 className="h-3.5 w-3.5" />,

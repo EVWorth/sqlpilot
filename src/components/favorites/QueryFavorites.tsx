@@ -15,6 +15,7 @@ import { useContextMenu } from "../../hooks/useContextMenu";
 import { useEditorStore } from "../../stores/editorStore";
 import { type Favorite, useFavoritesStore } from "../../stores/favoritesStore";
 import { ConfirmDialog } from "../common/ConfirmDialog";
+import type { MenuItem } from "../common/ContextMenu";
 
 export function QueryFavorites() {
   const favorites = useFavoritesStore((s) => s.favorites);
@@ -337,12 +338,10 @@ export function QueryFavorites() {
                                 onClick: () => handleEditDescStart(fav),
                               },
                               ...(otherCategories.length > 0
+                                // Typed, or the spread widens `separator` to
+                                // boolean and stops matching the union.
                                 ? [
-                                  {
-                                    label: "",
-                                    separator: true as const,
-                                    onClick: () => {},
-                                  },
+                                  { separator: true } as MenuItem,
                                   ...otherCategories.map((c) => ({
                                     label: `Move to "${c}"`,
                                     icon: <FolderInput className="h-3.5 w-3.5" />,
@@ -350,11 +349,7 @@ export function QueryFavorites() {
                                   })),
                                 ]
                                 : []),
-                              {
-                                label: "",
-                                separator: true as const,
-                                onClick: () => {},
-                              },
+                              { separator: true },
                               {
                                 label: "Delete",
                                 icon: <Trash2 className="h-3.5 w-3.5" />,
