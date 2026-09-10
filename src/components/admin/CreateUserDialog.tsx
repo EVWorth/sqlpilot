@@ -1,8 +1,8 @@
 import { Code, Eye, EyeOff, Loader2, X } from "lucide-react";
 import { useState } from "react";
 import { authPluginsFor, buildCreateUser, SERVER_DEFAULT_PLUGIN } from "../../lib/admin/create-user";
+import { runStatement } from "../../lib/run-statement";
 import { serverFlavour } from "../../lib/server-flavour";
-import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 
 interface Props {
@@ -68,7 +68,7 @@ export function CreateUserDialog({
     setCreating(true);
     setError(null);
     try {
-      await api.executeQuery(connectionId, buildSql());
+      await runStatement({ connectionId, sql: buildSql(), origin: "admin" });
       onCreated();
       onClose();
     } catch (e) {

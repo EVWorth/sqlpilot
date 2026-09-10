@@ -1,6 +1,7 @@
 import { AlertCircle, AlertTriangle, CheckCircle2, FileText, Loader2, Table2, Upload, X } from "lucide-react";
 import { useCallback, useState } from "react";
 import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
+import { runStatement } from "../../lib/run-statement";
 import { generateBatchInsert, splitSqlStatements } from "../../lib/sql-import";
 import { isDestructiveStatement } from "../../lib/sql-safety";
 import { api } from "../../lib/tauri-api";
@@ -218,7 +219,7 @@ export function ImportDialog({
     for (let i = 0; i < statements.length; i++) {
       prog.current = i + 1;
       try {
-        await api.executeQuery(connectionId, statements[i]);
+        await runStatement({ connectionId, sql: statements[i], database, origin: "import" });
         prog.successCount++;
       } catch (e) {
         prog.errorCount++;
@@ -277,7 +278,7 @@ export function ImportDialog({
       const batchEnd = Math.min(batchStart + batchSize, totalRows);
       const batchRows = batchEnd - batchStart;
       try {
-        await api.executeQuery(connectionId, statements[i]);
+        await runStatement({ connectionId, sql: statements[i], database, origin: "import" });
         prog.successCount += batchRows;
       } catch (e) {
         prog.errorCount += batchRows;

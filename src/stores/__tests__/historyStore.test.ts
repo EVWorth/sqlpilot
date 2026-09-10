@@ -52,6 +52,7 @@ function entry(overrides: Partial<HistoryEntry> = {}): HistoryEntry {
     errorSqlState: null,
     redacted: false,
     truncated: false,
+    origin: "editor",
     ...overrides,
   };
 }
@@ -75,7 +76,7 @@ describe("historyStore", () => {
     historyPrune.mockResolvedValue(0);
     historyImport.mockResolvedValue(0);
     historyCountMatching.mockResolvedValue(0);
-    historyFacets.mockResolvedValue({ connectionNames: [], databases: [] });
+    historyFacets.mockResolvedValue({ connectionNames: [], databases: [], origins: [] });
     historyExport.mockResolvedValue("");
     historyPruneOlderThan.mockResolvedValue(0);
     useHistoryStore.setState({
@@ -83,7 +84,7 @@ describe("historyStore", () => {
       limit: DEFAULT_HISTORY_LIMIT,
       filters: { ...NO_FILTERS },
       matchCount: 0,
-      facets: { connectionNames: [], databases: [] },
+      facets: { connectionNames: [], databases: [], origins: [] },
       loading: true,
       error: null,
       maxAgeDays: DEFAULT_HISTORY_MAX_AGE_DAYS,
@@ -493,6 +494,50 @@ describe("historyStore", () => {
       vi.resetModules();
       const mod = await import("../historyStore");
       expect(mod.useHistoryStore.getState().maxAgeDays).toBe(90);
+    });
+  });
+
+  describe("statement origin (#586)", () => {
+    it("shows the user's own work by default, not imports or internal reads", async () => {
+      await useHistoryStore.getState().load();
+
+      const [query] = historyList.mock.calls.at(-1)!;
+      expect(query.origins).toEqual(
+        expect.arrayContaining(["editor", "grid", "designer", "routine", "admin"]),
+      );
+      expect(query.origins).not.toContain("import");
+      expect(query.origins).not.toContain("internal");
+    });
+
+    it("asks for everything when app origins are included", async () => {
+      await useHistoryStore.getState().setFilters({ includeAppOrigins: true });
+
+      const [query] = historyList.mock.calls.at(-1)!;
+      expect(query.origins).toBeNull();
+    });
+
+    it("an explicit pick wins over the default", async () => {
+      await useHistoryStore.getState().setFilters({ origins: ["import"] });
+
+      const [query] = historyList.mock.calls.at(-1)!;
+      expect(query.origins).toEqual(["import"]);
+    });
+
+    it("counts an origin choice as an active filter", () => {
+      expect(hasActiveFilters({ ...NO_FILTERS, includeAppOrigins: true })).toBe(true);
+      expect(hasActiveFilters({ ...NO_FILTERS, origins: ["grid"] })).toBe(true);
+    });
+
+    it("treats a legacy entry with no origin as an editor query", async () => {
+      localStorage.setItem(
+        "mas-query-history",
+        JSON.stringify({ state: { entries: [{ id: "old", sql: "SELECT 1" }] } }),
+      );
+
+      await useHistoryStore.getState().load();
+
+      const [[imported]] = historyImport.mock.calls;
+      expect(imported[0].origin).toBe("editor");
     });
   });
 });

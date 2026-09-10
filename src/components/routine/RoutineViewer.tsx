@@ -16,6 +16,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseRoutineMetadata, type RoutineParameter } from "../../lib/routine-parser";
 import { buildDropRoutine, buildFunctionCall, formatParamValue, isPlainIdentifier } from "../../lib/routine-sql";
+import { runStatement } from "../../lib/run-statement";
 import { quoteIdentifier } from "../../lib/sql-quote";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
@@ -156,7 +157,7 @@ export function RoutineViewer({
     }
 
     const sql = statements.join(";\n") + ";";
-    const queryResults = await api.executeQuery(connectionId, sql);
+    const queryResults = await runStatement({ connectionId, sql, origin: "routine" });
     setResults(queryResults);
 
     // Extract OUT param values from the last result set
@@ -185,7 +186,7 @@ export function RoutineViewer({
     });
 
     const sql = buildFunctionCall(database, routineName, args);
-    const queryResults = await api.executeQuery(connectionId, sql);
+    const queryResults = await runStatement({ connectionId, sql, origin: "routine" });
     setResults(queryResults);
   };
 

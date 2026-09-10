@@ -104,6 +104,9 @@ describe("ChangePasswordDialog", () => {
     expect(api.executeQuery).toHaveBeenCalledWith(
       "conn-1",
       expect.stringContaining("ALTER USER"),
+      // runStatement passes the database through, so there is a third
+      // argument now — undefined for the admin paths (#586).
+      undefined,
     );
     expect(mockProps.onClose).toHaveBeenCalled();
   });

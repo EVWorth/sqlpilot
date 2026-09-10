@@ -11,6 +11,16 @@ vi.mock("../../../lib/tauri-api", () => ({
     getTables: vi.fn(),
     getColumns: vi.fn(),
   },
+  // runStatement imports this, so a module mock has to provide it (#586).
+  CommandError: class CommandError extends Error {
+    code?: number;
+    sqlState?: string;
+    constructor(message: string, fields?: { code?: number | null; sqlState?: string | null }) {
+      super(message);
+      if (fields?.code != null) this.code = fields.code;
+      if (fields?.sqlState != null) this.sqlState = fields.sqlState;
+    }
+  },
 }));
 
 // ── Mock CSV parser and SQL import utils ──

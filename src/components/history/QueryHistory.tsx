@@ -322,6 +322,20 @@ export function QueryHistory() {
               onToggle={(v) => void setFilters({ connectionNames: toggleIn(filters.connectionNames, v) })}
             />
           )}
+          <label className="flex items-center gap-1.5">
+            <input
+              type="checkbox"
+              checked={filters.includeAppOrigins}
+              onChange={(e) => void setFilters({ includeAppOrigins: e.target.checked })}
+              className="h-3 w-3 accent-brand-500"
+            />
+            {
+              /* Off by default: a thousand-statement dump would otherwise bury
+                a day's editing under statements nobody typed (#586). */
+            }
+            <span>Include imports, restores and internal reads</span>
+          </label>
+
           {facets.databases.length > 0 && (
             <FilterChips
               label="Databases"
@@ -481,6 +495,14 @@ export function QueryHistory() {
                     {formatRelativeTime(entry.executedAt)}
                   </span>
                   <span>{entry.executionTimeMs}ms</span>
+                  {entry.origin !== "editor" && (
+                    <span
+                      className="rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px]"
+                      title={`Issued by the ${entry.origin}`}
+                    >
+                      {entry.origin}
+                    </span>
+                  )}
                   {runs.length > 1 && (
                     <span
                       className="rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px]"

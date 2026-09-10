@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistorySort } from "../lib/bindings";
+import { USER_ORIGINS } from "../lib/run-statement";
 import { redactCredentials } from "../lib/sql-redact";
 import { api } from "../lib/tauri-api";
 
@@ -62,6 +63,10 @@ export interface HistoryFilters {
   search: string;
   connectionNames: string[];
   databases: string[];
+  /** Which origins to show. Empty means the user-facing ones (#586). */
+  origins: string[];
+  /** Show statements the app issued on the user's behalf as well. */
+  includeAppOrigins: boolean;
   /** "success", "error", or "" for both. */
   status: string;
   /** ISO 8601 date, inclusive. "" for unbounded. */
@@ -75,6 +80,8 @@ export const NO_FILTERS: HistoryFilters = {
   search: "",
   connectionNames: [],
   databases: [],
+  origins: [],
+  includeAppOrigins: false,
   status: "",
   executedAfter: "",
   executedBefore: "",
@@ -87,6 +94,8 @@ export function hasActiveFilters(f: HistoryFilters): boolean {
   return (
     f.connectionNames.length > 0
     || f.databases.length > 0
+    || f.origins.length > 0
+    || f.includeAppOrigins
     || f.status !== ""
     || f.executedAfter !== ""
     || f.executedBefore !== ""
@@ -196,6 +205,9 @@ function toBackendEntry(raw: unknown): HistoryEntry {
     errorSqlState: (e.errorSqlState as string | undefined) ?? null,
     redacted: Boolean(e.redacted),
     truncated: Boolean(e.truncated),
+    // Everything that predates the SQLite store came from the editor, because
+    // nothing else recorded history then (#586).
+    origin: typeof e.origin === "string" ? e.origin : "editor",
   };
 }
 
@@ -207,6 +219,14 @@ function toQuery(filters: HistoryFilters, limit: number | null): HistoryQuery {
     // unticking the last checkbox would empty the panel.
     connectionNames: filters.connectionNames.length ? filters.connectionNames : null,
     databases: filters.databases.length ? filters.databases : null,
+    // An explicit pick wins. Otherwise show the user's own work, and only
+    // widen to import and restore when asked — a dump would otherwise bury a
+    // day's editing under a thousand rows (#586).
+    origins: filters.origins.length
+      ? filters.origins
+      : filters.includeAppOrigins
+      ? null
+      : USER_ORIGINS,
     status: filters.status || null,
     executedAfter: filters.executedAfter || null,
     executedBefore: filters.executedBefore || null,
@@ -255,7 +275,7 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   maxAgeDays: readChoice(MAX_AGE_KEY, HISTORY_MAX_AGE_DAYS, DEFAULT_HISTORY_MAX_AGE_DAYS),
   filters: { ...NO_FILTERS },
   matchCount: 0,
-  facets: { connectionNames: [], databases: [] },
+  facets: { connectionNames: [], databases: [], origins: [] },
   loading: true,
   error: null,
 

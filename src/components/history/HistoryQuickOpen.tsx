@@ -54,6 +54,9 @@ export function HistoryQuickOpen({ isOpen, onClose, onPick }: Props) {
           search: search.trim() || null,
           connectionNames: null,
           databases: null,
+          // Everything, including what the app ran: someone reaching for a
+          // statement wants whatever actually ran (#586).
+          origins: null,
           status: null,
           executedAfter: null,
           executedBefore: null,

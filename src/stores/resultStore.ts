@@ -288,6 +288,7 @@ async function doExecuteQuery(
         error: null,
         errorCode: null,
         errorSqlState: null,
+        origin: "editor",
       });
     }
   } catch (e) {
@@ -321,6 +322,7 @@ async function doExecuteQuery(
       error: structured?.message ?? String(e),
       errorCode: structured?.code ?? null,
       errorSqlState: structured?.sqlState ?? null,
+      origin: "editor",
     });
   } finally {
     endExecution(myGeneration);

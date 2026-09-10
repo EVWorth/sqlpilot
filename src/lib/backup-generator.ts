@@ -1,4 +1,5 @@
 import type { SqlValue } from "../types";
+import { runStatement } from "./run-statement";
 import { quoteIdentifier } from "./sql-quote";
 import { api } from "./tauri-api";
 
@@ -146,7 +147,7 @@ export async function generateBackup(
         const sql = `SELECT * FROM ${quoteIdentifier(database)}.${
           quoteIdentifier(tableName)
         } LIMIT ${batchFetch} OFFSET ${offset}`;
-        const results = await api.executeQuery(connectionId, sql);
+        const results = await runStatement({ connectionId, sql, origin: "internal" });
         const result = results[0];
         if (!result || result.rows.length === 0) break;
 

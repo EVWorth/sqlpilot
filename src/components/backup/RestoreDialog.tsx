@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2, FileText, FolderOpen, HardDriveUpload, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
+import { runStatement } from "../../lib/run-statement";
 import { splitSqlStatements } from "../../lib/sql-import";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -145,7 +146,13 @@ export function RestoreDialog({
       }
 
       // Use the database
-      await api.executeQuery(connectionId, `USE \`${database.replace(/`/g, "``")}\``);
+      // Session setup rather than part of the restore, so it is tagged
+      // internal and stays out of the default view (#586).
+      await runStatement({
+        connectionId,
+        sql: `USE \`${database.replace(/`/g, "``")}\``,
+        origin: "internal",
+      });
       let successCount = 0;
       let errorCount = 0;
       const errors: string[] = [];
@@ -158,7 +165,7 @@ export function RestoreDialog({
         if (stmt.toUpperCase().startsWith("DELIMITER")) continue;
 
         try {
-          await api.executeQuery(connectionId, stmt);
+          await runStatement({ connectionId, sql: stmt, database, origin: "restore" });
           successCount++;
         } catch (e) {
           errorCount++;
