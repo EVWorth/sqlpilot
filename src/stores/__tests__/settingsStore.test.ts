@@ -9,7 +9,7 @@ vi.mock("../../lib/tauri-api", () => ({
 const QUERY_SETTINGS_KEY = "sqlpilot-query-settings";
 const STORAGE_KEY = "sqlpilot-formatter-settings";
 
-const defaultQuerySettings = { maxResultRows: 1000, limitEnabled: true };
+const defaultQuerySettings = { maxResultRows: 1000, limitEnabled: true, showSystemDatabases: false };
 const defaultFormatterSettings = {
   keywordCase: "upper" as const,
   identifierCase: "preserve" as const,
@@ -42,7 +42,12 @@ describe("settingsStore", () => {
       localStorage.setItem(QUERY_SETTINGS_KEY, JSON.stringify(customSettings));
       vi.resetModules();
       const { useSettingsStore } = await import("../settingsStore");
-      expect(useSettingsStore.getState().querySettings).toEqual(customSettings);
+      // Merged over the defaults, so a setting added after this was written
+      // takes its default rather than becoming undefined.
+      expect(useSettingsStore.getState().querySettings).toEqual({
+        ...defaultQuerySettings,
+        ...customSettings,
+      });
     });
 
     it("falls back to defaults with corrupt JSON in localStorage", async () => {

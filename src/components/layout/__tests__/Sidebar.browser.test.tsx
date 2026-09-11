@@ -51,10 +51,18 @@ vi.mock("../../../stores/editorStore", () => ({
 vi.mock("../../../stores/resultStore", () => ({
   useResultStore: makeStore(() => resultStore),
 }));
+const settingsState = {
+  querySettings: { maxResultRows: 100, limitEnabled: true, showSystemDatabases: false },
+  setQuerySettings: vi.fn(),
+};
+
+// Callable as a hook as well as via getState: the schema tree subscribes to
+// the system-database toggle (#291).
 vi.mock("../../../stores/settingsStore", () => ({
-  useSettingsStore: {
-    getState: vi.fn(() => ({ querySettings: { maxResultRows: 100 } })),
-  },
+  useSettingsStore: Object.assign(
+    vi.fn((selector?: (s: typeof settingsState) => unknown) => selector ? selector(settingsState) : settingsState),
+    { getState: vi.fn(() => settingsState) },
+  ),
 }));
 
 vi.mock("../../history/QueryHistory", () => ({
