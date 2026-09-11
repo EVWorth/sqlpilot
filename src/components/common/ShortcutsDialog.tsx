@@ -19,6 +19,7 @@ const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
     shortcuts: [
       { keys: "Ctrl+Enter / F9", description: "Run statement at cursor" },
       { keys: "Ctrl+Shift+Enter", description: "Run all statements" },
+      { keys: "Ctrl+.", description: "Cancel the running query" },
       { keys: "Ctrl+Shift+E", description: "Explain query" },
       { keys: "Ctrl+Shift+A", description: "Explain Analyze" },
       { keys: "Ctrl+Shift+F", description: "Format SQL" },
