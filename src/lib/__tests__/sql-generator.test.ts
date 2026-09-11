@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ColumnMeta } from "../../types";
-import {
-  extractTableName,
-  formatSqlValue,
-  generateDelete,
-  generateInsert,
-  generateUpdate,
-  getPrimaryKeyColumns,
-  getWhereColumns,
-} from "../sql-generator";
+import { extractTableName, formatSqlValue, generateDelete, generateInsert, generateUpdate } from "../sql-generator";
 
 describe("sql-generator", () => {
   describe("formatSqlValue", () => {
@@ -133,69 +124,6 @@ describe("sql-generator", () => {
     });
     it("is case-insensitive", () => {
       expect(extractTableName("select * from Users")).toBe("Users");
-    });
-  });
-
-  describe("getPrimaryKeyColumns", () => {
-    it("returns PK columns", () => {
-      const cols: ColumnMeta[] = [
-        { name: "id", data_type: "int", nullable: false, is_primary_key: true },
-        {
-          name: "name",
-          data_type: "varchar",
-          nullable: true,
-          is_primary_key: false,
-        },
-      ];
-      expect(getPrimaryKeyColumns(cols)).toEqual(["id"]);
-    });
-    it("returns empty array when no PKs", () => {
-      const cols: ColumnMeta[] = [
-        {
-          name: "name",
-          data_type: "varchar",
-          nullable: true,
-          is_primary_key: false,
-        },
-      ];
-      expect(getPrimaryKeyColumns(cols)).toEqual([]);
-    });
-  });
-
-  describe("getWhereColumns", () => {
-    it("uses PKs when available", () => {
-      const cols: ColumnMeta[] = [
-        { name: "id", data_type: "int", nullable: false, is_primary_key: true },
-        {
-          name: "name",
-          data_type: "varchar",
-          nullable: true,
-          is_primary_key: false,
-        },
-      ];
-      const result = getWhereColumns(cols);
-      expect(result.columns).toEqual(["id"]);
-      expect(result.hasPrimaryKey).toBe(true);
-    });
-
-    it("falls back to all columns when no PK", () => {
-      const cols: ColumnMeta[] = [
-        {
-          name: "a",
-          data_type: "int",
-          nullable: false,
-          is_primary_key: false,
-        },
-        {
-          name: "b",
-          data_type: "varchar",
-          nullable: true,
-          is_primary_key: false,
-        },
-      ];
-      const result = getWhereColumns(cols);
-      expect(result.columns).toEqual(["a", "b"]);
-      expect(result.hasPrimaryKey).toBe(false);
     });
   });
 });

@@ -30,6 +30,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
+import { useRowKey } from "../../hooks/useRowKey";
 import { describeGridChanges, nextEditableCell } from "../../lib/grid-navigation";
 import { runStatement } from "../../lib/run-statement";
 import {
@@ -37,7 +38,6 @@ import {
   generateDelete,
   generateInsert,
   generateUpdate,
-  getWhereColumns,
   resolveEditTarget,
 } from "../../lib/sql-generator";
 import { quoteIdentifier } from "../../lib/sql-quote";
@@ -169,10 +169,39 @@ export function ResultsGrid() {
   const activeResult = results[activeResultIndex];
   const aiEnabled = useAiStore((s) => s.aiEnabled);
 
-  const whereInfo = useMemo(() => {
-    if (!activeResult) return { columns: [] as string[], hasPrimaryKey: true };
-    return getWhereColumns(activeResult.columns);
-  }, [activeResult]);
+  const activeEditorTab = useEditorStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
+  const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
+  const gridConnectionId = activeEditorTab?.connectionId ?? selectedConnectionId;
+  const gridDatabase = activeEditorTab?.database ?? null;
+
+  // Resolved when the result arrives rather than when Save is pressed, so the
+  // user learns their edits are addressable before making them (#387, #400).
+  // The result's own SQL, not the editor's current text: the user keeps typing
+  // after running, and the grid still shows what the earlier statement returned.
+  const rowKey = useRowKey(
+    gridConnectionId,
+    gridDatabase,
+    activeResult?.sql,
+    activeResult?.columns,
+  );
+
+  const keyWarning = useMemo(() => {
+    switch (rowKey.state.status) {
+      case "no-key":
+        return `${rowKey.state.table} has no primary key and no unique index over NOT NULL `
+          + `columns, so edits match on every column and may affect more than one row.`;
+      case "key-not-selected": {
+        const what = rowKey.state.source === "primary-key"
+          ? "primary key"
+          : "unique index";
+        return `This query does not select ${rowKey.state.table}'s ${what} `
+          + `(${rowKey.state.columns.join(", ")}), so rows cannot be identified. `
+          + `Add it to the SELECT to edit here.`;
+      }
+      default:
+        return null;
+    }
+  }, [rowKey.state]);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -387,34 +416,14 @@ export function ResultsGrid() {
 
     setIsSaving(true);
     try {
-      // The result-set metadata reports is_primary_key as false for every
-      // column, so the WHERE clause fell back to matching on all of them
-      // (#387). Ask the schema for the real key instead.
-      let keyColumns = whereInfo.columns;
-      const database = editorTab?.database;
-      if (database) {
-        try {
-          const schema = await api.getColumns(connId, database, tableName);
-          const pk = schema.filter((c) => c.is_primary_key).map((c) => c.name);
-          const present = pk.filter((name) => activeResult.columns.some((c) => c.name === name));
-          if (pk.length > 0 && present.length === pk.length) {
-            keyColumns = present;
-          } else if (pk.length > 0) {
-            // The key exists but is not on screen, so no row can be addressed.
-            showToast(
-              `Cannot save: the query does not select ${tableName}'s primary key (${
-                pk.join(", ")
-              }), so rows cannot be identified`,
-            );
-            setIsSaving(false);
-            return;
-          }
-        } catch (e) {
-          // Fall back to the previous behaviour rather than blocking the save,
-          // but say so — matching on every column is weaker.
-          console.warn(`Could not read ${tableName}'s key columns`, e);
-        }
+      // Already resolved when the result loaded, so Save does not repeat the
+      // schema read and the user was warned before editing rather than after.
+      if (rowKey.state.status === "key-not-selected") {
+        showToast(`Cannot save: ${keyWarning ?? "rows cannot be identified"}`);
+        setIsSaving(false);
+        return;
       }
+      const keyColumns = rowKey.columns;
 
       const statements: string[] = [];
 
@@ -499,7 +508,7 @@ export function ResultsGrid() {
     } finally {
       setIsSaving(false);
     }
-  }, [activeResult, editing, getOriginalRow, whereInfo, showToast, columnTypes]);
+  }, [activeResult, editing, getOriginalRow, rowKey, keyWarning, showToast, columnTypes]);
 
   const maxContentLen = useMemo<Record<string, number>>(() => {
     if (!activeResult) return {};
@@ -694,7 +703,7 @@ export function ResultsGrid() {
         onToggleEditMode={editing.toggleEditMode}
         pendingCount={editing.pendingCount}
         hasChanges={editing.hasChanges}
-        hasPrimaryKey={whereInfo.hasPrimaryKey}
+        keyWarning={keyWarning}
         isSaving={isSaving}
         onAddRow={editing.addRow}
         onSave={handleSave}

@@ -5,7 +5,16 @@ interface EditToolbarProps {
   onToggleEditMode: () => void;
   pendingCount: number;
   hasChanges: boolean;
-  hasPrimaryKey: boolean;
+  /**
+   * Why edits here may not land, or null when they will.
+   *
+   * Was a `hasPrimaryKey` boolean read from result metadata that always said
+   * false, so the warning showed on every table including ones with a
+   * perfectly good key (#387). It now carries the reason, because "no primary
+   * key" and "your query did not select the primary key" call for different
+   * responses from the user.
+   */
+  keyWarning: string | null;
   isSaving: boolean;
   onAddRow: () => void;
   onSave: () => void;
@@ -21,7 +30,7 @@ export function EditToolbar({
   onToggleEditMode,
   pendingCount,
   hasChanges,
-  hasPrimaryKey,
+  keyWarning,
   isSaving,
   onAddRow,
   onSave,
@@ -115,10 +124,10 @@ export function EditToolbar({
             </button>
           )}
 
-          {!hasPrimaryKey && (
+          {keyWarning && (
             <div className="ml-2 flex items-center gap-1 rounded bg-amber-900/30 px-2 py-0.5 text-[10px] text-amber-400">
               <AlertTriangle className="h-3 w-3" />
-              No primary key detected. Updates may affect multiple rows.
+              {keyWarning}
             </div>
           )}
         </>

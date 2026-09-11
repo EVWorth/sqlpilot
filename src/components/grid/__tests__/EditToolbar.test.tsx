@@ -8,7 +8,7 @@ function createDefaultProps(overrides = {}) {
     onToggleEditMode: vi.fn(),
     pendingCount: 0,
     hasChanges: false,
-    hasPrimaryKey: true,
+    keyWarning: null,
     isSaving: false,
     onAddRow: vi.fn(),
     onSave: vi.fn(),
@@ -95,13 +95,22 @@ describe("EditToolbar", () => {
     expect(screen.getByText("Discard")).toBeDisabled();
   });
 
-  it("shows no primary key warning when hasPrimaryKey is false", () => {
-    render(<EditToolbar {...createDefaultProps({ editMode: true, hasPrimaryKey: false })} />);
-    expect(screen.getByText(/No primary key detected/)).toBeInTheDocument();
+  it("shows the reason rows cannot be identified", () => {
+    // Was a boolean read from result metadata that always said false, so the
+    // warning showed on every table, key or no key (#387).
+    render(
+      <EditToolbar
+        {...createDefaultProps({
+          editMode: true,
+          keyWarning: "users has no primary key and no unique index over NOT NULL columns.",
+        })}
+      />,
+    );
+    expect(screen.getByText(/no unique index over NOT NULL/)).toBeInTheDocument();
   });
 
-  it("does not show no primary key warning when hasPrimaryKey is true", () => {
-    render(<EditToolbar {...createDefaultProps({ editMode: true, hasPrimaryKey: true })} />);
-    expect(screen.queryByText(/No primary key detected/)).not.toBeInTheDocument();
+  it("shows no warning when rows can be identified", () => {
+    render(<EditToolbar {...createDefaultProps({ editMode: true, keyWarning: null })} />);
+    expect(screen.queryByText(/primary key/)).not.toBeInTheDocument();
   });
 });

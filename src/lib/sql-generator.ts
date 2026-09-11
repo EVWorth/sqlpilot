@@ -175,15 +175,14 @@ export function resolveEditTarget(sql: string): EditTarget {
   return { editable: true, table };
 }
 
-export function getPrimaryKeyColumns(columns: ColumnMeta[]): string[] {
-  return columns.filter((c) => c.is_primary_key).map((c) => c.name);
-}
+/**
 
-export function getWhereColumns(columns: ColumnMeta[]): {
-  columns: string[];
-  hasPrimaryKey: boolean;
-} {
-  const pk = getPrimaryKeyColumns(columns);
-  if (pk.length > 0) return { columns: pk, hasPrimaryKey: true };
-  return { columns: columns.map((c) => c.name), hasPrimaryKey: false };
-}
+/**
+ * Removed: `getWhereColumns` and `getPrimaryKeyColumns`, which read the key off
+ * result-set metadata and fell back to every column when they found none.
+ *
+ * They always found none — sqlx keeps MySQL's column flags private, so
+ * `is_primary_key` is false on every result column — so every table took the
+ * all-columns path whether or not it had a key (#387, #400). Row identity now
+ * comes from the schema, via hooks/useRowKey.
+ */

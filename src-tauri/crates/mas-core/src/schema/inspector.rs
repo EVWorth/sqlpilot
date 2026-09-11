@@ -310,16 +310,27 @@ impl SchemaInspector {
             std::collections::BTreeMap::new();
         for row in &rows {
             let name: String = row.get("INDEX_NAME");
-            let col: String = row.get("COLUMN_NAME");
+            // NULL for a functional index — MySQL 8 puts the expression in
+            // EXPRESSION and leaves COLUMN_NAME empty. Decoding it as String
+            // panicked, so any table carrying one made the whole schema read
+            // fail. EXPRESSION cannot simply be selected instead: MariaDB has
+            // no such column, and errors on the query. The index is still
+            // listed, with no columns, which is the honest answer for
+            // something that indexes an expression rather than a column.
+            let col: Option<String> = row.get("COLUMN_NAME");
             let non_unique: i32 = row.get("NON_UNIQUE");
             let idx_type: String = row.get("INDEX_TYPE");
 
             index_map
                 .entry(name.clone())
-                .and_modify(|idx| idx.columns.push(col.clone()))
+                .and_modify(|idx| {
+                    if let Some(col) = &col {
+                        idx.columns.push(col.clone());
+                    }
+                })
                 .or_insert_with(|| IndexInfo {
                     name,
-                    columns: vec![col],
+                    columns: col.into_iter().collect(),
                     is_unique: non_unique == 0,
                     index_type: idx_type,
                 });
