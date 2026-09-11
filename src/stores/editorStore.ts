@@ -1,5 +1,7 @@
 import type { editor } from "monaco-editor";
 import { create } from "zustand";
+import { loadSession, maxTabCounter, saveSession } from "../lib/editor-session";
+import { buildTab, findOpenTab, type TabKind, type TabParams } from "../lib/tab-kinds";
 import type { EditorTab, RoutineKind } from "../types";
 
 interface EditorState {
@@ -7,6 +9,8 @@ interface EditorState {
   activeTabId: string | null;
   editorInstance: editor.IStandaloneCodeEditor | null;
 
+  /** Open a tab of any kind, or activate the one already open for it. */
+  openTab: <K extends TabKind>(kind: K, params: TabParams[K]) => string;
   addTab: (connectionId?: string, database?: string) => string;
   addStructureTab: (connectionId: string, database: string, tableName: string) => string;
   addAdminTab: (connectionId: string) => string;
@@ -34,126 +38,6 @@ interface EditorState {
   reorderTabs: (fromIndex: number, toIndex: number) => void;
 }
 
-const SESSION_STORAGE_KEY = "sqlpilot-editor-session";
-
-interface PersistedSession {
-  tabs: EditorTab[];
-  activeTabId: string | null;
-}
-
-/**
- * Turn one persisted tab into a valid `EditorTab`, or drop it.
- *
- * The union only holds if what comes back from storage actually satisfies it.
- * A session written by an older build has no `type` at all — that field used
- * to be optional and meant "query" — and a tab whose kind requires a database
- * or a routine name may not have one, in which case rendering it would hand a
- * panel undefined props. Dropping the tab loses a tab; keeping it loses the
- * guarantee the rest of the code now relies on (#449).
- */
-export function parsePersistedTab(raw: unknown): EditorTab | null {
-  if (typeof raw !== "object" || raw === null) return null;
-  const t = raw as Record<string, unknown>;
-
-  const str = (k: string) => typeof t[k] === "string" ? t[k] as string : undefined;
-  const id = str("id");
-  const title = str("title");
-  if (!id || !title) return null;
-
-  const base = {
-    id,
-    title,
-    content: str("content") ?? "",
-    // The persisted content is the new baseline, so nothing is dirty on load.
-    isDirty: false,
-    connectionId: str("connectionId"),
-    profileId: str("profileId"),
-    database: str("database"),
-  };
-
-  // Absent means query: that is what the old optional field meant.
-  switch (str("type") ?? "query") {
-    case "query":
-      return { ...base, type: "query" };
-    case "admin":
-      return base.connectionId ? { ...base, type: "admin", connectionId: base.connectionId } : null;
-    case "structure": {
-      const tableName = str("tableName");
-      if (!base.connectionId || !base.database || !tableName) return null;
-      return {
-        ...base,
-        type: "structure",
-        connectionId: base.connectionId,
-        database: base.database,
-        tableName,
-      };
-    }
-    case "designer":
-      if (!base.connectionId || !base.database) return null;
-      return {
-        ...base,
-        type: "designer",
-        connectionId: base.connectionId,
-        database: base.database,
-        tableName: str("tableName"),
-      };
-    case "routine": {
-      const routineName = str("routineName");
-      const routineType = str("routineType");
-      if (!base.connectionId || !base.database || !routineName) return null;
-      if (routineType !== "PROCEDURE" && routineType !== "FUNCTION") return null;
-      return {
-        ...base,
-        type: "routine",
-        connectionId: base.connectionId,
-        database: base.database,
-        routineName,
-        routineType,
-      };
-    }
-    default:
-      // A kind this build does not know — `compare` was one, before it was
-      // cut. Dropping it beats rendering a tab nothing can display.
-      return null;
-  }
-}
-
-function loadSession(): PersistedSession | null {
-  try {
-    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as { tabs?: unknown; activeTabId?: unknown };
-    if (!Array.isArray(parsed.tabs) || parsed.tabs.length === 0) return null;
-
-    const tabs = parsed.tabs.map(parsePersistedTab).filter((t): t is EditorTab => t !== null);
-    if (tabs.length === 0) return null;
-
-    // An active id pointing at a dropped tab would leave nothing selected.
-    const activeTabId = typeof parsed.activeTabId === "string" ? parsed.activeTabId : null;
-    return {
-      tabs,
-      activeTabId: tabs.some((t) => t.id === activeTabId) ? activeTabId : tabs[0].id,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function saveSession(tabs: EditorTab[], activeTabId: string | null) {
-  try {
-    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ tabs, activeTabId }));
-  } catch {
-    // localStorage unavailable
-  }
-}
-
-function maxTabCounter(tabs: EditorTab[]): number {
-  return tabs.reduce((max, t) => {
-    const m = t.id.match(/^tab-(\d+)$/);
-    return m ? Math.max(max, parseInt(m[1], 10)) : max;
-  }, 0);
-}
-
 const restoredSession = loadSession();
 
 let tabCounter = restoredSession ? maxTabCounter(restoredSession.tabs) : 0;
@@ -173,146 +57,36 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeTabId: restoredSession?.activeTabId ?? "tab-0",
   editorInstance: null,
 
-  addTab: (connectionId, database) => {
-    tabCounter++;
-    const id = `tab-${tabCounter}`;
-    const tab: EditorTab = {
-      id,
-      title: "Untitled Query",
-      content: "",
-      connectionId,
-      database,
-      type: "query",
-      isDirty: false,
-    };
-    set((state) => ({
-      tabs: [...state.tabs, tab],
-      activeTabId: id,
-    }));
-    return id;
-  },
-
-  addStructureTab: (connectionId, database, tableName) => {
-    const existing = get().tabs.find(
-      (t) =>
-        t.type === "structure"
-        && t.connectionId === connectionId
-        && t.database === database
-        && t.tableName === tableName,
-    );
+  /**
+   * Open a tab of any kind, or activate the one already open for it.
+   *
+   * The five `add*Tab` methods below are this with their arguments named; each
+   * used to carry its own copy of the find-or-create shape (#286).
+   */
+  openTab: (kind, params) => {
+    const existing = findOpenTab(get().tabs, kind, params);
     if (existing) {
       set({ activeTabId: existing.id });
       return existing.id;
     }
     tabCounter++;
-    const id = `tab-${tabCounter}`;
-    const tab: EditorTab = {
-      id,
-      title: `⊞ ${tableName}`,
-      content: "",
-      connectionId,
-      database,
-      tableName,
-      type: "structure",
-      isDirty: false,
-    };
-    set((state) => ({
-      tabs: [...state.tabs, tab],
-      activeTabId: id,
-    }));
-    return id;
+    const tab = buildTab(`tab-${tabCounter}`, kind, params);
+    set((state) => ({ tabs: [...state.tabs, tab], activeTabId: tab.id }));
+    return tab.id;
   },
 
-  addRoutineTab: (connectionId, database, routineName, routineType) => {
-    const existing = get().tabs.find(
-      (t) =>
-        t.type === "routine"
-        && t.connectionId === connectionId
-        && t.database === database
-        && t.routineName === routineName
-        && t.routineType === routineType,
-    );
-    if (existing) {
-      set({ activeTabId: existing.id });
-      return existing.id;
-    }
-    tabCounter++;
-    const id = `tab-${tabCounter}`;
-    const icon = routineType === "PROCEDURE" ? "⚙" : "ƒ";
-    const tab: EditorTab = {
-      id,
-      title: `${icon} ${routineName}`,
-      content: "",
-      connectionId,
-      database,
-      routineName,
-      routineType,
-      type: "routine",
-      isDirty: false,
-    };
-    set((state) => ({
-      tabs: [...state.tabs, tab],
-      activeTabId: id,
-    }));
-    return id;
-  },
+  addTab: (connectionId, database) => get().openTab("query", { connectionId, database }),
 
-  addAdminTab: (connectionId) => {
-    const existing = get().tabs.find(
-      (t) => t.type === "admin" && t.connectionId === connectionId,
-    );
-    if (existing) {
-      set({ activeTabId: existing.id });
-      return existing.id;
-    }
-    tabCounter++;
-    const id = `tab-${tabCounter}`;
-    const tab: EditorTab = {
-      id,
-      title: "🔧 Admin",
-      content: "",
-      connectionId,
-      type: "admin",
-      isDirty: false,
-    };
-    set((state) => ({
-      tabs: [...state.tabs, tab],
-      activeTabId: id,
-    }));
-    return id;
-  },
+  addStructureTab: (connectionId, database, tableName) =>
+    get().openTab("structure", { connectionId, database, tableName }),
 
-  addDesignerTab: (connectionId, database, tableName?) => {
-    const existing = get().tabs.find(
-      (t) =>
-        t.type === "designer"
-        && t.connectionId === connectionId
-        && t.database === database
-        && t.tableName === (tableName || undefined),
-    );
-    if (existing) {
-      set({ activeTabId: existing.id });
-      return existing.id;
-    }
-    tabCounter++;
-    const id = `tab-${tabCounter}`;
-    const title = tableName ? `🔧 ${tableName}` : `🔧 New Table`;
-    const tab: EditorTab = {
-      id,
-      title,
-      content: "",
-      connectionId,
-      database,
-      tableName: tableName || undefined,
-      type: "designer",
-      isDirty: false,
-    };
-    set((state) => ({
-      tabs: [...state.tabs, tab],
-      activeTabId: id,
-    }));
-    return id;
-  },
+  addRoutineTab: (connectionId, database, routineName, routineType) =>
+    get().openTab("routine", { connectionId, database, routineName, routineType }),
+
+  addAdminTab: (connectionId) => get().openTab("admin", { connectionId }),
+
+  addDesignerTab: (connectionId, database, tableName) =>
+    get().openTab("designer", { connectionId, database, tableName }),
 
   closeTab: (id) => {
     set((state) => {
