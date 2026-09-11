@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockAddAdminTab = vi.fn();
 const mockCycleTheme = vi.fn();
+let currentTheme: "dark" | "light" | "system" = "dark";
 let connState = { selectedConnectionId: null as string | null };
 
 vi.mock("../../../stores/editorStore", () => ({
@@ -19,9 +20,12 @@ vi.mock("../../../stores/connectionStore", () => ({
 }));
 
 vi.mock("../../../stores/themeStore", () => ({
+  // The real order, since the tooltip now names the theme the next click
+  // lands on (#352).
+  themeOrder: ["dark", "light", "system"],
   useThemeStore: Object.assign(
-    vi.fn((selector: (s: unknown) => unknown) => selector({ theme: "dark", cycleTheme: mockCycleTheme })),
-    { getState: () => ({ theme: "dark", cycleTheme: mockCycleTheme }) },
+    vi.fn((selector: (s: unknown) => unknown) => selector({ theme: currentTheme, cycleTheme: mockCycleTheme })),
+    { getState: () => ({ theme: currentTheme, cycleTheme: mockCycleTheme }) },
   ),
 }));
 
@@ -41,6 +45,7 @@ const EXPECTED = ["Admin", "Import", "Backup", "Restore"];
 describe("FeatureButtons", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentTheme = "dark";
     connState = { selectedConnectionId: "conn-1" };
   });
 
@@ -66,6 +71,22 @@ describe("FeatureButtons", () => {
     for (const label of EXPECTED) {
       expect(screen.getByText(label).closest("button")).toBeDisabled();
     }
+  });
+
+  describe("the theme button's tooltip (#352)", () => {
+    // "Click to cycle" told the user nothing they could act on: the order is
+    // dark, light, system, so dark to light is one click and dark to system
+    // is two, with no way to tell which without trying.
+    it.each([
+      ["dark", "Theme: Dark — click for Light"],
+      ["light", "Theme: Light — click for System"],
+      ["system", "Theme: System — click for Dark"],
+    ])("from %s", (theme, expected) => {
+      currentTheme = theme as typeof currentTheme;
+      renderButtons();
+
+      expect(screen.getByTitle(expected)).toBeInTheDocument();
+    });
   });
 
   it("leaves the theme button alone with no connection", () => {

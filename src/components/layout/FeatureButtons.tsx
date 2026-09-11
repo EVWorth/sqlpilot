@@ -1,7 +1,7 @@
 import { Activity, HardDriveDownload, HardDriveUpload, Monitor, Moon, Sparkles, Sun, Upload } from "lucide-react";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
-import { type ThemeMode, useThemeStore } from "../../stores/themeStore";
+import { type ThemeMode, themeOrder, useThemeStore } from "../../stores/themeStore";
 
 /**
  * The feature buttons, in one place.
@@ -52,6 +52,11 @@ export function FeatureButtons({
   // Everything but the theme toggle needs somewhere to act.
   const disabled = !selectedConnectionId;
   const ThemeIcon = themeIcons[theme];
+  // Which theme the next click lands on. "Click to cycle" told the user
+  // nothing they could act on: the order is dark, light, system, so getting
+  // from dark to system takes two clicks and from dark to light takes one,
+  // and there was no way to tell which without trying (#352).
+  const nextTheme = themeOrder[(themeOrder.indexOf(theme) + 1) % themeOrder.length];
 
   return (
     <>
@@ -106,7 +111,7 @@ export function FeatureButtons({
       <button
         onClick={cycleTheme}
         // Not gated on a connection: the theme is the app's, not the server's.
-        title={`Theme: ${themeLabels[theme]} (click to cycle)`}
+        title={`Theme: ${themeLabels[theme]} — click for ${themeLabels[nextTheme]}`}
         className={buttonClassName(false)}
       >
         <ThemeIcon className="h-3.5 w-3.5" />

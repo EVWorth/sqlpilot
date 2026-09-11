@@ -1,9 +1,8 @@
 import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
 import type { editor, IDisposable } from "monaco-editor";
 import { useCallback, useEffect, useRef } from "react";
-import { format } from "sql-formatter";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
-import { postProcessSQL } from "../../lib/sql-post-process";
+import { formatSql } from "../../lib/sql-format";
 import { getStatementAtCursor } from "../../lib/statement-at-cursor";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -150,27 +149,9 @@ export function SQLEditor() {
           if (!model) return;
           const value = model.getValue();
           if (!value.trim()) return;
-          try {
-            const settings = useSettingsStore.getState().formatterSettings;
-            const formatted = format(value, {
-              language: "mysql",
-              keywordCase: settings.keywordCase,
-              identifierCase: settings.identifierCase,
-              dataTypeCase: settings.dataTypeCase,
-              functionCase: settings.functionCase,
-              indentStyle: settings.indentStyle,
-              tabWidth: settings.tabWidth,
-              useTabs: settings.useTabs,
-              logicalOperatorNewline: settings.logicalOperatorNewline,
-              newlineBeforeSemicolon: settings.newlineBeforeSemicolon,
-              expressionWidth: settings.expressionWidth,
-              linesBetweenQueries: settings.linesBetweenQueries,
-              denseOperators: settings.denseOperators,
-            });
-            model.setValue(postProcessSQL(formatted));
-          } catch {
-            // If formatting fails, leave content unchanged
-          }
+          model.setValue(
+            formatSql(value, useSettingsStore.getState().formatterSettings),
+          );
         },
       });
 

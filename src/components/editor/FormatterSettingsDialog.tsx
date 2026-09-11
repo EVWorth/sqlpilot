@@ -1,10 +1,19 @@
 import { Settings2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { formatSql, PREVIEW_SQL } from "../../lib/sql-format";
 import { type FormatterSettings, useSettingsStore } from "../../stores/settingsStore";
 
 interface FormatterSettingsDialogProps {
   isOpen: boolean;
   onClose: () => void;
+  /**
+   * What to preview against, usually the editor's current statement.
+   *
+   * Falls back to a sample when the editor is empty or holds nothing the
+   * formatter can parse — a blank preview would make the settings look broken
+   * rather than showing what they do (#355).
+   */
+  sample?: string;
 }
 
 const DEFAULTS: FormatterSettings = {
@@ -32,7 +41,7 @@ function shallowEqual(a: FormatterSettings, b: FormatterSettings): boolean {
   return true;
 }
 
-export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDialogProps) {
+export function FormatterSettingsDialog({ isOpen, onClose, sample }: FormatterSettingsDialogProps) {
   const { formatterSettings, setFormatterSettings } = useSettingsStore();
   // Always merge with defaults so new fields are never undefined
   const [local, setLocal] = useState<FormatterSettings>({ ...DEFAULTS, ...formatterSettings });
@@ -49,6 +58,24 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
     () => !shallowEqual(local, formatterSettings),
     [local, formatterSettings],
   );
+
+  /**
+   * The preview, formatted with the settings being edited rather than the
+   * saved ones.
+   *
+   * Through the same `formatSql` the Format button uses: a preview that
+   * reproduced the option mapping by hand could disagree with what the button
+   * actually does, which is the one thing a preview must not do.
+   */
+  const preview = useMemo(() => {
+    const source = sample?.trim() ? sample : PREVIEW_SQL;
+    const formatted = formatSql(source, local);
+    // formatSql hands back its input when the statement cannot be parsed.
+    // Falling back to the sample keeps the pane showing what the settings do.
+    return formatted === source && source !== PREVIEW_SQL
+      ? formatSql(PREVIEW_SQL, local)
+      : formatted;
+  }, [sample, local]);
 
   if (!isOpen) return null;
 
@@ -86,10 +113,18 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
   function CaseSelect(
     { label, value, onChange }: { label: string; value: CaseOption; onChange: (v: CaseOption) => void },
   ) {
+    // Associated rather than merely adjacent: an unlinked <label> is not
+    // announced with its control, and clicking it does nothing.
+    const id = `formatter-${label.toLowerCase().replace(/\s+/g, "-")}`;
     return (
       <div>
-        <label className={labelClass}>{label}</label>
-        <select className={inputClass} value={value} onChange={(e) => onChange(e.target.value as CaseOption)}>
+        <label htmlFor={id} className={labelClass}>{label}</label>
+        <select
+          id={id}
+          className={inputClass}
+          value={value}
+          onChange={(e) => onChange(e.target.value as CaseOption)}
+        >
           <option value="preserve">Preserve</option>
           <option value="upper">UPPER</option>
           <option value="lower">lower</option>
@@ -103,7 +138,7 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
-      <div className="w-80 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-xl">
+      <div className="w-[26rem] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-xl">
         <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
           <Settings2 className="h-4 w-4 text-[var(--color-text-muted)]" />
           <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
@@ -116,6 +151,18 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
               />
             )}
           </h2>
+        </div>
+
+        <div className="border-b border-[var(--color-border)] p-3">
+          <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+            Preview
+          </p>
+          <pre
+            aria-label="Formatted preview"
+            className="max-h-40 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2 font-mono text-[10px] leading-snug text-[var(--color-text-primary)]"
+          >
+            {preview}
+          </pre>
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto space-y-4 p-4">
@@ -149,8 +196,9 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
           </p>
 
           <div>
-            <label className={labelClass}>Indent style</label>
+            <label htmlFor="formatter-indent-style" className={labelClass}>Indent style</label>
             <select
+              id="formatter-indent-style"
               className={inputClass}
               value={local.indentStyle}
               onChange={(e) => setLocal({ ...local, indentStyle: e.target.value as FormatterSettings["indentStyle"] })}
@@ -171,8 +219,9 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
 
           {!local.useTabs && (
             <div>
-              <label className={labelClass}>Tab width</label>
+              <label htmlFor="formatter-tab-width" className={labelClass}>Tab width</label>
               <input
+                id="formatter-tab-width"
                 type="number"
                 min={1}
                 max={8}
@@ -189,8 +238,9 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
           </p>
 
           <div>
-            <label className={labelClass}>Logical operator newline</label>
+            <label htmlFor="formatter-logical-operator-newline" className={labelClass}>Logical operator newline</label>
             <select
+              id="formatter-logical-operator-newline"
               className={inputClass}
               value={local.logicalOperatorNewline}
               onChange={(e) =>
@@ -205,8 +255,9 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
           </div>
 
           <div>
-            <label className={labelClass}>Expression width</label>
+            <label htmlFor="formatter-expression-width" className={labelClass}>Expression width</label>
             <input
+              id="formatter-expression-width"
               type="number"
               min={10}
               max={200}
@@ -218,8 +269,9 @@ export function FormatterSettingsDialog({ isOpen, onClose }: FormatterSettingsDi
           </div>
 
           <div>
-            <label className={labelClass}>Lines between queries</label>
+            <label htmlFor="formatter-lines-between-queries" className={labelClass}>Lines between queries</label>
             <input
+              id="formatter-lines-between-queries"
               type="number"
               min={0}
               max={5}
