@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useContextMenu } from "../../../hooks/useContextMenu";
+import { layoutKey, readLayout } from "../../../lib/grid-layout";
 import { resolveEditTarget } from "../../../lib/sql-generator";
 import type { QueryResult, SqlValue } from "../../../types";
 import { ResultsGrid } from "../ResultsGrid";
@@ -305,6 +306,139 @@ describe("ResultsGrid (browser)", () => {
     resultState.results = [makeResult()];
     const { container } = render(<ResultsGrid />);
     expect(container.firstElementChild).toBeInTheDocument();
+  });
+
+  // ─── Column order (#392) ──────────────────────────────────
+  describe("column order", () => {
+    beforeEach(() => {
+      localStorage.clear();
+      connSelectedId = "conn-1";
+      editorTabs = [{
+        id: "tab-0",
+        content: "SELECT id, name FROM users",
+        connectionId: "conn-1",
+        database: "app",
+      }];
+      editorActiveTabId = "tab-0";
+    });
+
+    const headerText = () => [...document.querySelectorAll("thead th")].slice(1).map((th) => th.textContent?.trim());
+
+    it("shows the query's own order by default", async () => {
+      resultState.results = [makeResult()];
+      render(<ResultsGrid />);
+
+      await waitFor(() => expect(headerText()).toEqual(["id", "name"]));
+    });
+
+    it("restores a remembered order", async () => {
+      localStorage.setItem(
+        layoutKey("conn-1", "app", ["id", "name"])!,
+        JSON.stringify({ columnOrder: ["name", "id"] }),
+      );
+      resultState.results = [makeResult()];
+      render(<ResultsGrid />);
+
+      await waitFor(() => expect(headerText()).toEqual(["name", "id"]));
+    });
+
+    it("lays pending insert rows out in the same order as the headers", async () => {
+      // The insert row is built cell by cell rather than from the table's row
+      // model, so it used to iterate the query's order and put every value
+      // under the wrong column once one was dragged (#392).
+      localStorage.setItem(
+        layoutKey("conn-1", "app", ["id", "name"])!,
+        JSON.stringify({ columnOrder: ["name", "id"] }),
+      );
+      resultState.results = [makeResult()];
+      mockGridEditing.editMode = true;
+      mockGridEditing.inserts = [{}];
+      render(<ResultsGrid />);
+
+      await waitFor(() => expect(headerText()).toEqual(["name", "id"]));
+      const insertRow = document.querySelector("tr.bg-green-900\\/15");
+      const cells = [...(insertRow?.querySelectorAll("[data-column]") ?? [])]
+        .map((c) => c.getAttribute("data-column"));
+      expect(cells).toEqual(["name", "id"]);
+    });
+
+    it("offers no way back when nothing has been dragged", async () => {
+      resultState.results = [makeResult()];
+      render(<ResultsGrid />);
+
+      await waitFor(() => expect(headerText()).toEqual(["id", "name"]));
+      expect(screen.queryByText("Reset columns")).not.toBeInTheDocument();
+    });
+
+    it("puts the columns back", async () => {
+      // A dragged order outlives the query, so without this a stray drag is
+      // permanent (#392).
+      localStorage.setItem(
+        layoutKey("conn-1", "app", ["id", "name"])!,
+        JSON.stringify({ columnOrder: ["name", "id"] }),
+      );
+      resultState.results = [makeResult()];
+      render(<ResultsGrid />);
+
+      fireEvent.click(await screen.findByText("Reset columns"));
+
+      await waitFor(() => expect(headerText()).toEqual(["id", "name"]));
+      expect(screen.queryByText("Reset columns")).not.toBeInTheDocument();
+      expect(readLayout(layoutKey("conn-1", "app", ["id", "name"]))?.columnOrder)
+        .toEqual(["id", "name"]);
+    });
+  });
+
+  // ─── Multi-column sort (#392) ─────────────────────────────
+  describe("sorting", () => {
+    const rowText = () =>
+      [...document.querySelectorAll("tbody tr")].map((tr) =>
+        [...tr.querySelectorAll("td")].slice(1).map((td) => td.textContent?.trim()).join("|")
+      );
+
+    const sorted = makeResult({
+      columns: [
+        { name: "dept", data_type: "varchar", nullable: false, is_primary_key: false },
+        { name: "hired", data_type: "int", nullable: false, is_primary_key: false },
+      ],
+      rows: [["b", 1], ["a", 2], ["a", 1], ["b", 2]],
+    });
+
+    const header = (name: string) => screen.getAllByText(name)[0]!;
+
+    it("sorts by one column on a plain click", async () => {
+      resultState.results = [sorted];
+      render(<ResultsGrid />);
+
+      fireEvent.click(header("dept"));
+
+      await waitFor(() => expect(rowText().map((r) => r.split("|")[0])).toEqual(["a", "a", "b", "b"]));
+    });
+
+    it("adds a second key on Shift+click rather than replacing the first", async () => {
+      // Without isMultiSortEvent only the most recent click counted, so
+      // "department, then hire date" was inexpressible (#392).
+      resultState.results = [sorted];
+      render(<ResultsGrid />);
+
+      fireEvent.click(header("dept"));
+      fireEvent.click(header("hired"), { shiftKey: true });
+
+      await waitFor(() => expect(rowText()).toEqual(["a|1", "a|2", "b|1", "b|2"]));
+    });
+
+    it("shows which key each sorted column is", async () => {
+      resultState.results = [sorted];
+      render(<ResultsGrid />);
+
+      fireEvent.click(header("dept"));
+      expect(screen.queryByLabelText(/Sort priority/)).not.toBeInTheDocument();
+
+      fireEvent.click(header("hired"), { shiftKey: true });
+
+      expect(await screen.findByLabelText("Sort priority 1")).toBeInTheDocument();
+      expect(screen.getByLabelText("Sort priority 2")).toBeInTheDocument();
+    });
   });
 
   // ─── Loading / executing state ────────────────────────────
@@ -751,7 +885,7 @@ describe("ResultsGrid (browser)", () => {
     resultState.results = [makeResult()];
     render(<ResultsGrid />);
 
-    const resizeHandles = document.querySelectorAll("[title='Drag to resize column']");
+    const resizeHandles = document.querySelectorAll("[title^='Drag to resize column']");
     expect(resizeHandles.length).toBe(2);
   });
 
@@ -759,7 +893,7 @@ describe("ResultsGrid (browser)", () => {
     resultState.results = [makeResult()];
     render(<ResultsGrid />);
 
-    const handles = document.querySelectorAll("[title='Drag to resize column']");
+    const handles = document.querySelectorAll("[title^='Drag to resize column']");
     expect(handles.length).toBeGreaterThan(0);
 
     // Simulate mousedown on first resize handle
@@ -982,7 +1116,7 @@ describe("ResultsGrid (browser)", () => {
     resultState.results = [makeResult()];
     render(<ResultsGrid />);
 
-    const handles = document.querySelectorAll("[title='Drag to resize column']");
+    const handles = document.querySelectorAll("[title^='Drag to resize column']");
     expect(handles.length).toBeGreaterThan(0);
     fireEvent.mouseDown(handles[0], { clientX: 100, clientY: 10, buttons: 1 });
     expect(handles[0]).toBeInTheDocument();
@@ -998,7 +1132,7 @@ describe("ResultsGrid (browser)", () => {
     })];
     render(<ResultsGrid />);
 
-    const handles = document.querySelectorAll("[title='Drag to resize column']");
+    const handles = document.querySelectorAll("[title^='Drag to resize column']");
     expect(handles.length).toBe(1);
 
     fireEvent.doubleClick(handles[0]);
@@ -1015,7 +1149,7 @@ describe("ResultsGrid (browser)", () => {
     })];
     render(<ResultsGrid />);
 
-    const handles = document.querySelectorAll("[title='Drag to resize column']");
+    const handles = document.querySelectorAll("[title^='Drag to resize column']");
     expect(handles.length).toBe(1);
     fireEvent.doubleClick(handles[0]);
     expect(handles[0]).toBeInTheDocument();
