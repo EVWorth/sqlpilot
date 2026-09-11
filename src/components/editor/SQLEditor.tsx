@@ -48,6 +48,8 @@ export function SQLEditor() {
     (s) => s.selectedConnectionId,
   );
   const schemaCache = useSchemaCompletion(selectedConnectionId);
+  // FR-2.3.7. The minimap was hard-disabled with no way to turn it on (#295).
+  const showMinimap = useSettingsStore((s) => s.querySettings.showMinimap);
 
   // Load enough for autocomplete to be useful as soon as a connection is
   // chosen, rather than on the first keystroke that needs it.
@@ -300,7 +302,7 @@ export function SQLEditor() {
       options={{
         fontSize: 13,
         fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Menlo, monospace",
-        minimap: { enabled: false },
+        minimap: { enabled: showMinimap },
         lineNumbers: "on",
         renderLineHighlight: "line",
         scrollBeyondLastLine: false,

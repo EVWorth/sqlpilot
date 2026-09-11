@@ -217,6 +217,13 @@ vi.mock("../../../stores/settingsStore", () => ({
         linesBetweenQueries: 1,
         denseOperators: false,
       },
+      // The editor reads the minimap setting from here now (#295).
+      querySettings: {
+        maxResultRows: 1000,
+        limitEnabled: true,
+        showSystemDatabases: false,
+        showMinimap: false,
+      },
     };
     return selector ? selector(state) : state;
   }),

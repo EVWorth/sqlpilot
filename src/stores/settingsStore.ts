@@ -21,12 +21,22 @@ export interface QuerySettings {
    * someone actually came for.
    */
   showSystemDatabases: boolean;
+  /**
+   * Whether the editor shows Monaco's minimap.
+   *
+   * FR-2.3.7 asks for it; it was hard-disabled in the editor's options with no
+   * way to turn it on (#295). Off by default, which is the right default for a
+   * SQL pane — statements are short and the minimap costs width — but that is
+   * a preference rather than a fact about the app.
+   */
+  showMinimap: boolean;
 }
 
 const DEFAULT_QUERY_SETTINGS: QuerySettings = {
   maxResultRows: 1000,
   limitEnabled: true,
   showSystemDatabases: false,
+  showMinimap: false,
 };
 
 export interface FormatterSettings {
