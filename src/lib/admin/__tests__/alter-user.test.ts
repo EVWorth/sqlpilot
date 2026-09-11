@@ -105,6 +105,6 @@ describe("buildAlterUserStatements (#436)", () => {
       lock: "lock",
     });
 
-    expect(statement).toBe("ALTER USER 'o\\'brien'@'10.0.0.1' ACCOUNT LOCK");
+    expect(statement).toBe("ALTER USER 'o''brien'@'10.0.0.1' ACCOUNT LOCK");
   });
 });

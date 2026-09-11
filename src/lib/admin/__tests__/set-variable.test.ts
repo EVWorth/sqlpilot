@@ -51,7 +51,7 @@ describe("buildSetVariable", () => {
 
   it("escapes a value containing a quote", () => {
     expect(buildSetVariable("init_connect", "SET x='y'", "global"))
-      .toBe("SET GLOBAL init_connect = 'SET x=\\'y\\''");
+      .toBe(`SET GLOBAL init_connect = 'SET x=''y'''`);
   });
 
   it("uses the right keyword per scope", () => {
