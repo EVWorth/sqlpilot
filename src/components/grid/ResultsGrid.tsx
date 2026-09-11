@@ -40,6 +40,7 @@ import { useRowKey } from "../../hooks/useRowKey";
 import { type ColumnFilter, describeFilter, isActiveFilter, matchesFilter } from "../../lib/grid-filter";
 import { applyOrder, layoutKey, moveColumn, readLayout, writeLayout } from "../../lib/grid-layout";
 import { describeGridChanges, nextEditableCell } from "../../lib/grid-navigation";
+import { describeTotal, planCount } from "../../lib/row-count";
 import { runStatement } from "../../lib/run-statement";
 import {
   columnTypesOf,
@@ -249,6 +250,69 @@ export function ResultsGrid() {
   // A filter is about the rows on screen, so it has no meaning once they are
   // replaced by a different query's.
   useEffect(() => setFilters({}), [layoutId]);
+
+  /**
+   * How many rows the statement would return, when it is known.
+   *
+   * `exact: false` is the engine's own estimate, which InnoDB samples from the
+   * index and can be wide of the mark. Presented as approximate so a later
+   * exact count disagreeing with it does not read as a bug.
+   */
+  const [total, setTotal] = useState<{ value: number; exact: boolean } | null>(null);
+  const [counting, setCounting] = useState(false);
+  const [countError, setCountError] = useState<string | null>(null);
+
+  const countPlan = useMemo(
+    () => planCount(activeResult?.sql ?? "", gridDatabase),
+    [activeResult, gridDatabase],
+  );
+
+  const readCount = useCallback(async (sql: string): Promise<number | null> => {
+    if (!gridConnectionId) return null;
+    const results = await runStatement({
+      connectionId: gridConnectionId,
+      sql,
+      database: gridDatabase ?? undefined,
+      origin: "internal",
+    });
+    const value = Number(results[0]?.rows?.[0]?.[0]);
+    return Number.isFinite(value) ? value : null;
+  }, [gridConnectionId, gridDatabase]);
+
+  // The free estimate, for a query that reads a whole table. Nothing is asked
+  // of the server for anything else until the user asks for it.
+  useEffect(() => {
+    setTotal(null);
+    setCountError(null);
+    if (!activeResult?.rows_truncated || countPlan.kind !== "table") return;
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const value = await readCount(countPlan.estimateSql);
+        if (!cancelled && value !== null) setTotal({ value, exact: false });
+      } catch {
+        // An estimate nobody asked for is not worth reporting a failure over.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeResult, countPlan, readCount]);
+
+  const countRows = useCallback(async () => {
+    if (countPlan.kind === "none") return;
+    setCounting(true);
+    setCountError(null);
+    try {
+      const value = await readCount(countPlan.exactSql);
+      if (value !== null) setTotal({ value, exact: true });
+    } catch (e) {
+      setCountError(`Count failed: ${String(e)}`);
+    } finally {
+      setCounting(false);
+    }
+  }, [countPlan, readCount]);
 
   /** True when what is on screen is not the order the query returned. */
   const isReordered = useMemo(
@@ -892,6 +956,31 @@ export function ResultsGrid() {
           <span>
             {truncationMessage(activeResult.rows.length, activeResult.truncation_reason)}
           </span>
+          {
+            /* FR-3.1.7: 1000 of 1,200 and 1000 of 12,000,000 call for different
+              responses, and the banner said nothing either way (#402). */
+          }
+          {total && (
+            <span className="shrink-0 text-amber-300">
+              {describeTotal(activeResult.rows.length, total)}
+            </span>
+          )}
+          {countPlan.kind !== "none" && !total?.exact && (
+            <button
+              onClick={() => void countRows()}
+              disabled={counting}
+              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] underline underline-offset-2 hover:bg-amber-900/40 disabled:opacity-50"
+              title="Runs COUNT(*) over the same query, which scans the whole table"
+            >
+              {counting ? "Counting…" : "Count exactly"}
+            </button>
+          )}
+          {countPlan.kind === "none" && (
+            <span className="shrink-0 text-amber-300/70" title={countPlan.reason}>
+              (no count: {countPlan.reason})
+            </span>
+          )}
+          {countError && <span className="shrink-0 text-red-400">{countError}</span>}
         </div>
       )}
 
