@@ -739,3 +739,71 @@ describe("SchemaTree filter highlight (#296)", () => {
     expect(screen.queryAllByRole("mark")).toHaveLength(0);
   });
 });
+
+describe("SchemaTree accessibility (F3.11 of #299)", () => {
+  beforeEach(() => {
+    useSchemaStore.setState({ byConnection: {} });
+  });
+
+  it("is a tree, not a list of unrelated buttons", async () => {
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+
+    expect(screen.getByRole("tree", { name: "Schema" })).toBeInTheDocument();
+    expect(screen.getByRole("treeitem", { name: "app_db" })).toBeInTheDocument();
+  });
+
+  it("says whether a node is open", async () => {
+    // Without aria-expanded there is no way to tell an open folder from a
+    // closed one.
+    const user = userEvent.setup({ applyAccept: false });
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    const node = screen.getByRole("treeitem", { name: "app_db" });
+    expect(node.getAttribute("aria-expanded")).toBe("false");
+
+    await user.click(screen.getByText("app_db"));
+
+    expect(node.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("groups a node's children", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+
+    await user.click(screen.getByText("app_db"));
+
+    expect(screen.getAllByRole("group").length).toBeGreaterThan(0);
+  });
+
+  it("opens and closes with the arrow keys", async () => {
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    const button = screen.getByText("app_db").closest("button")!;
+    const node = screen.getByRole("treeitem", { name: "app_db" });
+
+    fireEvent.keyDown(button, { key: "ArrowRight" });
+    await waitFor(() => expect(node.getAttribute("aria-expanded")).toBe("true"));
+
+    fireEvent.keyDown(button, { key: "ArrowLeft" });
+    await waitFor(() => expect(node.getAttribute("aria-expanded")).toBe("false"));
+  });
+
+  it("does not collapse on Right, or expand on Left", async () => {
+    // Right on an open node moves inwards in a real tree; it must never close
+    // what it is on.
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    const button = screen.getByText("app_db").closest("button")!;
+    const node = screen.getByRole("treeitem", { name: "app_db" });
+
+    fireEvent.keyDown(button, { key: "ArrowLeft" });
+    expect(node.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.keyDown(button, { key: "ArrowRight" });
+    await waitFor(() => expect(node.getAttribute("aria-expanded")).toBe("true"));
+    fireEvent.keyDown(button, { key: "ArrowRight" });
+    expect(node.getAttribute("aria-expanded")).toBe("true");
+  });
+});
