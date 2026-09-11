@@ -1,4 +1,4 @@
-import { act, fireEvent, render } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { TruncatedCell } from "../TruncatedCell";
 
@@ -308,5 +308,37 @@ describe("observer churn", () => {
     expect(FakeResizeObserver.instances).toHaveLength(1);
     unmount();
     expect(FakeResizeObserver.instances).toHaveLength(0);
+  });
+});
+
+describe("binary cells (#401)", () => {
+  const PNG = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01];
+
+  it("says what the value is instead of listing its bytes", () => {
+    // `String(bytes)` printed 137,80,78,71,13,10,26,10,… — every byte,
+    // comma-separated. That is not a preview of a PNG.
+    render(<TruncatedCell value={PNG} columnName="avatar" dataType="mediumblob" onViewFull={() => {}} />);
+
+    expect(screen.getByText("[image/png, 10 B]")).toBeInTheDocument();
+    expect(screen.queryByText(/137,80/)).not.toBeInTheDocument();
+  });
+
+  it("says only the size when it cannot name the type", () => {
+    render(<TruncatedCell value={[0, 1, 2]} columnName="data" dataType="blob" onViewFull={() => {}} />);
+    expect(screen.getByText("[BLOB, 3 B]")).toBeInTheDocument();
+  });
+
+  it("always offers the viewer, since the cell itself shows nothing useful", () => {
+    render(<TruncatedCell value={PNG} columnName="avatar" dataType="blob" onViewFull={() => {}} />);
+    expect(screen.getByLabelText("View full content")).toBeInTheDocument();
+  });
+
+  it("hands the viewer the bytes rather than their text form", () => {
+    const onViewFull = vi.fn();
+    render(<TruncatedCell value={PNG} columnName="avatar" dataType="blob" onViewFull={onViewFull} />);
+
+    fireEvent.click(screen.getByLabelText("View full content"));
+
+    expect(onViewFull).toHaveBeenCalledWith(null, "avatar", PNG);
   });
 });

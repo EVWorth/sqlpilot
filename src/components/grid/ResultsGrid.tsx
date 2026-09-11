@@ -143,6 +143,8 @@ export function ResultsGrid() {
     isOpen: boolean;
     columnName: string;
     content: string | null;
+    /** Set for a binary column, whose value is bytes rather than text (#401). */
+    bytes?: number[];
     dataType?: string;
   }>({ isOpen: false, columnName: "", content: null });
   const { contextMenu, showContextMenu } = useContextMenu();
@@ -749,11 +751,12 @@ export function ResultsGrid() {
               value={originalValue}
               columnName={col.name}
               dataType={col.data_type}
-              onViewFull={(content, colName) => {
+              onViewFull={(content, colName, bytes) => {
                 setCellViewer({
                   isOpen: true,
                   columnName: colName,
                   content,
+                  bytes,
                   dataType: col.data_type,
                 });
               }}
@@ -1394,6 +1397,7 @@ export function ResultsGrid() {
         isOpen={cellViewer.isOpen}
         columnName={cellViewer.columnName}
         content={cellViewer.content}
+        bytes={cellViewer.bytes}
         dataType={cellViewer.dataType}
         onClose={() => setCellViewer({ isOpen: false, columnName: "", content: null })}
       />
