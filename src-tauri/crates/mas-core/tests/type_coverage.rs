@@ -55,7 +55,9 @@ async fn probe(table: &str, select_list: &str) -> Vec<SqlValue> {
 
     macro_rules! run {
         ($sql:expr) => {
-            exec.execute(&conn.id, &$sql, None, None).await.unwrap()
+            exec.execute(&conn.id, &$sql, None, None, None)
+                .await
+                .unwrap()
         };
     }
 

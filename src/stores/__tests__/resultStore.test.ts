@@ -174,6 +174,112 @@ describe("resultStore", () => {
     });
   });
 
+  describe("paging (#391)", () => {
+    /** A page that came back exactly full, which is how "there may be more" is known. */
+    const fullPage = () => makeQueryResult({ rows: Array.from({ length: 1000 }, () => ["x"]) });
+
+    it("offers no paging for a result that fitted inside the limit", async () => {
+      // Page controls on a complete answer invite a round trip that fetches
+      // nothing.
+      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+
+      expect(useResultStore.getState().page).toBeNull();
+    });
+
+    it("offers paging once a page fills up", async () => {
+      executeQueryMock.mockResolvedValue([fullPage()]);
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
+
+      expect(useResultStore.getState().page).toMatchObject({
+        index: 0,
+        size: 1000,
+        hasMore: true,
+      });
+    });
+
+    it("skips the rows already shown rather than rewriting the SQL", async () => {
+      // Appending LIMIT/OFFSET breaks SHOW, locking clauses and trailing
+      // comments; the executor discards rows as it reads instead.
+      executeQueryMock.mockResolvedValue([fullPage()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big", "shop");
+
+      await useResultStore.getState().goToPage(1);
+
+      expect(executeQueryMock).toHaveBeenLastCalledWith(
+        "conn-1",
+        "SELECT * FROM big",
+        "shop",
+        1000,
+        1000,
+      );
+      expect(useResultStore.getState().page).toMatchObject({ index: 1 });
+    });
+
+    it("recognises the last page by it coming back short", async () => {
+      executeQueryMock.mockResolvedValue([fullPage()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
+
+      executeQueryMock.mockResolvedValue([makeQueryResult({ rows: [["x"]] })]);
+      await useResultStore.getState().goToPage(1);
+
+      expect(useResultStore.getState().page).toMatchObject({ index: 1, hasMore: false });
+    });
+
+    it("keeps the controls on a short last page so the way back stays", async () => {
+      executeQueryMock.mockResolvedValue([fullPage()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
+
+      executeQueryMock.mockResolvedValue([makeQueryResult({ rows: [["x"]] })]);
+      await useResultStore.getState().goToPage(1);
+
+      expect(useResultStore.getState().page).not.toBeNull();
+    });
+
+    it("does not record a history entry for every Next click", async () => {
+      // The statement was run once; one row in history is the honest record.
+      executeQueryMock.mockResolvedValue([fullPage()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
+      addEntryMock.mockClear();
+
+      await useResultStore.getState().goToPage(1);
+
+      expect(addEntryMock).not.toHaveBeenCalled();
+    });
+
+    it("ignores a page change with nothing to page", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+      executeQueryMock.mockClear();
+
+      await useResultStore.getState().goToPage(1);
+
+      expect(executeQueryMock).not.toHaveBeenCalled();
+    });
+
+    it("will not page before the first page", async () => {
+      executeQueryMock.mockResolvedValue([fullPage()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
+      executeQueryMock.mockClear();
+
+      await useResultStore.getState().goToPage(-1);
+
+      expect(executeQueryMock).not.toHaveBeenCalled();
+    });
+
+    it("forgets the page when a different query runs", async () => {
+      executeQueryMock.mockResolvedValue([fullPage()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
+
+      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+
+      expect(useResultStore.getState().page).toBeNull();
+    });
+  });
+
   describe("executeQuery", () => {
     it("executes query successfully and adds history entry", async () => {
       const result = makeQueryResult();
@@ -181,7 +287,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 1000);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 1000, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: "SELECT 1",
@@ -202,7 +308,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "mydb");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "mydb", 1000);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "mydb", 1000, undefined);
     });
 
     it("uses connection name and database in history entry", async () => {
@@ -232,7 +338,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "otherdb");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "otherdb", 1000);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "otherdb", 1000, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({ database: "otherdb" }),
       );
@@ -416,7 +522,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 500);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 500, undefined);
     });
 
     it("passes undefined rowLimit when limitEnabled is false", async () => {
@@ -425,7 +531,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, undefined);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, undefined, undefined);
     });
   });
 
@@ -446,7 +552,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().confirmExecution();
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: "DROP TABLE users",

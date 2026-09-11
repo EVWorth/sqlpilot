@@ -100,8 +100,24 @@ export const api = {
   listConnections: () => unwrap("list_connections", () => commands.listConnections()),
 
   // Queries
-  executeQuery: (connectionId: string, sql: string, database?: string, limit?: number) =>
-    unwrap("execute_query", () => commands.executeQuery(connectionId, sql, orNull(database), orNull(limit))),
+  executeQuery: (
+    connectionId: string,
+    sql: string,
+    database?: string,
+    limit?: number,
+    offset?: number,
+  ) =>
+    unwrap(
+      "execute_query",
+      () =>
+        commands.executeQuery(
+          connectionId,
+          sql,
+          orNull(database),
+          orNull(limit),
+          orNull(offset),
+        ),
+    ),
 
   // History (#585). Stored in SQLite rather than localStorage, so every read
   // and write crosses the IPC boundary.

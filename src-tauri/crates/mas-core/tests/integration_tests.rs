@@ -218,7 +218,13 @@ async fn test_execute_select() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT 1 AS num, 'hello' AS greeting", None, None)
+        .execute(
+            &info.id,
+            "SELECT 1 AS num, 'hello' AS greeting",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
@@ -253,7 +259,7 @@ async fn a_row_limit_does_not_break_show_and_describe() {
         "DESCRIBE users",
         "DESC users",
     ] {
-        let result = executor.execute(&info.id, sql, None, Some(2)).await;
+        let result = executor.execute(&info.id, sql, None, Some(2), None).await;
         assert!(
             result.is_ok(),
             "`{sql}` with a row limit set should run: {:?}",
@@ -275,7 +281,7 @@ async fn a_row_limit_still_bounds_the_statements_it_should() {
     // TABLE and VALUES came back unbounded.
     for sql in ["SELECT * FROM users", "TABLE users"] {
         let results = executor
-            .execute(&info.id, sql, None, Some(2))
+            .execute(&info.id, sql, None, Some(2), None)
             .await
             .unwrap();
         assert!(
@@ -303,6 +309,7 @@ async fn a_cte_is_bounded_too() {
             "WITH everyone AS (SELECT * FROM users) SELECT * FROM everyone",
             None,
             Some(2),
+            None,
         )
         .await
         .unwrap();
@@ -321,7 +328,13 @@ async fn a_limit_the_user_wrote_is_not_overridden() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT * FROM users LIMIT 1", None, Some(50))
+        .execute(
+            &info.id,
+            "SELECT * FROM users LIMIT 1",
+            None,
+            Some(50),
+            None,
+        )
         .await
         .unwrap();
     assert_eq!(results[0].rows.len(), 1);
@@ -345,7 +358,13 @@ async fn a_locking_read_still_runs_under_a_row_limit() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT * FROM users FOR UPDATE", None, Some(2))
+        .execute(
+            &info.id,
+            "SELECT * FROM users FOR UPDATE",
+            None,
+            Some(2),
+            None,
+        )
         .await
         .expect("a locking read should run");
     assert!(results[0].rows.len() <= 2);
@@ -364,7 +383,13 @@ async fn a_trailing_comment_no_longer_swallows_the_limit() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT * FROM users -- everyone", None, Some(2))
+        .execute(
+            &info.id,
+            "SELECT * FROM users -- everyone",
+            None,
+            Some(2),
+            None,
+        )
         .await
         .unwrap();
     assert!(
@@ -392,6 +417,7 @@ async fn a_limit_inside_a_subquery_does_not_count_as_the_outer_one() {
             "SELECT * FROM (SELECT * FROM users LIMIT 4) AS inner_rows",
             None,
             Some(2),
+            None,
         )
         .await
         .unwrap();
@@ -411,7 +437,7 @@ async fn show_output_is_bounded_too() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SHOW VARIABLES", None, Some(3))
+        .execute(&info.id, "SHOW VARIABLES", None, Some(3), None)
         .await
         .unwrap();
     assert_eq!(results[0].rows.len(), 3);
@@ -430,7 +456,7 @@ async fn a_result_exactly_the_limit_long_is_not_called_truncated() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT 1 UNION ALL SELECT 2", None, Some(2))
+        .execute(&info.id, "SELECT 1 UNION ALL SELECT 2", None, Some(2), None)
         .await
         .unwrap();
     assert_eq!(results[0].rows.len(), 2);
@@ -457,7 +483,10 @@ async fn the_statement_reaches_the_server_as_written() {
         "DESCRIBE users",
     ] {
         assert!(
-            executor.execute(&info.id, sql, None, Some(2)).await.is_ok(),
+            executor
+                .execute(&info.id, sql, None, Some(2), None)
+                .await
+                .is_ok(),
             "`{sql}` should run untouched"
         );
     }
@@ -525,6 +554,7 @@ async fn test_composite_foreign_key_keeps_its_column_order() {
              );",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -543,7 +573,7 @@ async fn test_composite_foreign_key_keeps_its_column_order() {
     assert_eq!(keys[0].on_delete, "SET NULL");
 
     executor
-        .execute(&info.id, "DROP TABLE fk_child, fk_parent", None, None)
+        .execute(&info.id, "DROP TABLE fk_child, fk_parent", None, None, None)
         .await
         .unwrap();
     manager.disconnect(&info.id).await.unwrap();
@@ -600,6 +630,7 @@ async fn a_failed_alter_changes_nothing(profile: ConnectionProfile) {
             "DROP TABLE IF EXISTS alter_atomicity; CREATE TABLE alter_atomicity (id INT, dup INT)",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -608,7 +639,7 @@ async fn a_failed_alter_changes_nothing(profile: ConnectionProfile) {
     // cannot succeed. What matters is what the first clause leaves behind.
     let combined =
         "ALTER TABLE `alter_atomicity`\n  ADD COLUMN `ok1` INT,\n  ADD COLUMN `dup` INT;";
-    let result = executor.execute(&info.id, combined, None, None).await;
+    let result = executor.execute(&info.id, combined, None, None, None).await;
     assert!(result.is_err(), "the duplicate column should have failed");
 
     assert_eq!(
@@ -618,7 +649,7 @@ async fn a_failed_alter_changes_nothing(profile: ConnectionProfile) {
     );
 
     executor
-        .execute(&info.id, "DROP TABLE alter_atomicity", None, None)
+        .execute(&info.id, "DROP TABLE alter_atomicity", None, None, None)
         .await
         .unwrap();
     manager.disconnect(&info.id).await.unwrap();
@@ -652,6 +683,7 @@ async fn test_separate_alters_are_what_left_the_table_half_changed() {
             "DROP TABLE IF EXISTS alter_partial; CREATE TABLE alter_partial (id INT, dup INT)",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -659,7 +691,7 @@ async fn test_separate_alters_are_what_left_the_table_half_changed() {
     let separate = "ALTER TABLE `alter_partial` ADD COLUMN `ok1` INT;\n\
          ALTER TABLE `alter_partial` ADD COLUMN `dup` INT;";
     assert!(executor
-        .execute(&info.id, separate, None, None)
+        .execute(&info.id, separate, None, None, None)
         .await
         .is_err());
 
@@ -670,7 +702,7 @@ async fn test_separate_alters_are_what_left_the_table_half_changed() {
     );
 
     executor
-        .execute(&info.id, "DROP TABLE alter_partial", None, None)
+        .execute(&info.id, "DROP TABLE alter_partial", None, None, None)
         .await
         .unwrap();
     manager.disconnect(&info.id).await.unwrap();
@@ -694,6 +726,7 @@ async fn test_ddl_ignores_a_rollback() {
              ROLLBACK;",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -705,7 +738,7 @@ async fn test_ddl_ignores_a_rollback() {
     );
 
     executor
-        .execute(&info.id, "DROP TABLE ddl_rollback", None, None)
+        .execute(&info.id, "DROP TABLE ddl_rollback", None, None, None)
         .await
         .unwrap();
     manager.disconnect(&info.id).await.unwrap();
@@ -735,14 +768,17 @@ async fn designer_ddl_preserves_column_modifiers(profile: ConnectionProfile) {
            ts TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP\n\
          );\n\
          INSERT INTO ddl_roundtrip (big, s) VALUES (4000000000, 'x');";
-    executor.execute(&info.id, setup, None, None).await.unwrap();
+    executor
+        .execute(&info.id, setup, None, None, None)
+        .await
+        .unwrap();
 
     // What the designer emits for an edit to each column's comment.
     let altered = "ALTER TABLE `ddl_roundtrip` MODIFY COLUMN `big` INT(10) UNSIGNED ZEROFILL NOT NULL COMMENT 'edited';\n\
          ALTER TABLE `ddl_roundtrip` MODIFY COLUMN `s` VARCHAR(20) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NULL COMMENT 'edited';\n\
          ALTER TABLE `ddl_roundtrip` MODIFY COLUMN `ts` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT 'edited';";
     executor
-        .execute(&info.id, altered, None, None)
+        .execute(&info.id, altered, None, None, None)
         .await
         .unwrap();
 
@@ -776,7 +812,7 @@ async fn designer_ddl_preserves_column_modifiers(profile: ConnectionProfile) {
 
     // And the value that only fits in an unsigned column is still there.
     let rows = executor
-        .execute(&info.id, "SELECT big FROM ddl_roundtrip", None, None)
+        .execute(&info.id, "SELECT big FROM ddl_roundtrip", None, None, None)
         .await
         .unwrap();
     assert_eq!(rows[0].rows.len(), 1);
@@ -787,7 +823,7 @@ async fn designer_ddl_preserves_column_modifiers(profile: ConnectionProfile) {
     );
 
     executor
-        .execute(&info.id, "DROP TABLE ddl_roundtrip", None, None)
+        .execute(&info.id, "DROP TABLE ddl_roundtrip", None, None, None)
         .await
         .unwrap();
     manager.disconnect(&info.id).await.unwrap();
@@ -833,6 +869,7 @@ async fn call_returns_the_procedures_rows(profile: ConnectionProfile) {
             "CALL `test_db`.`proc_one_result_set`()",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -873,6 +910,7 @@ async fn test_call_with_no_result_set_still_reports_a_count() {
             "CALL `test_db`.`proc_no_result_set`()",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -896,6 +934,7 @@ async fn test_procedure_batch_attributes_every_set_to_its_statement() {
         .execute(
             &info.id,
             "SET @p_out = NULL;\nCALL `test_db`.`proc_two_result_sets`(@p_out);\nSELECT @p_out AS `p_out`;",
+            None,
             None,
             None,
         )
@@ -948,6 +987,7 @@ async fn test_select_matching_nothing_is_still_a_result_set() {
             "SELECT 1 AS n FROM (SELECT 1) t WHERE 1 = 0",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -966,7 +1006,7 @@ async fn test_plain_batch_keeps_one_statement_index_each() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT 1 AS a; SELECT 2 AS b", None, None)
+        .execute(&info.id, "SELECT 1 AS a; SELECT 2 AS b", None, None, None)
         .await
         .unwrap();
 
@@ -992,6 +1032,7 @@ async fn test_row_limit_is_reported_as_the_reason() {
             "SELECT 1 AS n UNION ALL SELECT 2 UNION ALL SELECT 3",
             None,
             Some(2),
+            None,
         )
         .await
         .unwrap();
@@ -1014,7 +1055,13 @@ async fn test_result_within_the_limit_has_no_truncation_reason() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT 1 AS n UNION ALL SELECT 2", None, Some(10))
+        .execute(
+            &info.id,
+            "SELECT 1 AS n UNION ALL SELECT 2",
+            None,
+            Some(10),
+            None,
+        )
         .await
         .unwrap();
 
@@ -1036,6 +1083,7 @@ async fn test_execute_select_from_table() {
         .execute(
             &info.id,
             "SELECT id, username, email FROM users ORDER BY id",
+            None,
             None,
             None,
         )
@@ -1066,6 +1114,7 @@ async fn test_execute_insert_update_delete() {
             "INSERT INTO categories (name, description) VALUES ('Test Category', 'For testing')",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1079,6 +1128,7 @@ async fn test_execute_insert_update_delete() {
             "UPDATE categories SET description = 'Updated' WHERE name = 'Test Category'",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1089,6 +1139,7 @@ async fn test_execute_insert_update_delete() {
         .execute(
             &info.id,
             "DELETE FROM categories WHERE name = 'Test Category'",
+            None,
             None,
             None,
         )
@@ -1107,7 +1158,7 @@ async fn test_execute_multi_statement() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT 1; SELECT 2; SELECT 3", None, None)
+        .execute(&info.id, "SELECT 1; SELECT 2; SELECT 3", None, None, None)
         .await
         .unwrap();
     assert_eq!(
@@ -1128,14 +1179,14 @@ async fn test_execute_show_commands() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SHOW DATABASES", None, None)
+        .execute(&info.id, "SHOW DATABASES", None, None, None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
     assert!(!results[0].rows.is_empty());
 
     let results = executor
-        .execute(&info.id, "SHOW TABLES", None, None)
+        .execute(&info.id, "SHOW TABLES", None, None, None)
         .await
         .unwrap();
     assert_eq!(results.len(), 1);
@@ -1152,7 +1203,13 @@ async fn test_execute_with_error() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let result = executor
-        .execute(&info.id, "SELECT * FROM nonexistent_table", None, None)
+        .execute(
+            &info.id,
+            "SELECT * FROM nonexistent_table",
+            None,
+            None,
+            None,
+        )
         .await;
     assert!(result.is_err());
 
@@ -1168,12 +1225,13 @@ async fn test_execute_ddl() {
 
     // Create table
     let _ = executor
-        .execute(&info.id, "DROP TABLE IF EXISTS test_temp", None, None)
+        .execute(&info.id, "DROP TABLE IF EXISTS test_temp", None, None, None)
         .await;
     let results = executor
         .execute(
             &info.id,
             "CREATE TABLE test_temp (id INT PRIMARY KEY, name VARCHAR(50))",
+            None,
             None,
             None,
         )
@@ -1188,18 +1246,19 @@ async fn test_execute_ddl() {
             "INSERT INTO test_temp VALUES (1, 'test')",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
     let results = executor
-        .execute(&info.id, "SELECT * FROM test_temp", None, None)
+        .execute(&info.id, "SELECT * FROM test_temp", None, None, None)
         .await
         .unwrap();
     assert_eq!(results[0].rows.len(), 1);
 
     // Clean up
     executor
-        .execute(&info.id, "DROP TABLE test_temp", None, None)
+        .execute(&info.id, "DROP TABLE test_temp", None, None, None)
         .await
         .unwrap();
 
@@ -1217,6 +1276,7 @@ async fn test_null_handling() {
         .execute(
             &info.id,
             "SELECT NULL AS null_val, 'not null' AS str_val",
+            None,
             None,
             None,
         )
@@ -1246,6 +1306,7 @@ async fn test_data_types() {
             "SELECT * FROM data_types_test WHERE id = 1",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1270,6 +1331,7 @@ async fn test_unicode_data() {
         .execute(
             &info.id,
             "SELECT id, content_utf8, content_emoji FROM unicode_test",
+            None,
             None,
             None,
         )
@@ -1305,6 +1367,7 @@ async fn test_json_data() {
         .execute(
             &info.id,
             "SELECT metadata FROM products WHERE metadata IS NOT NULL LIMIT 1",
+            None,
             None,
             None,
         )
@@ -1520,6 +1583,7 @@ async fn test_export_csv() {
             "SELECT id, username, email FROM users LIMIT 3",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1554,6 +1618,7 @@ async fn test_export_json() {
             "SELECT id, username FROM users LIMIT 2",
             None,
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1577,6 +1642,7 @@ async fn test_export_sql_insert() {
         .execute(
             &info.id,
             "SELECT id, username FROM users LIMIT 1",
+            None,
             None,
             None,
         )
@@ -1609,6 +1675,7 @@ async fn test_export_markdown() {
         .execute(
             &info.id,
             "SELECT id, username FROM users LIMIT 2",
+            None,
             None,
             None,
         )
@@ -1855,7 +1922,13 @@ async fn a_failed_query_keeps_the_driver_error_number() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let err = executor
-        .execute(&info.id, "SELECT * FROM definitely_not_a_table", None, None)
+        .execute(
+            &info.id,
+            "SELECT * FROM definitely_not_a_table",
+            None,
+            None,
+            None,
+        )
         .await
         .unwrap_err();
 
@@ -1879,7 +1952,7 @@ async fn a_syntax_error_is_distinguishable_from_a_missing_table() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let err = executor
-        .execute(&info.id, "SELECT FROM WHERE", None, None)
+        .execute(&info.id, "SELECT FROM WHERE", None, None, None)
         .await
         .unwrap_err();
 
@@ -1905,6 +1978,7 @@ async fn a_multi_statement_run_says_which_statement_failed() {
             "SELECT 1; SELECT 2; SELECT * FROM definitely_not_a_table",
             None,
             None,
+            None,
         )
         .await
         .unwrap_err();
@@ -1924,7 +1998,7 @@ async fn each_result_carries_the_statement_it_came_from() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     let results = executor
-        .execute(&info.id, "SELECT 1 AS a; SELECT 2 AS b", None, None)
+        .execute(&info.id, "SELECT 1 AS a; SELECT 2 AS b", None, None, None)
         .await
         .unwrap();
 

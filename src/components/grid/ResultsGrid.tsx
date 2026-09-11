@@ -17,6 +17,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   AlertCircle,
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   ClipboardCopy,
   ClipboardList,
   Copy,
@@ -123,6 +125,8 @@ export function ResultsGrid() {
   const activeResultIndex = useResultStore((s) => s.activeResultIndex);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const error = useResultStore((s) => s.error);
+  const page = useResultStore((s) => s.page);
+  const goToPage = useResultStore((s) => s.goToPage);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({});
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
@@ -1162,7 +1166,37 @@ export function ResultsGrid() {
 
       {/* Footer */}
       <div className="flex items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1">
-        <span className="text-[10px] text-[var(--color-text-muted)]">
+        <span className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
+          {page && (
+            // FR-3.1.8. No total is shown because there is none to show: the
+            // statement is streamed and stopped at the cap, so the only honest
+            // claim is which rows these are and whether more follow.
+            <span className="flex items-center gap-0.5">
+              <button
+                onClick={() => void goToPage(page.index - 1)}
+                disabled={page.index === 0 || isExecuting}
+                aria-label="Previous page"
+                className="rounded p-0.5 hover:bg-[var(--color-bg-tertiary)] disabled:opacity-30"
+              >
+                <ChevronLeft className="h-3 w-3" />
+              </button>
+              <span className="tabular-nums">
+                rows {page.index * page.size + 1}&ndash;{page.index * page.size
+                  + activeResult.rows.length}
+              </span>
+              <button
+                onClick={() => void goToPage(page.index + 1)}
+                disabled={!page.hasMore || isExecuting}
+                aria-label="Next page"
+                title={page.hasMore
+                  ? "Re-runs the statement and skips the rows already shown"
+                  : "This is the last page"}
+                className="rounded p-0.5 hover:bg-[var(--color-bg-tertiary)] disabled:opacity-30"
+              >
+                <ChevronRight className="h-3 w-3" />
+              </button>
+            </span>
+          )}
           {columnFilters.length > 0
             // Saying only "12 row(s)" under an active filter reads as the
             // query having returned twelve, which is a different fact (#391).

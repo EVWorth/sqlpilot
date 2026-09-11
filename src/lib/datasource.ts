@@ -43,6 +43,8 @@ export interface DataSource {
     sql: string,
     database?: string,
     limit?: number,
+    /** Rows to skip before the first one kept, for paging (#391). */
+    offset?: number,
   ): Promise<QueryResult[]>;
 }
 
@@ -57,7 +59,7 @@ const mysql: DataSource = {
   getColumns: (c, d, t) => api.getColumns(c, d, t),
   getIndexes: (c, d, t) => api.getIndexes(c, d, t),
   getTableDdl: (c, d, t) => api.getTableDdl(c, d, t),
-  execute: (c, sql, d, limit) => api.executeQuery(c, sql, d, limit),
+  execute: (c, sql, d, limit, offset) => api.executeQuery(c, sql, d, limit, offset),
 };
 
 /**
@@ -110,6 +112,10 @@ const sqlite: DataSource = {
       index_type: "BTREE",
     })),
   getTableDdl: (c, _d, t) => api.sqliteGetTableDdl(c, t),
+  // Paging is not wired through the SQLite backend yet, so an offset is
+  // ignored rather than silently returning the first page again. The grid
+  // only offers paging where the source reports a truncated result, which
+  // SQLite does not.
   execute: async (c, sql) =>
     (await api.sqliteExecute(c, sql)).map((r) => ({
       query_id: r.query_id,

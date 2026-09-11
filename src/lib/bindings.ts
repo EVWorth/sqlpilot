@@ -14,7 +14,7 @@ export const commands = {
 	connect: (profileId: string) => typedError<ConnectionInfo, string>(__TAURI_INVOKE("connect", { profileId })),
 	disconnect: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("disconnect", { connectionId })),
 	listConnections: () => typedError<ConnectionInfo[], string>(__TAURI_INVOKE("list_connections")),
-	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null) => typedError<QueryResult_Serialize[], QueryError>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit })),
+	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null, offset: number | null) => typedError<QueryResult_Serialize[], QueryError>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit, offset })),
 	/**
 	 *  Plan a single statement.
 	 * 

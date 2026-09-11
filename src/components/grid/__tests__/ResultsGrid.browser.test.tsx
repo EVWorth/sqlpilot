@@ -13,20 +13,41 @@ const resultState = {
   activeResultIndex: 0,
   isExecuting: false,
   error: null as string | null,
+  page: null as
+    | {
+      sql: string;
+      connectionId: string;
+      database?: string;
+      index: number;
+      size: number;
+      hasMore: boolean;
+    }
+    | null,
 };
 
+const mockGoToPage = vi.fn();
 const mockStoreGetState = vi.fn();
 
 vi.mock("../../../stores/resultStore", () => ({
   useResultStore: Object.assign(
     (selector?: (s: unknown) => unknown) => {
-      const full = { ...resultState, setActiveResult: vi.fn(), executeQuery: vi.fn() };
+      const full = {
+        ...resultState,
+        setActiveResult: vi.fn(),
+        executeQuery: vi.fn(),
+        goToPage: mockGoToPage,
+      };
       return selector ? selector(full) : full;
     },
     {
       getState: () => {
         mockStoreGetState();
-        return { ...resultState, setActiveResult: vi.fn(), executeQuery: vi.fn() };
+        return {
+          ...resultState,
+          setActiveResult: vi.fn(),
+          executeQuery: vi.fn(),
+          goToPage: mockGoToPage,
+        };
       },
     },
   ),
@@ -274,6 +295,8 @@ function resetState() {
   resultState.activeResultIndex = 0;
   resultState.isExecuting = false;
   resultState.error = null;
+  resultState.page = null;
+  mockGoToPage.mockReset();
   editorTabs = [];
   editorActiveTabId = null;
   connSelectedId = null;
@@ -532,6 +555,70 @@ describe("ResultsGrid (browser)", () => {
       await openFilter("name");
 
       expect(document.querySelector("[aria-sort='ascending']")).toBeNull();
+    });
+  });
+
+  // ─── Paging (#391) ────────────────────────────────────────
+  describe("paging", () => {
+    const onPage = (index: number, hasMore: boolean) => {
+      resultState.results = [makeResult()];
+      resultState.page = {
+        sql: "SELECT * FROM big",
+        connectionId: "conn-1",
+        index,
+        size: 1000,
+        hasMore,
+      };
+    };
+
+    it("says which rows these are rather than inventing a total", async () => {
+      // The statement is streamed and stopped at the cap, so there is no total
+      // to show and claiming one would be a guess.
+      onPage(2, true);
+      render(<ResultsGrid />);
+
+      expect(await screen.findByText(/rows 2001.2002/)).toBeInTheDocument();
+    });
+
+    it("fetches the next page", async () => {
+      onPage(0, true);
+      render(<ResultsGrid />);
+
+      fireEvent.click(await screen.findByLabelText("Next page"));
+
+      expect(mockGoToPage).toHaveBeenCalledWith(1);
+    });
+
+    it("stops at the last page", async () => {
+      onPage(3, false);
+      render(<ResultsGrid />);
+
+      expect(await screen.findByLabelText("Next page")).toBeDisabled();
+      expect(screen.getByLabelText("Previous page")).toBeEnabled();
+    });
+
+    it("has nowhere to go back to from the first page", async () => {
+      onPage(0, true);
+      render(<ResultsGrid />);
+
+      expect(await screen.findByLabelText("Previous page")).toBeDisabled();
+    });
+
+    it("offers nothing for a result that fitted in one page", async () => {
+      resultState.results = [makeResult()];
+      render(<ResultsGrid />);
+
+      expect(screen.queryByLabelText("Next page")).not.toBeInTheDocument();
+    });
+
+    it("will not queue a second fetch while one is running", async () => {
+      onPage(0, true);
+      resultState.isExecuting = true;
+      render(<ResultsGrid />);
+
+      // isExecuting replaces the grid with a spinner, so there is nothing to
+      // click — which is the point.
+      expect(screen.queryByLabelText("Next page")).not.toBeInTheDocument();
     });
   });
 
@@ -1165,6 +1252,8 @@ describe("ResultsGrid (browser)", () => {
     expect(screen.getByText("Query Error")).toBeInTheDocument();
 
     resultState.error = null;
+    resultState.page = null;
+    mockGoToPage.mockReset();
     resultState.results = [makeResult()];
     rerender(<ResultsGrid />);
 
