@@ -595,4 +595,20 @@ describe("settingsStore", () => {
       expect(useSettingsStore.getState().updateVersion).toBe("1.0.0");
     });
   });
+
+  it("clears the version a new check is about to replace (F14 of #322)", async () => {
+    // Left in place, the diagnostic and the release link both name the
+    // version a previous check found, which is not what this check reports.
+    const { useSettingsStore } = await import("../settingsStore");
+    useSettingsStore.setState({ updateStatus: "available", updateVersion: "9.9.9" });
+    const seen: (string | null)[] = [];
+    const unsubscribe = useSettingsStore.subscribe((s) => {
+      if (s.updateStatus === "checking") seen.push(s.updateVersion);
+    });
+
+    await useSettingsStore.getState().checkForUpdates(true);
+    unsubscribe();
+
+    expect(seen).toEqual([null]);
+  });
 });

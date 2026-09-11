@@ -270,3 +270,21 @@ describe("FormatterSettingsDialog labels", () => {
     expect(screen.getByLabelText(label)).toBeInTheDocument();
   });
 });
+
+describe("FormatterSettingsDialog defaults (F28 of #322)", () => {
+  it("resets to what a fresh install starts with", async () => {
+    // Two lists of twelve options drift, and a dialog whose "Reset to
+    // defaults" disagreed with the store's would be the kind of difference
+    // nobody notices for a year.
+    const { DEFAULT_FORMATTER_SETTINGS } = await import("../../../stores/settingsStore");
+    useSettingsStore.setState({
+      formatterSettings: { ...DEFAULT_FORMATTER_SETTINGS, keywordCase: "lower", tabWidth: 8 },
+    });
+    render(<FormatterSettingsDialog isOpen onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Reset to defaults"));
+    fireEvent.click(screen.getByText("Save"));
+
+    expect(useSettingsStore.getState().formatterSettings).toEqual(DEFAULT_FORMATTER_SETTINGS);
+  });
+});

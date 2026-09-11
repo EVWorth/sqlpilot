@@ -108,6 +108,16 @@ export function FeatureButtons({
           <span>AI</span>
         </button>
       )}
+      {
+        /*
+        A theme change is entirely visual, so a screen-reader user gets no
+        confirmation that the button did anything at all. The live region
+        says which theme is now in use (F20 of #322).
+      */
+      }
+      <span aria-live="polite" className="sr-only">
+        {themeLabels[theme]} theme
+      </span>
       <button
         onClick={cycleTheme}
         // Not gated on a connection: the theme is the app's, not the server's.

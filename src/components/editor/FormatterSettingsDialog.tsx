@@ -1,7 +1,7 @@
 import { Settings2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { formatSql, PREVIEW_SQL } from "../../lib/sql-format";
-import { type FormatterSettings, useSettingsStore } from "../../stores/settingsStore";
+import { DEFAULT_FORMATTER_SETTINGS, type FormatterSettings, useSettingsStore } from "../../stores/settingsStore";
 
 interface FormatterSettingsDialogProps {
   isOpen: boolean;
@@ -16,20 +16,14 @@ interface FormatterSettingsDialogProps {
   sample?: string;
 }
 
-const DEFAULTS: FormatterSettings = {
-  keywordCase: "upper",
-  identifierCase: "preserve",
-  dataTypeCase: "upper",
-  functionCase: "preserve",
-  indentStyle: "standard",
-  tabWidth: 2,
-  useTabs: false,
-  logicalOperatorNewline: "before",
-  newlineBeforeSemicolon: false,
-  expressionWidth: 50,
-  linesBetweenQueries: 1,
-  denseOperators: false,
-};
+/**
+ * The same defaults the store persists.
+ *
+ * Kept as one copy: two lists of twelve options drift, and a dialog whose
+ * "Reset to defaults" disagreed with what a fresh install starts as would be
+ * the kind of difference nobody notices for a year (F28 of #322).
+ */
+const DEFAULTS = DEFAULT_FORMATTER_SETTINGS;
 
 type CaseOption = "upper" | "lower" | "preserve";
 
