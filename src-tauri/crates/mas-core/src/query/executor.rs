@@ -21,7 +21,18 @@ pub struct QueryExecutor {
     /// connection let the shorter one's completion deregister the longer one,
     /// and let a timeout kill whichever thread happened to be registered last.
     in_flight: Arc<DashMap<u64, String>>,
+    /// How little free RAM stops a fetch, in MB.
+    ///
+    /// A field rather than a literal inside MemoryGuard because the block that
+    /// turns a tripped guard into a partial, memory-truncated result was the
+    /// only path through this file no test could reach: provoking the real
+    /// floor means starving the machine of RAM (#540).
+    memory_floor_mb: u64,
 }
+
+/// The free-RAM floor a fetch stops at. Below this, holding more rows risks
+/// taking the process down with the answer still unwritten.
+pub const DEFAULT_MEMORY_FLOOR_MB: u64 = 512;
 
 /// Deregisters this execution's thread however it ends — normal return, `?` on
 /// a decode error, or an early return on timeout.
@@ -44,9 +55,21 @@ impl Drop for InFlightGuard {
 
 impl QueryExecutor {
     pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
+        Self::with_memory_floor_mb(connection_manager, DEFAULT_MEMORY_FLOOR_MB)
+    }
+
+    /// An executor that stops fetching at a chosen free-RAM floor.
+    ///
+    /// Exists so the memory-truncation path can be exercised — set the floor
+    /// above the machine's free memory and the guard trips on its first check.
+    pub fn with_memory_floor_mb(
+        connection_manager: Arc<ConnectionManager>,
+        memory_floor_mb: u64,
+    ) -> Self {
         Self {
             connection_manager,
             in_flight: Arc::new(DashMap::new()),
+            memory_floor_mb,
         }
     }
 
@@ -168,7 +191,7 @@ impl QueryExecutor {
         }
 
         // Memory guard: detect OOM before the OS kills us
-        let mut mem_guard = MemoryGuard::new();
+        let mut mem_guard = MemoryGuard::new(self.memory_floor_mb);
 
         tracing::Span::current().record("statement_count", statements.len());
         tracing::trace!(sql = %sql, "Full SQL input");
@@ -867,11 +890,12 @@ fn build_select_result(
 struct MemoryGuard {
     sys: sysinfo::System,
     triggered: bool,
+    floor_mb: u64,
 }
 
 impl MemoryGuard {
     /// Create a new guard. Reads initial memory state for diagnostics.
-    fn new() -> Self {
+    fn new(floor_mb: u64) -> Self {
         let mut sys = sysinfo::System::new();
         sys.refresh_memory();
 
@@ -881,16 +905,18 @@ impl MemoryGuard {
         tracing::debug!(
             available_mb,
             total_mb,
-            "Memory guard initialized, will stop query if available memory drops below 512 MB"
+            floor_mb,
+            "Memory guard initialized, will stop the fetch if available memory drops below the floor"
         );
 
         Self {
             sys,
             triggered: false,
+            floor_mb,
         }
     }
 
-    /// Refresh system memory and return Err if available memory is below 512 MB.
+    /// Refresh system memory and return Err if available memory is below the floor.
     /// Sets the triggered flag on the first failure so subsequent calls fast-fail.
     fn check(&mut self) -> Result<(), CoreError> {
         if self.triggered {
@@ -902,7 +928,7 @@ impl MemoryGuard {
         self.sys.refresh_memory();
         let available_mb = self.sys.available_memory() / 1024 / 1024;
 
-        if available_mb < 512 {
+        if available_mb < self.floor_mb {
             self.triggered = true;
             tracing::warn!(available_mb, "System memory critically low, stopping query");
             return Err(CoreError::OutOfMemory(format!(
