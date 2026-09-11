@@ -167,6 +167,7 @@ vi.mock("@tanstack/react-table", () => ({
   columnSizingFeature: {},
   columnResizingFeature: {},
   columnVisibilityFeature: {},
+  columnOrderingFeature: {},
   flexRender: vi.fn((def: any, ctx: any) => {
     if (def.header) return def.header;
     return null;

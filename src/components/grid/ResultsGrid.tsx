@@ -1,5 +1,6 @@
 import {
   type ColumnDef,
+  columnOrderingFeature,
   columnResizingFeature,
   columnSizingFeature,
   columnVisibilityFeature,
@@ -14,8 +15,6 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   AlertCircle,
   AlertTriangle,
-  ArrowDown,
-  ArrowUp,
   ClipboardCopy,
   ClipboardList,
   Copy,
@@ -24,6 +23,7 @@ import {
   FileSpreadsheet,
   FileText,
   Loader2,
+  RotateCcw,
   Sparkles,
   Trash2,
 } from "lucide-react";
@@ -31,6 +31,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
 import { useRowKey } from "../../hooks/useRowKey";
+import { applyOrder, layoutKey, moveColumn, readLayout, writeLayout } from "../../lib/grid-layout";
 import { describeGridChanges, nextEditableCell } from "../../lib/grid-navigation";
 import { runStatement } from "../../lib/run-statement";
 import {
@@ -55,6 +56,7 @@ import type { MenuItem } from "../common/ContextMenu";
 import { CellViewerModal } from "./CellViewerModal";
 import { EditableCell } from "./EditableCell";
 import { EditToolbar } from "./EditToolbar";
+import { GridHeaderCell } from "./GridHeaderCell";
 import { TruncatedCell } from "./TruncatedCell";
 
 /**
@@ -65,6 +67,8 @@ import { TruncatedCell } from "./TruncatedCell";
  */
 const gridFeatures = tableFeatures({
   rowSortingFeature,
+  // FR-3.1.5: dragging a header changes the display order (#392).
+  columnOrderingFeature,
   columnSizingFeature,
   columnResizingFeature,
   // Not for hiding columns — row.getVisibleCells() hangs off this feature.
@@ -113,6 +117,11 @@ export function ResultsGrid() {
   const error = useResultStore((s) => s.error);
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({});
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [drag, setDrag] = useState<{ dragging: string | null; over: string | null }>({
+    dragging: null,
+    over: null,
+  });
   const [toast, setToast] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
   const [cellViewer, setCellViewer] = useState<{
@@ -173,6 +182,60 @@ export function ResultsGrid() {
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const gridConnectionId = activeEditorTab?.connectionId ?? selectedConnectionId;
   const gridDatabase = activeEditorTab?.database ?? null;
+
+  // FR-3.1.5: a dragged column order outlives the query that produced it.
+  const resultColumnNames = useMemo(
+    () => activeResult?.columns.map((c) => c.name) ?? [],
+    [activeResult],
+  );
+  const layoutId = useMemo(
+    () => layoutKey(gridConnectionId, gridDatabase, resultColumnNames),
+    [gridConnectionId, gridDatabase, resultColumnNames],
+  );
+
+  useEffect(() => {
+    if (resultColumnNames.length === 0) {
+      setColumnOrder([]);
+      return;
+    }
+    setColumnOrder(applyOrder(readLayout(layoutId)?.columnOrder ?? [], resultColumnNames));
+  }, [layoutId, resultColumnNames]);
+
+  const reorderColumn = useCallback((from: string, to: string) => {
+    setColumnOrder((prev) => {
+      const next = moveColumn(prev.length > 0 ? prev : resultColumnNames, from, to);
+      writeLayout(layoutId, { columnOrder: next });
+      return next;
+    });
+  }, [layoutId, resultColumnNames]);
+
+  /**
+   * The result's columns in display order.
+   *
+   * Pending insert rows are rendered from this rather than from the raw
+   * result: they are laid out cell by cell to sit under the headers, so
+   * iterating the query's own order would put every value under the wrong
+   * column as soon as one was dragged (#392).
+   */
+  const orderedColumns = useMemo(() => {
+    const cols = activeResult?.columns ?? [];
+    if (columnOrder.length === 0) return cols;
+    const byName = new Map(cols.map((c) => [c.name, c]));
+    return columnOrder.map((name) => byName.get(name)).filter((c) => c !== undefined);
+  }, [activeResult, columnOrder]);
+
+  /** True when what is on screen is not the order the query returned. */
+  const isReordered = useMemo(
+    () =>
+      columnOrder.length === resultColumnNames.length
+      && columnOrder.some((name, i) => name !== resultColumnNames[i]),
+    [columnOrder, resultColumnNames],
+  );
+
+  const resetColumnOrder = useCallback(() => {
+    setColumnOrder(resultColumnNames);
+    writeLayout(layoutId, { columnOrder: resultColumnNames });
+  }, [layoutId, resultColumnNames]);
 
   // Resolved when the result arrives rather than when Save is pressed, so the
   // user learns their edits are addressable before making them (#387, #400).
@@ -611,12 +674,37 @@ export function ResultsGrid() {
     features: gridFeatures,
     data,
     columns,
-    state: { sorting, columnSizing },
+    state: { sorting, columnSizing, columnOrder },
     onSortingChange: setSorting,
     onColumnSizingChange: setColumnSizing,
+    onColumnOrderChange: setColumnOrder,
     enableColumnResizing: true,
     columnResizeMode: "onChange",
+    // FR-3.1.2. Shift adds a sort key rather than replacing one, so
+    // "department, then hire_date" is expressible; without it only the last
+    // click counted (#392).
+    enableMultiSort: true,
+    isMultiSortEvent: (e) => Boolean((e as MouseEvent).shiftKey),
+    // FR-3.1.2 says ASC then DESC. TanStack infers descending-first for
+    // numeric columns, so clicking `id` and clicking `name` sorted opposite
+    // ways for no reason the user could see.
+    sortDescFirst: false,
   });
+
+  /** Widen a column to fit its widest value, capped so one JSON blob cannot own the grid. */
+  const autoSizeColumn = useCallback((colName: string) => {
+    let maxLen = colName.length;
+    for (const row of data) {
+      const len = String(row[colName] ?? "").length;
+      if (len > maxLen) maxLen = len;
+    }
+    table.setColumnSizing((prev) => ({
+      ...prev,
+      [colName]: Math.max(80, Math.min(600, Math.min(maxLen, 50) * 9 + 40)),
+    }));
+  }, [data, table]);
+
+  const sortedColumnCount = sorting.length;
 
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
@@ -775,46 +863,27 @@ export function ResultsGrid() {
                 {table.getFlatHeaders().map((header) => {
                   const minW = Math.max(50, Math.min(maxContentLen[header.column.id] ?? 5, 20) * 7 + 30);
                   return (
-                    <div
+                    <GridHeaderCell
+                      as="div"
                       key={header.id}
-                      onClick={header.column.getToggleSortingHandler()}
-                      className={`relative flex cursor-pointer select-none items-center gap-1 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] ${
-                        numericColumns.has(header.column.id) ? "justify-end text-right" : "text-left"
-                      }`}
+                      columnId={header.column.id}
+                      label={flexRender(header.column.columnDef.header, header.getContext())}
+                      sortDirection={header.column.getIsSorted()}
+                      sortIndex={header.column.getSortIndex() + 1}
+                      showSortPriority={sortedColumnCount > 1}
+                      numeric={numericColumns.has(header.column.id)}
+                      canResize={header.column.getCanResize()}
+                      isResizing={header.column.getIsResizing()}
+                      onSort={(e) => header.column.getToggleSortingHandler()?.(e)}
+                      onResizeStart={(e) => header.getResizeHandler()(e)}
+                      onAutoSize={() => autoSizeColumn(header.column.id)}
+                      onDropColumn={(from) => reorderColumn(from, header.column.id)}
+                      isDropTarget={drag.over === header.column.id
+                        && drag.dragging !== header.column.id}
+                      onDragStateChange={(next) => setDrag((prev) => ({ ...prev, ...next }))}
+                      className="group flex items-center gap-1"
                       style={{ flex: `1 1 ${header.getSize()}px`, minWidth: minW }}
-                    >
-                      {flexRender(header.column.columnDef.header, header.getContext())}
-                      {header.column.getIsSorted() === "asc" && <ArrowUp className="h-3 w-3 shrink-0" />}
-                      {header.column.getIsSorted() === "desc" && <ArrowDown className="h-3 w-3 shrink-0" />}
-                      {header.column.getCanResize() && (
-                        <div
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            header.getResizeHandler()(e);
-                          }}
-                          onTouchStart={header.getResizeHandler()}
-                          onClick={(e) => e.stopPropagation()}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            const colName = header.column.id;
-                            const colIdx = activeResult.columns.findIndex((c) => c.name === colName);
-                            let maxLen = colName.length;
-                            if (colIdx >= 0) {
-                              for (const row of data) {
-                                const len = String(row[colName] ?? "").length;
-                                if (len > maxLen) maxLen = len;
-                              }
-                            }
-                            const autoWidth = Math.max(80, Math.min(600, Math.min(maxLen, 50) * 9 + 40));
-                            table.setColumnSizing((prev) => ({ ...prev, [colName]: autoWidth }));
-                          }}
-                          className={`absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none ${
-                            header.column.getIsResizing() ? "bg-brand-500" : "hover:bg-brand-500/40"
-                          }`}
-                          title="Drag to resize column"
-                        />
-                      )}
-                    </div>
+                    />
                   );
                 })}
               </div>
@@ -846,8 +915,12 @@ export function ResultsGrid() {
                       >
                         +
                       </div>
-                      {activeResult.columns.map((col, colIdx) => {
-                        const header = table.getFlatHeaders()[colIdx + 1];
+                      {orderedColumns.map((col, colIdx) => {
+                        // Not colIdx + 1: the row-number column is markup
+                        // beside the table, not one of its columns, so the
+                        // offset read every insert cell's width from its
+                        // neighbour.
+                        const header = table.getFlatHeaders()[colIdx];
                         const colSize = header ? header.getSize() : 150;
                         const minW = Math.max(50, Math.min(maxContentLen[col.name] ?? 5, 20) * 7 + 30);
                         return (
@@ -933,52 +1006,27 @@ export function ResultsGrid() {
                     #
                   </th>
                   {table.getFlatHeaders().map((header) => (
-                    <th
+                    <GridHeaderCell
+                      as="th"
                       key={header.id}
-                      onClick={header.column.getToggleSortingHandler()}
-                      className={`relative cursor-pointer select-none border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] ${
-                        numericColumns.has(header.column.id) ? "text-right" : "text-left"
-                      }`}
+                      columnId={header.column.id}
+                      label={flexRender(header.column.columnDef.header, header.getContext())}
+                      sortDirection={header.column.getIsSorted()}
+                      sortIndex={header.column.getSortIndex() + 1}
+                      showSortPriority={sortedColumnCount > 1}
+                      numeric={numericColumns.has(header.column.id)}
+                      canResize={header.column.getCanResize()}
+                      isResizing={header.column.getIsResizing()}
+                      onSort={(e) => header.column.getToggleSortingHandler()?.(e)}
+                      onResizeStart={(e) => header.getResizeHandler()(e)}
+                      onAutoSize={() => autoSizeColumn(header.column.id)}
+                      onDropColumn={(from) => reorderColumn(from, header.column.id)}
+                      isDropTarget={drag.over === header.column.id
+                        && drag.dragging !== header.column.id}
+                      onDragStateChange={(next) => setDrag((prev) => ({ ...prev, ...next }))}
+                      className="group"
                       style={{ width: header.getSize() }}
-                    >
-                      <div
-                        className={`flex items-center gap-1 ${
-                          numericColumns.has(header.column.id) ? "justify-end" : ""
-                        }`}
-                      >
-                        {flexRender(header.column.columnDef.header, header.getContext())}
-                        {header.column.getIsSorted() === "asc" && <ArrowUp className="h-3 w-3" />}
-                        {header.column.getIsSorted() === "desc" && <ArrowDown className="h-3 w-3" />}
-                      </div>
-                      {header.column.getCanResize() && (
-                        <div
-                          onMouseDown={(e) => {
-                            e.stopPropagation();
-                            header.getResizeHandler()(e);
-                          }}
-                          onTouchStart={header.getResizeHandler()}
-                          onClick={(e) => e.stopPropagation()}
-                          onDoubleClick={(e) => {
-                            e.stopPropagation();
-                            const colName = header.column.id;
-                            const colIdx = activeResult.columns.findIndex((c) => c.name === colName);
-                            let maxLen = colName.length;
-                            if (colIdx >= 0) {
-                              for (const row of data) {
-                                const len = String(row[colName] ?? "").length;
-                                if (len > maxLen) maxLen = len;
-                              }
-                            }
-                            const autoWidth = Math.max(80, Math.min(600, Math.min(maxLen, 50) * 9 + 40));
-                            table.setColumnSizing((prev) => ({ ...prev, [colName]: autoWidth }));
-                          }}
-                          className={`absolute right-0 top-0 h-full w-1 cursor-col-resize touch-none select-none ${
-                            header.column.getIsResizing() ? "bg-brand-500" : "hover:bg-brand-500/40"
-                          }`}
-                          title="Drag to resize column"
-                        />
-                      )}
-                    </th>
+                    />
                   ))}
                 </tr>
               </thead>
@@ -1021,9 +1069,10 @@ export function ResultsGrid() {
                       <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
                         +
                       </td>
-                      {activeResult.columns.map((col, colIdx) => (
+                      {orderedColumns.map((col, colIdx) => (
                         <td
                           key={col.name}
+                          data-column={col.name}
                           className="border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)]"
                         >
                           <EditableCell
@@ -1054,6 +1103,17 @@ export function ResultsGrid() {
           {activeResult.rows.length} row(s) &middot; {activeResult.execution_time_ms}ms
         </span>
         <div className="flex items-center gap-1">
+          {isReordered && (
+            // A dragged order outlives the query, so without a way back a
+            // stray drag is permanent (#392).
+            <button
+              onClick={resetColumnOrder}
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+              title="Put the columns back in the order the query returned them"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset columns
+            </button>
+          )}
           <button
             onClick={handleCopy}
             className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
