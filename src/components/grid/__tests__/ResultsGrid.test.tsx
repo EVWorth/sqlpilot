@@ -105,7 +105,7 @@ vi.mock("../../../hooks/useGridEditing", () => ({
 }));
 
 vi.mock("../../../lib/tauri-api", () => ({
-  api: { exportResults: vi.fn(), executeQuery: vi.fn(), getColumns: vi.fn() },
+  api: { exportResults: vi.fn(), executeQuery: vi.fn(), getColumns: vi.fn(), getIndexes: vi.fn() },
 }));
 vi.mock("../../../lib/sql-generator", () => ({
   columnTypesOf: vi.fn(() => ({})),
@@ -114,18 +114,22 @@ vi.mock("../../../lib/sql-generator", () => ({
   generateDelete: vi.fn(() => "DELETE ..."),
   extractTableName: vi.fn(() => "users"),
   resolveEditTarget: vi.fn(() => ({ editable: true, table: "users" })),
-  getWhereColumns: vi.fn(() => ({ columns: ["id"], hasPrimaryKey: true })),
 }));
 vi.mock("../EditableCell", () => ({ EditableCell: vi.fn(() => <div data-testid="editable-cell">EditableCell</div>) }));
 vi.mock("../EditToolbar", () => ({
-  EditToolbar: vi.fn(({ editMode, onSave }: { editMode: boolean; onSave?: () => void }) => (
-    <div data-testid="edit-toolbar" data-edit-mode={editMode}>
+  EditToolbar: vi.fn((
+    { editMode, onSave, keyWarning }: {
+      editMode: boolean;
+      onSave?: () => void;
+      keyWarning?: string | null;
+    },
+  ) => (
+    <div data-testid="edit-toolbar" data-edit-mode={editMode} data-key-warning={keyWarning}>
       EditToolbar
       <button
         type="button"
         data-testid="save-button"
-        onClick={() =>
-          onSave?.()}
+        onClick={() => onSave?.()}
       >
         Save
       </button>
@@ -179,6 +183,9 @@ vi.mock("@tanstack/react-virtual", () => ({
 const baseResult = {
   query_id: "q1",
   statement_index: 0,
+  // The row key is resolved from the statement the result came from, not the
+  // editor's current text (#387).
+  sql: "SELECT * FROM users",
   columns: [{ name: "id", data_type: "int", nullable: false, is_primary_key: true }],
   rows: [[1]],
   rows_affected: 0,
@@ -428,9 +435,10 @@ describe("saving edits safely", () => {
     mockGridEditing.hasChanges = true;
     mockGridEditing.pendingCount = 1;
     vi.mocked(api.getColumns).mockResolvedValue([
-      { name: "id", is_primary_key: true },
-      { name: "name", is_primary_key: false },
+      { name: "id", is_primary_key: true, nullable: false },
+      { name: "name", is_primary_key: false, nullable: true },
     ] as never);
+    vi.mocked(api.getIndexes).mockResolvedValue([] as never);
     vi.mocked(api.executeQuery).mockResolvedValue([{ rows_affected: 1 }] as never);
     vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "users" });
   });
@@ -463,27 +471,55 @@ describe("saving edits safely", () => {
     // Result-set metadata reports is_primary_key false for everything, so the
     // WHERE clause matched on all columns (#387). The schema knows better.
     render(<ResultsGrid />);
+    await waitFor(() => expect(api.getColumns).toHaveBeenCalledWith("conn-1", "app", "users"));
+
     await act(async () => {
       fireEvent.click(screen.getByTestId("save-button"));
     });
 
-    expect(api.getColumns).toHaveBeenCalledWith("conn-1", "app", "users");
     expect(vi.mocked(generateUpdate).mock.calls[0][1]).toEqual(["id"]);
   });
 
   it("refuses when the primary key is not among the selected columns", async () => {
     // Without the key on screen there is no way to address the row.
     vi.mocked(api.getColumns).mockResolvedValue([
-      { name: "hidden_id", is_primary_key: true },
+      { name: "hidden_id", is_primary_key: true, nullable: false },
     ] as never);
 
     render(<ResultsGrid />);
+    await waitFor(() => expect(api.getColumns).toHaveBeenCalled());
+
     await act(async () => {
       fireEvent.click(screen.getByTestId("save-button"));
     });
 
     expect(api.executeQuery).not.toHaveBeenCalled();
     expect(await screen.findByText(/primary key/)).toBeDefined();
+  });
+
+  it("warns before an edit is made, not after the save fails", async () => {
+    // The old check ran inside handleSave, so the first a user heard of an
+    // unaddressable row was a failed save (#387).
+    vi.mocked(api.getColumns).mockResolvedValue([
+      { name: "hidden_id", is_primary_key: true, nullable: false },
+    ] as never);
+
+    render(<ResultsGrid />);
+
+    const toolbar = await screen.findByTestId("edit-toolbar");
+    await waitFor(() => expect(toolbar.getAttribute("data-key-warning")).toMatch(/does not select/));
+  });
+
+  it("says nothing about keys when the schema read fails", async () => {
+    // Not knowing is not the same as knowing there is no key; claiming the
+    // latter would invite the all-columns WHERE (#400).
+    vi.mocked(api.getColumns).mockRejectedValue(new Error("access denied"));
+
+    render(<ResultsGrid />);
+    await waitFor(() => expect(api.getColumns).toHaveBeenCalled());
+
+    const toolbar = screen.getByTestId("edit-toolbar");
+    expect(toolbar.getAttribute("data-key-warning")).toBeNull();
   });
 
   it("says so when a change matched no row", async () => {

@@ -107,6 +107,9 @@ vi.mock("../../../lib/tauri-api", () => ({
   api: {
     exportResults: (...args: unknown[]) => mockExportResults(...args),
     executeQuery: vi.fn(),
+    // useRowKey resolves the key from the schema when a result arrives (#387).
+    getColumns: vi.fn(async () => []),
+    getIndexes: vi.fn(async () => []),
   },
   // runStatement imports this, so a module mock has to provide it (#586).
   CommandError: class CommandError extends Error {
@@ -127,7 +130,6 @@ vi.mock("../../../lib/sql-generator", () => ({
   generateInsert: vi.fn(() => "INSERT ..."),
   generateDelete: vi.fn(() => "DELETE ..."),
   resolveEditTarget: vi.fn(() => ({ editable: true, table: "users" })),
-  getWhereColumns: vi.fn(() => ({ columns: ["id"], hasPrimaryKey: true })),
 }));
 
 // ─── Sub-component mocks with real callbacks ──────────────────
@@ -165,7 +167,7 @@ vi.mock("../EditToolbar", () => ({
       onDiscard: () => void;
       pendingCount: number;
       hasChanges: boolean;
-      hasPrimaryKey: boolean;
+      keyWarning: string | null;
       isSaving: boolean;
     }) => (
       <div data-testid="edit-toolbar">
