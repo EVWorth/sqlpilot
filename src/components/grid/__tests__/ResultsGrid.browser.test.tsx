@@ -151,7 +151,10 @@ vi.mock("../../../lib/tauri-api", () => ({
 }));
 
 // ─── SQL generator mock ──────────────────────────────────────
-vi.mock("../../../lib/sql-generator", () => ({
+// Partial: the copy formats render real SQL through formatSqlValue, and a
+// bare factory would drop it from the module (#416).
+vi.mock("../../../lib/sql-generator", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/sql-generator")>()),
   columnTypesOf: vi.fn(() => ({})),
   generateUpdate: vi.fn(() => "UPDATE ..."),
   generateInsert: vi.fn(() => "INSERT ..."),
@@ -1514,16 +1517,17 @@ describe("Copy as INSERT", () => {
     const cell = document.querySelector("tbody tr td");
     expect(cell).not.toBeNull();
     fireEvent.contextMenu(cell!);
-    return items.find((i) => i.label === "Copy as INSERT")!;
+    // The single-row item became one of the format list (#416); it acts on
+    // the selection, which is the whole result when nothing is selected.
+    return items.find((i) => i.label?.endsWith("as INSERT statements"))!;
   }
 
   it("names the table the rows came from", async () => {
     const writeSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "users" } as never);
 
-    const item = openRowMenu();
-    expect(item.disabled).toBe(false);
-    item.onClick();
+    openRowMenu().onClick();
+    await waitFor(() => expect(writeSpy).toHaveBeenCalled());
 
     const sql = writeSpy.mock.calls.at(-1)![0] as string;
     expect(sql).toContain("INSERT INTO `users`");
@@ -1538,25 +1542,24 @@ describe("Copy as INSERT", () => {
     vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "order details" } as never);
 
     openRowMenu().onClick();
+    await waitFor(() => expect(writeSpy).toHaveBeenCalled());
 
     expect(writeSpy.mock.calls.at(-1)![0]).toContain("INSERT INTO `order details`");
     writeSpy.mockRestore();
   });
 
-  it("is disabled, and says why, when no single table owns the rows", async () => {
+  it("refuses, and says why, when no single table owns the rows", async () => {
     const writeSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
     vi.mocked(resolveEditTarget).mockReturnValue({
       editable: false,
       reason: "the query joins tables, so an edited column cannot be attributed to one of them",
     } as never);
 
-    const item = openRowMenu();
-    expect(item.disabled).toBe(true);
-    expect(item.title).toContain("joins tables");
+    openRowMenu().onClick();
 
-    // Belt and braces: even called directly it must not put broken SQL on the
-    // clipboard, since a disabled item is a UI convention rather than a lock.
-    item.onClick();
+    // Nothing reaches the clipboard, and the refusal is shown rather than
+    // broken SQL being pasted somewhere later.
+    expect(await screen.findByText(/one source table/)).toBeInTheDocument();
     expect(writeSpy).not.toHaveBeenCalled();
     writeSpy.mockRestore();
   });
@@ -1843,5 +1846,127 @@ describe("row count", () => {
     render(<ResultsGrid />);
 
     expect(screen.queryByText("Count exactly")).not.toBeInTheDocument();
+  });
+});
+
+// ─── Row selection and copy formats (#416) ────────────────────
+describe("row selection", () => {
+  let items: { label?: string; onClick?: () => void }[] = [];
+
+  beforeEach(() => {
+    items = [];
+    vi.mocked(useContextMenu).mockReturnValue({
+      contextMenu: null,
+      showContextMenu: (_e: unknown, menuItems: typeof items) => {
+        items = menuItems;
+      },
+    } as never);
+    resultState.results = [makeResult()];
+    editorTabs = [{ id: "tab-0", content: "SELECT id, name FROM users", connectionId: "conn-1" }];
+    editorActiveTabId = "tab-0";
+    vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "users" } as never);
+  });
+
+  const bodyRows = () => [...document.querySelectorAll("tbody tr")];
+  const selected = () => bodyRows().filter((r) => r.getAttribute("aria-selected") === "true");
+
+  it("selects a row on click", () => {
+    render(<ResultsGrid />);
+
+    fireEvent.click(bodyRows()[0]);
+
+    expect(selected()).toHaveLength(1);
+  });
+
+  it("adds a row on Ctrl+click", () => {
+    render(<ResultsGrid />);
+
+    fireEvent.click(bodyRows()[0]);
+    fireEvent.click(bodyRows()[1], { ctrlKey: true });
+
+    expect(selected()).toHaveLength(2);
+  });
+
+  it("extends from the anchor on Shift+click", () => {
+    resultState.results = [makeResult({ rows: [[1, "a"], [2, "b"], [3, "c"], [4, "d"]] })];
+    render(<ResultsGrid />);
+
+    fireEvent.click(bodyRows()[0]);
+    fireEvent.click(bodyRows()[2], { shiftKey: true });
+
+    expect(selected()).toHaveLength(3);
+  });
+
+  it("clears the selection by clicking the only selected row", () => {
+    render(<ResultsGrid />);
+
+    fireEvent.click(bodyRows()[0]);
+    fireEvent.click(bodyRows()[0]);
+
+    expect(selected()).toHaveLength(0);
+  });
+
+  it("forgets the selection when a different query runs", async () => {
+    // Row 4 of the old result is not row 4 of the new one.
+    connSelectedId = "conn-1";
+    editorTabs = [{
+      id: "tab-0",
+      content: "SELECT id, name FROM users",
+      connectionId: "conn-1",
+      database: "app",
+    }];
+    const { rerender } = render(<ResultsGrid />);
+    fireEvent.click(bodyRows()[0]);
+    expect(selected()).toHaveLength(1);
+
+    resultState.results = [makeResult({
+      columns: [{ name: "other", data_type: "int", nullable: true, is_primary_key: false }],
+      rows: [[1], [2]],
+    })];
+    rerender(<ResultsGrid />);
+
+    await waitFor(() => expect(selected()).toHaveLength(0));
+  });
+
+  describe("copying", () => {
+    const menuOn = (rowIndex: number) => {
+      fireEvent.contextMenu(bodyRows()[rowIndex].querySelector("td")!);
+      return items;
+    };
+
+    it("counts the whole result when nothing is selected", () => {
+      // "Copy" with nothing picked has always meant everything.
+      render(<ResultsGrid />);
+      expect(menuOn(0).map((i) => i.label)).toContain("Copy 2 rows as JSON");
+    });
+
+    it("counts the selection when there is one", () => {
+      render(<ResultsGrid />);
+      fireEvent.click(bodyRows()[1]);
+
+      expect(menuOn(1).map((i) => i.label)).toContain("Copy 1 row as JSON");
+    });
+
+    it("copies only the selected rows", async () => {
+      const writeSpy = vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+      render(<ResultsGrid />);
+      fireEvent.click(bodyRows()[1]);
+
+      menuOn(1).find((i) => i.label === "Copy 1 row as JSON")!.onClick!();
+
+      await waitFor(() => expect(writeSpy).toHaveBeenCalled());
+      expect(JSON.parse(writeSpy.mock.calls.at(-1)![0] as string)).toEqual([
+        { id: 2, name: "Bob" },
+      ]);
+      writeSpy.mockRestore();
+    });
+
+    it("offers every format the requirement asks for", () => {
+      render(<ResultsGrid />);
+      const labels = menuOn(0).map((i) => i.label).join("|");
+      for (const format of ["Tab-separated", "CSV", "JSON", "Markdown table", "INSERT", "UPDATE"]) {
+        expect(labels).toContain(format);
+      }
+    });
   });
 });

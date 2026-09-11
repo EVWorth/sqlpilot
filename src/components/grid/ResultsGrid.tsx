@@ -37,9 +37,18 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
 import { useRowKey } from "../../hooks/useRowKey";
+import { COPY_FORMAT_LABEL, type CopyFormat, type CopySource, renderCopy } from "../../lib/copy-formats";
 import { type ColumnFilter, describeFilter, isActiveFilter, matchesFilter } from "../../lib/grid-filter";
 import { applyOrder, layoutKey, moveColumn, readLayout, writeLayout } from "../../lib/grid-layout";
 import { describeGridChanges, nextEditableCell } from "../../lib/grid-navigation";
+import {
+  describeSelection,
+  NO_SELECTION,
+  rowsToCopy,
+  selectAll,
+  type Selection,
+  selectRow,
+} from "../../lib/grid-selection";
 import { describeTotal, planCount } from "../../lib/row-count";
 import { runStatement } from "../../lib/run-statement";
 import {
@@ -49,7 +58,6 @@ import {
   generateUpdate,
   resolveEditTarget,
 } from "../../lib/sql-generator";
-import { quoteIdentifier } from "../../lib/sql-quote";
 import { isNumericSqlType } from "../../lib/sql-types";
 import { api } from "../../lib/tauri-api";
 import { truncationMessage } from "../../lib/truncation";
@@ -133,6 +141,7 @@ export function ResultsGrid() {
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({});
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [filters, setFilters] = useState<Record<string, ColumnFilter>>({});
+  const [selection, setSelection] = useState<Selection>(NO_SELECTION);
   const [drag, setDrag] = useState<{ dragging: string | null; over: string | null }>({
     dragging: null,
     over: null,
@@ -172,6 +181,8 @@ export function ResultsGrid() {
 
   const stopEditing = useCallback(() => setEditingCell(null), []);
 
+  const gridRef = useRef<HTMLDivElement | null>(null);
+
   const editing = useGridEditing();
 
   const activeResult = results[activeResultIndex];
@@ -199,6 +210,20 @@ export function ResultsGrid() {
     }
     setColumnOrder(applyOrder(readLayout(layoutId)?.columnOrder ?? [], resultColumnNames));
   }, [layoutId, resultColumnNames]);
+
+  // FR-3.3.1: Ctrl+A selects every row — but only while the grid is what the
+  // user is working in. A Ctrl+A meant for the editor must not quietly select
+  // four thousand rows behind it.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.key !== "a") return;
+      if (!gridRef.current?.contains(document.activeElement)) return;
+      e.preventDefault();
+      setSelection(selectAll(activeResult?.rows.length ?? 0));
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [activeResult]);
 
   const reorderColumn = useCallback((from: string, to: string) => {
     setColumnOrder((prev) => {
@@ -250,8 +275,12 @@ export function ResultsGrid() {
   const clearFilters = useCallback(() => setFilters({}), []);
 
   // A filter is about the rows on screen, so it has no meaning once they are
-  // replaced by a different query's.
-  useEffect(() => setFilters({}), [layoutId]);
+  // replaced by a different query's. Neither has a selection: row 4 of the
+  // old result is not row 4 of the new one.
+  useEffect(() => {
+    setFilters({});
+    setSelection(NO_SELECTION);
+  }, [layoutId]);
 
   /**
    * How many rows the statement would return, when it is known.
@@ -417,12 +446,6 @@ export function ResultsGrid() {
     [activeResult],
   );
 
-  const formatSqlVal = useCallback(
-    (val: SqlValue, columnName?: string): string =>
-      SqlValueGuard.toSqlLiteral(val, columnName ? columnTypes[columnName] : undefined),
-    [columnTypes],
-  );
-
   /**
    * Set one cell to NULL.
    *
@@ -461,6 +484,49 @@ export function ResultsGrid() {
     return () => window.removeEventListener("keydown", handler);
   }, [editing.editMode, editing.undo, editing.redo, editingCell, setCellNull]);
 
+  /**
+   * Copy the selected rows — or all of them, when nothing is selected — in
+   * one of the formats FR-3.3 asks for.
+   *
+   * The SQL formats need to know which table the rows came from and what
+   * identifies one, and neither can be invented: an INSERT into `your_table`
+   * fails on paste (#409), and an UPDATE with no WHERE rewrites the table.
+   */
+  const copyAs = useCallback(async (format: CopyFormat) => {
+    if (!activeResult) return;
+    const indices = rowsToCopy(selection, activeResult.rows.length);
+    const source: CopySource = {
+      columns: orderedColumns.map((c) => ({ name: c.name, dataType: c.data_type })),
+      // Column order follows the display, so a copy matches what is on screen.
+      rows: indices.map((i) =>
+        orderedColumns.map((c) => activeResult.rows[i][activeResult.columns.findIndex((rc) => rc.name === c.name)])
+      ),
+    };
+
+    const target = resolveEditTarget(activeResult.sql ?? "");
+    const rendered = renderCopy(format, source, {
+      table: target.editable ? target.table : null,
+      keyColumns: rowKey.state.status === "ready" ? rowKey.state.columns : [],
+    });
+
+    if ("refusal" in rendered) {
+      showToast(rendered.refusal);
+      return;
+    }
+    await navigator.clipboard.writeText(rendered.text);
+    showToast(`Copied ${describeSelection(selection, activeResult.rows.length)} as ${COPY_FORMAT_LABEL[format]}`);
+  }, [activeResult, selection, orderedColumns, rowKey.state, showToast]);
+
+  /** Click a row: plain picks it, Ctrl adds, Shift extends (FR-3.3.1). */
+  const clickRow = useCallback((e: React.MouseEvent, rowIdx: number) => {
+    setSelection((prev) =>
+      selectRow(prev, rowIdx, {
+        toggle: e.ctrlKey || e.metaKey,
+        extend: e.shiftKey,
+      })
+    );
+  }, []);
+
   const handleRowContextMenu = useCallback(
     (e: React.MouseEvent<HTMLElement>, rowIdx: number) => {
       if (!activeResult) return;
@@ -488,32 +554,7 @@ export function ResultsGrid() {
         .map((v) => SqlValueGuard.toString(v))
         .join("\t");
 
-      // The statement has to name a table that exists. It used to say
-      // `your_table`, so pasting it produced "Table 'db.your_table' doesn't
-      // exist" — or, on the one schema where that name is real, wrote a row
-      // into it (#409).
-      //
-      // Same resolver as Save, and for the same reason: a join or a CTE
-      // selects columns that belong to more than one table, so there is no
-      // single table an INSERT of this row could target.
-      const insertTarget = resolveEditTarget(
-        useEditorStore.getState().tabs.find(
-          (tab) => tab.id === useEditorStore.getState().activeTabId,
-        )?.content ?? "",
-      );
-      const insertCols = colNames.map(quoteIdentifier).join(", ");
-      const insertVals = row.map((v, i) => formatSqlVal(v, colNames[i])).join(", ");
-      const insertStmt = insertTarget.editable
-        ? `INSERT INTO ${quoteIdentifier(insertTarget.table)} (${insertCols}) VALUES (${insertVals});`
-        : null;
-      const insertRefusal = insertTarget.editable
-        ? undefined
-        : `Copy as INSERT needs one source table: ${insertTarget.reason}`;
-
-      const allRowsTsv = [
-        colNames.join("\t"),
-        ...activeResult.rows.map((r) => r.map((v) => SqlValueGuard.toString(v)).join("\t")),
-      ].join("\n");
+      const selectionLabel = describeSelection(selection, activeResult.rows.length);
 
       // Annotated: without it the separators widen to `separator: boolean`
       // and stop matching the union.
@@ -534,23 +575,19 @@ export function ResultsGrid() {
             navigator.clipboard.writeText(rowTsv);
           },
         },
-        {
-          label: "Copy as INSERT",
-          icon: <FileCode className="h-3.5 w-3.5" />,
-          disabled: insertStmt === null,
-          title: insertRefusal,
-          onClick: () => {
-            if (insertStmt !== null) navigator.clipboard.writeText(insertStmt);
-          },
-        },
         { separator: true },
-        {
-          label: "Copy All Results",
-          icon: <ClipboardCopy className="h-3.5 w-3.5" />,
-          onClick: () => {
-            navigator.clipboard.writeText(allRowsTsv);
-          },
-        },
+        // FR-3.3.4/6/7. One entry per format, all acting on the selection —
+        // or on the whole result when there is none, which is what "copy"
+        // with nothing picked has always meant (#416).
+        ...(["tsv", "csv", "json", "markdown", "insert", "update"] as CopyFormat[]).map(
+          (format): MenuItem => ({
+            label: `Copy ${selectionLabel} as ${COPY_FORMAT_LABEL[format]}`,
+            icon: format === "insert" || format === "update"
+              ? <FileCode className="h-3.5 w-3.5" />
+              : <ClipboardCopy className="h-3.5 w-3.5" />,
+            onClick: () => void copyAs(format),
+          }),
+        ),
       ];
 
       if (editing.editMode) {
@@ -575,7 +612,7 @@ export function ResultsGrid() {
 
       showContextMenu(e, menuItems);
     },
-    [activeResult, showContextMenu, formatSqlVal, editing, orderedColumns, setCellNull],
+    [activeResult, showContextMenu, editing, orderedColumns, setCellNull, selection, copyAs],
   );
 
   // Build the original row record for a given row index
@@ -934,7 +971,8 @@ export function ResultsGrid() {
   }
 
   return (
-    <div className="flex h-full flex-col min-h-0">
+    // tabIndex so the grid can hold focus, which is what scopes Ctrl+A to it.
+    <div ref={gridRef} tabIndex={-1} className="flex h-full flex-col min-h-0 outline-none">
       {/* Edit toolbar */}
       <EditToolbar
         editMode={editing.editMode}
@@ -1135,14 +1173,18 @@ export function ResultsGrid() {
                 if (!tableRow) return null;
                 const isDeleted = editing.isRowDeleted(rowIdx);
                 const isEdited = editing.isRowEdited(rowIdx);
+                const isSelected = selection.rows.has(rowIdx);
                 let rowBg = "";
                 if (isDeleted) rowBg = "bg-red-900/20 line-through opacity-60";
                 else if (isEdited) rowBg = "bg-amber-900/10";
+                else if (isSelected) rowBg = "bg-brand-600/20";
                 else rowBg = "hover:bg-[var(--color-bg-secondary)]";
 
                 return (
                   <div
                     key={tableRow.id}
+                    aria-selected={isSelected}
+                    onClick={(e) => clickRow(e, rowIdx)}
                     onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
                     style={{
                       display: "flex",
@@ -1227,14 +1269,18 @@ export function ResultsGrid() {
                 {table.getRowModel().rows.map((row, rowIdx) => {
                   const isDeleted = editing.isRowDeleted(rowIdx);
                   const isEdited = editing.isRowEdited(rowIdx);
+                  const isSelected = selection.rows.has(rowIdx);
                   let rowClass = "hover:bg-[var(--color-bg-secondary)]";
                   if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
                   else if (isEdited) rowClass = "bg-amber-900/10";
+                  else if (isSelected) rowClass = "bg-brand-600/20";
 
                   return (
                     <tr
                       key={row.id}
                       className={rowClass}
+                      aria-selected={isSelected}
+                      onClick={(e) => clickRow(e, rowIdx)}
                       onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
                     >
                       <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
