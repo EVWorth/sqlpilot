@@ -132,29 +132,34 @@ vi.mock("../../../stores/settingsStore", () => ({
 }));
 
 // Mock schema cache store
-vi.mock("../../../stores/schemaCacheStore", () => ({
-  useSchemaCacheStore: vi.fn((selector?: (s: any) => any) => {
-    const state = {
-      connectionId: null,
+// One schema store now, keyed by connection (#289).
+vi.mock("../../../stores/schemaStore", () => {
+  const state = {
+    byConnection: {},
+    refreshAll: vi.fn(),
+    ensureDatabases: vi.fn(async () => []),
+    ensureTables: vi.fn(async () => []),
+    ensureViews: vi.fn(async () => []),
+    ensureColumns: vi.fn(async () => []),
+  };
+  return {
+    schemaFor: () => ({
       databases: [],
-      tables: new Map(),
-      views: new Map(),
-      columns: new Map(),
-      routines: new Map(),
-      triggers: new Map(),
-      loading: false,
-      setConnection: vi.fn(),
-      fetchDatabases: vi.fn(),
-      fetchTables: vi.fn(),
-      fetchViews: vi.fn(),
-      fetchRoutines: vi.fn(),
-      fetchTriggers: vi.fn(),
-      fetchColumns: vi.fn(),
-      refreshSchema: vi.fn(),
-    };
-    return selector ? selector(state) : state;
-  }),
-}));
+      tables: {},
+      views: {},
+      routines: {},
+      triggers: {},
+      events: {},
+      columns: {},
+      generation: 0,
+      loading: [],
+    }),
+    useSchemaStore: Object.assign(
+      vi.fn((selector?: (s: object) => unknown) => (selector ? selector(state) : state)),
+      { getState: vi.fn(() => state) },
+    ),
+  };
+});
 
 // Provide theme store state
 const themeStoreState = { effectiveTheme: "dark" as string };
