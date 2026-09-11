@@ -32,11 +32,34 @@ const REFUSAL_COPY: Record<string, string> = {
     "This connection is marked read-only and EXPLAIN ANALYZE executes the statement — showing the plan from EXPLAIN instead.",
 };
 
+/**
+ * Which page of a truncated result is on screen.
+ *
+ * FR-3.1.8. The row limit is a hard stop, not a window: a user whose query
+ * matched a million rows saw the first 1000 and had no way to reach row 1001
+ * short of editing the SQL (#391). Paging re-runs the statement and discards
+ * rows on the way in, which works on SHOW output and on the result sets a
+ * procedure returns — neither of which an OFFSET can reach.
+ */
+interface PageState {
+  /** The statement being paged, so a new query resets the page. */
+  sql: string;
+  connectionId: string;
+  database?: string;
+  /** 0-based. */
+  index: number;
+  size: number;
+  /** False once a page comes back short, which is how the end is recognised. */
+  hasMore: boolean;
+}
+
 interface ResultState {
   results: QueryResult[];
   activeResultIndex: number;
   isExecuting: boolean;
   error: string | null;
+  /** Null when the result fitted inside the row limit, so paging is moot. */
+  page: PageState | null;
 
   explainResult: QueryResult | null;
   explainAnalyze: boolean;
@@ -57,6 +80,8 @@ interface ResultState {
   executeExplainAnalyze: (connectionId: string, sql: string, database?: string) => Promise<void>;
   cancelActiveQuery: () => Promise<void>;
   setActiveResult: (index: number) => void;
+  /** Fetch another page of the statement currently on screen. */
+  goToPage: (index: number) => Promise<void>;
   setShowExplain: (show: boolean) => void;
   clearResults: () => void;
   clearError: () => void;
@@ -87,6 +112,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
   activeResultIndex: 0,
   isExecuting: false,
   error: null,
+  page: null,
 
   explainResult: null,
   explainAnalyze: false,
@@ -137,12 +163,22 @@ export const useResultStore = create<ResultState>((set, get) => ({
   },
 
   setActiveResult: (index) => set({ activeResultIndex: index }),
+
+  goToPage: async (index) => {
+    const page = get().page;
+    if (!page || index < 0 || index === page.index) return;
+    await doExecuteQuery(page.connectionId, page.sql, set, page.database, {
+      index,
+      size: page.size,
+    });
+  },
   setShowExplain: (show) => set({ showExplain: show }),
   clearResults: () =>
     set({
       results: [],
       activeResultIndex: 0,
       error: null,
+      page: null,
       explainResult: null,
       explainNotice: null,
       showExplain: false,
@@ -217,6 +253,8 @@ async function doExecuteQuery(
   sql: string,
   set: (partial: Partial<ResultState>) => void,
   database?: string,
+  /** Set when this run is a page change rather than a fresh execution. */
+  paging?: { index: number; size: number },
 ) {
   const startTime = Date.now();
   const connState = useConnectionStore.getState();
@@ -233,7 +271,10 @@ async function doExecuteQuery(
 
   // Compute row limit from settings
   const { limitEnabled, maxResultRows } = useSettingsStore.getState().querySettings;
-  const rowLimit = limitEnabled ? maxResultRows : undefined;
+  // Paging carries its own size so a settings change mid-session cannot leave
+  // page 3 starting at a different row than page 2 ended.
+  const rowLimit = paging?.size ?? (limitEnabled ? maxResultRows : undefined);
+  const offset = paging ? paging.index * paging.size : undefined;
 
   cancelGeneration++;
   const myGeneration = cancelGeneration;
@@ -248,9 +289,31 @@ async function doExecuteQuery(
       sql,
       effectiveDatabase,
       rowLimit,
+      offset,
     );
     if (cancelGeneration !== myGeneration) return;
-    set({ results, activeResultIndex: 0, isExecuting: false });
+
+    // Paging is offered only where a page actually filled up. A result that
+    // came back short is the whole answer, and page controls on it would
+    // invite a second round trip to fetch nothing.
+    const filled = rowLimit !== undefined
+      && results.some((r) => r.rows.length >= rowLimit);
+    const pageIndex = paging?.index ?? 0;
+    set({
+      results,
+      activeResultIndex: 0,
+      isExecuting: false,
+      page: rowLimit !== undefined && (filled || pageIndex > 0)
+        ? {
+          sql,
+          connectionId,
+          database: effectiveDatabase,
+          index: pageIndex,
+          size: rowLimit,
+          hasMore: filled,
+        }
+        : null,
+    });
 
     if (!conn) {
       // The statement ran and succeeded, so it is a real record and worth
@@ -266,6 +329,10 @@ async function doExecuteQuery(
     // failed used to show as one opaque row, with no way to tell which line to
     // look at (#329). Each result carries the statement it came from, so the
     // pairing is the backend's rather than a second splitter to keep in step.
+    // A page change re-runs the same statement, so recording it again would
+    // fill history with one row per Next click for a query the user ran once.
+    if (paging) return;
+
     const recordedAt = new Date().toISOString();
     const elapsed = Date.now() - startTime;
     for (const result of results) {
@@ -297,7 +364,7 @@ async function doExecuteQuery(
     // message with a raw database error and log the user's own cancellation
     // to history as a failed query.
     if (cancelGeneration !== myGeneration) return;
-    set({ error: String(e), isExecuting: false, results: [] });
+    set({ error: String(e), isExecuting: false, results: [], page: null });
 
     // The driver's code and SQLSTATE ride along where it supplied them, so the
     // history panel can say which failure this was (#324).

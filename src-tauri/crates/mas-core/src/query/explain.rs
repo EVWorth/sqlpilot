@@ -123,7 +123,7 @@ pub async fn explain(
     // No row limit: appending LIMIT to an EXPLAIN would rewrite the very
     // statement being planned.
     let mut results = executor
-        .execute_owned(connection_id, statement, database, None)
+        .execute_owned(connection_id, statement, database, None, None)
         .await?;
 
     if results.is_empty() {

@@ -121,6 +121,7 @@ async fn planning_a_delete_does_not_delete() {
             "DROP TABLE IF EXISTS explain_canary",
             Some("test_db".to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -130,6 +131,7 @@ async fn planning_a_delete_does_not_delete() {
             "CREATE TABLE explain_canary (id INT)",
             Some("test_db".to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -138,6 +140,7 @@ async fn planning_a_delete_does_not_delete() {
             &info.id,
             "INSERT INTO explain_canary VALUES (1), (2), (3)",
             Some("test_db".to_string()),
+            None,
             None,
         )
         .await
@@ -163,6 +166,7 @@ async fn planning_a_delete_does_not_delete() {
             "SELECT COUNT(*) FROM explain_canary",
             Some("test_db".to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -173,6 +177,7 @@ async fn planning_a_delete_does_not_delete() {
             &info.id,
             "DROP TABLE explain_canary",
             Some("test_db".to_string()),
+            None,
             None,
         )
         .await
@@ -198,7 +203,7 @@ async fn planning_a_cte_prefixed_delete_does_not_delete() {
         "INSERT INTO cte_canary VALUES (1), (2), (3)",
     ] {
         executor
-            .execute(&info.id, stmt, Some("test_db".to_string()), None)
+            .execute(&info.id, stmt, Some("test_db".to_string()), None, None)
             .await
             .unwrap();
     }
@@ -224,6 +229,7 @@ async fn planning_a_cte_prefixed_delete_does_not_delete() {
             "SELECT COUNT(*) FROM cte_canary",
             Some("test_db".to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -234,6 +240,7 @@ async fn planning_a_cte_prefixed_delete_does_not_delete() {
             &info.id,
             "DROP TABLE cte_canary",
             Some("test_db".to_string()),
+            None,
             None,
         )
         .await
@@ -316,6 +323,7 @@ async fn a_slow_query_times_out_and_stops_running_on_the_server() {
             "SELECT SLEEP(30)",
             Some("test_db".to_string()),
             None,
+            None,
         )
         .await
         .expect_err("SLEEP(30) under a 2s timeout should fail");
@@ -336,6 +344,7 @@ async fn a_slow_query_times_out_and_stops_running_on_the_server() {
         .execute(
             &info.id,
             "SELECT COUNT(*) FROM information_schema.PROCESSLIST WHERE INFO LIKE 'SELECT SLEEP(30)%'",
+            None,
             None,
             None,
         )
@@ -363,7 +372,13 @@ async fn cancel_stops_a_running_query() {
         let id = info.id.clone();
         tokio::spawn(async move {
             executor
-                .execute(&id, "SELECT SLEEP(30)", Some("test_db".to_string()), None)
+                .execute(
+                    &id,
+                    "SELECT SLEEP(30)",
+                    Some("test_db".to_string()),
+                    None,
+                    None,
+                )
                 .await
         })
     };
@@ -525,6 +540,7 @@ async fn mariadb_planning_a_delete_does_not_delete() {
             "SELECT COUNT(*) FROM users",
             Some("test_db".to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -563,7 +579,7 @@ async fn a_read_only_connection_still_reads() {
         "WITH x AS (SELECT 1 AS n) SELECT * FROM x",
     ] {
         executor
-            .execute(&info.id, sql, Some("test_db".to_string()), None)
+            .execute(&info.id, sql, Some("test_db".to_string()), None, None)
             .await
             .unwrap_or_else(|e| panic!("read should be allowed: {sql} — {e}"));
     }
@@ -592,7 +608,7 @@ async fn a_read_only_connection_refuses_writes() {
         "WITH doomed AS (SELECT id FROM users) DELETE FROM users WHERE id IN (SELECT id FROM doomed)",
     ] {
         let err = executor
-            .execute(&info.id, sql, Some("test_db".to_string()), None)
+            .execute(&info.id, sql, Some("test_db".to_string()), None, None)
             .await
             .expect_err(&format!("write should be refused: {sql}"));
         assert!(
@@ -618,7 +634,7 @@ async fn a_read_only_refusal_leaves_the_data_alone() {
         "INSERT INTO ro_canary VALUES (1), (2), (3)",
     ] {
         executor
-            .execute(&writer.id, stmt, Some("test_db".to_string()), None)
+            .execute(&writer.id, stmt, Some("test_db".to_string()), None, None)
             .await
             .unwrap();
     }
@@ -632,6 +648,7 @@ async fn a_read_only_refusal_leaves_the_data_alone() {
             "SELECT COUNT(*) FROM ro_canary; DELETE FROM ro_canary",
             Some("test_db".to_string()),
             None,
+            None,
         )
         .await
         .expect_err("a script containing a write should be refused");
@@ -643,6 +660,7 @@ async fn a_read_only_refusal_leaves_the_data_alone() {
             "SELECT COUNT(*) FROM ro_canary",
             Some("test_db".to_string()),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -653,6 +671,7 @@ async fn a_read_only_refusal_leaves_the_data_alone() {
             &writer.id,
             "DROP TABLE ro_canary",
             Some("test_db".to_string()),
+            None,
             None,
         )
         .await

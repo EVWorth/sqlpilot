@@ -130,12 +130,13 @@ describe("api (Tauri available)", () => {
 
   it("executeQuery calls invoke with all args", async () => {
     invokeMock.mockResolvedValue([queryResult]);
-    const result = await api.executeQuery("conn-1", "SELECT 1", "mydb", 100);
+    const result = await api.executeQuery("conn-1", "SELECT 1", "mydb", 100, 200);
     expect(invokeMock).toHaveBeenCalledWith("execute_query", {
       connectionId: "conn-1",
       sql: "SELECT 1",
       database: "mydb",
       limit: 100,
+      offset: 200,
     });
     expect(result).toEqual([queryResult]);
   });
@@ -148,6 +149,7 @@ describe("api (Tauri available)", () => {
       sql: "SELECT 1",
       database: null,
       limit: null,
+      offset: null,
     });
   });
 

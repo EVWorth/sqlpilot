@@ -232,13 +232,22 @@ pub async fn execute_query(
     // u32: specta forbids exporting u64, and a LIMIT above 4.29e9 is
     // meaningless. Widened back for the executor below.
     limit: Option<u32>,
+    // Rows to skip before the first one kept, so the grid can page through a
+    // result the row limit would otherwise cut off at page one (#391).
+    offset: Option<u32>,
 ) -> Result<Vec<QueryResult>, QueryError> {
     // Structured rather than a string: the history panel needs to tell a
     // missing table from a syntax error, and the driver already knows which
     // it was (#324).
     let results = state
         .query_executor
-        .execute_owned(connection_id, sql, database, limit.map(u64::from))
+        .execute_owned(
+            connection_id,
+            sql,
+            database,
+            limit.map(u64::from),
+            offset.map(u64::from),
+        )
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Query execution failed");

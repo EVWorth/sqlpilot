@@ -91,9 +91,16 @@ impl QueryExecutor {
         sql: &str,
         database: Option<String>,
         limit: Option<u64>,
+        offset: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
-        self.execute_owned(connection_id.to_string(), sql.to_string(), database, limit)
-            .await
+        self.execute_owned(
+            connection_id.to_string(),
+            sql.to_string(),
+            database,
+            limit,
+            offset,
+        )
+        .await
     }
 
     #[tracing::instrument(skip(self), fields(connection_id = %connection_id, statement_count))]
@@ -103,6 +110,8 @@ impl QueryExecutor {
         sql: String,
         database: Option<String>,
         limit: Option<u64>,
+        // Rows to discard from the start of each result set, for paging.
+        offset: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
         let pool = self.connection_manager.get_pool(&connection_id)?;
         let statements = split_statements(&sql);
@@ -219,6 +228,15 @@ impl QueryExecutor {
         // happens to be exactly `limit` rows long is not reported as truncated
         // when nothing was left out.
         let mut limit_reached = false;
+        // How many rows of the current result set have been discarded to reach
+        // the requested offset.
+        let mut skipped: u64 = 0;
+        // One skipped row, kept only for its column metadata. A page whose
+        // rows were all skipped — the last page of a result whose size is an
+        // exact multiple of the page size — would otherwise come back with no
+        // columns, and the grid would show it as an empty box rather than as
+        // the end of the data.
+        let mut skipped_shape: Option<sqlx::mysql::MySqlRow> = None;
         let mut start = Instant::now();
 
         loop {
@@ -278,6 +296,25 @@ impl QueryExecutor {
                         // multi-statement batch, so the cost of the rows the
                         // server has already produced is paid either way —
                         // what is bounded is what the app holds and returns.
+                        // Paging skips rows here rather than appending
+                        // LIMIT/OFFSET to the statement, for the reasons the
+                        // comment at the top of this function gives: rewriting
+                        // the user's SQL breaks SHOW, locking clauses,
+                        // trailing comments and more. Skipping the read works
+                        // on all of them, and on the result sets a procedure
+                        // returns, which no OFFSET can reach (#391).
+                        //
+                        // The server still produces the skipped rows. That
+                        // cost is paid by OFFSET too — it scans and discards
+                        // just the same — and the stream has to be drained
+                        // either way.
+                        if offset.is_some_and(|skip| skipped < skip) {
+                            skipped += 1;
+                            if skipped_shape.is_none() {
+                                skipped_shape = Some(row);
+                            }
+                            continue;
+                        }
                         if limit.is_some_and(|max| current_rows.len() as u64 >= max) {
                             limit_reached = true;
                             continue;
@@ -364,6 +401,7 @@ impl QueryExecutor {
                                 &current_rows,
                                 execution_time,
                                 truncation,
+                                skipped_shape.as_ref(),
                             ));
                             call_emitted |= call_in_progress;
                         } else if overrun || (call_in_progress && call_emitted) {
@@ -421,6 +459,8 @@ impl QueryExecutor {
 
                         current_rows.clear();
                         limit_reached = false;
+                        skipped = 0;
+                        skipped_shape = None;
                         start = Instant::now();
                     }
                     // A CALL is not finished until a Left arrives carrying no
@@ -480,6 +520,7 @@ impl QueryExecutor {
                     &current_rows,
                     execution_time,
                     Some(TruncationReason::MemoryGuard),
+                    None,
                 ));
             }
         }
@@ -758,9 +799,14 @@ fn build_select_result(
     rows: &[sqlx::mysql::MySqlRow],
     execution_time_ms: u64,
     truncation: Option<TruncationReason>,
+    // A row that was skipped to reach the page offset, used only when every
+    // row of the page was skipped and there is no kept row to read the shape
+    // from (#391).
+    shape: Option<&sqlx::mysql::MySqlRow>,
 ) -> QueryResult {
     let columns: Vec<ColumnMeta> = rows
         .first()
+        .or(shape)
         .map(|r| {
             r.columns()
                 .iter()

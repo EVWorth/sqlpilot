@@ -163,11 +163,13 @@ vi.mock("@tanstack/react-table", () => ({
   // registry object, so an identity mock is enough here.
   tableFeatures: vi.fn((f: Record<string, unknown>) => f),
   createSortedRowModel: vi.fn(() => ({})),
+  createFilteredRowModel: vi.fn(() => ({})),
   rowSortingFeature: {},
   columnSizingFeature: {},
   columnResizingFeature: {},
   columnVisibilityFeature: {},
   columnOrderingFeature: {},
+  columnFilteringFeature: {},
   flexRender: vi.fn((def: any, ctx: any) => {
     if (def.header) return def.header;
     return null;

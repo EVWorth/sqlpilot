@@ -31,6 +31,8 @@ export interface GridHeaderCellProps {
   onSort: (event: React.MouseEvent) => void;
   onResizeStart: (event: React.MouseEvent | React.TouchEvent) => void;
   onAutoSize: () => void;
+  /** The column's filter control, or nothing when filtering is not offered. */
+  filterMenu?: ReactNode;
   /** Reorder, or undefined to leave the column fixed. */
   onDropColumn?: (fromColumnId: string) => void;
   isDropTarget: boolean;
@@ -54,6 +56,7 @@ export function GridHeaderCell({
   onSort,
   onResizeStart,
   onAutoSize,
+  filterMenu,
   onDropColumn,
   isDropTarget,
   onDragStateChange,
@@ -123,6 +126,7 @@ export function GridHeaderCell({
             {sortIndex}
           </span>
         )}
+        {filterMenu}
       </div>
       {canResize && (
         <div
