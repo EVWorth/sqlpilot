@@ -1,9 +1,11 @@
 import {
   type ColumnDef,
+  columnFilteringFeature,
   columnOrderingFeature,
   columnResizingFeature,
   columnSizingFeature,
   columnVisibilityFeature,
+  createFilteredRowModel,
   createSortedRowModel,
   flexRender,
   rowSortingFeature,
@@ -22,6 +24,7 @@ import {
   FileJson,
   FileSpreadsheet,
   FileText,
+  FilterX,
   Loader2,
   RotateCcw,
   Sparkles,
@@ -31,6 +34,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
 import { useRowKey } from "../../hooks/useRowKey";
+import { type ColumnFilter, describeFilter, isActiveFilter, matchesFilter } from "../../lib/grid-filter";
 import { applyOrder, layoutKey, moveColumn, readLayout, writeLayout } from "../../lib/grid-layout";
 import { describeGridChanges, nextEditableCell } from "../../lib/grid-navigation";
 import { runStatement } from "../../lib/run-statement";
@@ -54,6 +58,7 @@ import type { SqlValue } from "../../types";
 import { SqlValueGuard } from "../../types";
 import type { MenuItem } from "../common/ContextMenu";
 import { CellViewerModal } from "./CellViewerModal";
+import { ColumnFilterMenu } from "./ColumnFilterMenu";
 import { EditableCell } from "./EditableCell";
 import { EditToolbar } from "./EditToolbar";
 import { GridHeaderCell } from "./GridHeaderCell";
@@ -69,11 +74,14 @@ const gridFeatures = tableFeatures({
   rowSortingFeature,
   // FR-3.1.5: dragging a header changes the display order (#392).
   columnOrderingFeature,
+  // FR-3.1.3: per-column filters over the rows already fetched (#391).
+  columnFilteringFeature,
   columnSizingFeature,
   columnResizingFeature,
   // Not for hiding columns — row.getVisibleCells() hangs off this feature.
   columnVisibilityFeature,
   sortedRowModel: createSortedRowModel(),
+  filteredRowModel: createFilteredRowModel(),
 });
 
 function downloadBlob(content: string, filename: string, mime: string) {
@@ -118,6 +126,7 @@ export function ResultsGrid() {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>({});
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
+  const [filters, setFilters] = useState<Record<string, ColumnFilter>>({});
   const [drag, setDrag] = useState<{ dragging: string | null; over: string | null }>({
     dragging: null,
     over: null,
@@ -223,6 +232,36 @@ export function ResultsGrid() {
     const byName = new Map(cols.map((c) => [c.name, c]));
     return columnOrder.map((name) => byName.get(name)).filter((c) => c !== undefined);
   }, [activeResult, columnOrder]);
+
+  /**
+   * The filters that would actually narrow something, in TanStack's shape.
+   *
+   * A half-written filter is left out rather than applied: opening a menu and
+   * picking an operator should not empty the grid before an operand is typed.
+   */
+  const columnFilters = useMemo(
+    () =>
+      Object.entries(filters)
+        .filter(([, f]) => isActiveFilter(f))
+        .map(([id, value]) => ({ id, value })),
+    [filters],
+  );
+
+  const setColumnFilter = useCallback((column: string, filter: ColumnFilter | undefined) => {
+    setFilters((prev) => {
+      if (!filter) {
+        const { [column]: _removed, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [column]: filter };
+    });
+  }, []);
+
+  const clearFilters = useCallback(() => setFilters({}), []);
+
+  // A filter is about the rows on screen, so it has no meaning once they are
+  // replaced by a different query's.
+  useEffect(() => setFilters({}), [layoutId]);
 
   /** True when what is on screen is not the order the query returned. */
   const isReordered = useMemo(
@@ -597,6 +636,9 @@ export function ResultsGrid() {
       id: col.name,
       accessorKey: col.name,
       header: col.name,
+      // The filter value is our own ColumnFilter rather than a bare string,
+      // because an operator and an operand cannot be carried by one (#391).
+      filterFn: (row, columnId, value) => matchesFilter(row.getValue(columnId), value as ColumnFilter),
       cell: ({ getValue, row }) => {
         const rowIdx = row.index;
         const originalValue = getValue() as SqlValue;
@@ -674,10 +716,15 @@ export function ResultsGrid() {
     features: gridFeatures,
     data,
     columns,
-    state: { sorting, columnSizing, columnOrder },
+    state: { sorting, columnSizing, columnOrder, columnFilters },
     onSortingChange: setSorting,
     onColumnSizingChange: setColumnSizing,
     onColumnOrderChange: setColumnOrder,
+    // The grid owns the filter state so the menus can edit it directly; this
+    // feeds TanStack the derived form it filters with.
+    // The menus own the filter state so they can edit operator and operand
+    // together; this hands TanStack the derived list it filters with.
+    onColumnFiltersChange: () => {},
     enableColumnResizing: true,
     columnResizeMode: "onChange",
     // FR-3.1.2. Shift adds a sort key rather than replacing one, so
@@ -877,6 +924,14 @@ export function ResultsGrid() {
                       onSort={(e) => header.column.getToggleSortingHandler()?.(e)}
                       onResizeStart={(e) => header.getResizeHandler()(e)}
                       onAutoSize={() => autoSizeColumn(header.column.id)}
+                      filterMenu={
+                        <ColumnFilterMenu
+                          column={header.column.id}
+                          dataType={columnTypes[header.column.id]}
+                          filter={filters[header.column.id]}
+                          onChange={(next) => setColumnFilter(header.column.id, next)}
+                        />
+                      }
                       onDropColumn={(from) => reorderColumn(from, header.column.id)}
                       isDropTarget={drag.over === header.column.id
                         && drag.dragging !== header.column.id}
@@ -1020,6 +1075,14 @@ export function ResultsGrid() {
                       onSort={(e) => header.column.getToggleSortingHandler()?.(e)}
                       onResizeStart={(e) => header.getResizeHandler()(e)}
                       onAutoSize={() => autoSizeColumn(header.column.id)}
+                      filterMenu={
+                        <ColumnFilterMenu
+                          column={header.column.id}
+                          dataType={columnTypes[header.column.id]}
+                          filter={filters[header.column.id]}
+                          onChange={(next) => setColumnFilter(header.column.id, next)}
+                        />
+                      }
                       onDropColumn={(from) => reorderColumn(from, header.column.id)}
                       isDropTarget={drag.over === header.column.id
                         && drag.dragging !== header.column.id}
@@ -1100,9 +1163,25 @@ export function ResultsGrid() {
       {/* Footer */}
       <div className="flex items-center justify-between border-t border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1">
         <span className="text-[10px] text-[var(--color-text-muted)]">
-          {activeResult.rows.length} row(s) &middot; {activeResult.execution_time_ms}ms
+          {columnFilters.length > 0
+            // Saying only "12 row(s)" under an active filter reads as the
+            // query having returned twelve, which is a different fact (#391).
+            ? `${table.getRowModel().rows.length} of ${activeResult.rows.length} row(s)`
+            : `${activeResult.rows.length} row(s)`} &middot; {activeResult.execution_time_ms}ms
         </span>
         <div className="flex items-center gap-1">
+          {columnFilters.length > 0 && (
+            <button
+              onClick={clearFilters}
+              className="flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-brand-400 hover:bg-[var(--color-bg-tertiary)]"
+              title={columnFilters.map((f) => describeFilter(f.id, f.value as ColumnFilter)).join(
+                "; ",
+              )}
+            >
+              <FilterX className="h-3 w-3" />
+              Clear {columnFilters.length} filter{columnFilters.length === 1 ? "" : "s"}
+            </button>
+          )}
           {isReordered && (
             // A dragged order outlives the query, so without a way back a
             // stray drag is permanent (#392).

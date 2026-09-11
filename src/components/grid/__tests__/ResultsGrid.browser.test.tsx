@@ -441,6 +441,100 @@ describe("ResultsGrid (browser)", () => {
     });
   });
 
+  // ─── Per-column filters (#391) ────────────────────────────
+  describe("filtering", () => {
+    const people = makeResult({
+      columns: [
+        { name: "name", data_type: "varchar", nullable: false, is_primary_key: false },
+        { name: "age", data_type: "int", nullable: true, is_primary_key: false },
+      ],
+      rows: [["Alice", 30], ["Bob", 9], ["Carol", null]],
+    });
+
+    const names = () =>
+      [...document.querySelectorAll("tbody tr")].map((tr) => tr.querySelectorAll("td")[1]?.textContent?.trim());
+
+    const openFilter = async (column: string) => {
+      fireEvent.click(await screen.findByLabelText(`Filter ${column}`));
+      return screen.findByRole("dialog", { name: `Filter ${column}` });
+    };
+
+    beforeEach(() => {
+      resultState.results = [people];
+    });
+
+    it("narrows the rows on screen without re-running the query", async () => {
+      render(<ResultsGrid />);
+      await openFilter("name");
+
+      fireEvent.change(screen.getByLabelText("Filter name value"), {
+        target: { value: "al" },
+      });
+
+      await waitFor(() => expect(names()).toEqual(["Alice"]));
+      expect(mockStoreGetState).not.toHaveBeenCalled();
+    });
+
+    it("shows everything until an operand is typed", async () => {
+      // Opening a menu should not empty the grid.
+      render(<ResultsGrid />);
+      await openFilter("name");
+
+      expect(names()).toHaveLength(3);
+    });
+
+    it("compares numbers as numbers", async () => {
+      // Text comparison would put 9 above 30.
+      render(<ResultsGrid />);
+      await openFilter("age");
+
+      fireEvent.change(screen.getByLabelText("Filter age by"), { target: { value: "lt" } });
+      fireEvent.change(screen.getByLabelText("Filter age value"), { target: { value: "10" } });
+
+      await waitFor(() => expect(names()).toEqual(["Bob"]));
+    });
+
+    it("finds NULLs, which no operand can express", async () => {
+      render(<ResultsGrid />);
+      await openFilter("age");
+
+      fireEvent.change(screen.getByLabelText("Filter age by"), { target: { value: "isNull" } });
+
+      await waitFor(() => expect(names()).toEqual(["Carol"]));
+    });
+
+    it("says how many rows a filter is hiding", async () => {
+      // "1 row(s)" alone reads as the query having returned one.
+      render(<ResultsGrid />);
+      await openFilter("name");
+      fireEvent.change(screen.getByLabelText("Filter name value"), {
+        target: { value: "alice" },
+      });
+
+      expect(await screen.findByText(/1 of 3 row\(s\)/)).toBeInTheDocument();
+    });
+
+    it("clears every filter at once", async () => {
+      render(<ResultsGrid />);
+      await openFilter("name");
+      fireEvent.change(screen.getByLabelText("Filter name value"), {
+        target: { value: "alice" },
+      });
+
+      fireEvent.click(await screen.findByText("Clear 1 filter"));
+
+      await waitFor(() => expect(names()).toHaveLength(3));
+    });
+
+    it("does not sort the column when its filter is opened", async () => {
+      // The header owns click-to-sort, and the button sits inside it.
+      render(<ResultsGrid />);
+      await openFilter("name");
+
+      expect(document.querySelector("[aria-sort='ascending']")).toBeNull();
+    });
+  });
+
   // ─── Loading / executing state ────────────────────────────
   it("shows executing state when query is running", () => {
     resultState.isExecuting = true;
