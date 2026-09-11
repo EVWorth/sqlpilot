@@ -688,14 +688,14 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 ### NFR-5: Extensibility
 
-| ID      | Requirement                | Implementation                                                                                                                          |
-| ------- | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| NFR-5.1 | Plugin API                 | Documented API for extending the application with custom tools, panels, and actions; plugins written in TypeScript; sandboxed execution |
-| NFR-5.2 | Custom themes              | CSS-based theme system; theme editor with live preview; import/export themes; community theme repository                                |
-| NFR-5.3 | Custom snippets            | User-defined SQL snippets with tab triggers; variable placeholders; snippet library import/export                                       |
-| NFR-5.4 | Keyboard shortcut profiles | Multiple named profiles (Default, Vim-like, Emacs-like); import/export profiles; community sharing                                      |
-| NFR-5.5 | Configurable toolbar       | Show/hide toolbar buttons; reorder buttons; add custom buttons linked to favorite queries or snippets                                   |
-| NFR-5.6 | Scripting API              | JavaScript API for automating repetitive tasks; access to connections, editor, results; script editor with autocomplete                 |
+| ID      | Requirement                | Implementation                                                                                                                                                                                                                                                                            |
+| ------- | -------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NFR-5.1 | Plugin API                 | Documented API for extending the application with custom tools, panels, and actions; plugins written in TypeScript; sandboxed execution                                                                                                                                                   |
+| NFR-5.2 | Custom themes              | CSS-based theme system; theme editor with live preview; import/export themes. **A community theme repository is deliberately out of scope** — it is a hosted service with moderation and abuse handling attached, not a feature of a desktop client; import/export covers sharing (#350). |
+| NFR-5.3 | Custom snippets            | User-defined SQL snippets with tab triggers; variable placeholders; snippet library import/export                                                                                                                                                                                         |
+| NFR-5.4 | Keyboard shortcut profiles | Multiple named profiles (Default, Vim-like, Emacs-like); import/export profiles; community sharing                                                                                                                                                                                        |
+| NFR-5.5 | Configurable toolbar       | Show/hide toolbar buttons; reorder buttons; add custom buttons linked to favorite queries or snippets                                                                                                                                                                                     |
+| NFR-5.6 | Scripting API              | JavaScript API for automating repetitive tasks; access to connections, editor, results; script editor with autocomplete                                                                                                                                                                   |
 
 ---
 

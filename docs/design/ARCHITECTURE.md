@@ -609,10 +609,10 @@ src/stores/
 ├── editorStore.ts        — Open tabs, editor content, cursor positions, dirty state
 ├── resultStore.ts        — Query results, pagination state, selected cells
 ├── favoritesStore.ts     — Saved queries, pinned favorites, folders
-├── settingsStore.ts      — User preferences, keybindings, editor config
+├── settingsStore.ts      — Query and formatter settings, update state
 ├── aiStore.ts            — AI chat history, pending suggestions, provider status
 ├── historyStore.ts       — Query history (a view over history.db)
-└── themeStore.ts         — Active theme, mode (light/dark/system), accent
+└── themeStore.ts         — Active theme, custom themes, import/export
 ```
 
 #### Store Design Pattern
@@ -1827,18 +1827,19 @@ Two-tier storage: filesystem (`connections.db` + `history.db` + logs + keyring) 
     \-- sqlpilot.log.YYYY-MM-DD.1       -- Yesterday, gzipped
 ```
 
-`themes/`, `snippets/`, `backups/`, `cache/` from earlier drafts were never implemented. Custom CSS themes use the existing `theme` localStorage key (single string `dark` | `light` | `system`); snippets/favorites are stored via the `favoritesStore`; query history via the `historyStore`. Schema metadata is fetched live via `mas-core::schema::SchemaInspector` and cached in memory for the session only (re-fetched on connection-change / manual refresh); AI response cache is in-memory keyed by prompt hash (no on-disk cache).
+`themes/`, `snippets/`, `backups/`, `cache/` from earlier drafts were never implemented. Themes live in localStorage rather than as files on disk: `theme` holds the id of the one in use, and `sqlpilot.custom-themes` holds any the user imported or made. The built-in palettes are in `src/lib/themes.ts`, and import/export is a file the user chooses rather than a directory the app scans (#350). Snippets/favorites are stored via the `favoritesStore`; query history via the `historyStore`. Schema metadata is fetched live via `mas-core::schema::SchemaInspector` and cached in memory for the session only (re-fetched on connection-change / manual refresh); AI response cache is in-memory keyed by prompt hash (no on-disk cache).
 
 ### localStorage keys (frontend / Zustand)
 
-| Key                           | Owner                          | Format                                             |
-| ----------------------------- | ------------------------------ | -------------------------------------------------- |
-| `theme`                       | `themeStore.ts`                | single string: `"dark"` or `"light"` or `"system"` |
-| `sqlpilot-formatter-settings` | `settingsStore.ts`             | JSON: full `FormatterSettings`                     |
-| `sqlpilot-query-settings`     | `settingsStore.ts`             | JSON: `{ maxResultRows, limitEnabled }`            |
-| `sqlpilot-history-limit`      | `historyStore.ts`              | single number: the retention count (#585)          |
-| `mas-query-favorites`         | `favoritesStore.ts`            | JSON via `zustand/middleware::persist`             |
-| `sqlpilot-editor-session`     | `editorStore.ts` (manual save) | JSON: `{ tabs, activeTabId }` debounced ~150ms     |
+| Key                           | Owner                          | Format                                         |
+| ----------------------------- | ------------------------------ | ---------------------------------------------- |
+| `theme`                       | `themeStore.ts`                | single string: a theme id, or `"system"`       |
+| `sqlpilot.custom-themes`      | `themeStore.ts`                | JSON: `Theme[]`, re-validated on read (#350)   |
+| `sqlpilot-formatter-settings` | `settingsStore.ts`             | JSON: full `FormatterSettings`                 |
+| `sqlpilot-query-settings`     | `settingsStore.ts`             | JSON: `{ maxResultRows, limitEnabled }`        |
+| `sqlpilot-history-limit`      | `historyStore.ts`              | single number: the retention count (#585)      |
+| `mas-query-favorites`         | `favoritesStore.ts`            | JSON via `zustand/middleware::persist`         |
+| `sqlpilot-editor-session`     | `editorStore.ts` (manual save) | JSON: `{ tabs, activeTabId }` debounced ~150ms |
 
 The webview's localStorage lives under `~/Library/Application Support/com.sqlpilot.app/...` (macOS), `~/.config/com.sqlpilot.app/...` (Linux), `%APPDATA%\com.sqlpilot.app\...` (Windows) — separate from the data dir above. Bundle identifier is set via `tauri.conf.json:identifier = "com.sqlpilot.app"`.
 
