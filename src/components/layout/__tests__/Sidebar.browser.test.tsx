@@ -73,7 +73,10 @@ vi.mock("../../favorites/QueryFavorites", () => ({
 }));
 
 // ── Mock API ──
-vi.mock("../../../lib/tauri-api", () => ({
+// Partial: the schema menus import runStatement from here, which re-exports
+// CommandError, and a bare factory drops it from the module (#293).
+vi.mock("../../../lib/tauri-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/tauri-api")>()),
   api: {
     getDatabases: vi.fn().mockResolvedValue([
       { name: "testdb" },

@@ -17,6 +17,8 @@ export type StatementOrigin =
   | "designer"
   | "routine"
   | "admin"
+  /** Schema-tree menus: DROP, TRUNCATE, RENAME and the rest (#293). */
+  | "schema"
   | "import"
   | "restore"
   /** Reads the app makes on the user's behalf, never shown by default. */
@@ -29,6 +31,7 @@ export const USER_ORIGINS: StatementOrigin[] = [
   "designer",
   "routine",
   "admin",
+  "schema",
 ];
 
 export interface RunStatementOptions {

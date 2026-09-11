@@ -21,16 +21,30 @@ vi.mock("../../../hooks/useClickHandler", () => ({
   useClickHandler: () => (_key: string, single: () => void, _double: () => void) => () => single(),
 }));
 
+const shownMenus: { label?: string; disabled?: boolean; onClick?: () => void }[][] = [];
+
 vi.mock("../../../hooks/useContextMenu", () => ({
   useContextMenu: () => ({
     contextMenu: null,
-    showContextMenu: vi.fn(),
+    showContextMenu: (_e: unknown, items: (typeof shownMenus)[number]) => {
+      shownMenus.push(items);
+    },
   }),
 }));
 
+vi.mock("../../../lib/run-statement", () => ({
+  runStatement: vi.fn(async () => []),
+}));
+
+vi.mock("../../../stores/productionGuardStore", () => ({
+  confirmDestructive: vi.fn(async () => true),
+}));
+
+import { runStatement } from "../../../lib/run-statement";
 import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
+import { confirmDestructive } from "../../../stores/productionGuardStore";
 import { useResultStore } from "../../../stores/resultStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -507,5 +521,184 @@ describe("SchemaTree events, system databases and drag (#291)", () => {
         expect(screen.getByText(name).closest("button")?.getAttribute("draggable")).toBe("true");
       }
     });
+  });
+});
+
+describe("SchemaTree menus (#293)", () => {
+  const openTableMenu = async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => screen.getByText("users"));
+    shownMenus.length = 0;
+    fireEvent.contextMenu(screen.getByText("users"));
+    return shownMenus.at(-1)!;
+  };
+
+  const openDatabaseMenu = async () => {
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    shownMenus.length = 0;
+    fireEvent.contextMenu(screen.getByText("app_db"));
+    return shownMenus.at(-1)!;
+  };
+
+  const item = (menu: Awaited<ReturnType<typeof openTableMenu>>, label: string) => menu.find((i) => i.label === label);
+
+  beforeEach(() => {
+    shownMenus.length = 0;
+    useSchemaStore.setState({ byConnection: {} });
+    useSettingsStore.setState({
+      querySettings: { maxResultRows: 1000, limitEnabled: true, showSystemDatabases: false },
+    } as never);
+    vi.mocked(runStatement).mockClear();
+    vi.mocked(confirmDestructive).mockClear();
+    vi.mocked(confirmDestructive).mockResolvedValue(true);
+  });
+
+  it("names the Select item for the limit it uses", async () => {
+    // It said "Select Top 100 Rows" while using maxResultRows, which defaults
+    // to 1000 — wrong out of the box, and wrong again for anyone who changed
+    // it.
+    const menu = await openTableMenu();
+    expect(item(menu, "Select Top 1,000 Rows")).toBeDefined();
+    expect(item(menu, "Select Top 100 Rows")).toBeUndefined();
+  });
+
+  it.each([
+    "INSERT Template",
+    "Rename Table…",
+    "Duplicate Structure…",
+    "Truncate Table",
+    "Drop Table",
+  ])("offers %s on a table", async (label) => {
+    expect(item(await openTableMenu(), label)).toBeDefined();
+  });
+
+  it.each([
+    "Create Database…",
+    "Drop Database",
+    "Set as Default",
+    "Statistics",
+  ])("offers %s on a database", async (label) => {
+    expect(item(await openDatabaseMenu(), label)).toBeDefined();
+  });
+
+  describe("destructive operations", () => {
+    it("asks before truncating, and says it cannot be undone", async () => {
+      const menu = await openTableMenu();
+
+      item(menu, "Truncate Table")!.onClick!();
+      await waitFor(() => expect(confirmDestructive).toHaveBeenCalled());
+
+      const asked = vi.mocked(confirmDestructive).mock.calls[0][0];
+      expect(asked.sql).toBe("TRUNCATE TABLE `app_db`.`users`");
+      expect(asked.action).toContain("cannot be rolled back");
+    });
+
+    it("runs nothing when the confirmation is declined", async () => {
+      vi.mocked(confirmDestructive).mockResolvedValue(false);
+      const menu = await openTableMenu();
+
+      item(menu, "Drop Table")!.onClick!();
+      await waitFor(() => expect(confirmDestructive).toHaveBeenCalled());
+
+      expect(runStatement).not.toHaveBeenCalled();
+    });
+
+    it("waits for the answer before refreshing", async () => {
+      // The old path called executeQuery, which returns as soon as it opens
+      // the production dialog — so the refresh ran against unchanged data and
+      // nothing refreshed when the user did confirm.
+      const menu = await openTableMenu();
+      vi.mocked(api.getTables).mockClear();
+
+      item(menu, "Drop Table")!.onClick!();
+
+      await waitFor(() => expect(runStatement).toHaveBeenCalled());
+      await waitFor(() => expect(api.getTables).toHaveBeenCalled());
+    });
+
+    it("requires the database name to be typed before dropping one", async () => {
+      // A misplaced click should not be able to take every table in a
+      // database with it.
+      const prompt = vi.spyOn(window, "prompt").mockReturnValue("wrong");
+      const menu = await openDatabaseMenu();
+
+      item(menu, "Drop Database")!.onClick!();
+
+      expect(prompt).toHaveBeenCalled();
+      expect(confirmDestructive).not.toHaveBeenCalled();
+      prompt.mockRestore();
+    });
+
+    it("proceeds once the name matches", async () => {
+      const prompt = vi.spyOn(window, "prompt").mockReturnValue("app_db");
+      const menu = await openDatabaseMenu();
+
+      item(menu, "Drop Database")!.onClick!();
+
+      await waitFor(() => expect(confirmDestructive).toHaveBeenCalled());
+      expect(vi.mocked(confirmDestructive).mock.calls[0][0].sql).toBe("DROP DATABASE `app_db`");
+      prompt.mockRestore();
+    });
+  });
+
+  describe("naming", () => {
+    it("refuses a name that is not usable, without running anything", async () => {
+      const prompt = vi.spyOn(window, "prompt").mockReturnValue("   ");
+      const alert = vi.spyOn(window, "alert").mockImplementation(() => {});
+      const menu = await openTableMenu();
+
+      item(menu, "Rename Table…")!.onClick!();
+
+      expect(alert).toHaveBeenCalled();
+      expect(confirmDestructive).not.toHaveBeenCalled();
+      prompt.mockRestore();
+      alert.mockRestore();
+    });
+
+    it("does nothing when the rename would not change the name", async () => {
+      const prompt = vi.spyOn(window, "prompt").mockReturnValue("users");
+      const menu = await openTableMenu();
+
+      item(menu, "Rename Table…")!.onClick!();
+
+      expect(confirmDestructive).not.toHaveBeenCalled();
+      prompt.mockRestore();
+    });
+
+    it("renames to the name that was given", async () => {
+      const prompt = vi.spyOn(window, "prompt").mockReturnValue("people");
+      const menu = await openTableMenu();
+
+      item(menu, "Rename Table…")!.onClick!();
+
+      await waitFor(() => expect(confirmDestructive).toHaveBeenCalled());
+      expect(vi.mocked(confirmDestructive).mock.calls[0][0].sql)
+        .toBe("RENAME TABLE `app_db`.`users` TO `app_db`.`people`");
+      prompt.mockRestore();
+    });
+  });
+
+  it("marks Set as Default disabled for the database already in use", async () => {
+    useEditorStore.setState({
+      tabs: [{
+        id: "t1",
+        title: "Query",
+        content: "",
+        type: "query",
+        isDirty: false,
+        database: "app_db",
+        connectionId: "conn-1",
+      }],
+      activeTabId: "t1",
+    } as never);
+
+    const menu = await openDatabaseMenu();
+
+    expect(item(menu, "Already the default")?.disabled).toBe(true);
   });
 });
