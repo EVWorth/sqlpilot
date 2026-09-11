@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { dataSourceFor } from "../lib/datasource";
-import type { ColumnInfo, DatabaseInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo } from "../types";
+import type { ColumnInfo, DatabaseInfo, EventInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo } from "../types";
 
 /**
  * What the app knows about each server's schema.
@@ -22,7 +22,7 @@ import type { ColumnInfo, DatabaseInfo, RoutineInfo, TableInfo, TriggerInfo, Vie
  */
 
 /** Which kinds of object a database node holds, for scoped invalidation. */
-export type SchemaFolder = "tables" | "views" | "routines" | "triggers";
+export type SchemaFolder = "tables" | "views" | "routines" | "triggers" | "events";
 
 interface ConnectionSchema {
   /** Undefined until fetched; an empty array means a server with no databases. */
@@ -31,6 +31,7 @@ interface ConnectionSchema {
   views: Record<string, ViewInfo[]>;
   routines: Record<string, RoutineInfo[]>;
   triggers: Record<string, TriggerInfo[]>;
+  events: Record<string, EventInfo[]>;
   /** Keyed `database.table`. */
   columns: Record<string, ColumnInfo[]>;
   /**
@@ -55,6 +56,7 @@ function emptySchema(): ConnectionSchema {
     views: {},
     routines: {},
     triggers: {},
+    events: {},
     columns: {},
     generation: 0,
     loading: [],
@@ -77,6 +79,7 @@ interface SchemaState {
   ensureViews: (connectionId: string, database: string) => Promise<ViewInfo[]>;
   ensureRoutines: (connectionId: string, database: string) => Promise<RoutineInfo[]>;
   ensureTriggers: (connectionId: string, database: string) => Promise<TriggerInfo[]>;
+  ensureEvents: (connectionId: string, database: string) => Promise<EventInfo[]>;
   ensureColumns: (
     connectionId: string,
     database: string,
@@ -244,6 +247,16 @@ export const useSchemaStore = create<SchemaState>((set, get) => {
         [],
       ),
 
+    ensureEvents: (connectionId, database) =>
+      ensure(
+        connectionId,
+        loadKey(database, "events"),
+        (s) => s.events[database],
+        () => dataSourceFor(connectionId).listEvents(connectionId, database),
+        (s, value) => ({ events: { ...s.events, [database]: value } }),
+        [],
+      ),
+
     ensureColumns: (connectionId, database, table) =>
       ensure(
         connectionId,
@@ -278,6 +291,7 @@ export const useSchemaStore = create<SchemaState>((set, get) => {
           views: drop(schema.views),
           routines: drop(schema.routines),
           triggers: drop(schema.triggers),
+          events: drop(schema.events),
           columns: Object.fromEntries(
             Object.entries(schema.columns).filter(([k]) => !k.startsWith(`${database}.`)),
           ),
@@ -285,13 +299,7 @@ export const useSchemaStore = create<SchemaState>((set, get) => {
         return;
       }
 
-      const key = folder === "tables"
-        ? "tables"
-        : folder === "views"
-        ? "views"
-        : folder === "routines"
-        ? "routines"
-        : "triggers";
+      const key = folder;
       const next = { ...schema[key] };
       delete next[database];
       update(connectionId, { generation, [key]: next });

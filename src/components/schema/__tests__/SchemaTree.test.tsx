@@ -10,6 +10,7 @@ vi.mock("../../../lib/tauri-api", () => ({
     getViews: vi.fn(),
     getRoutines: vi.fn(),
     getTriggers: vi.fn(),
+    getEvents: vi.fn(),
   },
 }));
 
@@ -118,6 +119,7 @@ beforeEach(() => {
   vi.mocked(api.getRoutines).mockImplementation((_cid: string, db: string) =>
     Promise.resolve(db === "app_db" ? routinesForApp : [])
   );
+  vi.mocked(api.getEvents).mockResolvedValue([]);
   vi.mocked(api.getTriggers).mockImplementation((_cid: string, db: string) =>
     Promise.resolve(db === "app_db" ? triggersForApp : [])
   );
@@ -390,5 +392,120 @@ describe("SchemaTree across connections (#288, #289)", () => {
 
     await waitFor(() => expect(screen.getByText("app_db")).toBeInTheDocument());
     expect(screen.queryByText("users")).toBeNull();
+  });
+});
+
+describe("SchemaTree events, system databases and drag (#291)", () => {
+  const events = [
+    { name: "nightly", event_type: "RECURRING", status: "ENABLED", definer: "root@%", interval: "1 DAY", comment: "" },
+    { name: "paused", event_type: "RECURRING", status: "DISABLED", definer: "root@%", interval: "1 HOUR", comment: "" },
+  ];
+
+  beforeEach(() => {
+    useSchemaStore.setState({ byConnection: {} });
+    useSettingsStore.setState({
+      querySettings: { maxResultRows: 1000, limitEnabled: true, showSystemDatabases: false },
+    } as never);
+    vi.mocked(api.getEvents).mockResolvedValue(events as never);
+  });
+
+  const openDb = async (user: ReturnType<typeof userEvent.setup>) => {
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await user.click(screen.getByText("app_db"));
+  };
+
+  describe("events folder (FR-4.1.1)", () => {
+    it("lists a database's scheduled events", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      await openDb(user);
+
+      await user.click(screen.getByText("Events"));
+
+      await waitFor(() => expect(screen.getByText("nightly")).toBeInTheDocument());
+      expect(api.getEvents).toHaveBeenCalledWith("conn-1", "app_db");
+    });
+
+    it("says how often an enabled event runs, and that a disabled one does not", async () => {
+      // "off" is the usual answer to why an event did not fire, and a
+      // schedule shown beside a disabled event would be misleading.
+      const user = userEvent.setup({ applyAccept: false });
+      await openDb(user);
+
+      await user.click(screen.getByText("Events"));
+
+      await waitFor(() => expect(screen.getByText("1 DAY")).toBeInTheDocument());
+      expect(screen.getByText("off")).toBeInTheDocument();
+      expect(screen.queryByText("1 HOUR")).toBeNull();
+    });
+  });
+
+  describe("system databases (FR-4.1.6)", () => {
+    const withSystem = [
+      ...dbs.map((d) => ({ ...d, is_system: false })),
+      { name: "mysql", character_set: "utf8mb4", collation: "utf8mb4_0900_ai_ci", is_system: true },
+    ];
+
+    it("hides them by default", async () => {
+      vi.mocked(api.getDatabases).mockResolvedValue(withSystem as never);
+      render(<SchemaTree connectionId="conn-1" />);
+
+      await waitFor(() => expect(screen.getByText("app_db")).toBeInTheDocument());
+      expect(screen.queryByText("mysql")).toBeNull();
+    });
+
+    it("shows them when asked", async () => {
+      // They were filtered out in the query, so they were unreachable at any
+      // price — wrong for a tool whose users administer the server.
+      vi.mocked(api.getDatabases).mockResolvedValue(withSystem as never);
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+
+      await user.click(screen.getByLabelText("Show system databases"));
+
+      await waitFor(() => expect(screen.getByText("mysql")).toBeInTheDocument());
+    });
+
+    it("offers no toggle when the server has none", async () => {
+      // SQLite has one schema and it is the user's.
+      vi.mocked(api.getDatabases).mockResolvedValue(
+        dbs.map((d) => ({ ...d, is_system: false })) as never,
+      );
+      render(<SchemaTree connectionId="conn-1" />);
+
+      await waitFor(() => expect(screen.getByText("app_db")).toBeInTheDocument());
+      expect(screen.queryByLabelText("Show system databases")).toBeNull();
+    });
+  });
+
+  describe("drag to the editor (FR-4.1.4)", () => {
+    it("carries a qualified name a query can use", async () => {
+      // Double-click already inserted a name at the cursor, for tables and
+      // views only. Dragging is how you put one somewhere specific.
+      const user = userEvent.setup({ applyAccept: false });
+      await openDb(user);
+      await user.click(screen.getByText("Tables"));
+      await waitFor(() => screen.getByText("users"));
+
+      const setData = vi.fn();
+      fireEvent.dragStart(screen.getByText("users").closest("button")!, {
+        dataTransfer: { setData, effectAllowed: "" },
+      });
+
+      expect(setData).toHaveBeenCalledWith("text/plain", "`app_db`.`users`");
+    });
+
+    it("is offered on every object type, not only tables", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      await openDb(user);
+      await user.click(screen.getByText("Tables"));
+      await user.click(screen.getByText("Views"));
+      await waitFor(() => screen.getByText("active_users"));
+
+      for (const name of ["users", "active_users"]) {
+        expect(screen.getByText(name).closest("button")?.getAttribute("draggable")).toBe("true");
+      }
+    });
   });
 });

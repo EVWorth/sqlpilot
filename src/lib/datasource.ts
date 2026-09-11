@@ -1,6 +1,7 @@
 import type {
   ColumnInfo,
   DatabaseInfo,
+  EventInfo,
   IndexInfo,
   QueryResult,
   RoutineInfo,
@@ -35,6 +36,8 @@ export interface DataSource {
   listViews(connectionId: string, database: string): Promise<ViewInfo[]>;
   listRoutines(connectionId: string, database: string): Promise<RoutineInfo[]>;
   listTriggers(connectionId: string, database: string): Promise<TriggerInfo[]>;
+  /** Scheduled events (FR-4.1.1, #291). SQLite has no scheduler. */
+  listEvents(connectionId: string, database: string): Promise<EventInfo[]>;
   getColumns(connectionId: string, database: string, table: string): Promise<ColumnInfo[]>;
   getIndexes(connectionId: string, database: string, table: string): Promise<IndexInfo[]>;
   getTableDdl(connectionId: string, database: string, table: string): Promise<string>;
@@ -56,6 +59,7 @@ const mysql: DataSource = {
   listViews: (c, d) => api.getViews(c, d),
   listRoutines: (c, d) => api.getRoutines(c, d),
   listTriggers: (c, d) => api.getTriggers(c, d),
+  listEvents: (c, d) => api.getEvents(c, d),
   getColumns: (c, d, t) => api.getColumns(c, d, t),
   getIndexes: (c, d, t) => api.getIndexes(c, d, t),
   getTableDdl: (c, d, t) => api.getTableDdl(c, d, t),
@@ -74,7 +78,13 @@ const sqlite: DataSource = {
   kind: "sqlite",
   hasDatabases: false,
   listDatabases: async () => [
-    { name: SQLITE_SCHEMA_NAME, default_charset: "UTF-8", default_collation: "BINARY" },
+    {
+      name: SQLITE_SCHEMA_NAME,
+      default_charset: "UTF-8",
+      default_collation: "BINARY",
+      // A SQLite file has one schema and it is the user's. Nothing to hide.
+      is_system: false,
+    },
   ],
   listTables: async (c) =>
     (await api.sqliteGetTables(c)).map((t) => ({
@@ -91,6 +101,9 @@ const sqlite: DataSource = {
   listViews: async () => [],
   listRoutines: async () => [],
   listTriggers: async () => [],
+  // SQLite has no event scheduler, so the folder stays empty rather than
+  // absent — the tree renders the same shape for both backends.
+  listEvents: async () => [],
   getColumns: async (c, _d, t) =>
     (await api.sqliteGetColumns(c, t)).map((col) => ({
       name: col.name,
