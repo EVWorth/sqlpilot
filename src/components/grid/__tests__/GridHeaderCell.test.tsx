@@ -85,6 +85,20 @@ describe("GridHeaderCell", () => {
     });
   });
 
+  describe("type badge (#414)", () => {
+    it("shows the column's SQL type beside its name", () => {
+      // It was carried all the way to the frontend and never rendered, so
+      // telling tinyint(1) from a small integer meant leaving the grid.
+      render(<GridHeaderCell {...props({ columnId: "age", dataType: "INT" })} />);
+      expect(screen.getByTitle("age INT")).toBeInTheDocument();
+    });
+
+    it("shows nothing when the type is unknown", () => {
+      render(<GridHeaderCell {...props({ dataType: undefined })} />);
+      expect(screen.queryByText("INT")).not.toBeInTheDocument();
+    });
+  });
+
   describe("reordering", () => {
     it("reports the column that was dropped onto this one", () => {
       const onDropColumn = vi.fn();

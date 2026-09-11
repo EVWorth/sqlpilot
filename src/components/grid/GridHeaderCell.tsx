@@ -31,6 +31,14 @@ export interface GridHeaderCellProps {
   onSort: (event: React.MouseEvent) => void;
   onResizeStart: (event: React.MouseEvent | React.TouchEvent) => void;
   onAutoSize: () => void;
+  /**
+   * The column's SQL type, shown beside the name.
+   *
+   * FR-3.1.11. It was fetched and carried all the way to the frontend and
+   * then never rendered, so telling `tinyint(1)` from a small integer meant
+   * leaving the grid (#414).
+   */
+  dataType?: string;
   /** The column's filter control, or nothing when filtering is not offered. */
   filterMenu?: ReactNode;
   /** Reorder, or undefined to leave the column fixed. */
@@ -48,6 +56,7 @@ export function GridHeaderCell({
   sortIndex,
   sortDirection,
   showSortPriority,
+  dataType,
   numeric,
   canResize,
   isResizing,
@@ -114,6 +123,15 @@ export function GridHeaderCell({
           />
         )}
         {label}
+        {dataType && (
+          <span
+            // Muted and small: it is context for the name, not a second name.
+            className="shrink-0 font-normal text-[9px] uppercase tracking-wide text-[var(--color-text-muted)]"
+            title={`${columnId} ${dataType}`}
+          >
+            {dataType}
+          </span>
+        )}
         {sortDirection === "asc" && <ArrowUp className="h-3 w-3 shrink-0" />}
         {sortDirection === "desc" && <ArrowDown className="h-3 w-3 shrink-0" />}
         {showSortPriority && sortIndex > 0 && (

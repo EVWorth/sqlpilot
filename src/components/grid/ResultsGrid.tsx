@@ -19,6 +19,7 @@ import {
   AlertTriangle,
   ChevronLeft,
   ChevronRight,
+  CircleSlash,
   ClipboardCopy,
   ClipboardList,
   Copy,
@@ -169,24 +170,6 @@ export function ResultsGrid() {
   const stopEditing = useCallback(() => setEditingCell(null), []);
 
   const editing = useGridEditing();
-
-  // Keyboard shortcuts for grid edit undo/redo
-  useEffect(() => {
-    if (!editing.editMode) return;
-    const handler = (e: KeyboardEvent) => {
-      const ctrl = e.ctrlKey || e.metaKey;
-      if (!ctrl) return;
-      if (e.shiftKey && e.key === "z") {
-        e.preventDefault();
-        editing.redo();
-      } else if (e.key === "z") {
-        e.preventDefault();
-        editing.undo();
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [editing.editMode, editing.undo, editing.redo]);
 
   const activeResult = results[activeResultIndex];
   const aiEnabled = useAiStore((s) => s.aiEnabled);
@@ -374,6 +357,44 @@ export function ResultsGrid() {
     [columnTypes],
   );
 
+  /**
+   * Set one cell to NULL.
+   *
+   * FR-3.2.3 asks for this from the context menu and from Ctrl+Shift+N. Both
+   * route through here so they cannot drift, and both are edit-mode only —
+   * outside it there is nothing to record the change on.
+   */
+  const setCellNull = useCallback((rowIdx: number, colIdx: number) => {
+    if (!activeResult || !editing.editMode) return;
+    const col = activeResult.columns[colIdx];
+    if (!col) return;
+    editing.editCell(rowIdx, col.name, activeResult.rows[rowIdx]?.[colIdx] ?? null, null);
+  }, [activeResult, editing]);
+
+  // Keyboard shortcuts for grid edit undo/redo
+  useEffect(() => {
+    if (!editing.editMode) return;
+    const handler = (e: KeyboardEvent) => {
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+      if (e.shiftKey && e.key === "z") {
+        e.preventDefault();
+        editing.redo();
+      } else if (e.key === "z") {
+        e.preventDefault();
+        editing.undo();
+      } else if (e.shiftKey && e.key.toLowerCase() === "n") {
+        // FR-3.2.3. Compared case-insensitively: Shift is held, so the key
+        // arrives as "N" on most layouts and "n" under caps lock (#403).
+        if (!editingCell) return;
+        e.preventDefault();
+        setCellNull(editingCell.rowIndex, editingCell.colIndex);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [editing.editMode, editing.undo, editing.redo, editingCell, setCellNull]);
+
   const handleRowContextMenu = useCallback(
     (e: React.MouseEvent<HTMLElement>, rowIdx: number) => {
       if (!activeResult) return;
@@ -382,16 +403,20 @@ export function ResultsGrid() {
       const row = activeResult.rows[rowIdx];
       const colNames = activeResult.columns.map((c) => c.name);
 
+      // The cell's position in the row is its *display* position, which is
+      // not its position in the result once a column has been dragged (#392).
       let cellColIdx = 0;
       if (td) {
         const tr = td.parentElement;
         if (tr) {
-          const tds = Array.from(tr.children);
-          const tdIdx = tds.indexOf(td);
-          cellColIdx = Math.max(0, tdIdx - 1);
+          const displayIdx = Math.max(0, Array.from(tr.children).indexOf(td) - 1);
+          const displayed = orderedColumns[displayIdx]?.name;
+          const inResult = colNames.indexOf(displayed ?? "");
+          cellColIdx = inResult >= 0 ? inResult : displayIdx;
         }
       }
       const cellValue = row[cellColIdx];
+      const cellColumn = colNames[cellColIdx];
 
       const rowTsv = row
         .map((v) => SqlValueGuard.toString(v))
@@ -466,6 +491,13 @@ export function ResultsGrid() {
         menuItems.push(
           { separator: true },
           {
+            // FR-3.2.3. The inline button was the only way to reach it, and
+            // it only exists while a cell is already being edited (#403).
+            label: `Set ${cellColumn} to NULL`,
+            icon: <CircleSlash className="h-3.5 w-3.5" />,
+            onClick: () => setCellNull(rowIdx, cellColIdx),
+          },
+          {
             label: editing.isRowDeleted(rowIdx)
               ? "Unmark Delete"
               : "Delete Row",
@@ -477,7 +509,7 @@ export function ResultsGrid() {
 
       showContextMenu(e, menuItems);
     },
-    [activeResult, showContextMenu, formatSqlVal, editing],
+    [activeResult, showContextMenu, formatSqlVal, editing, orderedColumns, setCellNull],
   );
 
   // Build the original row record for a given row index
@@ -922,6 +954,7 @@ export function ResultsGrid() {
                       sortDirection={header.column.getIsSorted()}
                       sortIndex={header.column.getSortIndex() + 1}
                       showSortPriority={sortedColumnCount > 1}
+                      dataType={columnTypes[header.column.id]}
                       numeric={numericColumns.has(header.column.id)}
                       canResize={header.column.getCanResize()}
                       isResizing={header.column.getIsResizing()}
@@ -1073,6 +1106,7 @@ export function ResultsGrid() {
                       sortDirection={header.column.getIsSorted()}
                       sortIndex={header.column.getSortIndex() + 1}
                       showSortPriority={sortedColumnCount > 1}
+                      dataType={columnTypes[header.column.id]}
                       numeric={numericColumns.has(header.column.id)}
                       canResize={header.column.getCanResize()}
                       isResizing={header.column.getIsResizing()}
