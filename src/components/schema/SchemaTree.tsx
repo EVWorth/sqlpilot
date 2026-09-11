@@ -1,12 +1,16 @@
 import {
+  BarChart3,
   CalendarClock,
+  Check,
   ChevronDown,
   ChevronRight,
   Cog,
   Columns3,
   Copy,
   Database,
+  Eraser,
   Eye,
+  FilePlus,
   FileText,
   FunctionSquare,
   HardDriveDownload,
@@ -24,9 +28,24 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useClickHandler } from "../../hooks/useClickHandler";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { runStatement } from "../../lib/run-statement";
+import {
+  createDatabase,
+  databaseStatistics,
+  dropDatabase,
+  dropTable,
+  duplicateTableStructure,
+  insertTemplate,
+  isValidObjectName,
+  renameTable,
+  selectTopRows,
+  selectTopRowsLabel,
+  truncateTable,
+} from "../../lib/schema-actions";
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { confirmDestructive } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
 import { loadKey, type SchemaFolder, schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -225,6 +244,47 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   };
 
   /**
+   * Run a statement that changes the schema, then reload what it changed.
+   *
+   * Not through `resultStore.executeQuery`, which returns as soon as it opens
+   * the production confirmation — so the `.then(refresh)` the menus used ran
+   * against unchanged data, and when the user did confirm, nothing refreshed
+   * at all. This awaits the answer (#293).
+   */
+  const runSchemaChange = async (
+    sql: string,
+    action: string,
+    after: () => void | Promise<void>,
+  ) => {
+    if (!(await confirmDestructive({ connectionId, sql, action, detail: sql }))) return;
+    try {
+      await runStatement({ connectionId, sql, origin: "schema" });
+      await after();
+    } catch (e) {
+      // Surfaced where the user is looking rather than swallowed: a DROP that
+      // silently did nothing is the worst of both outcomes.
+      window.alert(String(e));
+    }
+  };
+
+  /** Ask for a name, refusing one that is not usable. */
+  const askForName = (prompt: string, initial = ""): string | null => {
+    const answer = window.prompt(prompt, initial);
+    if (answer === null) return null;
+    if (!isValidObjectName(answer)) {
+      window.alert("That name cannot be used. Names are 1-64 characters and cannot span lines.");
+      return null;
+    }
+    return answer.trim();
+  };
+
+  /** Put a statement in a new tab without running it. */
+  const openInEditor = (dbName: string, sql: string) => {
+    const tabId = addTab(connectionId, dbName);
+    updateTabContent(tabId, sql);
+  };
+
+  /**
    * Refresh a whole database: every folder under it, not only its tables.
    *
    * Reloading tables alone is what left views, routines and triggers showing
@@ -387,6 +447,60 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   icon: <RefreshCw className="h-3.5 w-3.5" />,
                   onClick: () => refreshDatabase(db.name),
                 },
+                {
+                  // FR-4.3.2. Which database new tabs open against, which the
+                  // tree could show but not set (#293).
+                  label: selectedDb === db.name ? "Already the default" : "Set as Default",
+                  icon: <Check className="h-3.5 w-3.5" />,
+                  disabled: selectedDb === db.name,
+                  onClick: () => selectDatabase(db.name),
+                },
+                {
+                  label: "Statistics",
+                  icon: <BarChart3 className="h-3.5 w-3.5" />,
+                  onClick: () => openDdlTab(db.name, db.name, databaseStatistics(db.name)),
+                },
+                { separator: true },
+                {
+                  label: "Create Database…",
+                  icon: <Database className="h-3.5 w-3.5" />,
+                  onClick: () => {
+                    const name = askForName("Name for the new database:");
+                    if (!name) return;
+                    void runSchemaChange(
+                      createDatabase(name),
+                      `Create database \`${name}\`?`,
+                      async () => {
+                        // The list itself changed, not one database's contents.
+                        useSchemaStore.getState().invalidate(connectionId);
+                        await useSchemaStore.getState().ensureDatabases(connectionId);
+                      },
+                    );
+                  },
+                },
+                {
+                  label: "Drop Database",
+                  icon: <Trash2 className="h-3.5 w-3.5" />,
+                  danger: true,
+                  onClick: () => {
+                    // Typed rather than clicked: dropping a database takes
+                    // every table in it, and a misplaced click should not be
+                    // able to do that.
+                    const typed = window.prompt(
+                      `This drops \`${db.name}\` and everything in it. `
+                        + `Type the database name to confirm:`,
+                    );
+                    if (typed !== db.name) return;
+                    void runSchemaChange(
+                      dropDatabase(db.name),
+                      `Drop database \`${db.name}\` and every table in it?`,
+                      async () => {
+                        useSchemaStore.getState().invalidate(connectionId);
+                        await useSchemaStore.getState().ensureDatabases(connectionId);
+                      },
+                    );
+                  },
+                },
                 { separator: true },
                 {
                   label: "Backup Database",
@@ -465,12 +579,13 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                         onContextMenu={(e) => {
                           showContextMenu(e, [
                             {
-                              label: "Select Top 100 Rows",
+                              // Named for the limit it actually uses (#293).
+                              label: selectTopRowsLabel(maxResultRows),
                               icon: <Search className="h-3.5 w-3.5" />,
                               onClick: () => {
-                                executeQuery(
+                                void executeQuery(
                                   connectionId,
-                                  `SELECT * FROM \`${db.name}\`.\`${t.name}\` LIMIT ${maxResultRows}`,
+                                  selectTopRows(db.name, t.name, maxResultRows),
                                   db.name,
                                 );
                               },
@@ -478,48 +593,96 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             {
                               label: "View Structure",
                               icon: <Columns3 className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                addStructureTab(connectionId, db.name, t.name);
-                              },
+                              onClick: () => addStructureTab(connectionId, db.name, t.name),
                             },
                             {
                               label: "Design Table",
                               icon: <PenLine className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                addDesignerTab(connectionId, db.name, t.name);
-                              },
+                              onClick: () => addDesignerTab(connectionId, db.name, t.name),
                             },
                             {
                               label: "Copy Name",
                               icon: <Copy className="h-3.5 w-3.5" />,
                               onClick: () => {
-                                navigator.clipboard.writeText(t.name);
+                                void navigator.clipboard.writeText(t.name);
                               },
                             },
                             {
                               label: "Show DDL",
                               icon: <FileText className="h-3.5 w-3.5" />,
+                              onClick: () =>
+                                openDdlTab(
+                                  db.name,
+                                  t.name,
+                                  `SHOW CREATE TABLE \`${db.name}\`.\`${t.name}\``,
+                                ),
+                            },
+                            {
+                              // Opened rather than run: an INSERT with every
+                              // value left NULL is a starting point, not a
+                              // statement anyone means to execute (#293).
+                              label: "INSERT Template",
+                              icon: <FilePlus className="h-3.5 w-3.5" />,
                               onClick: () => {
-                                openDdlTab(db.name, t.name, `SHOW CREATE TABLE \`${db.name}\`.\`${t.name}\``);
+                                void useSchemaStore
+                                  .getState()
+                                  .ensureColumns(connectionId, db.name, t.name)
+                                  .then((cols) => openInEditor(db.name, insertTemplate(db.name, t.name, cols)));
                               },
+                            },
+                            { separator: true },
+                            {
+                              label: "Rename Table…",
+                              icon: <PenLine className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                const name = askForName(`Rename \`${t.name}\` to:`, t.name);
+                                if (!name || name === t.name) return;
+                                void runSchemaChange(
+                                  renameTable(db.name, t.name, name),
+                                  `Rename \`${t.name}\` to \`${name}\`?`,
+                                  () => refreshFolder(db.name, "tables"),
+                                );
+                              },
+                            },
+                            {
+                              label: "Duplicate Structure…",
+                              icon: <Copy className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                const name = askForName("Name for the copy:", `${t.name}_copy`);
+                                if (!name) return;
+                                void runSchemaChange(
+                                  duplicateTableStructure(db.name, t.name, name),
+                                  `Create \`${name}\` with the same structure as \`${t.name}\`?`,
+                                  () => refreshFolder(db.name, "tables"),
+                                );
+                              },
+                            },
+                            { separator: true },
+                            {
+                              label: "Truncate Table",
+                              icon: <Eraser className="h-3.5 w-3.5" />,
+                              danger: true,
+                              onClick: () =>
+                                void runSchemaChange(
+                                  truncateTable(db.name, t.name),
+                                  // TRUNCATE is not transactional and takes
+                                  // every row; the confirmation has to say so.
+                                  `Delete every row in \`${db.name}\`.\`${t.name}\`? `
+                                    + `TRUNCATE cannot be rolled back.`,
+                                  () => refreshFolder(db.name, "tables"),
+                                ),
                             },
                             { separator: true },
                             {
                               label: "Drop Table",
                               icon: <Trash2 className="h-3.5 w-3.5" />,
                               danger: true,
-                              onClick: () => {
-                                if (
-                                  window.confirm(
-                                    `Are you sure you want to drop table \`${db.name}\`.\`${t.name}\`?`,
-                                  )
-                                ) {
-                                  executeQuery(
-                                    connectionId,
-                                    `DROP TABLE \`${db.name}\`.\`${t.name}\``,
-                                  ).then(() => refreshDatabase(db.name));
-                                }
-                              },
+                              onClick: () =>
+                                void runSchemaChange(
+                                  dropTable(db.name, t.name),
+                                  `Drop table \`${db.name}\`.\`${t.name}\`?`,
+                                  () => refreshFolder(db.name, "tables"),
+                                ),
                             },
                           ]);
                         }}
