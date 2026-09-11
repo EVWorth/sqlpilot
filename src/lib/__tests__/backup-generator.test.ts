@@ -678,9 +678,24 @@ describe("escapeValue", () => {
     expect(escapeValue([72, 101])).toBe("X'4865'");
   });
 
-  it("escapes single quotes and backslashes", () => {
-    expect(escapeValue("it's ok")).toBe("'it\\'s ok'");
+  it("doubles a quote rather than backslashing it", () => {
+    // The backslash form is invalid under NO_BACKSLASH_ESCAPES, and there it
+    // lets a value break out of the string. Doubling is correct in both
+    // modes (#285).
+    expect(escapeValue("it's ok")).toBe("'it''s ok'");
     expect(escapeValue("a\\b")).toBe("'a\\\\b'");
+  });
+
+  it("leaves a value built to break out of the string inert", () => {
+    // Verified against MySQL 8.0.46: under NO_BACKSLASH_ESCAPES the old
+    // escaping let this drop a table.
+    const hostile = "x', 1); DROP TABLE victim; -- ";
+    const escaped = escapeValue(hostile);
+
+    expect(escaped).toBe("'x'', 1); DROP TABLE victim; -- '");
+    // No backslash-quote anywhere, which is the sequence that ends the string
+    // early when backslash escaping is off.
+    expect(escaped).not.toContain("\\'");
   });
 
   it("escapes special chars", () => {

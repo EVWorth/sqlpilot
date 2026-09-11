@@ -81,7 +81,7 @@ describe("generateBatchInsert", () => {
       [["it's a test"]],
       100,
     );
-    expect(result[0]).toContain("'it\\'s a test'");
+    expect(result[0]).toContain("'it''s a test'");
   });
 
   it("should quote literal string 'null' rather than converting to SQL NULL", () => {
@@ -113,7 +113,7 @@ describe("CSV cells reach the server as values, not as SQL", () => {
     // The escape table is the security boundary — the point #364 makes. It is
     // the shared one now, so there is a single implementation to get right.
     const sql = insert("x'); DROP TABLE users; --");
-    expect(sql).toContain("'x\\'); DROP TABLE users; --'");
+    expect(sql).toContain("'x''); DROP TABLE users; --'");
     // One statement, and the payload is inside the quotes.
     expect(sql.match(/INSERT INTO/g)).toHaveLength(1);
   });

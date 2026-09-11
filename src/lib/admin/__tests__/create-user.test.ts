@@ -34,7 +34,7 @@ describe("buildCreateUser", () => {
 
   it("quotes the account and the password", () => {
     const sql = buildCreateUser({ ...base, username: "o'brien", password: "pa\\ss" });
-    expect(sql).toContain("CREATE USER 'o\\'brien'@'%'");
+    expect(sql).toContain("CREATE USER 'o''brien'@'%'");
     // The backslash is doubled, or MySQL stores a password nobody typed.
     expect(sql).toContain("'pa\\\\ss'");
   });
