@@ -20,7 +20,7 @@ import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
-import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
+import { schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
@@ -45,8 +45,10 @@ export function QueryToolbar() {
     (s) => s.selectedConnectionId,
   );
   const activeConnections = useConnectionStore((s) => s.activeConnections);
-  const refreshSchema = useSchemaCacheStore((s) => s.refreshSchema);
-  const schemaLoading = useSchemaCacheStore((s) => s.loading);
+  const refreshAll = useSchemaStore((s) => s.refreshAll);
+  const schemaLoading = useSchemaStore((s) =>
+    selectedConnectionId ? schemaFor(s, selectedConnectionId).loading.length > 0 : false
+  );
 
   const {
     executeQuery,
@@ -253,7 +255,7 @@ export function QueryToolbar() {
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 
       <button
-        onClick={() => refreshSchema()}
+        onClick={() => selectedConnectionId && void refreshAll(selectedConnectionId)}
         disabled={!selectedConnectionId || schemaLoading}
         title="Refresh Schema Cache"
         className={toolbarBtnClass}

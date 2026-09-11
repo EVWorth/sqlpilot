@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useSchemaStore } from "../../../stores/schemaStore";
 
 // ── Mutable store state ──
 const sidebarState = {
@@ -118,6 +119,9 @@ import { Sidebar } from "../Sidebar";
 describe("Sidebar (browser)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The schema cache is a store now, so it outlives a render and a test
+    // asserting a fetch happened would see the previous test's cache (#288).
+    useSchemaStore.setState({ byConnection: {} });
     Object.assign(sidebarState, {
       profiles: [],
       activeConnections: [],

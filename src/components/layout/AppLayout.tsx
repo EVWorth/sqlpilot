@@ -11,7 +11,7 @@ import { useEditorStore } from "../../stores/editorStore";
 import { useProductionGuardStore } from "../../stores/productionGuardStore";
 import type { PendingKind } from "../../stores/resultStore";
 import { useResultStore } from "../../stores/resultStore";
-import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
+import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { AIChatPanel } from "../ai/AIChatPanel";
@@ -167,7 +167,7 @@ export function AppLayout() {
           if (selectedConnectionId) disconnect(selectedConnectionId);
           break;
         case "refresh-schema":
-          useSchemaCacheStore.getState().refreshSchema();
+          if (selectedConnectionId) void useSchemaStore.getState().refreshAll(selectedConnectionId);
           break;
         case "admin-tools":
           if (selectedConnectionId) addAdminTab(selectedConnectionId);

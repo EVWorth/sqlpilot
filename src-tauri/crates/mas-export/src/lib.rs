@@ -1,4 +1,5 @@
 use mas_core::models::{QueryResult, SqlValue};
+use mas_core::schema::ident::quote_ident;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -89,12 +90,15 @@ pub fn export_sql_insert(result: &QueryResult, table_name: &str) -> String {
                 SqlValue::Bytes(_) => "X'...'".to_string(),
             })
             .collect();
+        // Quoted properly rather than wrapped in backticks: a column named
+        // with one in it produced a statement that does not parse, which is
+        // only discovered when someone pastes the export (#290).
         out.push_str(&format!(
-            "INSERT INTO `{}` ({}) VALUES ({});\n",
-            table_name,
+            "INSERT INTO {} ({}) VALUES ({});\n",
+            quote_ident(table_name),
             col_names
                 .iter()
-                .map(|c| format!("`{}`", c))
+                .map(|c| quote_ident(c))
                 .collect::<Vec<_>>()
                 .join(", "),
             vals.join(", ")

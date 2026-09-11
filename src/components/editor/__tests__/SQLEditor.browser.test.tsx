@@ -156,23 +156,30 @@ vi.mock("../../../stores/resultStore", () => ({
   ),
 }));
 
-vi.mock("../../../stores/schemaCacheStore", () => {
+// One schema store now, keyed by connection (#289).
+vi.mock("../../../stores/schemaStore", () => {
   const state = {
-    connectionId: "conn-1",
-    databases: [],
-    tables: [],
-    views: [],
-    columns: new Map(),
-    fetchTables: vi.fn(),
-    fetchViews: vi.fn(),
-    fetchColumns: vi.fn(),
-    setConnection: vi.fn(),
-    refreshSchema: m.mockRefreshSchema,
+    byConnection: {},
+    refreshAll: m.mockRefreshSchema,
+    ensureTables: vi.fn(async () => []),
+    ensureViews: vi.fn(async () => []),
+    ensureColumns: vi.fn(async () => []),
+    ensureDatabases: vi.fn(async () => []),
   };
   return {
+    schemaFor: () => ({
+      databases: [],
+      tables: {},
+      views: {},
+      routines: {},
+      triggers: {},
+      columns: {},
+      generation: 0,
+      loading: [],
+    }),
     // SQLEditor's refresh-schema action reaches for .getState(), so the mock
     // has to carry it the way the other store mocks here do.
-    useSchemaCacheStore: Object.assign(
+    useSchemaStore: Object.assign(
       vi.fn((selector?: (s: object) => unknown) => (selector ? selector(state) : state)),
       { getState: vi.fn(() => state) },
     ),
@@ -307,14 +314,14 @@ describe("SQLEditor (browser)", () => {
     expect(m.mockExecuteExplainAnalyze).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined);
   });
 
-  it("refresh-schema.run calls useSchemaCacheStore.refreshSchema", async () => {
+  it("refresh-schema.run refreshes the whole connection", async () => {
     render(<SQLEditor />);
     await waitFor(() => {
       expect(m.capturedActions.some((a) => a.id === "refresh-schema")).toBe(true);
     });
     const action = m.capturedActions.find((a) => a.id === "refresh-schema")!;
     await action.run();
-    expect(m.mockRefreshSchema).toHaveBeenCalled();
+    expect(m.mockRefreshSchema).toHaveBeenCalledWith("conn-1");
   });
 
   it("lowercase-selected.run delegates to Monaco's editor.action.transformToLowercase", async () => {
