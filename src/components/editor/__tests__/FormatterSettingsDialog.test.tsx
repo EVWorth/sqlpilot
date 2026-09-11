@@ -187,3 +187,86 @@ describe("FormatterSettingsDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("FormatterSettingsDialog live preview (#355)", () => {
+  const open = (sample?: string) => render(<FormatterSettingsDialog isOpen onClose={vi.fn()} sample={sample} />);
+
+  const preview = () => screen.getByLabelText("Formatted preview").textContent ?? "";
+
+  beforeEach(() => {
+    useSettingsStore.setState({
+      formatterSettings: {
+        keywordCase: "upper",
+        identifierCase: "preserve",
+        dataTypeCase: "upper",
+        functionCase: "preserve",
+        indentStyle: "standard",
+        tabWidth: 2,
+        useTabs: false,
+        logicalOperatorNewline: "before",
+        newlineBeforeSemicolon: false,
+        expressionWidth: 50,
+        linesBetweenQueries: 1,
+        denseOperators: false,
+      },
+    });
+  });
+
+  it("previews the user's own statement", () => {
+    open("select id from users");
+    expect(preview()).toContain("SELECT");
+    expect(preview()).toContain("users");
+  });
+
+  it("updates as a setting changes, before anything is saved", () => {
+    // The whole point: settings could only be judged by saving them, using
+    // the Format button, and undoing if the output was wrong.
+    open("select id from users");
+    expect(preview()).toContain("SELECT");
+
+    fireEvent.change(screen.getByLabelText("Keywords"), { target: { value: "lower" } });
+
+    expect(preview()).toContain("select");
+    expect(preview()).not.toContain("SELECT");
+  });
+
+  it("does not touch the saved settings while previewing", () => {
+    open("select id from users");
+
+    fireEvent.change(screen.getByLabelText("Keywords"), { target: { value: "lower" } });
+
+    expect(useSettingsStore.getState().formatterSettings.keywordCase).toBe("upper");
+  });
+
+  it("shows a sample when the editor is empty", () => {
+    // A blank preview would make the settings look broken rather than
+    // showing what they do.
+    open("");
+    expect(preview()).toContain("SELECT");
+    expect(preview().length).toBeGreaterThan(40);
+  });
+
+  it("shows a sample when the editor holds something unformattable", () => {
+    open("SELECT 'unterminated");
+    expect(preview()).toContain("LEFT JOIN");
+  });
+});
+
+describe("FormatterSettingsDialog labels", () => {
+  it.each([
+    "Keywords",
+    "Identifiers (table/column names)",
+    "Data types",
+    "Functions",
+    "Indent style",
+    "Tab width",
+    "Logical operator newline",
+    "Expression width",
+    "Lines between queries",
+  ])("associates the %s label with its control", (label) => {
+    // An unlinked <label> is not announced with its control, and clicking it
+    // does nothing.
+    render(<FormatterSettingsDialog isOpen onClose={vi.fn()} />);
+    expect(screen.getByLabelText(label)).toBeInTheDocument();
+  });
+});

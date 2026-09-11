@@ -10,6 +10,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { releaseUrl } from "../../lib/repo";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -283,7 +284,7 @@ export function StatusBar() {
                   Downloads in the background. SQLPilot will ask before restarting.
                 </p>
                 <a
-                  href={`https://github.com/EVWorth/sqlpilot/releases/tag/v${updateVersion}`}
+                  href={releaseUrl(updateVersion ?? "")}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-1 inline-block text-[10px] text-brand-400 hover:underline"

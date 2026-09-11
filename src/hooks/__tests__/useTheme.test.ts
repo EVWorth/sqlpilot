@@ -66,30 +66,24 @@ describe("useTheme", () => {
     expect(mockSetTheme).not.toHaveBeenCalled();
   });
 
-  it("re-runs and updates theme when effectiveTheme changes", () => {
-    let effectiveTheme = "dark";
-    const storeSubscribers: ((s: { effectiveTheme: string }) => string)[] = [];
+  it("applies the theme to Monaco when Monaco mounts after the change", () => {
+    // Monaco loads asynchronously, so a theme chosen before it mounts has
+    // nowhere to go at the time it is chosen (#351).
+    const currentTheme = "light";
+    let monaco: unknown = null;
 
     (useThemeStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-      (selector: (s: { effectiveTheme: string }) => string) => {
-        storeSubscribers.push(selector);
-        return selector({ effectiveTheme });
-      },
+      (selector: (s: { effectiveTheme: string }) => string) => selector({ effectiveTheme: currentTheme }),
     );
-    (useMonaco as unknown as ReturnType<typeof vi.fn>).mockReturnValue({
-      editor: { setTheme: mockSetTheme },
-    });
+    (useMonaco as unknown as ReturnType<typeof vi.fn>).mockImplementation(() => monaco);
 
     const { rerender } = renderHook(() => useTheme());
-    expect(mockSetTheme).toHaveBeenCalledWith("vs-dark");
+    expect(mockSetTheme).not.toHaveBeenCalled();
 
-    // Change to light
-    mockSetTheme.mockClear();
-    effectiveTheme = "light";
+    monaco = { editor: { setTheme: mockSetTheme } };
     rerender();
 
-    // Note: The mock needs to return the new value when re-rendered.
-    // Re-mock useThemeStore for the new value
+    expect(mockSetTheme).toHaveBeenCalledWith("vs");
   });
 
   it("updates theme when effectiveTheme changes from dark to light", () => {

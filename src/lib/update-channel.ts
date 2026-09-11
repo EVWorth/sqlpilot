@@ -1,4 +1,5 @@
 import type { PackageFormat } from "./bindings";
+import { releaseAssetUrl } from "./repo";
 
 /**
  * Whether this install may replace its own files, and what to tell the user
@@ -52,8 +53,7 @@ export function manualUpdateFor(
       };
     case "rpm_ostree":
       return {
-        command:
-          `rpm-ostree install https://github.com/EVWorth/sqlpilot/releases/download/v${version}/SQLPilot-${version}-1.${arch}.rpm`,
+        command: `rpm-ostree install ${releaseAssetUrl(version, `SQLPilot-${version}-1.${arch}.rpm`)}`,
         reason: "This is an OSTree system: /usr is read-only and layered packages apply on the next boot.",
       };
     default:

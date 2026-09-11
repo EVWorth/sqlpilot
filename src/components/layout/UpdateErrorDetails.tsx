@@ -1,5 +1,6 @@
 import { Bug, Copy, ExternalLink, RefreshCw, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { newIssueUrl, UPDATE_ISSUE_LABELS } from "../../lib/repo";
 import { useSettingsStore } from "../../stores/settingsStore";
 
 /**
@@ -17,9 +18,6 @@ export interface UpdateErrorDetailsProps {
   /** How this build was installed, for the diagnostic. */
   packageFormat: string | null;
 }
-
-/** Where "Report issue" files to. */
-const ISSUES_URL = "https://github.com/EVWorth/sqlpilot/issues/new";
 
 export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDetailsProps) {
   const updateStatus = useSettingsStore((s) => s.updateStatus);
@@ -75,18 +73,25 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
   const handleReportIssue = () => {
     const body = [
       "## What happened",
-      "<!-- Describe what you were doing when the update failed. -->",
+      // A plain prompt rather than an HTML comment: a comment is invisible
+      // once the issue renders, so the section reads as empty and nobody
+      // knows a question was asked (#345).
+      "_Replace this line with what you were doing when the update failed._",
       "",
       "## Diagnostic",
       "```",
       diagnostic,
       "```",
     ].join("\n");
-    const url = `${ISSUES_URL}`
-      + `?title=${encodeURIComponent("Auto-update failed: <one-line summary>")}`
-      + `&labels=${encodeURIComponent("bug,auto-update")}`
-      + `&body=${encodeURIComponent(body)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    window.open(
+      newIssueUrl({
+        title: "Auto-update failed: ",
+        body,
+        labels: UPDATE_ISSUE_LABELS,
+      }),
+      "_blank",
+      "noopener,noreferrer",
+    );
   };
 
   return (

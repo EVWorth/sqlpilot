@@ -14,9 +14,8 @@ import {
   Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { format } from "sql-formatter";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
-import { postProcessSQL } from "../../lib/sql-post-process";
+import { formatSql } from "../../lib/sql-format";
 import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -126,26 +125,7 @@ export function QueryToolbar() {
     if (!model) return;
     const value = model.getValue();
     if (!value.trim()) return;
-    try {
-      const formatted = format(value, {
-        language: "mysql",
-        keywordCase: formatterSettings.keywordCase,
-        identifierCase: formatterSettings.identifierCase,
-        dataTypeCase: formatterSettings.dataTypeCase,
-        functionCase: formatterSettings.functionCase,
-        indentStyle: formatterSettings.indentStyle,
-        tabWidth: formatterSettings.tabWidth,
-        useTabs: formatterSettings.useTabs,
-        logicalOperatorNewline: formatterSettings.logicalOperatorNewline,
-        newlineBeforeSemicolon: formatterSettings.newlineBeforeSemicolon,
-        expressionWidth: formatterSettings.expressionWidth,
-        linesBetweenQueries: formatterSettings.linesBetweenQueries,
-        denseOperators: formatterSettings.denseOperators,
-      });
-      model.setValue(postProcessSQL(formatted));
-    } catch {
-      // If formatting fails, leave content unchanged
-    }
+    model.setValue(formatSql(value, formatterSettings));
   };
 
   const canExecute = !!activeTab?.content?.trim() && hookCanExecute;
@@ -367,6 +347,9 @@ export function QueryToolbar() {
       <FormatterSettingsDialog
         isOpen={showFormatterSettings}
         onClose={() => setShowFormatterSettings(false)}
+        // The user's own statement, so the preview shows their code rather
+        // than a sample they have to translate from (#355).
+        sample={editorInstance?.getModel()?.getValue()}
       />
     </div>
   );

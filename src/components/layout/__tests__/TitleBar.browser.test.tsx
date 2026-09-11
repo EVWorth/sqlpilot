@@ -53,6 +53,9 @@ vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: vi.fn(),
 }));
 vi.mock("../../../stores/themeStore", () => ({
+  // The real order, since the tooltip now names the theme the next click
+  // lands on (#352).
+  themeOrder: ["dark", "light", "system"],
   useThemeStore: vi.fn(),
 }));
 

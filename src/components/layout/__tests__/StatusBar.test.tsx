@@ -462,7 +462,9 @@ describe("StatusBar", () => {
       expect(openSpy).toHaveBeenCalledOnce();
       const url = openSpy.mock.calls[0][0] as string;
       expect(url).toContain("https://github.com/EVWorth/sqlpilot/issues/new");
-      expect(url).toContain("labels=bug%2Cauto-update");
+      // Labels the repo actually has. `auto-update` never existed, so GitHub
+      // dropped it and the report missed every triage filter (#345).
+      expect(url).toContain("labels=kind%2Fbug%2Carea%2Fupdates");
       // decoded body should contain the error and diagnostic line
       const decoded = decodeURIComponent(url.split("body=")[1]);
       expect(decoded).toContain("rpm install failed: signature bad");
