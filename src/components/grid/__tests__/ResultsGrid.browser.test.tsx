@@ -159,15 +159,17 @@ vi.mock("../EditableCell", () => ({
   // Surfaces the controlled-editing props, since which cell is being edited
   // is the grid's state now rather than the cell's (#408).
   EditableCell: vi.fn(
-    ({ value, editing, onTab }: {
+    ({ value, editing, onTab, onEditingChange }: {
       value: unknown;
       editing?: boolean;
       onTab?: (shiftKey: boolean) => void;
+      onEditingChange?: (on: boolean) => void;
     }) => (
       <div data-testid="editable-cell" data-editing={String(!!editing)}>
         {String(value)}
         <button data-testid="tab" onClick={() => onTab?.(false)} />
         <button data-testid="shift-tab" onClick={() => onTab?.(true)} />
+        <button data-testid="start-edit" onClick={() => onEditingChange?.(true)} />
       </div>
     ),
   ),
@@ -1641,5 +1643,98 @@ describe("Tab moves the edit to the next cell", () => {
     render(<ResultsGrid />);
     tabFrom(0);
     expect(cells().filter((c) => c.getAttribute("data-editing") === "true")).toHaveLength(1);
+  });
+});
+
+// ─── Set NULL (#403) ──────────────────────────────────────────
+describe("setting a cell to NULL", () => {
+  let items: { label: string; onClick: () => void }[] = [];
+
+  beforeEach(() => {
+    items = [];
+    vi.mocked(useContextMenu).mockReturnValue({
+      contextMenu: null,
+      showContextMenu: (_e: unknown, menuItems: typeof items) => {
+        items = menuItems;
+      },
+    } as never);
+    resultState.results = [makeResult()];
+    editorTabs = [{ id: "tab-0", content: "SELECT id, name FROM users", connectionId: "conn-1" }];
+    editorActiveTabId = "tab-0";
+    mockGridEditing.editMode = true;
+    mockGridEditing.editCell.mockClear();
+  });
+
+  /** Right-click the nth cell of the first body row. */
+  function openCellMenu(cellIndex: number) {
+    render(<ResultsGrid />);
+    const cells = document.querySelectorAll("tbody tr:first-child td");
+    fireEvent.contextMenu(cells[cellIndex]);
+    return items;
+  }
+
+  it("offers it on the cell that was right-clicked, by name", async () => {
+    // FR-3.2.3: the inline button was the only way in, and it only exists
+    // once a cell is already being edited.
+    expect(openCellMenu(2).map((i) => i.label)).toContain("Set name to NULL");
+  });
+
+  it("records NULL against that column and keeps the original value", async () => {
+    openCellMenu(2).find((i) => i.label === "Set name to NULL")!.onClick();
+
+    expect(mockGridEditing.editCell).toHaveBeenCalledWith(0, "name", "Alice", null);
+  });
+
+  it("names the right column after the columns have been dragged", async () => {
+    // The cell's position in the row is its display position, which stops
+    // being its position in the result once a column moves (#392).
+    connSelectedId = "conn-1";
+    editorTabs = [{
+      id: "tab-0",
+      content: "SELECT id, name FROM users",
+      connectionId: "conn-1",
+      database: "app",
+    }];
+    localStorage.setItem(
+      layoutKey("conn-1", "app", ["id", "name"])!,
+      JSON.stringify({ columnOrder: ["name", "id"] }),
+    );
+
+    render(<ResultsGrid />);
+    await waitFor(() =>
+      expect(
+        [...document.querySelectorAll("thead th")].slice(1).map((th) => th.textContent?.trim()),
+      ).toEqual(["name", "id"])
+    );
+    fireEvent.contextMenu(document.querySelectorAll("tbody tr:first-child td")[1]);
+
+    expect(items.map((i) => i.label)).toContain("Set name to NULL");
+    localStorage.clear();
+  });
+
+  it("offers nothing outside edit mode", async () => {
+    mockGridEditing.editMode = false;
+    expect(openCellMenu(1).map((i) => i.label).join(" ")).not.toMatch(/NULL/);
+  });
+
+  it("sets the cell being edited to NULL on Ctrl+Shift+N", async () => {
+    render(<ResultsGrid />);
+    // Put the first cell into edit, which is what the shortcut acts on.
+    fireEvent.click(screen.getAllByTestId("start-edit")[0]);
+    expect(
+      screen.getAllByTestId("editable-cell")[0].getAttribute("data-editing"),
+    ).toBe("true");
+
+    fireEvent.keyDown(window, { key: "N", ctrlKey: true, shiftKey: true });
+
+    expect(mockGridEditing.editCell).toHaveBeenCalledWith(0, "id", 1, null);
+  });
+
+  it("does nothing on Ctrl+Shift+N with no cell being edited", async () => {
+    render(<ResultsGrid />);
+
+    fireEvent.keyDown(window, { key: "N", ctrlKey: true, shiftKey: true });
+
+    expect(mockGridEditing.editCell).not.toHaveBeenCalled();
   });
 });
