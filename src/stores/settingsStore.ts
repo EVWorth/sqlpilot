@@ -10,11 +10,23 @@ import { type StorageErrorKey, useStorageErrorStore } from "./storageErrorStore"
 export interface QuerySettings {
   maxResultRows: number;
   limitEnabled: boolean;
+  /**
+   * Whether the schema tree lists the server's own schemas.
+   *
+   * FR-4.1.6. They were filtered out in the query, so `mysql` and
+   * `information_schema` were unreachable at any price — which is wrong for a
+   * tool whose users are the people who administer the server (#291).
+   *
+   * Off by default: most of the time they are noise above the databases
+   * someone actually came for.
+   */
+  showSystemDatabases: boolean;
 }
 
 const DEFAULT_QUERY_SETTINGS: QuerySettings = {
   maxResultRows: 1000,
   limitEnabled: true,
+  showSystemDatabases: false,
 };
 
 export interface FormatterSettings {

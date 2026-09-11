@@ -182,6 +182,12 @@ export const api = {
   getTriggers: (connectionId: string, database: string) =>
     unwrap("get_triggers", () => commands.getTriggers(connectionId, database)),
 
+  getEvents: (connectionId: string, database: string) =>
+    unwrap("get_events", () => commands.getEvents(connectionId, database)),
+
+  getPartitions: (connectionId: string, database: string, table: string) =>
+    unwrap("get_partitions", () => commands.getPartitions(connectionId, database, table)),
+
   getViewDdl: (connectionId: string, database: string, viewName: string) =>
     unwrap("get_view_ddl", () => commands.getViewDdl(connectionId, database, viewName)),
 

@@ -14,6 +14,12 @@ pub struct DatabaseInfo {
     pub name: String,
     pub default_charset: String,
     pub default_collation: String,
+    /// True for the server's own schemas.
+    ///
+    /// Reported rather than filtered out here, so FR-4.1.6's toggle is a
+    /// decision the tree makes rather than a second round trip. They were
+    /// excluded in the query, which made them unreachable at any price (#291).
+    pub is_system: bool,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -90,6 +96,49 @@ pub struct TriggerInfo {
     pub timing: String,
 }
 
+/// A scheduled event, which FR-4.1.1 lists alongside the other object types
+/// and which the tree had no folder for (#291).
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct EventInfo {
+    pub name: String,
+    /// `ONE TIME` or `RECURRING`.
+    pub event_type: String,
+    /// `ENABLED`, `DISABLED`, or `SLAVESIDE_DISABLED`.
+    pub status: String,
+    pub definer: String,
+    /// How often a recurring event runs, e.g. "1 DAY". Empty for one-shot.
+    pub interval: String,
+    pub comment: String,
+}
+
+/// One partition of a partitioned table, or nothing for a table without any.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct PartitionInfo {
+    pub name: String,
+    /// `RANGE`, `LIST`, `HASH`, `KEY`, and the `COLUMNS` variants.
+    pub method: String,
+    /// The expression partitioned on.
+    pub expression: String,
+    /// The bound, for RANGE and LIST.
+    pub description: String,
+    #[specta(type = specta_typescript::Number)]
+    pub row_count: i64,
+    #[specta(type = specta_typescript::Number)]
+    pub data_size: i64,
+}
+
+/// The schemas the server keeps for itself.
+///
+/// The same four on MySQL 8 and MariaDB 11 — MariaDB gained `sys` in 10.6.
+/// Compared case-insensitively because the server's own case-sensitivity for
+/// schema names depends on the filesystem it is running on.
+pub fn is_system_schema(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "information_schema" | "performance_schema" | "mysql" | "sys"
+    )
+}
+
 impl SchemaInspector {
     pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
         Self { connection_manager }
@@ -104,7 +153,6 @@ impl SchemaInspector {
                     CAST(DEFAULT_CHARACTER_SET_NAME AS CHAR) AS DEFAULT_CHARACTER_SET_NAME,
                     CAST(DEFAULT_COLLATION_NAME AS CHAR) AS DEFAULT_COLLATION_NAME
              FROM INFORMATION_SCHEMA.SCHEMATA
-             WHERE SCHEMA_NAME NOT IN ('information_schema', 'performance_schema', 'mysql', 'sys')
              ORDER BY SCHEMA_NAME",
         )
         .fetch_all(&pool)
@@ -113,10 +161,14 @@ impl SchemaInspector {
 
         let databases: Vec<DatabaseInfo> = rows
             .iter()
-            .map(|row| DatabaseInfo {
-                name: row.get("SCHEMA_NAME"),
-                default_charset: row.get("DEFAULT_CHARACTER_SET_NAME"),
-                default_collation: row.get("DEFAULT_COLLATION_NAME"),
+            .map(|row| {
+                let name: String = row.get("SCHEMA_NAME");
+                DatabaseInfo {
+                    is_system: is_system_schema(&name),
+                    name,
+                    default_charset: row.get("DEFAULT_CHARACTER_SET_NAME"),
+                    default_collation: row.get("DEFAULT_COLLATION_NAME"),
+                }
             })
             .collect();
         tracing::debug!(count = databases.len(), "Found databases");
@@ -431,6 +483,113 @@ impl SchemaInspector {
             .collect();
         tracing::debug!(count = routines.len(), database = %database, "Found routines");
         Ok(routines)
+    }
+
+    /// Scheduled events for a database (FR-4.1.1, #291).
+    ///
+    /// `information_schema.EVENTS` reports the same columns on MySQL 8 and
+    /// MariaDB 11, so one query serves both — verified against each.
+    #[tracing::instrument(skip(self))]
+    pub async fn get_events(
+        &self,
+        connection_id: &str,
+        database: &str,
+    ) -> Result<Vec<EventInfo>, CoreError> {
+        tracing::debug!(database = %database, "Fetching events");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query(
+            "SELECT CAST(EVENT_NAME AS CHAR) AS EVENT_NAME,
+                    CAST(EVENT_TYPE AS CHAR) AS EVENT_TYPE,
+                    CAST(STATUS AS CHAR) AS STATUS,
+                    CAST(DEFINER AS CHAR) AS DEFINER,
+                    INTERVAL_VALUE,
+                    CAST(INTERVAL_FIELD AS CHAR) AS INTERVAL_FIELD,
+                    CAST(EVENT_COMMENT AS CHAR) AS EVENT_COMMENT
+             FROM INFORMATION_SCHEMA.EVENTS
+             WHERE EVENT_SCHEMA = ?
+             ORDER BY EVENT_NAME",
+        )
+        .bind(database)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        let events: Vec<EventInfo> = rows
+            .iter()
+            .map(|row| {
+                // Both are NULL for a one-shot event, which has a time rather
+                // than an interval.
+                let value: Option<String> = row.try_get("INTERVAL_VALUE").unwrap_or(None);
+                let field: Option<String> = row.try_get("INTERVAL_FIELD").unwrap_or(None);
+                let interval = match (value, field) {
+                    (Some(v), Some(f)) => format!("{v} {f}"),
+                    _ => String::new(),
+                };
+                EventInfo {
+                    name: row.get("EVENT_NAME"),
+                    event_type: row.get("EVENT_TYPE"),
+                    status: row.get("STATUS"),
+                    definer: row.get("DEFINER"),
+                    interval,
+                    comment: row.try_get("EVENT_COMMENT").unwrap_or_default(),
+                }
+            })
+            .collect();
+        tracing::debug!(count = events.len(), database = %database, "Found events");
+        Ok(events)
+    }
+
+    /// The partitions of a table, or an empty list for one that has none.
+    ///
+    /// `information_schema.PARTITIONS` has a row per table either way; the
+    /// unpartitioned case is a single row with a NULL partition name, which is
+    /// filtered out rather than reported as a partition called "null".
+    #[tracing::instrument(skip(self))]
+    pub async fn get_partitions(
+        &self,
+        connection_id: &str,
+        database: &str,
+        table: &str,
+    ) -> Result<Vec<PartitionInfo>, CoreError> {
+        tracing::debug!(database = %database, table = %table, "Fetching partitions");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query(
+            "SELECT CAST(PARTITION_NAME AS CHAR) AS PARTITION_NAME,
+                    CAST(PARTITION_METHOD AS CHAR) AS PARTITION_METHOD,
+                    CAST(PARTITION_EXPRESSION AS CHAR) AS PARTITION_EXPRESSION,
+                    CAST(PARTITION_DESCRIPTION AS CHAR) AS PARTITION_DESCRIPTION,
+                    TABLE_ROWS,
+                    DATA_LENGTH
+             FROM INFORMATION_SCHEMA.PARTITIONS
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+               AND PARTITION_NAME IS NOT NULL
+             ORDER BY PARTITION_ORDINAL_POSITION",
+        )
+        .bind(database)
+        .bind(table)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        let partitions: Vec<PartitionInfo> = rows
+            .iter()
+            .map(|row| PartitionInfo {
+                name: row.get("PARTITION_NAME"),
+                method: row.try_get("PARTITION_METHOD").unwrap_or_default(),
+                expression: row
+                    .try_get::<Option<String>, _>("PARTITION_EXPRESSION")
+                    .unwrap_or(None)
+                    .unwrap_or_default(),
+                description: row
+                    .try_get::<Option<String>, _>("PARTITION_DESCRIPTION")
+                    .unwrap_or(None)
+                    .unwrap_or_default(),
+                row_count: row.try_get("TABLE_ROWS").unwrap_or(0),
+                data_size: row.try_get("DATA_LENGTH").unwrap_or(0),
+            })
+            .collect();
+        tracing::debug!(count = partitions.len(), "Found partitions");
+        Ok(partitions)
     }
 
     #[tracing::instrument(skip(self))]

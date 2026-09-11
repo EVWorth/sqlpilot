@@ -1,4 +1,5 @@
 import {
+  CalendarClock,
   ChevronDown,
   ChevronRight,
   Cog,
@@ -40,8 +41,14 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   // with a database of the same name cannot show each other's objects and a
   // refresh reaches what is on screen (#288, #289).
   const schema = useSchemaStore((s) => schemaFor(s, connectionId));
-  const databases = schema.databases ?? [];
-  const { tables, views, routines, triggers } = schema;
+  const allDatabases = schema.databases ?? [];
+  const { tables, views, routines, triggers, events } = schema;
+
+  // FR-4.1.6. The server's own schemas were filtered out in the query, so
+  // `mysql` and `information_schema` were unreachable at any price — wrong for
+  // a tool whose users administer the server (#291).
+  const showSystemDatabases = useSettingsStore((s) => s.querySettings.showSystemDatabases);
+  const setQuerySettings = useSettingsStore((s) => s.setQuerySettings);
 
   // Expansion is the tree's own, but it is still per-connection: the same
   // database name on another server is a different node.
@@ -53,6 +60,10 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   >({});
   const expanded = expandedByConnection[connectionId] ?? {};
   const expandedFolders = expandedFoldersByConnection[connectionId] ?? {};
+  const databases = showSystemDatabases
+    ? allDatabases
+    : allDatabases.filter((d) => !d.is_system);
+
   const setExpanded = (fn: (prev: Record<string, boolean>) => Record<string, boolean>) =>
     setExpandedByConnection((prev) => ({ ...prev, [connectionId]: fn(prev[connectionId] ?? {}) }));
   const setExpandedFolders = (fn: (prev: Record<string, boolean>) => Record<string, boolean>) =>
@@ -147,6 +158,22 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
 
   const folderKey = (dbName: string, folder: string) => `${dbName}:${folder}`;
 
+  /**
+   * Start a drag carrying a SQL identifier.
+   *
+   * FR-4.1.4. Double-click already inserted a table name at the cursor, but
+   * only for tables and views, and only at the cursor — dragging is how you
+   * put a name somewhere specific, and how you reach a function or an event
+   * at all (#291).
+   *
+   * The payload is `text/plain`, which is what Monaco's own drop handling
+   * reads, so the editor needs no change to accept it.
+   */
+  const startDrag = (e: React.DragEvent, text: string) => {
+    e.dataTransfer.setData("text/plain", text);
+    e.dataTransfer.effectAllowed = "copy";
+  };
+
   /** Whether a node is waiting on the server, for its spinner. */
   const isLoading = (key: string) => schema.loading.includes(key);
 
@@ -157,12 +184,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
    * and an invalidation; only the display splits them.
    */
   const folderStoreKey = (folder: string): SchemaFolder =>
-    folder === "views"
-      ? "views"
-      : folder === "triggers"
-      ? "triggers"
-      : folder === "tables"
-      ? "tables"
+    folder === "views" || folder === "triggers" || folder === "tables" || folder === "events"
+      ? folder
       : "routines";
 
   const toggleFolder = async (dbName: string, folder: string) => {
@@ -174,6 +197,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     const store = useSchemaStore.getState();
     if (folder === "views") await store.ensureViews(connectionId, dbName);
     else if (folder === "triggers") await store.ensureTriggers(connectionId, dbName);
+    else if (folder === "events") await store.ensureEvents(connectionId, dbName);
     else await store.ensureRoutines(connectionId, dbName);
   };
 
@@ -223,6 +247,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     if (expandedFolders[folderKey(dbName, "triggers")]) {
       await store.ensureTriggers(connectionId, dbName);
     }
+    if (expandedFolders[folderKey(dbName, "events")]) {
+      await store.ensureEvents(connectionId, dbName);
+    }
   };
 
   const refreshFolder = async (dbName: string, folder: string) => {
@@ -231,6 +258,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     store.invalidate(connectionId, dbName, which);
     if (which === "views") await store.ensureViews(connectionId, dbName);
     else if (which === "triggers") await store.ensureTriggers(connectionId, dbName);
+    else if (which === "events") await store.ensureEvents(connectionId, dbName);
     else if (which === "routines") await store.ensureRoutines(connectionId, dbName);
     else await store.ensureTables(connectionId, dbName);
   };
@@ -262,13 +290,18 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     const all = triggers[dbName] ?? [];
     return isFiltering ? all.filter((t) => matchItem(t.name)) : all;
   };
+  const filteredEvents = (dbName: string) => {
+    const all = events[dbName] ?? [];
+    return isFiltering ? all.filter((e) => matchItem(e.name)) : all;
+  };
 
   const dbHasMatches = (dbName: string) =>
     filteredTables(dbName).length > 0
     || filteredViews(dbName).length > 0
     || filteredProcedures(dbName).length > 0
     || filteredFunctions(dbName).length > 0
-    || filteredTriggers(dbName).length > 0;
+    || filteredTriggers(dbName).length > 0
+    || filteredEvents(dbName).length > 0;
 
   // Show all DBs while filtering; hide only those whose data IS loaded and has no matches
   const isDbVisible = (dbName: string) => !isFiltering || tables[dbName] === undefined || dbHasMatches(dbName);
@@ -310,6 +343,27 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
           </button>
         )}
       </div>
+
+      {
+        /* FR-4.1.6: the server's own schemas, on request (#291). Only offered
+          when there are some — SQLite has none. */
+      }
+      {allDatabases.some((d) => d.is_system) && (
+        <label className="mb-1 flex cursor-pointer items-center gap-1.5 px-2 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]">
+          <input
+            type="checkbox"
+            checked={showSystemDatabases}
+            onChange={(e) =>
+              setQuerySettings({
+                ...useSettingsStore.getState().querySettings,
+                showSystemDatabases: e.target.checked,
+              })}
+            className="h-3 w-3 accent-brand-500"
+          />
+          Show system databases
+        </label>
+      )}
+
       {databases.filter((db) => isDbVisible(db.name)).map((db) => (
         <div key={db.name}>
           <button
@@ -404,6 +458,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       className="group/table flex items-center rounded hover:bg-[var(--color-bg-tertiary)]"
                     >
                       <button
+                        // FR-4.1.4 (#291).
+                        draggable
+                        onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${t.name}\``)}
                         onClick={handleTableClick(db.name, t.name)}
                         onContextMenu={(e) => {
                           showContextMenu(e, [
@@ -513,6 +570,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   {filteredViews(db.name).map((v) => (
                     <button
                       key={v.name}
+                      draggable
+                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${v.name}\``)}
                       onClick={handleViewClick(db.name, v.name)}
                       onContextMenu={(e) => {
                         showContextMenu(e, [
@@ -587,6 +646,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   {filteredProcedures(db.name).map((r) => (
                     <button
                       key={r.name}
+                      draggable
+                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${r.name}\``)}
                       onClick={() => addRoutineTab(connectionId, db.name, r.name, "PROCEDURE")}
                       onContextMenu={(e) => {
                         showContextMenu(e, [
@@ -659,6 +720,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   {filteredFunctions(db.name).map((r) => (
                     <button
                       key={r.name}
+                      draggable
+                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${r.name}\``)}
                       onClick={() => addRoutineTab(connectionId, db.name, r.name, "FUNCTION")}
                       onContextMenu={(e) => {
                         showContextMenu(e, [
@@ -731,6 +794,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   {filteredTriggers(db.name).map((t) => (
                     <button
                       key={t.name}
+                      draggable
+                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${t.name}\``)}
                       onClick={() => openDdlTab(db.name, t.name, `SHOW CREATE TRIGGER \`${db.name}\`.\`${t.name}\``)}
                       onContextMenu={(e) => {
                         showContextMenu(e, [
@@ -771,6 +836,91 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       <span className="truncate">{t.name}</span>
                       <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
                         {t.timing} {t.event}
+                      </span>
+                    </button>
+                  ))}
+                </FolderNode>
+              )}
+
+              {/* Events folder (FR-4.1.1, #291) */}
+              {isFolderVisible(filteredEvents(db.name).length) && (
+                <FolderNode
+                  label="Events"
+                  icon={<CalendarClock className="h-3 w-3" />}
+                  isExpanded={isFolderExpandedFiltered(db.name, "events", filteredEvents(db.name).length)}
+                  onToggle={() => toggleFolder(db.name, "events")}
+                  loading={isLoading(loadKey(db.name, "events"))}
+                  onContextMenu={(e) => {
+                    showContextMenu(e, [
+                      {
+                        label: "Refresh",
+                        icon: <RefreshCw className="h-3.5 w-3.5" />,
+                        onClick: () => refreshFolder(db.name, "events"),
+                      },
+                    ]);
+                  }}
+                  count={events[db.name]?.length}
+                >
+                  {filteredEvents(db.name).map((ev) => (
+                    <button
+                      key={ev.name}
+                      draggable
+                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${ev.name}\``)}
+                      onClick={() => openDdlTab(db.name, ev.name, `SHOW CREATE EVENT \`${db.name}\`.\`${ev.name}\``)}
+                      onContextMenu={(e) => {
+                        showContextMenu(e, [
+                          {
+                            label: "Copy Name",
+                            icon: <Copy className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              void navigator.clipboard.writeText(ev.name);
+                            },
+                          },
+                          {
+                            label: "Show DDL",
+                            icon: <FileText className="h-3.5 w-3.5" />,
+                            onClick: () =>
+                              openDdlTab(db.name, ev.name, `SHOW CREATE EVENT \`${db.name}\`.\`${ev.name}\``),
+                          },
+                          {
+                            // An event that is off is the usual reason one did
+                            // not run, and turning it back on is a statement
+                            // nobody remembers the syntax of.
+                            label: ev.status === "ENABLED" ? "Disable Event" : "Enable Event",
+                            icon: <CalendarClock className="h-3.5 w-3.5" />,
+                            onClick: () => {
+                              void executeQuery(
+                                connectionId,
+                                `ALTER EVENT \`${db.name}\`.\`${ev.name}\` ${
+                                  ev.status === "ENABLED" ? "DISABLE" : "ENABLE"
+                                }`,
+                                db.name,
+                              ).then(() => refreshFolder(db.name, "events"));
+                            },
+                          },
+                          { separator: true },
+                          {
+                            label: "Drop Event",
+                            icon: <Trash2 className="h-3.5 w-3.5" />,
+                            danger: true,
+                            onClick: () => {
+                              if (window.confirm(`Drop event \`${db.name}\`.\`${ev.name}\`?`)) {
+                                void executeQuery(
+                                  connectionId,
+                                  `DROP EVENT \`${db.name}\`.\`${ev.name}\``,
+                                  db.name,
+                                ).then(() => refreshFolder(db.name, "events"));
+                              }
+                            },
+                          },
+                        ]);
+                      }}
+                      className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
+                    >
+                      <CalendarClock className="h-3 w-3 shrink-0" />
+                      <span className="truncate">{ev.name}</span>
+                      <span className="ml-auto shrink-0 text-[10px] text-[var(--color-text-muted)]">
+                        {ev.status === "ENABLED" ? (ev.interval || "once") : "off"}
                       </span>
                     </button>
                   ))}

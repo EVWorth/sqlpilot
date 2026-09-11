@@ -35,6 +35,8 @@ export const commands = {
 	getColumns: (connectionId: string, database: string, table: string) => typedError<ColumnInfo[], string>(__TAURI_INVOKE("get_columns", { connectionId, database, table })),
 	getIndexes: (connectionId: string, database: string, table: string) => typedError<IndexInfo[], string>(__TAURI_INVOKE("get_indexes", { connectionId, database, table })),
 	getForeignKeys: (connectionId: string, database: string, table: string) => typedError<ForeignKeyInfo[], string>(__TAURI_INVOKE("get_foreign_keys", { connectionId, database, table })),
+	getEvents: (connectionId: string, database: string) => typedError<EventInfo[], string>(__TAURI_INVOKE("get_events", { connectionId, database })),
+	getPartitions: (connectionId: string, database: string, table: string) => typedError<PartitionInfo[], string>(__TAURI_INVOKE("get_partitions", { connectionId, database, table })),
 	getTableDdl: (connectionId: string, database: string, table: string) => typedError<string, string>(__TAURI_INVOKE("get_table_ddl", { connectionId, database, table })),
 	getViews: (connectionId: string, database: string) => typedError<ViewInfo[], string>(__TAURI_INVOKE("get_views", { connectionId, database })),
 	getRoutines: (connectionId: string, database: string) => typedError<RoutineInfo[], string>(__TAURI_INVOKE("get_routines", { connectionId, database })),
@@ -263,6 +265,30 @@ export type DatabaseInfo = {
 	name: string,
 	default_charset: string,
 	default_collation: string,
+	/**
+	 *  True for the server's own schemas.
+	 * 
+	 *  Reported rather than filtered out here, so FR-4.1.6's toggle is a
+	 *  decision the tree makes rather than a second round trip. They were
+	 *  excluded in the query, which made them unreachable at any price (#291).
+	 */
+	is_system: boolean,
+};
+
+/**
+ *  A scheduled event, which FR-4.1.1 lists alongside the other object types
+ *  and which the tree had no folder for (#291).
+ */
+export type EventInfo = {
+	name: string,
+	/**  `ONE TIME` or `RECURRING`. */
+	event_type: string,
+	/**  `ENABLED`, `DISABLED`, or `SLAVESIDE_DISABLED`. */
+	status: string,
+	definer: string,
+	/**  How often a recurring event runs, e.g. "1 DAY". Empty for one-shot. */
+	interval: string,
+	comment: string,
 };
 
 export type ExplainResponse = ExplainResponse_Serialize | ExplainResponse_Deserialize;
@@ -439,6 +465,19 @@ export type PackageFormat =
  *  applied by rpm-ostree, taking effect on the next boot.
  */
 "rpm_ostree";
+
+/**  One partition of a partitioned table, or nothing for a table without any. */
+export type PartitionInfo = {
+	name: string,
+	/**  `RANGE`, `LIST`, `HASH`, `KEY`, and the `COLUMNS` variants. */
+	method: string,
+	/**  The expression partitioned on. */
+	expression: string,
+	/**  The bound, for RANGE and LIST. */
+	description: string,
+	row_count: number,
+	data_size: number,
+};
 
 export type PlatformInfo = {
 	package_format: PackageFormat,
