@@ -3,12 +3,22 @@ import { Check, Copy, Download, Lock, Pencil, X } from "lucide-react";
 import type { editor } from "monaco-editor";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "sql-formatter";
+import { detectMime, formatBytes } from "../../lib/blob";
 import { useThemeStore } from "../../stores/themeStore";
+import { BlobViewer } from "./BlobViewer";
 
 interface Props {
   isOpen: boolean;
   columnName?: string;
   content: string | null;
+  /**
+   * Raw bytes, for a binary column.
+   *
+   * Set instead of `content`, not alongside it: there is no text to show, and
+   * the editor would render the byte array as a comma-separated list of
+   * numbers (#401).
+   */
+  bytes?: number[];
   dataType?: string;
   onClose: () => void;
 }
@@ -70,6 +80,16 @@ function formatDisplayContent(content: string, type: ContentType): string {
   return content;
 }
 
+/** A file extension for a MIME type, so a saved BLOB opens in something. */
+function extensionFor(mime: string | null): string {
+  if (!mime) return "bin";
+  if (mime === "text/plain") return "txt";
+  if (mime === "image/svg+xml") return "svg";
+  if (mime === "image/x-icon") return "ico";
+  if (mime === "image/jpeg") return "jpg";
+  return mime.split("/")[1] ?? "bin";
+}
+
 function getLanguage(type: ContentType): string {
   if (type === "json") return "json";
   if (type === "sql") return "sql";
@@ -81,6 +101,7 @@ export function CellViewerModal({
   isOpen,
   columnName = "Cell",
   content,
+  bytes,
   dataType,
   onClose,
 }: Props) {
@@ -141,17 +162,28 @@ export function CellViewerModal({
   if (!isOpen) return null;
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(viewerContent);
+    // Bytes go to the clipboard as hex rather than as `137,80,78,71`. Pasting
+    // a byte array into anything is useless; hex at least round-trips through
+    // UNHEX() (#401).
+    await navigator.clipboard.writeText(
+      bytes ? bytes.map((b) => b.toString(16).padStart(2, "0")).join("") : viewerContent,
+    );
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   const handleDownload = () => {
-    const blob = new Blob([viewerContent], { type: "text/plain" });
+    // A BLOB is downloaded as itself, under whatever type its bytes say it
+    // is. Saving a PNG as column.txt loses the only thing that made it
+    // openable.
+    const mime = bytes ? detectMime(bytes) : null;
+    const blob = bytes
+      ? new Blob([new Uint8Array(bytes)], { type: mime ?? "application/octet-stream" })
+      : new Blob([viewerContent], { type: "text/plain" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${columnName}.txt`;
+    a.download = `${columnName}.${extensionFor(bytes ? mime : "text/plain")}`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -188,7 +220,9 @@ export function CellViewerModal({
               </span>
             </div>
             <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-              {isNullValue
+              {bytes
+                ? `${formatBytes(bytes.length)} of binary data`
+                : isNullValue
                 ? "NULL value"
                 : `${displayContent.length} characters`}
             </p>
@@ -196,7 +230,9 @@ export function CellViewerModal({
           <div className="flex items-center gap-2">
             <button
               onClick={() => setIsEditable((prev) => !prev)}
-              disabled={isNullValue}
+              // Binary has no text form to edit, and round-tripping one
+              // through the editor would corrupt it.
+              disabled={isNullValue || bytes !== undefined}
               className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
               title={isEditable ? "Switch to read-only" : "Edit content locally"}
             >
@@ -223,7 +259,7 @@ export function CellViewerModal({
           </div>
         </div>
 
-        {!isNullValue && displayContent.length > 500 && (
+        {!bytes && !isNullValue && displayContent.length > 500 && (
           <div className="border-b border-[var(--color-border)] px-4 py-2">
             <input
               type="text"
@@ -236,7 +272,9 @@ export function CellViewerModal({
         )}
 
         <div className="min-h-0 flex-1 p-4">
-          {isNullValue
+          {bytes
+            ? <BlobViewer bytes={bytes} columnName={columnName} />
+            : isNullValue
             ? (
               <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3 text-xs font-mono italic text-[var(--color-text-muted)]">
                 NULL
@@ -278,7 +316,7 @@ export function CellViewerModal({
         <div className="flex justify-end gap-2 border-t border-[var(--color-border)] p-3">
           <button
             onClick={handleDownload}
-            disabled={isNullValue}
+            disabled={isNullValue && !bytes}
             className="inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" />

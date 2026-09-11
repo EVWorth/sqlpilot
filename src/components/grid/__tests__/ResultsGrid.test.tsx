@@ -474,7 +474,10 @@ describe("saving edits safely", () => {
     // Result-set metadata reports is_primary_key false for everything, so the
     // WHERE clause matched on all columns (#387). The schema knows better.
     render(<ResultsGrid />);
+    // waitFor on the call alone is not enough: the state that follows it
+    // settles a microtask later, and Save would read the pre-resolution value.
     await waitFor(() => expect(api.getColumns).toHaveBeenCalledWith("conn-1", "app", "users"));
+    await act(async () => {});
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("save-button"));
@@ -491,6 +494,7 @@ describe("saving edits safely", () => {
 
     render(<ResultsGrid />);
     await waitFor(() => expect(api.getColumns).toHaveBeenCalled());
+    await act(async () => {});
 
     await act(async () => {
       fireEvent.click(screen.getByTestId("save-button"));

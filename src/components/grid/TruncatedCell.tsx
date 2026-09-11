@@ -1,12 +1,14 @@
 import { Maximize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { describeBlob, isBytes } from "../../lib/blob";
 import { isLongTextSqlType } from "../../lib/sql-types";
 
 interface Props {
   value: unknown;
   columnName: string;
   dataType?: string;
-  onViewFull: (content: string | null, columnName: string) => void;
+  /** `bytes` is set only for a binary column, whose value is not text (#401). */
+  onViewFull: (content: string | null, columnName: string, bytes?: number[]) => void;
 }
 
 const TEXT_TYPE_MIN_LENGTH = 20;
@@ -24,6 +26,10 @@ function isNullish(val: unknown): boolean {
 
 function formatValue(val: unknown): string {
   if (isNullish(val)) return "NULL";
+  // A BLOB arrives as an array of bytes, and String() on it prints every one
+  // of them, comma-separated. `137,80,78,71,…` is not a preview of a PNG; the
+  // type and the size are (#401).
+  if (isBytes(val)) return `[${describeBlob(val)}]`;
   if (typeof val === "string") return val;
   if (typeof val === "boolean") return val ? "true" : "false";
   if (typeof val === "number") return String(val);
@@ -38,6 +44,7 @@ export function TruncatedCell({
 }: Props) {
   const formatted = formatValue(value);
   const isNull = isNullish(value);
+  const binary = isBytes(value) ? value : null;
   const isTextType = isLongTextSqlType(dataType);
   const showForTextType = isTextType
     && value !== null
@@ -83,8 +90,14 @@ export function TruncatedCell({
     if (el) setIsOverflowing(el.scrollWidth > el.clientWidth);
   }, [formatted]);
 
-  const showIcon = showForTextType || isOverflowing;
+  // Always offered for bytes: there is nothing useful in the cell itself, so
+  // the viewer is the only way to see what is stored.
+  const showIcon = showForTextType || isOverflowing || binary !== null;
   const openViewer = () => {
+    if (binary) {
+      onViewFull(null, columnName, binary);
+      return;
+    }
     onViewFull(value === null || value === undefined ? null : formatted, columnName);
   };
 
@@ -94,7 +107,7 @@ export function TruncatedCell({
         ref={textRef}
         className={`min-w-0 truncate ${isNull ? "italic text-[var(--color-text-muted)]" : ""}`}
         onDoubleClick={showIcon ? openViewer : undefined}
-        title={showForTextType ? "View full content" : undefined}
+        title={showForTextType || binary ? "View full content" : undefined}
       >
         {formatted}
       </div>
