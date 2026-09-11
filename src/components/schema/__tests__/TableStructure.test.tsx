@@ -168,13 +168,33 @@ describe("TableStructure", () => {
     expect(screen.getByTestId("monaco-editor")).toBeDefined();
   });
 
-  it("shows error on fetch failure", async () => {
+  it("shows the failure on the tab that failed", async () => {
     vi.mocked(api.getColumns).mockRejectedValue("Table not found");
 
     render(
       <TableStructure connectionId="conn-1" database="testdb" tableName="nonexistent" />,
     );
-    expect(await screen.findByText("Table not found")).toBeDefined();
+    await screen.findByText("testdb.nonexistent");
+    fireEvent.click(tab("Columns"));
+
+    expect(screen.getByText("Table not found")).toBeDefined();
+  });
+
+  it("keeps the other tabs working when one read fails", async () => {
+    // A user without rights on information_schema.PARTITIONS should still see
+    // their columns (F3.14 of #299).
+    vi.mocked(api.getPartitions).mockRejectedValue("Access denied");
+
+    render(
+      <TableStructure connectionId="conn-1" database="testdb" tableName="users" />,
+    );
+    await screen.findByText("testdb.users");
+
+    fireEvent.click(tab("Columns"));
+    expect(screen.getByText("id")).toBeDefined();
+
+    fireEvent.click(tab("Partitions"));
+    expect(screen.getByRole("alert")).toHaveTextContent("Access denied");
   });
 
   it("shows 'No columns found' when columns array is empty", async () => {

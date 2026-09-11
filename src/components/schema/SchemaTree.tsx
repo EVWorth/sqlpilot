@@ -382,7 +382,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
       : isFolderExpanded(dbName, folder);
 
   return (
-    <div className="ml-4 border-l border-[var(--color-border)] pl-1">
+    <div role="tree" aria-label="Schema" className="ml-4 border-l border-[var(--color-border)] pl-1">
       {/* Filter input */}
       <div className="relative mb-1 mt-0.5 px-1">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--color-text-muted)]" />
@@ -426,12 +426,24 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
       )}
 
       {databases.filter((db) => isDbVisible(db.name)).map((db) => (
-        <div key={db.name}>
+        <div key={db.name} role="treeitem" aria-expanded={isDbExpanded(db.name)} aria-label={db.name}>
           <button
+            onKeyDown={(e) => {
+              // A tree opens and closes with Left and Right (F3.11 of #299).
+              if (e.key === "ArrowRight" && !isDbExpanded(db.name)) {
+                e.preventDefault();
+                void toggleDb(db.name);
+              } else if (e.key === "ArrowLeft" && isDbExpanded(db.name)) {
+                e.preventDefault();
+                void toggleDb(db.name);
+              }
+            }}
             onClick={makeClickHandler(
               `db:${db.name}`,
-              () => toggleDb(db.name),
-              () => selectDatabase(db.name),
+              () =>
+                toggleDb(db.name),
+              () =>
+                selectDatabase(db.name),
             )}
             onContextMenu={(e) => {
               showContextMenu(e, [
@@ -446,7 +458,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                 {
                   label: "Refresh",
                   icon: <RefreshCw className="h-3.5 w-3.5" />,
-                  onClick: () => refreshDatabase(db.name),
+                  onClick: () =>
+                    refreshDatabase(db.name),
                 },
                 {
                   // FR-4.3.2. Which database new tabs open against, which the
@@ -454,7 +467,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   label: selectedDb === db.name ? "Already the default" : "Set as Default",
                   icon: <Check className="h-3.5 w-3.5" />,
                   disabled: selectedDb === db.name,
-                  onClick: () => selectDatabase(db.name),
+                  onClick: () =>
+                    selectDatabase(db.name),
                 },
                 {
                   label: "Statistics",
@@ -542,7 +556,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
             )}
           </button>
           {isDbExpanded(db.name) && (
-            <div className="ml-3">
+            <div role="group" className="ml-3">
               {isLoading(loadKey(db.name)) && !tables[db.name] && (
                 <div className="flex items-center gap-2 px-1.5 py-1 text-[11px] text-[var(--color-text-muted)]">
                   <Loader2 className="h-3 w-3 animate-spin" />

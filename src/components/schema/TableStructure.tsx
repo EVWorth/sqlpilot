@@ -34,6 +34,14 @@ interface Details {
   partitions: PartitionInfo[];
   table?: TableInfo;
   ddl: string;
+  /**
+   * Why a tab has nothing, by tab.
+   *
+   * Each read is independent, so one failing must not blank the panel: a user
+   * without rights on `information_schema.PARTITIONS` should still see their
+   * columns. The tab that failed says so, and the rest work (F3.14 of #299).
+   */
+  errors: Partial<Record<SubTab, string>>;
 }
 
 const EMPTY: Details = {
@@ -43,6 +51,7 @@ const EMPTY: Details = {
   triggers: [],
   partitions: [],
   ddl: "",
+  errors: {},
 };
 
 export function TableStructure({
@@ -53,42 +62,52 @@ export function TableStructure({
   const [activeSubTab, setActiveSubTab] = useState<SubTab>("overview");
   const [details, setDetails] = useState<Details>(EMPTY);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
-    setError(null);
     let cancelled = false;
 
     void (async () => {
-      try {
-        const [columns, indexes, foreignKeys, partitions, ddl, triggers, tables] = await Promise
-          .all([
-            api.getColumns(connectionId, database, tableName),
-            api.getIndexes(connectionId, database, tableName),
-            api.getForeignKeys(connectionId, database, tableName),
-            api.getPartitions(connectionId, database, tableName),
-            api.getTableDdl(connectionId, database, tableName),
-            // Through the store: the tree has usually loaded both already, and
-            // the server has no per-table trigger query to ask instead.
-            useSchemaStore.getState().ensureTriggers(connectionId, database),
-            useSchemaStore.getState().ensureTables(connectionId, database),
-          ]);
-        if (cancelled) return;
-        setDetails({
-          columns,
-          indexes,
-          foreignKeys,
-          partitions,
-          ddl,
-          triggers: triggers.filter((t) => t.table === tableName),
-          table: tables.find((t) => t.name === tableName),
-        });
-      } catch (e) {
-        if (!cancelled) setError(String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+      const store = useSchemaStore.getState();
+      const [columns, indexes, foreignKeys, partitions, ddl, triggers, tables] = await Promise
+        .allSettled([
+          api.getColumns(connectionId, database, tableName),
+          api.getIndexes(connectionId, database, tableName),
+          api.getForeignKeys(connectionId, database, tableName),
+          api.getPartitions(connectionId, database, tableName),
+          api.getTableDdl(connectionId, database, tableName),
+          // Through the store: the tree has usually loaded both already, and
+          // the server has no per-table trigger query to ask instead.
+          store.ensureTriggers(connectionId, database),
+          store.ensureTables(connectionId, database),
+        ]);
+      if (cancelled) return;
+
+      const errors: Partial<Record<SubTab, string>> = {};
+      const took = <T,>(
+        result: PromiseSettledResult<T>,
+        tab: SubTab | null,
+        fallback: T,
+      ): T => {
+        if (result.status === "fulfilled") return result.value;
+        if (tab) errors[tab] = String(result.reason);
+        return fallback;
+      };
+
+      const allTriggers = took(triggers, "triggers", [] as TriggerInfo[]);
+      setDetails({
+        columns: took(columns, "columns", []),
+        indexes: took(indexes, "indexes", []),
+        foreignKeys: took(foreignKeys, "foreignKeys", []),
+        partitions: took(partitions, "partitions", []),
+        ddl: took(ddl, "ddl", ""),
+        triggers: allTriggers.filter((t) => t.table === tableName),
+        // The table's own row belongs to Overview; a failure there is the
+        // same failure as the columns one and not worth saying twice.
+        table: took(tables, null, [] as TableInfo[]).find((t) => t.name === tableName),
+        errors,
+      });
+      setLoading(false);
     })();
 
     return () => {
@@ -149,8 +168,14 @@ export function TableStructure({
               Loading…
             </div>
           )
-          : error
-          ? <div className="p-4 text-sm text-red-400">{error}</div>
+          : details.errors[activeSubTab]
+          // Only the tab that failed. A user without rights on
+          // information_schema.PARTITIONS should still see their columns.
+          ? (
+            <div role="alert" className="p-4 text-sm text-red-400">
+              {details.errors[activeSubTab]}
+            </div>
+          )
           : (
             <>
               {activeSubTab === "overview" && <Overview details={details} />}
