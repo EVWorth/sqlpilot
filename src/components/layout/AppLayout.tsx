@@ -21,6 +21,7 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
 import { HistoryQuickOpen } from "../history/HistoryQuickOpen";
 import { ImportDialog } from "../import/ImportDialog";
+import { ThemeSettingsDialog } from "../settings/ThemeSettingsDialog";
 import { ConnectionTabs } from "./ConnectionTabs";
 import { MainPanel } from "./MainPanel";
 import { Sidebar } from "./Sidebar";
@@ -183,6 +184,9 @@ export function AppLayout() {
         case "check-for-updates":
           void useSettingsStore.getState().checkForUpdates();
           break;
+        case "appearance":
+          useDialogStore.getState().openDialog("appearance");
+          break;
         case "cycle-theme":
           // Reaches here from the inline MenuBar (Windows/Linux) and from the
           // native Help menu on macOS, which is the surface #453 was about.
@@ -309,6 +313,10 @@ export function AppLayout() {
         onClose={closeDialog}
         preSelectedConnectionId={dialogTarget.connectionId}
         preSelectedDatabase={dialogTarget.database}
+      />
+      <ThemeSettingsDialog
+        isOpen={openDialogName === "appearance"}
+        onClose={closeDialog}
       />
       <HistoryQuickOpen
         isOpen={showHistoryPicker}

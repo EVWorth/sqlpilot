@@ -14,6 +14,19 @@
   --color-brand-950: #172554;
 }
 
+/*
+ * The floor, not the theme system.
+ *
+ * src/lib/themes.ts is where themes live now; the store writes its colours
+ * onto the document element as inline custom properties, which win over
+ * everything here (#350).
+ *
+ * These blocks stay because they are what the app looks like in the moment
+ * between the stylesheet loading and the first script running, and because a
+ * theme that omits a token should inherit a sane value rather than whatever
+ * the previous theme happened to set. Keep the two dark values and the two
+ * light values in step with the `dark` and `light` entries in themes.ts.
+ */
 @layer base {
   :root,
   [data-theme="dark"] {
