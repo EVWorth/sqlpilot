@@ -3,6 +3,7 @@ import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useContextMenu } from "../../../hooks/useContextMenu";
 import { layoutKey, readLayout } from "../../../lib/grid-layout";
+import { runStatement } from "../../../lib/run-statement";
 import { resolveEditTarget } from "../../../lib/sql-generator";
 import type { QueryResult, SqlValue } from "../../../types";
 import { ResultsGrid } from "../ResultsGrid";
@@ -95,6 +96,10 @@ vi.mock("../../../stores/aiStore", () => ({
 }));
 
 // ─── Hook mocks ───────────────────────────────────────────────
+vi.mock("../../../lib/run-statement", () => ({
+  runStatement: vi.fn(async () => []),
+}));
+
 vi.mock("../../../hooks/useContextMenu", () => ({
   useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu: vi.fn() })),
 }));
@@ -1736,5 +1741,107 @@ describe("setting a cell to NULL", () => {
     fireEvent.keyDown(window, { key: "N", ctrlKey: true, shiftKey: true });
 
     expect(mockGridEditing.editCell).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Row count on a truncated result (#402) ───────────────────
+describe("row count", () => {
+  const countingResult = (sql: string) =>
+    makeResult({ sql, rows_truncated: true, truncation_reason: "row_limit" } as never);
+
+  const countOf = (n: number) => [{ rows: [[n]] }];
+
+  beforeEach(() => {
+    connSelectedId = "conn-1";
+    editorTabs = [{
+      id: "tab-0",
+      content: "SELECT * FROM users",
+      connectionId: "conn-1",
+      database: "app",
+    }];
+    editorActiveTabId = "tab-0";
+    vi.mocked(runStatement).mockReset();
+    vi.mocked(runStatement).mockResolvedValue([] as never);
+    vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "users" } as never);
+  });
+
+  it("asks the engine for its estimate on a whole-table read", async () => {
+    // information_schema already holds it, so the common case is free.
+    vi.mocked(runStatement).mockResolvedValue(countOf(50247) as never);
+    resultState.results = [countingResult("SELECT * FROM users")];
+
+    render(<ResultsGrid />);
+
+    expect(await screen.findByText(/of approximately 50,247 rows/)).toBeInTheDocument();
+  });
+
+  it("asks for nothing until told, on a query it cannot estimate", async () => {
+    resultState.results = [countingResult("SELECT * FROM users WHERE active = 1")];
+
+    render(<ResultsGrid />);
+    await screen.findByText(/truncated/);
+
+    expect(runStatement).not.toHaveBeenCalled();
+    expect(screen.getByText("Count exactly")).toBeInTheDocument();
+  });
+
+  it("drops the hedge once the count is real", async () => {
+    resultState.results = [countingResult("SELECT * FROM users WHERE active = 1")];
+    render(<ResultsGrid />);
+    vi.mocked(runStatement).mockResolvedValue(countOf(41) as never);
+
+    fireEvent.click(await screen.findByText("Count exactly"));
+
+    expect(await screen.findByText(/of 41 rows/)).toBeInTheDocument();
+    expect(screen.queryByText(/approximately/)).not.toBeInTheDocument();
+  });
+
+  it("counts through the same query rather than the table", async () => {
+    // A join has no single table whose estimate would mean anything.
+    vi.mocked(resolveEditTarget).mockReturnValue({
+      editable: false,
+      reason: "the query joins tables",
+    } as never);
+    resultState.results = [countingResult("SELECT a FROM x JOIN y ON x.id = y.x_id")];
+    render(<ResultsGrid />);
+    vi.mocked(runStatement).mockResolvedValue(countOf(7) as never);
+
+    fireEvent.click(await screen.findByText("Count exactly"));
+
+    await waitFor(() =>
+      expect(vi.mocked(runStatement).mock.calls[0][0].sql).toBe(
+        "SELECT COUNT(*) FROM (SELECT a FROM x JOIN y ON x.id = y.x_id) AS sqlpilot_count",
+      )
+    );
+  });
+
+  it("says why a statement cannot be counted instead of offering to try", async () => {
+    // SHOW is rejected by the server when wrapped; a failed count reported as
+    // zero would be worse than no count.
+    resultState.results = [countingResult("SHOW TABLES")];
+
+    render(<ResultsGrid />);
+
+    expect(await screen.findByText(/no count:/)).toBeInTheDocument();
+    expect(screen.queryByText("Count exactly")).not.toBeInTheDocument();
+  });
+
+  it("reports a failed count rather than showing a wrong number", async () => {
+    resultState.results = [countingResult("SELECT * FROM users WHERE active = 1")];
+    render(<ResultsGrid />);
+    vi.mocked(runStatement).mockRejectedValue(new Error("denied"));
+
+    fireEvent.click(await screen.findByText("Count exactly"));
+
+    expect(await screen.findByText(/Count failed/)).toBeInTheDocument();
+    expect(screen.queryByText(/of .* rows/)).not.toBeInTheDocument();
+  });
+
+  it("offers nothing on a result that was not truncated", async () => {
+    resultState.results = [makeResult()];
+
+    render(<ResultsGrid />);
+
+    expect(screen.queryByText("Count exactly")).not.toBeInTheDocument();
   });
 });
