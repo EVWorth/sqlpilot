@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useEditorStore } from "../stores/editorStore";
+import { useResultStore } from "../stores/resultStore";
 
 export function useKeyboardShortcuts(
   onToggleSidebar?: () => void,
@@ -23,6 +24,17 @@ export function useKeyboardShortcuts(
       }
 
       if (!ctrl) return;
+
+      // Ctrl+. — cancel the running query (FR-2.2.4).
+      //
+      // Not gated on Monaco having focus: a query cancelled from the keyboard
+      // is usually cancelled because it is taking too long, and by then the
+      // user is looking at the results pane rather than the editor (#282).
+      if (!shift && e.key === ".") {
+        e.preventDefault();
+        void useResultStore.getState().cancelActiveQuery();
+        return;
+      }
 
       // Ctrl+S — save favorite (only when Monaco editor is focused)
       if (!shift && e.key === "s" && isMonacoFocused) {

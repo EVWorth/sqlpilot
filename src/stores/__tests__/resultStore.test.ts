@@ -954,3 +954,88 @@ describe("resultStore", () => {
     });
   });
 });
+
+describe("resultStore cancel generations (#287)", () => {
+  /** A promise the test settles when it chooses. */
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: unknown) => void;
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  beforeEach(() => {
+    useResultStore.setState({ results: [], error: null, isExecuting: false });
+    cancelQueryMock.mockReset();
+    cancelQueryMock.mockResolvedValue(undefined);
+    executeQueryMock.mockReset();
+  });
+
+  it("keeps a later query's result when an earlier one was cancelled", async () => {
+    // The issue's scenario: run, cancel, run again, and the first response
+    // lands after the second. The second must survive.
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const first = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(1)");
+
+    await useResultStore.getState().cancelActiveQuery();
+
+    const second = makeQueryResult({ sql: "SELECT 2", rows: [["second"]] });
+    executeQueryMock.mockResolvedValueOnce([second]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT 2");
+
+    slow.resolve([makeQueryResult({ sql: "SELECT SLEEP(1)", rows: [["first"]] })]);
+    await first;
+
+    expect(useResultStore.getState().results).toEqual([second]);
+  });
+
+  it("drops the cancelled query's own late result", async () => {
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const inFlight = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(1)");
+
+    await useResultStore.getState().cancelActiveQuery();
+    slow.resolve([makeQueryResult()]);
+    await inFlight;
+
+    expect(useResultStore.getState().results).toEqual([]);
+    expect(useResultStore.getState().error).toBe("Query cancelled by user");
+  });
+
+  it("does not report a failed cancel over a query that started since", async () => {
+    // `cancelQuery` rejecting after a new query has begun would otherwise
+    // replace that query's state with a message about one already gone.
+    const slowCancel = deferred<void>();
+    cancelQueryMock.mockReturnValueOnce(slowCancel.promise);
+    executeQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
+    void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(1)");
+    const cancelling = useResultStore.getState().cancelActiveQuery();
+
+    const second = makeQueryResult({ sql: "SELECT 2" });
+    executeQueryMock.mockResolvedValueOnce([second]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT 2");
+
+    slowCancel.reject(new Error("server unreachable"));
+    await cancelling;
+
+    expect(useResultStore.getState().results).toEqual([second]);
+    expect(useResultStore.getState().error).toBeNull();
+  });
+
+  it("still reports a failed cancel when nothing has replaced it", async () => {
+    const slowCancel = deferred<void>();
+    cancelQueryMock.mockReturnValueOnce(slowCancel.promise);
+    executeQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
+    void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(1)");
+
+    const cancelling = useResultStore.getState().cancelActiveQuery();
+    slowCancel.reject(new Error("server unreachable"));
+    await cancelling;
+
+    expect(useResultStore.getState().error).toContain("did not confirm");
+  });
+});

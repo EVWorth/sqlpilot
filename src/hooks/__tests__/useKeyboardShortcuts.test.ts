@@ -18,6 +18,14 @@ vi.mock("../../stores/connectionStore", () => ({
   },
 }));
 
+const mockCancelActiveQuery = vi.fn();
+
+vi.mock("../../stores/resultStore", () => ({
+  useResultStore: {
+    getState: vi.fn(() => ({ cancelActiveQuery: mockCancelActiveQuery })),
+  },
+}));
+
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 
@@ -488,5 +496,48 @@ describe("useKeyboardShortcuts", () => {
       addEventListenerSpy.mockRestore();
       removeEventListenerSpy.mockRestore();
     });
+  });
+});
+
+describe("Ctrl+. cancels the running query (#282)", () => {
+  beforeEach(() => {
+    mockCancelActiveQuery.mockClear();
+    getEditorState.mockReturnValue({ tabs: [], activeTabId: null });
+  });
+
+  const press = (opts: Parameters<typeof createKeyboardEvent>[1] = {}) => {
+    renderHook(() => useKeyboardShortcuts());
+    window.dispatchEvent(createKeyboardEvent(".", opts));
+  };
+
+  it("cancels on Ctrl+.", () => {
+    // FR-2.2.4 specifies it and nothing registered it, so the only way to
+    // stop a query was the toolbar button.
+    press({ ctrlKey: true });
+    expect(mockCancelActiveQuery).toHaveBeenCalled();
+  });
+
+  it("cancels on Cmd+. too", () => {
+    press({ metaKey: true });
+    expect(mockCancelActiveQuery).toHaveBeenCalled();
+  });
+
+  it("does nothing on a bare full stop", () => {
+    press();
+    expect(mockCancelActiveQuery).not.toHaveBeenCalled();
+  });
+
+  it("does nothing on Ctrl+Shift+.", () => {
+    // Left free: it is the shortcut nobody has claimed yet, and claiming it
+    // silently for cancel would surprise whoever does.
+    press({ ctrlKey: true, shiftKey: true });
+    expect(mockCancelActiveQuery).not.toHaveBeenCalled();
+  });
+
+  it("works while the editor has focus", () => {
+    // A query is usually cancelled because it is slow, and by then the user
+    // may be anywhere — including still in the editor.
+    press({ ctrlKey: true, targetClosest: true, targetTagName: "TEXTAREA" });
+    expect(mockCancelActiveQuery).toHaveBeenCalled();
   });
 });

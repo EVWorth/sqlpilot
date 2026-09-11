@@ -151,6 +151,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
     // statement keeps running — and holding locks — until the server is told to
     // stop, which is what cancelQuery does (#420).
     cancelGeneration++;
+    const myGeneration = cancelGeneration;
     const connectionId = activeExecution?.connectionId ?? null;
     activeExecution = null;
     set({ isExecuting: false, error: "Query cancelled by user" });
@@ -158,6 +159,11 @@ export const useResultStore = create<ResultState>((set, get) => ({
     try {
       await api.cancelQuery(connectionId);
     } catch (e) {
+      // Only while this cancel is still what the user is looking at. Telling
+      // the server to stop can outlast the query it was about, and reporting
+      // its failure over a query that started since would replace that
+      // query's state with a message about one already gone (#287).
+      if (cancelGeneration !== myGeneration) return;
       set({ error: `Query cancelled, but the server did not confirm: ${String(e)}` });
     }
   },
