@@ -371,43 +371,61 @@ The Schema Inspector provides the backend's view of every MySQL server's metadat
 
 #### Caching Strategy
 
+The cache is in the frontend, in `src/stores/schemaStore.ts`, keyed by
+connection. There is no backend cache and no TTL.
+
 ```
 ┌───────────────────────────────────────────────────┐
-│              Schema Cache (per connection)          │
+│        schemaStore.byConnection[connectionId]      │
 │                                                     │
-│  Key: (connection_id, database, object_type)        │
-│  Value: CachedSchema { data, fetched_at, ttl }     │
+│  databases  DatabaseInfo[]                          │
+│  tables     { [database]: TableInfo[] }             │
+│  views      { [database]: ViewInfo[] }              │
+│  routines   { [database]: RoutineInfo[] }           │
+│  triggers   { [database]: TriggerInfo[] }           │
+│  events     { [database]: EventInfo[] }             │
+│  columns    { "database.table": ColumnInfo[] }      │
+│  generation number  — see below                     │
 │                                                     │
-│  TTL defaults:                                      │
-│    Database list:  60 seconds                       │
-│    Table list:     30 seconds                       │
-│    Column details: 30 seconds                       │
-│    Index details:  60 seconds                       │
-│    Routines:      120 seconds                       │
-│                                                     │
-│  Invalidation triggers:                             │
-│    • DDL execution detected (CREATE/ALTER/DROP)     │
-│    • Manual refresh from UI                         │
-│    • TTL expiration                                 │
-│    • Connection reconnection                        │
+│  Invalidation:                                      │
+│    invalidate(conn)                 everything      │
+│    invalidate(conn, db)             one database,   │
+│                                     every folder    │
+│    invalidate(conn, db, folder)     one folder      │
+│    forget(conn)                     on disconnect   │
 └───────────────────────────────────────────────────┘
 ```
 
-#### Change Notification
+A **generation counter** per connection, held outside the store so it survives
+`forget`, is what makes concurrency safe: a fetch captures it before awaiting
+and drops its result if it no longer matches. That is what stops a response
+from a connection the user has left, or from before a refresh, overwriting
+what replaced it (#288).
 
-When the schema cache is invalidated (DDL detected or manual refresh), the backend emits a Tauri event:
+##### Why no TTL
 
-```rust
-app_handle.emit("schema_changed", SchemaChangeEvent {
-    connection_id: String,
-    database: String,
-    change_type: SchemaChangeType,  // Created | Altered | Dropped
-    object_type: String,            // "table", "column", "index", etc.
-    object_name: String,
-})?;
-```
+Earlier drafts specified per-object-type TTLs (60s databases, 30s tables, and
+so on). None was implemented, and on reflection a TTL answers the wrong
+question. A schema does not drift on a timer; it changes when someone runs
+DDL. A 30-second TTL re-reads a schema nobody has touched all afternoon and
+still shows a stale tree for up to 30 seconds after a change the app itself
+made.
 
-The frontend's `schemaStore` listens for these events and surgically updates the affected portion of the schema tree rather than re-fetching everything.
+Invalidation is explicit instead: the app invalidates what it changed when it
+changes it, and the user has Refresh for changes made elsewhere. If a
+staleness window is wanted later, it belongs on the object types that actually
+churn rather than on all of them.
+
+##### Why no `schema_changed` event
+
+Earlier drafts had the backend emit a Tauri `schema_changed` event that the
+frontend would use to surgically update the tree. It was never implemented,
+and it is not needed: the frontend is where DDL is issued from, so it already
+knows what changed and invalidates exactly that. An event would be the right
+shape if the backend could change the schema on its own — it cannot.
+
+The `schema_changed` entry in the event table below is removed for the same
+reason.
 
 ---
 
@@ -612,6 +630,8 @@ src/stores/
 ├── settingsStore.ts      — Query and formatter settings, update state
 ├── aiStore.ts            — AI chat history, pending suggestions, provider status
 ├── historyStore.ts       — Query history (a view over history.db)
+├── schemaStore.ts        — Databases, tables, views, routines, triggers,
+│                           events and columns, keyed by connection (§3.3)
 └── themeStore.ts         — Active theme, custom themes, import/export
 ```
 
@@ -697,7 +717,7 @@ Stores communicate through Zustand subscriptions and Tauri event listeners, not 
 
 ```
 connectionStore ──(event: connection_established)──► schemaStore.loadSchema()
-schemaStore     ──(event: schema_changed)──────────► editorStore.refreshAutocomplete()
+schemaStore     ──(invalidate + re-read)───────────► autocomplete reads the same store
 editorStore     ──(action: executeCurrentTab)───────► resultStore.setResults()
 settingsStore   ──(subscription: theme changed)────► document.body.className update
 ```
@@ -1515,7 +1535,6 @@ async fn table_maintenance(
 | `query_rows`             | `{ query_id, rows, partial }`              | Streamed result batch           |
 | `query_complete`         | `{ query_id, total_rows, time_ms }`        | Stream finished                 |
 | `query_error`            | `{ query_id, error }`                      | Query execution failed          |
-| `schema_changed`         | `SchemaChangeEvent`                        | DDL detected, cache invalidated |
 | `export_progress`        | `{ export_id, rows_done, total_est, pct }` | Export progress update          |
 | `import_progress`        | `{ import_id, rows_done, total_est, pct }` | Import progress update          |
 | `process_list_update`    | `Vec<Process>`                             | Polled process list refresh     |

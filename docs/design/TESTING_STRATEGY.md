@@ -447,23 +447,34 @@ The `test_db_large` database is populated by a separate setup script (`tests/fix
 | `test_transaction_rollback`       | Begin → Insert → Rollback → verify row absent                       | Integration |
 | `test_concurrent_queries`         | Run 10 queries in parallel on same pool, all return correct results | Integration |
 
-### `schema_tests.rs`
+### Schema tests
 
-| Test Name                        | Description                                                                                | Type        |
-| -------------------------------- | ------------------------------------------------------------------------------------------ | ----------- |
-| `test_list_databases`            | Returns at least `test_db`, `test_db_empty`, `test_db_large`                               | Integration |
-| `test_list_tables`               | `test_db` contains `users`, `orders`, `products`, `categories`, `order_items`, `all_types` | Integration |
-| `test_list_views`                | `test_db` contains `active_users`, `order_summary`                                         | Integration |
-| `test_list_columns_all_types`    | `all_types` table returns correct column names and types                                   | Integration |
-| `test_list_indexes`              | `users` table has PK, `idx_status`, `idx_email`, `ft_bio`                                  | Integration |
-| `test_list_foreign_keys`         | `orders.user_id` → `users.id` FK detected                                                  | Integration |
-| `test_list_triggers`             | `update_stock_on_order` trigger found on `order_items`                                     | Integration |
-| `test_list_procedures`           | `get_user_orders` and `create_order` found                                                 | Integration |
-| `test_list_functions`            | `calculate_discount` found with correct parameter types                                    | Integration |
-| `test_list_events`               | Events listing works (empty set is valid)                                                  | Integration |
-| `test_get_table_ddl`             | `SHOW CREATE TABLE users` returns valid DDL string                                         | Integration |
-| `test_schema_cache_invalidation` | Create table → cache miss → schema updated                                                 | Unit        |
-| `test_schema_refresh`            | Force refresh clears cache and reloads from server                                         | Integration |
+Planned as one `schema_tests.rs`; they live in
+`src-tauri/crates/mas-core/tests/` split by what they cover —
+`schema_objects.rs` (events, foreign keys, partitions), `ddl_pool_safety.rs`
+(DDL reads at any pool size), `functional_index_regression.rs`, and the schema
+cases in `integration_tests.rs`. One file per concern rather than one per
+subsystem: a file named after a crate grows until nobody reads it (#296).
+
+The cache tests below moved to the frontend with the cache itself —
+`src/stores/__tests__/schemaStore.test.ts` — since there is no backend cache
+to test. See ARCHITECTURE §3.3.
+
+| Test Name                     | Description                                                                                | Type        |
+| ----------------------------- | ------------------------------------------------------------------------------------------ | ----------- |
+| `test_list_databases`         | Returns at least `test_db`, `test_db_empty`, `test_db_large`                               | Integration |
+| `test_list_tables`            | `test_db` contains `users`, `orders`, `products`, `categories`, `order_items`, `all_types` | Integration |
+| `test_list_views`             | `test_db` contains `active_users`, `order_summary`                                         | Integration |
+| `test_list_columns_all_types` | `all_types` table returns correct column names and types                                   | Integration |
+| `test_list_indexes`           | `users` table has PK, `idx_status`, `idx_email`, `ft_bio`                                  | Integration |
+| `test_list_foreign_keys`      | `orders.user_id` → `users.id` FK detected                                                  | Integration |
+| `test_list_triggers`          | `update_stock_on_order` trigger found on `order_items`                                     | Integration |
+| `test_list_procedures`        | `get_user_orders` and `create_order` found                                                 | Integration |
+| `test_list_functions`         | `calculate_discount` found with correct parameter types                                    | Integration |
+| `test_list_events`            | Events listing works (empty set is valid)                                                  | Integration |
+| `test_get_table_ddl`          | `SHOW CREATE TABLE users` returns valid DDL string                                         | Integration |
+| `test_list_partitions`        | A RANGE-partitioned table reports its partitions in declared order                         | Integration |
+| `test_ddl_at_any_pool_size`   | DDL names its database, so `pool_max > 1` cannot read another one's object (#290)          | Integration |
 
 ### `export_tests.rs`
 
@@ -1004,7 +1015,8 @@ tests/
 ├── rust/
 │   ├── connection_tests.rs
 │   ├── query_tests.rs
-│   ├── schema_tests.rs
+│   ├── schema_objects.rs
+│   ├── ddl_pool_safety.rs
 │   ├── export_tests.rs
 │   ├── admin_tests.rs
 │   └── ai_tests.rs

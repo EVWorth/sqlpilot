@@ -371,14 +371,14 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 #### FR-4.1: Tree Navigation
 
-| ID       | Requirement            | Acceptance Criteria                                                                                                     |
-| -------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| FR-4.1.1 | Hierarchical tree view | Structure: Connection > Database > [Tables, Views, Stored Procedures, Functions, Triggers, Events] > Individual objects |
-| FR-4.1.2 | Lazy loading           | Child nodes load on expand; loading indicator during fetch; cache results with configurable TTL                         |
-| FR-4.1.3 | Quick filter/search    | Filter input at top of tree; real-time filtering across all visible objects; highlights matching text                   |
-| FR-4.1.4 | Drag to editor         | Drag any object (table, column, function) into the SQL editor to insert its escaped name                                |
-| FR-4.1.5 | Refresh                | Refresh individual nodes, subtrees, or entire tree; Ctrl+R shortcut                                                     |
-| FR-4.1.6 | System databases       | Toggle to show/hide system databases (mysql, information_schema, performance_schema, sys)                               |
+| ID       | Requirement            | Acceptance Criteria                                                                                                                                                                                                     |
+| -------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-4.1.1 | Hierarchical tree view | Structure: Connection > Database > [Tables, Views, Stored Procedures, Functions, Triggers, Events] > Individual objects                                                                                                 |
+| FR-4.1.2 | Lazy loading           | Child nodes load on expand; loading indicator during fetch; results cached per connection until invalidated. **No TTL** — a schema changes when someone runs DDL, not on a timer; see ARCHITECTURE §3.3 for why (#296). |
+| FR-4.1.3 | Quick filter/search    | Filter input at top of tree; real-time filtering across all visible objects; highlights matching text                                                                                                                   |
+| FR-4.1.4 | Drag to editor         | Drag any object (table, column, function) into the SQL editor to insert its escaped name                                                                                                                                |
+| FR-4.1.5 | Refresh                | Refresh individual nodes, subtrees, or entire tree; Ctrl+R shortcut                                                                                                                                                     |
+| FR-4.1.6 | System databases       | Toggle to show/hide system databases (mysql, information_schema, performance_schema, sys)                                                                                                                               |
 
 #### FR-4.2: Object Details
 
@@ -391,12 +391,12 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 #### FR-4.3: Context Menu Operations
 
-| ID       | Requirement         | Acceptance Criteria                                                                                                       |
-| -------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| FR-4.3.1 | Table operations    | SELECT TOP N, INSERT template, DROP (with confirmation), TRUNCATE (with confirmation), ALTER, Rename, Duplicate structure |
-| FR-4.3.2 | Database operations | Create, Drop (with confirmation), Set as default, Show statistics                                                         |
-| FR-4.3.3 | Column operations   | Add column, Modify column, Drop column (with confirmation), Copy name                                                     |
-| FR-4.3.4 | Index operations    | Create index, Drop index, Show usage statistics                                                                           |
+| ID       | Requirement         | Acceptance Criteria                                                                                                                                                                                                                                              |
+| -------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-4.3.1 | Table operations    | SELECT TOP N, INSERT template, DROP (with confirmation), TRUNCATE (with confirmation), ALTER, Rename, Duplicate structure                                                                                                                                        |
+| FR-4.3.2 | Database operations | Create, Drop (with confirmation), Set as default, Show statistics                                                                                                                                                                                                |
+| FR-4.3.3 | Column operations   | Add, modify and drop columns — **in the table designer** rather than a tree context menu. Columns are not tree nodes: a tree that expands to every column of every table fetches and scrolls a great deal to show less than the Columns tab already does (#293). |
+| FR-4.3.4 | Index operations    | Create and drop indexes — **in the table designer**, for the same reason. Index usage statistics are not implemented; they need `performance_schema` to be enabled, which it is not by default.                                                                  |
 
 ---
 

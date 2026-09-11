@@ -242,9 +242,12 @@ describe("SchemaTree", () => {
 
       const input = screen.getByPlaceholderText(/Filter/) as HTMLInputElement;
       await user.type(input, "ord");
-      // orders matches; users does not.
-      expect(screen.getByText("orders")).toBeInTheDocument();
-      expect(screen.queryByText("users")).toBeNull();
+      // orders matches; users does not. The name is split around the
+      // highlight, so it is matched across elements (#296).
+      const named = (name: string) =>
+        screen.queryAllByText((_t, node) => node?.textContent === name && node.tagName === "SPAN");
+      expect(named("orders").length).toBeGreaterThan(0);
+      expect(named("users")).toHaveLength(0);
     });
 
     it("Escape key clears the filter input", async () => {
@@ -700,5 +703,39 @@ describe("SchemaTree menus (#293)", () => {
     const menu = await openDatabaseMenu();
 
     expect(item(menu, "Already the default")?.disabled).toBe(true);
+  });
+});
+
+describe("SchemaTree filter highlight (#296)", () => {
+  beforeEach(() => {
+    useSchemaStore.setState({ byConnection: {} });
+  });
+
+  it("picks out where the filter matched in each name", async () => {
+    // FR-4.1.3. The filter narrowed the list and left you to find the match
+    // yourself.
+    const user = userEvent.setup({ applyAccept: false });
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => screen.getByText("users"));
+
+    await user.type(screen.getByPlaceholderText(/Filter/), "ser");
+
+    const marks = screen.getAllByRole("mark");
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks.every((m) => m.textContent === "ser")).toBe(true);
+  });
+
+  it("marks nothing when nothing is being filtered", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => screen.getByText("users"));
+
+    expect(screen.queryAllByRole("mark")).toHaveLength(0);
   });
 });
