@@ -20,33 +20,48 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useClickHandler } from "../../hooks/useClickHandler";
 import { useContextMenu } from "../../hooks/useContextMenu";
-import { dataSourceFor } from "../../lib/datasource";
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
+import { loadKey, type SchemaFolder, schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import type { DatabaseInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo } from "../../types";
 import { FolderNode } from "./FolderNode";
 
 export function SchemaTree({ connectionId }: { connectionId: string }) {
   // Whatever backend this connection belongs to. The tree asks it for
   // databases, tables and the rest, and gets the same shapes back either way,
   // so nothing below here knows or cares which one answered (#461).
-  const source = useMemo(() => dataSourceFor(connectionId), [connectionId]);
-  const [databases, setDatabases] = useState<DatabaseInfo[]>([]);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
-  const [tables, setTables] = useState<Record<string, TableInfo[]>>({});
-  const [views, setViews] = useState<Record<string, ViewInfo[]>>({});
-  const [routines, setRoutines] = useState<Record<string, RoutineInfo[]>>({});
-  const [triggers, setTriggers] = useState<Record<string, TriggerInfo[]>>({});
+
+  // The schema itself lives in a store keyed by connection, so two servers
+  // with a database of the same name cannot show each other's objects and a
+  // refresh reaches what is on screen (#288, #289).
+  const schema = useSchemaStore((s) => schemaFor(s, connectionId));
+  const databases = schema.databases ?? [];
+  const { tables, views, routines, triggers } = schema;
+
+  // Expansion is the tree's own, but it is still per-connection: the same
+  // database name on another server is a different node.
+  const [expandedByConnection, setExpandedByConnection] = useState<
+    Record<string, Record<string, boolean>>
+  >({});
+  const [expandedFoldersByConnection, setExpandedFoldersByConnection] = useState<
+    Record<string, Record<string, boolean>>
+  >({});
+  const expanded = expandedByConnection[connectionId] ?? {};
+  const expandedFolders = expandedFoldersByConnection[connectionId] ?? {};
+  const setExpanded = (fn: (prev: Record<string, boolean>) => Record<string, boolean>) =>
+    setExpandedByConnection((prev) => ({ ...prev, [connectionId]: fn(prev[connectionId] ?? {}) }));
+  const setExpandedFolders = (fn: (prev: Record<string, boolean>) => Record<string, boolean>) =>
+    setExpandedFoldersByConnection((prev) => ({
+      ...prev,
+      [connectionId]: fn(prev[connectionId] ?? {}),
+    }));
+
   const [filterText, setFilterText] = useState("");
-  const [loadingDbs, setLoadingDbs] = useState<Set<string>>(new Set());
-  const [loadingFolders, setLoadingFolders] = useState<Set<string>>(new Set());
   const filterInputRef = useRef<HTMLInputElement>(null);
   const addTab = useEditorStore((s) => s.addTab);
   const addStructureTab = useEditorStore((s) => s.addStructureTab);
@@ -85,7 +100,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   };
 
   useEffect(() => {
-    source.listDatabases(connectionId).then(setDatabases).catch(console.error);
+    void useSchemaStore.getState().ensureDatabases(connectionId);
   }, [connectionId]);
 
   // Ctrl+Shift+O focuses the schema tree filter input
@@ -101,96 +116,65 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     return () => window.removeEventListener("keydown", handler);
   }, []);
 
-  // When filter becomes active, eagerly fetch all unloaded DB data so search is complete
+  // With a filter active, everything has to be loaded for the search to be
+  // complete. Cancellation is the store's job now — a response for a
+  // connection the user has left is dropped there rather than here.
   const filterActive = filterText.trim().length > 0;
   useEffect(() => {
     if (!filterActive || databases.length === 0) return;
     let cancelled = false;
-    (async () => {
+    void (async () => {
+      const store = useSchemaStore.getState();
       for (const db of databases) {
         if (cancelled) break;
-        try {
-          if (!cancelled && !tables[db.name]) {
-            const t = await source.listTables(connectionId, db.name);
-            if (!cancelled) setTables((prev) => ({ ...prev, [db.name]: t }));
-          }
-          if (!cancelled && !views[db.name]) {
-            const v = await source.listViews(connectionId, db.name);
-            if (!cancelled) setViews((prev) => ({ ...prev, [db.name]: v }));
-          }
-          if (!cancelled && !routines[db.name]) {
-            const r = await source.listRoutines(connectionId, db.name);
-            if (!cancelled) setRoutines((prev) => ({ ...prev, [db.name]: r }));
-          }
-          if (!cancelled && !triggers[db.name]) {
-            const t = await source.listTriggers(connectionId, db.name);
-            if (!cancelled) setTriggers((prev) => ({ ...prev, [db.name]: t }));
-          }
-        } catch (e) {
-          if (!cancelled) console.error(e);
-        }
+        await store.ensureTables(connectionId, db.name);
+        await store.ensureViews(connectionId, db.name);
+        await store.ensureRoutines(connectionId, db.name);
+        await store.ensureTriggers(connectionId, db.name);
       }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterActive, databases]);
+  }, [filterActive, databases, connectionId]);
 
   const toggleDb = async (dbName: string) => {
     const isExpanded = expanded[dbName];
     setExpanded((prev) => ({ ...prev, [dbName]: !isExpanded }));
-    if (!isExpanded && !tables[dbName]) {
-      setLoadingDbs((prev) => new Set(prev).add(dbName));
-      try {
-        const t = await source.listTables(connectionId, dbName);
-        setTables((prev) => ({ ...prev, [dbName]: t }));
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setLoadingDbs((prev) => {
-          const next = new Set(prev);
-          next.delete(dbName);
-          return next;
-        });
-      }
-    }
+    if (!isExpanded) await useSchemaStore.getState().ensureTables(connectionId, dbName);
   };
 
   const folderKey = (dbName: string, folder: string) => `${dbName}:${folder}`;
+
+  /** Whether a node is waiting on the server, for its spinner. */
+  const isLoading = (key: string) => schema.loading.includes(key);
+
+  /**
+   * Procedures and functions are two folders over one fetch.
+   *
+   * The server returns both from `listRoutines`, so they share a cache entry
+   * and an invalidation; only the display splits them.
+   */
+  const folderStoreKey = (folder: string): SchemaFolder =>
+    folder === "views"
+      ? "views"
+      : folder === "triggers"
+      ? "triggers"
+      : folder === "tables"
+      ? "tables"
+      : "routines";
 
   const toggleFolder = async (dbName: string, folder: string) => {
     const key = folderKey(dbName, folder);
     const isExpanded = expandedFolders[key];
     setExpandedFolders((prev) => ({ ...prev, [key]: !isExpanded }));
-    if (!isExpanded) {
-      const needsFetch = (folder === "views" && !views[dbName])
-        || ((folder === "procedures" || folder === "functions") && !routines[dbName])
-        || (folder === "triggers" && !triggers[dbName]);
-      if (needsFetch) {
-        setLoadingFolders((prev) => new Set(prev).add(key));
-        try {
-          if (folder === "views") {
-            const v = await source.listViews(connectionId, dbName);
-            setViews((prev) => ({ ...prev, [dbName]: v }));
-          } else if (folder === "procedures" || folder === "functions") {
-            const r = await source.listRoutines(connectionId, dbName);
-            setRoutines((prev) => ({ ...prev, [dbName]: r }));
-          } else if (folder === "triggers") {
-            const t = await source.listTriggers(connectionId, dbName);
-            setTriggers((prev) => ({ ...prev, [dbName]: t }));
-          }
-        } catch (e) {
-          console.error(e);
-        } finally {
-          setLoadingFolders((prev) => {
-            const next = new Set(prev);
-            next.delete(key);
-            return next;
-          });
-        }
-      }
-    }
+    if (isExpanded) return;
+
+    const store = useSchemaStore.getState();
+    if (folder === "views") await store.ensureViews(connectionId, dbName);
+    else if (folder === "triggers") await store.ensureTriggers(connectionId, dbName);
+    else await store.ensureRoutines(connectionId, dbName);
   };
 
   // Single click: run SELECT inline without touching the editor tab
@@ -216,30 +200,39 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     executeQuery(connectionId, ddlQuery);
   };
 
-  const refreshTables = async (dbName: string) => {
-    try {
-      const t = await source.listTables(connectionId, dbName);
-      setTables((prev) => ({ ...prev, [dbName]: t }));
-    } catch (e) {
-      console.error(e);
+  /**
+   * Refresh a whole database: every folder under it, not only its tables.
+   *
+   * Reloading tables alone is what left views, routines and triggers showing
+   * what the server had when the node was first opened (#289).
+   */
+  const refreshDatabase = async (dbName: string) => {
+    const store = useSchemaStore.getState();
+    store.invalidate(connectionId, dbName);
+    await store.ensureTables(connectionId, dbName);
+    // Only what is on screen: an unopened folder will fetch when it opens.
+    if (expandedFolders[folderKey(dbName, "views")]) {
+      await store.ensureViews(connectionId, dbName);
+    }
+    if (
+      expandedFolders[folderKey(dbName, "procedures")]
+      || expandedFolders[folderKey(dbName, "functions")]
+    ) {
+      await store.ensureRoutines(connectionId, dbName);
+    }
+    if (expandedFolders[folderKey(dbName, "triggers")]) {
+      await store.ensureTriggers(connectionId, dbName);
     }
   };
 
   const refreshFolder = async (dbName: string, folder: string) => {
-    try {
-      if (folder === "views") {
-        const v = await source.listViews(connectionId, dbName);
-        setViews((prev) => ({ ...prev, [dbName]: v }));
-      } else if (folder === "routines") {
-        const r = await source.listRoutines(connectionId, dbName);
-        setRoutines((prev) => ({ ...prev, [dbName]: r }));
-      } else if (folder === "triggers") {
-        const t = await source.listTriggers(connectionId, dbName);
-        setTriggers((prev) => ({ ...prev, [dbName]: t }));
-      }
-    } catch (e) {
-      console.error(e);
-    }
+    const store = useSchemaStore.getState();
+    const which = folderStoreKey(folder);
+    store.invalidate(connectionId, dbName, which);
+    if (which === "views") await store.ensureViews(connectionId, dbName);
+    else if (which === "triggers") await store.ensureTriggers(connectionId, dbName);
+    else if (which === "routines") await store.ensureRoutines(connectionId, dbName);
+    else await store.ensureTables(connectionId, dbName);
   };
 
   const isFolderExpanded = (dbName: string, folder: string) => !!expandedFolders[folderKey(dbName, folder)];
@@ -338,7 +331,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                 {
                   label: "Refresh",
                   icon: <RefreshCw className="h-3.5 w-3.5" />,
-                  onClick: () => refreshTables(db.name),
+                  onClick: () => refreshDatabase(db.name),
                 },
                 { separator: true },
                 {
@@ -381,7 +374,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
           </button>
           {isDbExpanded(db.name) && (
             <div className="ml-3">
-              {loadingDbs.has(db.name) && !tables[db.name] && (
+              {isLoading(loadKey(db.name)) && !tables[db.name] && (
                 <div className="flex items-center gap-2 px-1.5 py-1 text-[11px] text-[var(--color-text-muted)]">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   Loading...
@@ -399,7 +392,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       {
                         label: "Refresh",
                         icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: () => refreshTables(db.name),
+                        onClick: () => refreshDatabase(db.name),
                       },
                     ]);
                   }}
@@ -467,7 +460,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                                   executeQuery(
                                     connectionId,
                                     `DROP TABLE \`${db.name}\`.\`${t.name}\``,
-                                  ).then(() => refreshTables(db.name));
+                                  ).then(() => refreshDatabase(db.name));
                                 }
                               },
                             },
@@ -505,7 +498,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   icon={<Eye className="h-3 w-3" />}
                   isExpanded={isFolderExpandedFiltered(db.name, "views", filteredViews(db.name).length)}
                   onToggle={() => toggleFolder(db.name, "views")}
-                  loading={loadingFolders.has(folderKey(db.name, "views"))}
+                  loading={isLoading(loadKey(db.name, folderStoreKey("views")))}
                   onContextMenu={(e) => {
                     showContextMenu(e, [
                       {
@@ -579,7 +572,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   icon={<Cog className="h-3 w-3" />}
                   isExpanded={isFolderExpandedFiltered(db.name, "procedures", filteredProcedures(db.name).length)}
                   onToggle={() => toggleFolder(db.name, "procedures")}
-                  loading={loadingFolders.has(folderKey(db.name, "procedures"))}
+                  loading={isLoading(loadKey(db.name, folderStoreKey("procedures")))}
                   onContextMenu={(e) => {
                     showContextMenu(e, [
                       {
@@ -651,7 +644,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   icon={<FunctionSquare className="h-3 w-3" />}
                   isExpanded={isFolderExpandedFiltered(db.name, "functions", filteredFunctions(db.name).length)}
                   onToggle={() => toggleFolder(db.name, "functions")}
-                  loading={loadingFolders.has(folderKey(db.name, "functions"))}
+                  loading={isLoading(loadKey(db.name, folderStoreKey("functions")))}
                   onContextMenu={(e) => {
                     showContextMenu(e, [
                       {
@@ -723,7 +716,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   icon={<Zap className="h-3 w-3" />}
                   isExpanded={isFolderExpandedFiltered(db.name, "triggers", filteredTriggers(db.name).length)}
                   onToggle={() => toggleFolder(db.name, "triggers")}
-                  loading={loadingFolders.has(folderKey(db.name, "triggers"))}
+                  loading={isLoading(loadKey(db.name, folderStoreKey("triggers")))}
                   onContextMenu={(e) => {
                     showContextMenu(e, [
                       {

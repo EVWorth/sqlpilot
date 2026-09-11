@@ -1,13 +1,14 @@
 import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
 import type { editor, IDisposable } from "monaco-editor";
 import { useCallback, useEffect, useRef } from "react";
+import { useSchemaCompletion } from "../../hooks/useSchemaCompletion";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { formatSql } from "../../lib/sql-format";
 import { getStatementAtCursor } from "../../lib/statement-at-cursor";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
-import { useSchemaCacheStore } from "../../stores/schemaCacheStore";
+import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 
@@ -46,12 +47,13 @@ export function SQLEditor() {
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
-  const schemaCache = useSchemaCacheStore();
+  const schemaCache = useSchemaCompletion(selectedConnectionId);
 
-  // Sync schema cache with active connection
+  // Load enough for autocomplete to be useful as soon as a connection is
+  // chosen, rather than on the first keystroke that needs it.
   useEffect(() => {
-    schemaCache.setConnection(selectedConnectionId);
-  }, [selectedConnectionId]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (selectedConnectionId) void useSchemaStore.getState().refreshAll(selectedConnectionId);
+  }, [selectedConnectionId]);
 
   // Register/re-register completion provider when connection or schema changes
   useEffect(() => {
@@ -255,7 +257,8 @@ export function SQLEditor() {
           64,
         ],
         run: async () => {
-          await useSchemaCacheStore.getState().refreshSchema();
+          const connectionId = useConnectionStore.getState().selectedConnectionId;
+          if (connectionId) await useSchemaStore.getState().refreshAll(connectionId);
         },
       });
 

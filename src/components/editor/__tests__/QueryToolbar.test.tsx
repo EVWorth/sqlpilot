@@ -45,16 +45,16 @@ vi.mock("../../../hooks/useQueryExecution", () => ({
 const mockRefreshSchema = vi.fn().mockResolvedValue(undefined);
 let mockSchemaLoading = false;
 
-vi.mock("../../../stores/schemaCacheStore", () => ({
-  useSchemaCacheStore: vi.fn(() => ({
-    refreshSchema: mockRefreshSchema,
-    loading: mockSchemaLoading,
-    connectionId: "conn-1",
-    databases: [],
-    tables: new Map(),
-    views: new Map(),
-    columns: new Map(),
-  })),
+// One schema store now, keyed by connection — the second cache this used to
+// mock is gone (#289).
+vi.mock("../../../stores/schemaStore", () => ({
+  schemaFor: () => ({ loading: mockSchemaLoading ? ["databases"] : [] }),
+  useSchemaStore: vi.fn((selector: (s: unknown) => unknown) =>
+    selector({
+      refreshAll: mockRefreshSchema,
+      byConnection: {},
+    })
+  ),
 }));
 
 let mockAiEnabled = true;
@@ -341,7 +341,7 @@ describe("QueryToolbar", () => {
     // Schema button should be enabled with a connection selected
     // If the button is disabled, refresh won't be called
     if (!(schemaBtn as HTMLButtonElement).disabled) {
-      expect(mockRefreshSchema).toHaveBeenCalled();
+      expect(mockRefreshSchema).toHaveBeenCalledWith("conn-1");
     }
   });
 

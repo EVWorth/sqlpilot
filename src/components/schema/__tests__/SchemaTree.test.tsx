@@ -31,6 +31,7 @@ import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
 import { useResultStore } from "../../../stores/resultStore";
+import { useSchemaStore } from "../../../stores/schemaStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import type { DatabaseInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo } from "../../../types";
 
@@ -102,6 +103,9 @@ function setupStores(overrides: Partial<{
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // The schema cache is a store now, so it outlives a render. Without this,
+  // a test asserting a fetch happened sees the previous test's cache (#288).
+  useSchemaStore.setState({ byConnection: {} });
   setupStores();
   vi.mocked(api.getDatabases).mockResolvedValue(dbs);
   // Per-DB data so filter test doesn't see duplicate "orders" from both DBs.
@@ -299,5 +303,92 @@ describe("SchemaTree", () => {
       expect(screen.getByText(/AFTER/)).toBeInTheDocument();
       expect(screen.getByText(/INSERT/)).toBeInTheDocument();
     });
+  });
+});
+
+describe("SchemaTree across connections (#288, #289)", () => {
+  /** Two servers, each with an `app_db` holding a different table. */
+  const twoServers = () => {
+    vi.mocked(api.getDatabases).mockResolvedValue(dbs);
+    vi.mocked(api.getTables).mockImplementation((cid: string) =>
+      Promise.resolve(
+        cid === "conn-1" ? tablesForApp : [
+          { name: "only_on_b", table_type: "BASE TABLE", engine: "InnoDB", row_count: 0, data_size: 0, comment: "" },
+        ] as never,
+      )
+    );
+  };
+
+  beforeEach(() => {
+    useSchemaStore.setState({ byConnection: {} });
+    twoServers();
+  });
+
+  it("does not show one server's tables under the other's database of the same name", async () => {
+    // `app_db` exists on both, which is the ordinary case — `mysql` and
+    // `information_schema` are on every server.
+    const user = userEvent.setup({ applyAccept: false });
+    const { rerender } = render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => expect(screen.getByText("users")).toBeInTheDocument());
+
+    rerender(<SchemaTree connectionId="conn-2" />);
+
+    await waitFor(() => expect(screen.queryByText("users")).toBeNull());
+  });
+
+  it("keeps each connection's expansion to itself", async () => {
+    // A node expanded on one server says nothing about the same-named node on
+    // another: switching used to arrive with folders already open, showing
+    // whatever the previous server had put in them.
+    const user = userEvent.setup({ applyAccept: false });
+    const { rerender } = render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await user.click(screen.getByText("app_db"));
+    await waitFor(() => expect(screen.getByText("Tables")).toBeInTheDocument());
+
+    rerender(<SchemaTree connectionId="conn-2" />);
+
+    // conn-2's `app_db` has never been opened, so it is closed.
+    await waitFor(() => expect(screen.getByText("app_db")).toBeInTheDocument());
+    expect(screen.queryByText("Tables")).toBeNull();
+  });
+
+  it("puts a connection back the way it was left", async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    const { rerender } = render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => expect(screen.getByText("users")).toBeInTheDocument());
+    const fetches = vi.mocked(api.getTables).mock.calls.length;
+
+    rerender(<SchemaTree connectionId="conn-2" />);
+    rerender(<SchemaTree connectionId="conn-1" />);
+
+    await waitFor(() => expect(screen.getByText("users")).toBeInTheDocument());
+    expect(vi.mocked(api.getTables).mock.calls.length).toBe(fetches);
+  });
+
+  it("drops a response that lands after the connection changed", async () => {
+    // This is what repopulated the new tree with the old server's objects.
+    let landLate!: (tables: unknown[]) => void;
+    vi.mocked(api.getTables).mockImplementation(() =>
+      new Promise((resolve) => {
+        landLate = resolve as (t: unknown[]) => void;
+      })
+    );
+    const user = userEvent.setup({ applyAccept: false });
+    const { rerender } = render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await user.click(screen.getByText("app_db"));
+
+    rerender(<SchemaTree connectionId="conn-2" />);
+    landLate(tablesForApp);
+
+    await waitFor(() => expect(screen.getByText("app_db")).toBeInTheDocument());
+    expect(screen.queryByText("users")).toBeNull();
   });
 });

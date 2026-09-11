@@ -127,9 +127,9 @@ vi.mock("../../../hooks/useKeyboardShortcuts", () => ({
 vi.mock("../../../hooks/useTheme", () => ({
   useTheme: vi.fn(),
 }));
-vi.mock("../../../stores/schemaCacheStore", () => ({
-  useSchemaCacheStore: {
-    getState: vi.fn(() => ({ refreshSchema: vi.fn() })),
+vi.mock("../../../stores/schemaStore", () => ({
+  useSchemaStore: {
+    getState: vi.fn(() => ({ refreshAll: vi.fn() })),
   },
 }));
 
@@ -663,13 +663,28 @@ describe("AppLayout (browser)", () => {
   // ─── Menu action: refresh-schema ───
   it("handles refresh-schema menu action", async () => {
     const refreshSpy = vi.fn();
-    const schemaCacheModule = await import("../../../stores/schemaCacheStore");
-    vi.mocked(schemaCacheModule.useSchemaCacheStore.getState).mockReturnValue({ refreshSchema: refreshSpy } as any);
+    const schemaModule = await import("../../../stores/schemaStore");
+    vi.mocked(schemaModule.useSchemaStore.getState).mockReturnValue({ refreshAll: refreshSpy } as any);
+    // The schema cache is keyed by connection now, so the refresh names the
+    // one to reload rather than reaching for a single current cache (#288).
+    connectionState.selectedConnectionId = "conn-1";
     await renderApp();
     await act(async () => {
       window.dispatchEvent(new CustomEvent("menu-action", { detail: "refresh-schema" }));
     });
-    expect(refreshSpy).toHaveBeenCalled();
+    expect(refreshSpy).toHaveBeenCalledWith("conn-1");
+  });
+
+  it("does nothing on refresh-schema with no connection", async () => {
+    const refreshSpy = vi.fn();
+    const schemaModule = await import("../../../stores/schemaStore");
+    vi.mocked(schemaModule.useSchemaStore.getState).mockReturnValue({ refreshAll: refreshSpy } as any);
+    connectionState.selectedConnectionId = null;
+    await renderApp();
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("menu-action", { detail: "refresh-schema" }));
+    });
+    expect(refreshSpy).not.toHaveBeenCalled();
   });
 
   // ─── Menu action: admin-tools when connected ───

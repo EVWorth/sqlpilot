@@ -1,5 +1,6 @@
 use crate::connection::ConnectionManager;
 use crate::error::CoreError;
+use crate::schema::ident::qualified;
 use serde::Serialize;
 use sqlx::{AssertSqlSafe, Row};
 use std::sync::Arc;
@@ -350,13 +351,15 @@ impl SchemaInspector {
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching table DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
-        let use_db = format!("USE `{}`", database);
-        let _ = sqlx::raw_sql(AssertSqlSafe(use_db)).execute(&pool).await;
-
-        let row = sqlx::raw_sql(AssertSqlSafe(format!("SHOW CREATE TABLE `{}`", table)))
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| CoreError::Schema(e.to_string()))?;
+        // Qualified, so no `USE` is needed and no session state is relied on
+        // (#290).
+        let row = sqlx::raw_sql(AssertSqlSafe(format!(
+            "SHOW CREATE TABLE {}",
+            qualified(database, table)
+        )))
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
 
         let ddl: String = row.try_get(1).unwrap_or_default();
         tracing::debug!(ddl_length = ddl.len(), "Retrieved DDL");
@@ -474,13 +477,13 @@ impl SchemaInspector {
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, view = %view, "Fetching view DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
-        let use_db = format!("USE `{}`", database);
-        let _ = sqlx::raw_sql(AssertSqlSafe(use_db)).execute(&pool).await;
-
-        let row = sqlx::raw_sql(AssertSqlSafe(format!("SHOW CREATE VIEW `{}`", view)))
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| CoreError::Schema(e.to_string()))?;
+        let row = sqlx::raw_sql(AssertSqlSafe(format!(
+            "SHOW CREATE VIEW {}",
+            qualified(database, view)
+        )))
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
 
         let ddl: String = row.try_get(1).unwrap_or_default();
         tracing::debug!(ddl_length = ddl.len(), "Retrieved view DDL");
@@ -497,12 +500,10 @@ impl SchemaInspector {
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, routine = %routine, routine_type = %routine_type, "Fetching routine DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
-        let use_db = format!("USE `{}`", database);
-        let _ = sqlx::raw_sql(AssertSqlSafe(use_db)).execute(&pool).await;
-
+        let name = qualified(database, routine);
         let show_cmd = match routine_type.to_uppercase().as_str() {
-            "FUNCTION" => format!("SHOW CREATE FUNCTION `{}`", routine),
-            _ => format!("SHOW CREATE PROCEDURE `{}`", routine),
+            "FUNCTION" => format!("SHOW CREATE FUNCTION {}", name),
+            _ => format!("SHOW CREATE PROCEDURE {}", name),
         };
 
         let row = sqlx::raw_sql(AssertSqlSafe(show_cmd))
@@ -524,13 +525,13 @@ impl SchemaInspector {
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, trigger = %trigger, "Fetching trigger DDL");
         let pool = self.connection_manager.get_pool(connection_id)?;
-        let use_db = format!("USE `{}`", database);
-        let _ = sqlx::raw_sql(AssertSqlSafe(use_db)).execute(&pool).await;
-
-        let row = sqlx::raw_sql(AssertSqlSafe(format!("SHOW CREATE TRIGGER `{}`", trigger)))
-            .fetch_one(&pool)
-            .await
-            .map_err(|e| CoreError::Schema(e.to_string()))?;
+        let row = sqlx::raw_sql(AssertSqlSafe(format!(
+            "SHOW CREATE TRIGGER {}",
+            qualified(database, trigger)
+        )))
+        .fetch_one(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
 
         let ddl: String = row.try_get(2).unwrap_or_default();
         tracing::debug!(ddl_length = ddl.len(), "Retrieved trigger DDL");

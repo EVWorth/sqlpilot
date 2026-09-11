@@ -135,9 +135,9 @@ vi.mock("../../../hooks/useKeyboardShortcuts", () => ({
 vi.mock("../../../hooks/useTheme", () => ({
   useTheme: vi.fn(),
 }));
-vi.mock("../../../stores/schemaCacheStore", () => ({
-  useSchemaCacheStore: {
-    getState: vi.fn(() => ({ refreshSchema: vi.fn() })),
+vi.mock("../../../stores/schemaStore", () => ({
+  useSchemaStore: {
+    getState: vi.fn(() => ({ refreshAll: vi.fn() })),
   },
 }));
 vi.mock("@tauri-apps/api/event", () => ({
