@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parsePersistedTab } from "../editorStore";
+import { parsePersistedTab } from "../../lib/editor-session";
 
 const base = { id: "t1", title: "Query", content: "SELECT 1", isDirty: true };
 
