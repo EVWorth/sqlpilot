@@ -146,4 +146,28 @@ describe("UpdateErrorDetails", () => {
     rerender(<UpdateErrorDetails appVersion="2.1.0" packageFormat="deb" />);
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
   });
+
+  it("closes on Escape, and gives focus back to the button (F21 of #322)", () => {
+    // A panel that closes on an outside click but not on Escape can only be
+    // dismissed with a mouse.
+    renderIt();
+    const trigger = screen.getByText("Update failed");
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(document.activeElement).toBe(trigger.closest("button"));
+  });
+
+  it("says whether the panel is open", () => {
+    renderIt();
+    const trigger = screen.getByText("Update failed").closest("button")!;
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+
+    fireEvent.click(trigger);
+
+    expect(trigger.getAttribute("aria-expanded")).toBe("true");
+  });
 });

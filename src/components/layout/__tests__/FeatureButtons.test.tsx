@@ -89,6 +89,16 @@ describe("FeatureButtons", () => {
     });
   });
 
+  it("announces the theme to a screen reader (F20 of #322)", () => {
+    // A theme change is entirely visual, so without this the button gives no
+    // confirmation that it did anything at all.
+    currentTheme = "light";
+    renderButtons();
+
+    const live = screen.getByText("Light theme");
+    expect(live.getAttribute("aria-live")).toBe("polite");
+  });
+
   it("leaves the theme button alone with no connection", () => {
     // The theme is the app's, not the server's.
     connState = { selectedConnectionId: null };

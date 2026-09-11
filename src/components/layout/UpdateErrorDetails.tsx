@@ -28,6 +28,7 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -36,8 +37,22 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
         setOpen(false);
       }
     };
+    // A panel that closes on an outside click but not on Escape can only be
+    // dismissed with a mouse (F21 of #322).
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      e.stopPropagation();
+      setOpen(false);
+      // Focus goes back where it came from, rather than to the top of the
+      // document, which is where a keyboard user would otherwise land.
+      triggerRef.current?.focus();
+    };
     document.addEventListener("mousedown", onDocClick);
-    return () => document.removeEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onKeyDown);
+    };
   }, [open]);
 
   // Returning null below does not unmount this — React keeps the instance and
@@ -97,6 +112,8 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
   return (
     <div className="relative flex items-center gap-1" ref={containerRef}>
       <button
+        ref={triggerRef}
+        aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
         className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
         title={updateError

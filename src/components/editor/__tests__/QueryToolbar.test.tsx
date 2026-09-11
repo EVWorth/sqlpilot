@@ -98,7 +98,10 @@ const mockSettingsState = {
   setQuerySettings: mockSetQuerySettings,
 };
 
-vi.mock("../../../stores/settingsStore", () => ({
+// Partial: FormatterSettingsDialog reads the shared defaults from here, and a
+// bare factory would drop them from the module (F28 of #322).
+vi.mock("../../../stores/settingsStore", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../stores/settingsStore")>()),
   useSettingsStore: Object.assign(
     vi.fn((selector?: (s: any) => any) => {
       return selector ? selector(mockSettingsState) : mockSettingsState;

@@ -32,7 +32,7 @@ export interface FormatterSettings {
   denseOperators: boolean;
 }
 
-const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
+export const DEFAULT_FORMATTER_SETTINGS: FormatterSettings = {
   keywordCase: "upper",
   identifierCase: "preserve",
   dataTypeCase: "upper",
@@ -198,7 +198,15 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
 
     checkInFlight = true;
     lastCheckAt = Date.now();
-    set({ updateStatus: "checking", updateError: null, manualUpdateCommand: null });
+    // The version goes too. Left in place, the diagnostic and the release
+    // link both name the version a *previous* check found, which is not what
+    // this check is about to report (F14 of #322).
+    set({
+      updateStatus: "checking",
+      updateVersion: null,
+      updateError: null,
+      manualUpdateCommand: null,
+    });
     try {
       const update = await check();
       if (update) {
