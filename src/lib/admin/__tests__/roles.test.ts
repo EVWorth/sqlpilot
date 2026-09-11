@@ -57,7 +57,7 @@ describe("role statements", () => {
   });
 
   it("escapes a name that would otherwise break out", () => {
-    expect(buildCreateRole("o'brien")).toBe("CREATE ROLE 'o\\'brien'");
+    expect(buildCreateRole("o'brien")).toBe("CREATE ROLE 'o''brien'");
   });
 });
 

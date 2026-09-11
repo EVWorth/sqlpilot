@@ -29,8 +29,21 @@ describe("quoteStringLiteral", () => {
     expect(quoteStringLiteral("hunter2")).toBe("'hunter2'");
   });
 
-  it("escapes a single quote", () => {
-    expect(quoteStringLiteral("it's")).toBe("'it\\'s'");
+  it("doubles a single quote rather than backslashing it", () => {
+    // `\'` is not an escape under NO_BACKSLASH_ESCAPES: the backslash is
+    // literal and the quote ends the string. Doubling holds in both modes
+    // (#285).
+    expect(quoteStringLiteral("it's")).toBe("'it''s'");
+  });
+
+  it("leaves a name built to break out of the statement inert", () => {
+    const hostile = "x'; DROP USER 'victim'@'%'; -- ";
+    const quoted = quoteStringLiteral(hostile);
+
+    expect(quoted).toBe("'x''; DROP USER ''victim''@''%''; -- '");
+    // No backslash-quote, which is the sequence that ends the string early
+    // when backslash escaping is off.
+    expect(quoted).not.toContain("\\'");
   });
 
   it("escapes a backslash", () => {
@@ -42,7 +55,7 @@ describe("quoteStringLiteral", () => {
   });
 
   it("escapes backslashes before quotes, so its own escapes are not re-escaped", () => {
-    expect(quoteStringLiteral("a\\'b")).toBe("'a\\\\\\'b'");
+    expect(quoteStringLiteral("a\\'b")).toBe("'a\\\\''b'");
   });
 
   it("escapes the control characters MySQL would otherwise interpret", () => {

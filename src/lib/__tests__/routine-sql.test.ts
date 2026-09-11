@@ -10,7 +10,7 @@ describe("formatParamValue", () => {
       const out = formatParamValue("\\' OR 1=1 -- ", "VARCHAR(50)");
       expect(out.ok).toBe(true);
       if (!out.ok) return;
-      expect(out.sql).toBe("'\\\\\\' OR 1=1 -- '");
+      expect(out.sql).toBe("'\\\\'' OR 1=1 -- '");
       // Every backslash the input carried is doubled, so nothing it contains
       // is read as an escape.
       expect(out.sql.startsWith("'\\\\")).toBe(true);
@@ -23,7 +23,7 @@ describe("formatParamValue", () => {
 
     it("keeps an ordinary value intact", () => {
       const out = formatParamValue("O'Brien", "VARCHAR(20)");
-      expect(out.ok && out.sql).toBe("'O\\'Brien'");
+      expect(out.ok && out.sql).toBe("'O''Brien'");
     });
   });
 

@@ -22,7 +22,9 @@ describe("escapeValue", () => {
   });
 
   it("escapes single quotes", () => {
-    expect(escapeValue("it's")).toBe("'it\\'s'");
+    // Doubled, not backslashed: `\'` is not an escape under
+    // NO_BACKSLASH_ESCAPES, and there it ends the string early (#285).
+    expect(escapeValue("it's")).toBe("'it''s'");
   });
 
   it("escapes backslashes", () => {

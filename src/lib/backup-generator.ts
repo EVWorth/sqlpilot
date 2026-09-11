@@ -40,12 +40,33 @@ export const defaultBackupOptions: BackupOptions = {
   insertBatchSize: 100,
 };
 
+/**
+ * One value, as a SQL literal for the dump.
+ *
+ * A quote is escaped by doubling it rather than with a backslash. The
+ * backslash form is not valid under `NO_BACKSLASH_ESCAPES` — which ANSI mode
+ * turns on — and there it does not merely fail: a value containing
+ * `x', 1); DROP TABLE victim; -- ` escapes to `'x\', 1); DROP TABLE victim; --
+ * '`, whose `\` is literal, so the quote after it ends the string and the
+ * rest of the row is executed as SQL. Verified against MySQL 8.0.46, where it
+ * dropped the table.
+ *
+ * The dump's header sets `SQL_MODE`, which clears that mode and is what makes
+ * the file safe to restore whole today. That is a good belt, but the escaping
+ * should not depend on it: a single INSERT copied out of the dump, or a
+ * restore path that drops comments, loses the protection. Doubling is correct
+ * in both modes, so the quote can no longer be the way out.
+ *
+ * The remaining backslash escapes — `\n`, `\r`, `\0`, `\Z`, and the doubled
+ * backslash itself — are genuinely mode-dependent and cannot be written
+ * portably inside a literal. They rely on the header, as mysqldump's do.
+ */
 export function escapeValue(val: SqlValue): string {
   if (val === null) return "NULL";
   if (typeof val === "number") return String(val);
   if (typeof val === "boolean") return val ? "1" : "0";
   if (Array.isArray(val)) {
-    // Binary data as hex
+    // Binary data as hex, which needs no escaping in any mode.
     const hex = val.map((b) => b.toString(16).padStart(2, "0")).join("");
     return `X'${hex}'`;
   }
@@ -53,7 +74,7 @@ export function escapeValue(val: SqlValue): string {
     "'"
     + String(val)
       .replace(/\\/g, "\\\\")
-      .replace(/'/g, "\\'")
+      .replace(/'/g, "''")
       .replace(/\n/g, "\\n")
       .replace(/\r/g, "\\r")
       .replace(/\0/g, "\\0")
