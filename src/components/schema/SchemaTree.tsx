@@ -50,6 +50,7 @@ import { useResultStore } from "../../stores/resultStore";
 import { loadKey, type SchemaFolder, schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { FolderNode } from "./FolderNode";
+import { HighlightedName } from "./HighlightedName";
 
 export function SchemaTree({ connectionId }: { connectionId: string }) {
   // Whatever backend this connection belongs to. The tree asks it for
@@ -689,7 +690,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                         className="flex flex-1 items-center gap-1 px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
                       >
                         <Table2 className="h-3 w-3 shrink-0" />
-                        <span className="truncate">{t.name}</span>
+                        <span className="truncate">
+                          <HighlightedName name={t.name} match={filterText} />
+                        </span>
                         {t.row_count != null && (
                           <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
                             ~{t.row_count.toLocaleString()}
@@ -781,7 +784,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
                     >
                       <Eye className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{v.name}</span>
+                      <span className="truncate">
+                        <HighlightedName name={v.name} match={filterText} />
+                      </span>
                     </button>
                   ))}
                 </FolderNode>
@@ -855,7 +860,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
                     >
                       <Cog className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{r.name}</span>
+                      <span className="truncate">
+                        <HighlightedName name={r.name} match={filterText} />
+                      </span>
                     </button>
                   ))}
                 </FolderNode>
@@ -929,7 +936,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
                     >
                       <FunctionSquare className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{r.name}</span>
+                      <span className="truncate">
+                        <HighlightedName name={r.name} match={filterText} />
+                      </span>
                     </button>
                   ))}
                 </FolderNode>
@@ -996,7 +1005,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
                     >
                       <Zap className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{t.name}</span>
+                      <span className="truncate">
+                        <HighlightedName name={t.name} match={filterText} />
+                      </span>
                       <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
                         {t.timing} {t.event}
                       </span>
@@ -1081,7 +1092,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
                     >
                       <CalendarClock className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{ev.name}</span>
+                      <span className="truncate">
+                        <HighlightedName name={ev.name} match={filterText} />
+                      </span>
                       <span className="ml-auto shrink-0 text-[10px] text-[var(--color-text-muted)]">
                         {ev.status === "ENABLED" ? (ev.interval || "once") : "off"}
                       </span>
