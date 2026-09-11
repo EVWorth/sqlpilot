@@ -11,6 +11,7 @@ import {
   THEME_TOKENS,
   TOKEN_LABELS,
 } from "../../lib/themes";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { allThemes, useThemeStore } from "../../stores/themeStore";
 
 /**
@@ -43,6 +44,8 @@ export function ThemeSettingsDialog({ isOpen, onClose }: ThemeSettingsDialogProp
   const deleteCustomTheme = useThemeStore((s) => s.deleteCustomTheme);
   const importTheme = useThemeStore((s) => s.importTheme);
   const preview = useThemeStore((s) => s.preview);
+  const showMinimap = useSettingsStore((s) => s.querySettings.showMinimap);
+  const setQuerySettings = useSettingsStore((s) => s.setQuerySettings);
 
   /** The theme being edited, or null when only picking. */
   const [draft, setDraft] = useState<Theme | null>(null);
@@ -157,6 +160,27 @@ export function ThemeSettingsDialog({ isOpen, onClose }: ThemeSettingsDialogProp
                     />
                   ))}
                 </div>
+
+                <p className="mb-2 mt-4 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                  Editor
+                </p>
+                <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                  <input
+                    type="checkbox"
+                    checked={showMinimap}
+                    onChange={(e) =>
+                      setQuerySettings({
+                        ...useSettingsStore.getState().querySettings,
+                        showMinimap: e.target.checked,
+                      })}
+                    className="h-3.5 w-3.5 accent-brand-500"
+                  />
+                  {
+                    /* FR-2.3.7. Off by default — statements are short and the
+                      minimap costs width — but that is a preference (#295). */
+                  }
+                  Show minimap
+                </label>
 
                 <div className="mt-3 flex items-center gap-2">
                   <button

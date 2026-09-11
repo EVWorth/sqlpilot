@@ -9,7 +9,12 @@ vi.mock("../../lib/tauri-api", () => ({
 const QUERY_SETTINGS_KEY = "sqlpilot-query-settings";
 const STORAGE_KEY = "sqlpilot-formatter-settings";
 
-const defaultQuerySettings = { maxResultRows: 1000, limitEnabled: true, showSystemDatabases: false };
+const defaultQuerySettings = {
+  maxResultRows: 1000,
+  limitEnabled: true,
+  showSystemDatabases: false,
+  showMinimap: false,
+};
 const defaultFormatterSettings = {
   keywordCase: "upper" as const,
   identifierCase: "preserve" as const,

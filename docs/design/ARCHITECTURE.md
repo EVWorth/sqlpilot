@@ -285,16 +285,14 @@ pub trait QueryExecutor: Send + Sync {
         &self,
         connection_id: &str,
         sql: &str,
-        params: Option<Vec<SqlValue>>,
+        // Not implemented, and not planned. The SQL is the user's own text,
+        // typed into the editor — there is no application-supplied value to
+        // bind. Everything the app composes itself is built in Rust with
+        // `sqlx::query().bind()`, which is where binding belongs. See
+        // "On parameterized queries" below (#285).
+        limit: Option<u64>,
+        offset: Option<u64>,
     ) -> Result<QueryResult, QueryError>;
-
-    /// Execute and stream rows back via Tauri events.
-    async fn execute_stream(
-        &self,
-        connection_id: &str,
-        sql: &str,
-        app_handle: AppHandle,
-    ) -> Result<StreamHandle, QueryError>;
 
     /// Cancel a running query by its handle.
     async fn cancel(&self, query_id: &str) -> Result<(), QueryError>;
@@ -311,15 +309,15 @@ pub trait QueryExecutor: Send + Sync {
 
 #### Features
 
-| Feature                       | Implementation                                                                                                                                            |
-| ----------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Streaming results**         | Rows are fetched in configurable batches (default: 1000) and pushed to the frontend via Tauri `emit()` events. The frontend assembles them incrementally. |
-| **Query cancellation**        | Each query runs inside a `tokio::select!` with a cancellation token. On cancel, a separate connection sends `KILL QUERY <id>` to the MySQL server.        |
-| **Transaction tracking**      | A per-connection state machine tracks `BEGIN` / `COMMIT` / `ROLLBACK` transitions. The UI displays the current transaction state.                         |
-| **Timing & statistics**       | Every execution records: wall-clock time, rows affected/returned, bytes transferred, warnings count.                                                      |
-| **Parameterized queries**     | Support for `?` placeholders with typed parameter binding via sqlx.                                                                                       |
-| **Multi-statement execution** | Statements are split by `;` (respecting string literals and comments), executed sequentially, and each result set is tagged with its statement index.     |
-| **EXPLAIN integration**       | One-click EXPLAIN or EXPLAIN ANALYZE with visual tree rendering on the frontend.                                                                          |
+| Feature                       | Implementation                                                                                                                                                                                 |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bounded results**           | Rows are read from a stream and the read stops at the configured row limit (default 1000); paging re-runs the statement and discards rows to reach an offset. See "On streaming" below (#284). |
+| **Query cancellation**        | Each query runs inside a `tokio::select!` with a cancellation token. On cancel, a separate connection sends `KILL QUERY <id>` to the MySQL server.                                             |
+| **Transaction tracking**      | A per-connection state machine tracks `BEGIN` / `COMMIT` / `ROLLBACK` transitions. The UI displays the current transaction state.                                                              |
+| **Timing & statistics**       | Every execution records: wall-clock time, rows affected/returned, bytes transferred, warnings count.                                                                                           |
+| **Parameterized queries**     | Used throughout the app's own queries (`sqlx::query().bind()`). Not exposed on `execute_query`, which runs the user's own SQL — see below (#285).                                              |
+| **Multi-statement execution** | Statements are split by `;` (respecting string literals and comments), executed sequentially, and each result set is tagged with its statement index.                                          |
+| **EXPLAIN integration**       | One-click EXPLAIN or EXPLAIN ANALYZE with visual tree rendering on the frontend.                                                                                                               |
 
 #### Result Structures
 
@@ -782,30 +780,67 @@ settingsStore   ──(subscription: theme changed)────► document.body
 └──────────────────┘
 ```
 
-### 4.2 Streaming Query Flow (Large Result Sets)
+### 4.2 Large Result Sets
 
 ```
 Frontend                         Rust Backend                    MySQL
    │                                 │                             │
-   │ invoke("execute_query_stream")  │                             │
+   │ invoke("execute_query",         │                             │
+   │        limit, offset)           │                             │
    │────────────────────────────────►│                             │
-   │                                 │ sqlx::query().fetch()       │
+   │                                 │ raw_sql().fetch_many()      │
    │                                 │────────────────────────────►│
    │                                 │                             │
-   │                                 │◄── Row batch 1 (1000 rows) │
-   │◄── event: "query_rows" ────────│                             │
-   │    { rows: [...], partial: T }  │                             │
-   │                                 │◄── Row batch 2 (1000 rows) │
-   │◄── event: "query_rows" ────────│                             │
-   │    { rows: [...], partial: T }  │                             │
-   │          ...                    │          ...                │
-   │                                 │◄── Final batch (350 rows)  │
-   │◄── event: "query_rows" ────────│                             │
-   │    { rows: [...], partial: F }  │                             │
+   │                                 │◄── rows, one at a time ─────│
+   │                                 │  skip while offset not met  │
+   │                                 │  keep until limit reached   │
+   │                                 │  stop keeping, keep draining│
    │                                 │                             │
-   │◄── event: "query_complete" ────│                             │
-   │    { total: 2350, time: 89ms }  │                             │
+   │◄── QueryResult (≤ limit rows) ──│                             │
+   │    rows_truncated: true         │                             │
 ```
+
+The read is streamed; the _reply_ is not. What crosses the IPC boundary is
+bounded by the row limit, so the renderer never receives more than it asked
+for. "Next page" re-runs the statement with an offset.
+
+#### On streaming
+
+Earlier drafts specified `execute_query_stream` with `query_started`,
+`query_rows` and `query_complete` events, and a frontend that assembled
+batches as they arrived. It was never built, and the case it was for — a
+million-row result overwhelming the renderer — is the case the row limit
+exists to prevent. Streaming a million rows into a grid moves the problem
+rather than solving it: the renderer still ends up holding them.
+
+This is also what every comparable client does. DBeaver, TablePlus and Sequel
+Ace all fetch a bounded page and offer a way to the next one; none streams
+rows into the grid as they arrive.
+
+Streaming would earn its keep for something the row limit cannot bound — an
+export writing straight to a file, where the rows never need to be in memory
+at once. The export path is where to build it, and §5.7 already describes that
+shape. It is not needed for the grid.
+
+#### On parameterized queries
+
+`execute_query` takes SQL and no parameters. TESTING_STRATEGY listed a
+`test_execute_with_params`, and the absence reads like a gap; it is not one.
+
+The SQL reaching that command is the user's own text, typed into the editor.
+There is no application-supplied value to bind — the whole statement is the
+input. Adding a `params` array would add surface nothing calls.
+
+Where values _are_ the app's, they are bound: every `information_schema` read
+in `SchemaInspector` uses `sqlx::query().bind()`, and so does the admin
+crate's. The remaining interpolation is of identifiers, which cannot be bound
+in SQL at all and go through `schema::ident::quote_ident` instead.
+
+Statements the app composes for the user to read — a backup file, a generated
+`INSERT`, a DDL preview — cannot use placeholders either: the output is text,
+and a `?` in a backup file is not a value. Those escape, and the escaping is
+`lib/sql-quote.ts` and `backup-generator.ts`, both of which double the quote
+so a value cannot end the string it is in.
 
 ### 4.3 AI Query Generation Flow
 
@@ -992,20 +1027,14 @@ fn keyring_available() -> bool;
 async fn execute_query(
     connection_id: String,
     sql: String,
-    params: Option<Vec<serde_json::Value>>,
+    database: Option<String>,
+    /// Rows to keep, and rows to skip before keeping any. There is no
+    /// `params`: the SQL is the user's own text, so there is nothing for the
+    /// app to bind (§4.2).
+    limit: Option<u32>,
+    offset: Option<u32>,
     state: State<'_, AppState>,
-) -> Result<QueryResult, AppError>;
-
-/// NOT IMPLEMENTED. Planned; no such command is registered.
-/// Execute a SQL statement with streamed results via events.
-/// Returns a handle that can be used to cancel the stream.
-#[tauri::command]
-async fn execute_query_stream(
-    connection_id: String,
-    sql: String,
-    app_handle: AppHandle,
-    state: State<'_, AppState>,
-) -> Result<StreamHandle, AppError>;
+) -> Result<Vec<QueryResult>, QueryError>;
 
 /// Cancel a running query by its handle.
 #[tauri::command]
@@ -1533,7 +1562,6 @@ async fn table_maintenance(
 | `connection_lost`        | `{ connection_id, error }`                 | Connection dropped unexpectedly |
 | `connection_health`      | `{ connection_id, healthy, latency_ms }`   | Periodic health check result    |
 | `query_rows`             | `{ query_id, rows, partial }`              | Streamed result batch           |
-| `query_complete`         | `{ query_id, total_rows, time_ms }`        | Stream finished                 |
 | `query_error`            | `{ query_id, error }`                      | Query execution failed          |
 | `export_progress`        | `{ export_id, rows_done, total_est, pct }` | Export progress update          |
 | `import_progress`        | `{ import_id, rows_done, total_est, pct }` | Import progress update          |
@@ -1779,15 +1807,15 @@ Feature availability when dependencies are unavailable:
 
 ### 8.1 Backend Optimizations
 
-| Strategy               | Implementation                                                                        | Impact                                                          |
-| ---------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| **Connection Pooling** | `sqlx::MySqlPool` with configurable min/max connections (default: 1–5 per profile)    | Eliminates connection setup overhead for repeated queries       |
-| **Schema Caching**     | In-memory `HashMap` with TTL per object type; invalidated on DDL detection            | Reduces INFORMATION_SCHEMA queries from seconds to microseconds |
-| **Result Streaming**   | Rows fetched in batches of 1,000 via `sqlx::query().fetch()`; pushed via Tauri events | Constant memory regardless of result size                       |
-| **Binary Protocol**    | `sqlx` uses MySQL's binary protocol by default for prepared statements                | 2–5× less bandwidth than text protocol for numeric types        |
-| **Query Pagination**   | Rust adds `LIMIT` / `OFFSET` for table browsing; frontend requests pages on demand    | Only transfers visible data                                     |
-| **Async I/O**          | Every database, file, and network operation is non-blocking via Tokio                 | Main thread and UI thread are never blocked                     |
-| **SSH Tunnel Reuse**   | One tunnel per SSH host; multiple MySQL connections share the same tunnel             | Avoids SSH handshake per connection                             |
+| Strategy               | Implementation                                                                                               | Impact                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| **Connection Pooling** | `sqlx::MySqlPool` with configurable min/max connections (default: 1–5 per profile)                           | Eliminates connection setup overhead for repeated queries       |
+| **Schema Caching**     | In-memory `HashMap` with TTL per object type; invalidated on DDL detection                                   | Reduces INFORMATION_SCHEMA queries from seconds to microseconds |
+| **Bounded results**    | Rows read one at a time and kept up to the configured limit; the rest of the stream is drained but discarded | The renderer holds at most one page, whatever the result size   |
+| **Binary Protocol**    | `sqlx` uses MySQL's binary protocol by default for prepared statements                                       | 2–5× less bandwidth than text protocol for numeric types        |
+| **Query Pagination**   | Rust adds `LIMIT` / `OFFSET` for table browsing; frontend requests pages on demand                           | Only transfers visible data                                     |
+| **Async I/O**          | Every database, file, and network operation is non-blocking via Tokio                                        | Main thread and UI thread are never blocked                     |
+| **SSH Tunnel Reuse**   | One tunnel per SSH host; multiple MySQL connections share the same tunnel                                    | Avoids SSH handshake per connection                             |
 
 ### 8.2 Frontend Optimizations
 

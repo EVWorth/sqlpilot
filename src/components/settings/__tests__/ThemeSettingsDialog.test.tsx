@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { serializeTheme, type Theme } from "../../../lib/themes";
+import { useSettingsStore } from "../../../stores/settingsStore";
 import { useThemeStore } from "../../../stores/themeStore";
 import { ThemeSettingsDialog } from "../ThemeSettingsDialog";
 
@@ -222,5 +223,20 @@ describe("ThemeSettingsDialog (#350)", () => {
     // the accessibility tree of every theme.
     open();
     expect(within(row("Nord")).queryAllByRole("img")).toHaveLength(0);
+  });
+
+  describe("editor settings (#295)", () => {
+    it("offers the minimap, which was hard-disabled", () => {
+      open();
+      expect(screen.getByLabelText("Show minimap")).not.toBeChecked();
+    });
+
+    it("turns it on", () => {
+      open();
+
+      fireEvent.click(screen.getByLabelText("Show minimap"));
+
+      expect(useSettingsStore.getState().querySettings.showMinimap).toBe(true);
+    });
   });
 });

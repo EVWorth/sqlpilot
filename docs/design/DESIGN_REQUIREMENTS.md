@@ -283,18 +283,21 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 | FR-2.2.6 | Multiple result sets      | Display multiple result sets from a single execution (e.g., stored procedures); each result set in its own tab or stacked panel |
 | FR-2.2.7 | Query timeout             | Configurable per-connection query timeout (default: 30s); visual countdown; timeout can be overridden per execution             |
 
-#### FR-2.3: Editor Productivity
+#### FR-2.3: Editor Productivity `[partial]`
 
-| ID       | Requirement                     | Acceptance Criteria                                                                                                          |
-| -------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| FR-2.3.1 | Code snippets and templates     | Built-in snippet library (SELECT, INSERT, JOIN patterns, etc.); user-defined custom snippets; triggered by prefix + Tab      |
-| FR-2.3.2 | Customizable keyboard shortcuts | All editor actions have configurable keyboard shortcuts; import/export shortcut mappings; conflict detection                 |
-| FR-2.3.3 | SQL linting and validation      | Real-time syntax error highlighting; warning for common mistakes (missing WHERE in UPDATE/DELETE, implicit type conversions) |
-| FR-2.3.4 | Statement history per tab       | Each tab maintains a navigable history of executed statements; Up/Down arrow navigation when editor is empty                 |
-| FR-2.3.5 | Variable substitution           | Define variables (:variable_name) and prompt for values before execution; remember last-used values                          |
-| FR-2.3.6 | Split editor                    | Split editor pane horizontally or vertically to view two parts of the same file or two different files simultaneously        |
-| FR-2.3.7 | Minimap                         | Optional minimap sidebar showing document overview (Monaco built-in)                                                         |
-| FR-2.3.8 | Bracket matching                | Highlight matching parentheses, brackets; jump to matching bracket with Ctrl+Shift+\                                         |
+FR-2.3.1, 2.3.2, 2.3.4, 2.3.5 and 2.3.6 are not built. Each says so in its own
+row rather than the section reading as done (#295).
+
+| ID       | Requirement                     | Acceptance Criteria                                                                                                                                                                                                                     |
+| -------- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-2.3.1 | Code snippets and templates     | **Not built.** Monaco's own suggestions cover keywords and the schema completion covers names; a snippet library is a separate feature with its own storage and editor.                                                                 |
+| FR-2.3.2 | Customizable keyboard shortcuts | **Not built.** Shortcuts are fixed and listed in the shortcuts dialog (F1). Remapping needs a conflict model and a store of its own — see NFR-5.4, which asks for the same thing with profiles.                                         |
+| FR-2.3.3 | SQL linting and validation      | Real-time syntax error highlighting; warning for common mistakes (missing WHERE in UPDATE/DELETE, implicit type conversions)                                                                                                            |
+| FR-2.3.4 | Statement history per tab       | **Not built as described.** History is global rather than per tab, searchable, and reachable with Ctrl+Shift+H — which is what people reach for. Up/Down in an empty editor is a terminal idiom that sits badly in a multi-line editor. |
+| FR-2.3.5 | Variable substitution           | **Not built.** Worth having; it needs a parser that can tell `:name` from a MySQL `::` cast and from a string literal, plus a prompt and a store of last values.                                                                        |
+| FR-2.3.6 | Split editor                    | **Not built.** Tabs cover the two-statements case; a split view is a layout change touching the tab bar, the results pane and the session file.                                                                                         |
+| FR-2.3.7 | Minimap                         | A setting, in Appearance. Off by default: statements are short and the minimap costs width, but that is a preference rather than a fact about the app (#295).                                                                           |
+| FR-2.3.8 | Bracket matching                | Highlight matching parentheses, brackets; jump to matching bracket with Ctrl+Shift+\                                                                                                                                                    |
 
 ---
 

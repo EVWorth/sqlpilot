@@ -426,26 +426,26 @@ The `test_db_large` database is populated by a separate setup script (`tests/fix
 
 ### `query_tests.rs`
 
-| Test Name                         | Description                                                         | Type        |
-| --------------------------------- | ------------------------------------------------------------------- | ----------- |
-| `test_execute_select`             | `SELECT * FROM users` returns expected columns and rows             | Integration |
-| `test_execute_insert`             | `INSERT INTO users (...)` returns affected rows = 1                 | Integration |
-| `test_execute_update`             | `UPDATE users SET ...` returns correct affected count               | Integration |
-| `test_execute_delete`             | `DELETE FROM users WHERE ...` returns correct affected count        | Integration |
-| `test_execute_ddl`                | `CREATE TABLE temp_test (...)` succeeds, table exists               | Integration |
-| `test_execute_multi_statement`    | Two SELECT statements return two result sets                        | Integration |
-| `test_execute_with_params`        | Parameterized query prevents SQL injection                          | Integration |
-| `test_cancel_long_query`          | Cancel `SELECT SLEEP(60)` within 2 seconds                          | Integration |
-| `test_query_timeout`              | Query exceeding timeout returns timeout error                       | Integration |
-| `test_large_result_set_streaming` | Stream 100K rows without OOM                                        | Integration |
-| `test_binary_data_handling`       | Insert and retrieve BLOB data, verify byte equality                 | Integration |
-| `test_null_handling`              | NULL values round-trip correctly for all column types               | Integration |
-| `test_all_data_types`             | Insert/select all MySQL types via `all_types` table                 | Integration |
-| `test_unicode_data`               | Insert and retrieve emoji and CJK characters                        | Integration |
-| `test_json_data_type`             | Insert JSON object, query with `JSON_EXTRACT`                       | Integration |
-| `test_transaction_commit`         | Begin → Insert → Commit → verify row exists                         | Integration |
-| `test_transaction_rollback`       | Begin → Insert → Rollback → verify row absent                       | Integration |
-| `test_concurrent_queries`         | Run 10 queries in parallel on same pool, all return correct results | Integration |
+| Test Name                         | Description                                                                                                                                                                                                                                                             | Type        |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `test_execute_select`             | `SELECT * FROM users` returns expected columns and rows                                                                                                                                                                                                                 | Integration |
+| `test_execute_insert`             | `INSERT INTO users (...)` returns affected rows = 1                                                                                                                                                                                                                     | Integration |
+| `test_execute_update`             | `UPDATE users SET ...` returns correct affected count                                                                                                                                                                                                                   | Integration |
+| `test_execute_delete`             | `DELETE FROM users WHERE ...` returns correct affected count                                                                                                                                                                                                            | Integration |
+| `test_execute_ddl`                | `CREATE TABLE temp_test (...)` succeeds, table exists                                                                                                                                                                                                                   | Integration |
+| `test_execute_multi_statement`    | Two SELECT statements return two result sets                                                                                                                                                                                                                            | Integration |
+| `test_quoting_prevents_injection` | A value built to end the string it is in stays data, in both SQL modes — `sql-quote.test.ts`, `backup-generator-pure.test.ts`. Replaces a planned `test_execute_with_params`: `execute_query` runs the user's own SQL, so there is no application value to bind (#285). | Unit        |
+| `test_cancel_long_query`          | Cancel `SELECT SLEEP(60)` within 2 seconds                                                                                                                                                                                                                              | Integration |
+| `test_query_timeout`              | Query exceeding timeout returns timeout error                                                                                                                                                                                                                           | Integration |
+| `test_row_limit_bounds_the_reply` | A result larger than the limit comes back at the limit and says it was truncated — `paging_offset.rs`, `memory_guard.rs`. Replaces a planned streaming test: the reply is bounded rather than streamed (#284).                                                          | Integration |
+| `test_binary_data_handling`       | Insert and retrieve BLOB data, verify byte equality                                                                                                                                                                                                                     | Integration |
+| `test_null_handling`              | NULL values round-trip correctly for all column types                                                                                                                                                                                                                   | Integration |
+| `test_all_data_types`             | Insert/select all MySQL types via `all_types` table                                                                                                                                                                                                                     | Integration |
+| `test_unicode_data`               | Insert and retrieve emoji and CJK characters                                                                                                                                                                                                                            | Integration |
+| `test_json_data_type`             | Insert JSON object, query with `JSON_EXTRACT`                                                                                                                                                                                                                           | Integration |
+| `test_transaction_commit`         | Begin → Insert → Commit → verify row exists                                                                                                                                                                                                                             | Integration |
+| `test_transaction_rollback`       | Begin → Insert → Rollback → verify row absent                                                                                                                                                                                                                           | Integration |
+| `test_concurrent_queries`         | Run 10 queries in parallel on same pool, all return correct results                                                                                                                                                                                                     | Integration |
 
 ### Schema tests
 
