@@ -51,7 +51,7 @@ Examples:
 
 ## Build, Test, and Lint
 
-All common commands are in the `Makefile`. Rust tests require a running MySQL 8 Docker container.
+All common commands are in the `justfile` — run `just` to list them. The Rust tests marked `#[ignore]` need a live MySQL 8 or MariaDB 11 container.
 
 ```bash
 # Start MySQL 8 test container (port 13306)
