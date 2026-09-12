@@ -15,7 +15,7 @@ use std::sync::Arc;
 use mas_core::connection::ConnectionManager;
 use mas_core::error::CoreError;
 use mas_core::models::query::QueryResult;
-use mas_core::query::QueryExecutor;
+use mas_core::query::{ExplainFormat, ExplainResponse, QueryExecutor};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, ReferencingKey, RoutineInfo, SchemaMatch,
     TableInfo, TriggerInfo, ViewInfo,
@@ -210,6 +210,26 @@ impl Workspace for AppWorkspace {
         self.inspector
             .search_schema(connection_id, database, fragment, limit)
             .await
+    }
+
+    async fn explain(
+        &self,
+        connection_id: &str,
+        database: Option<&str>,
+        sql: &str,
+        analyze: bool,
+        format: ExplainFormat,
+    ) -> Result<ExplainResponse, CoreError> {
+        mas_core::query::explain(
+            &self.connections,
+            &self.executor,
+            connection_id.to_string(),
+            sql.to_string(),
+            database.map(str::to_string),
+            analyze,
+            format,
+        )
+        .await
     }
 
     async fn run(

@@ -17,6 +17,7 @@ use rmcp::model::{ServerCapabilities, ServerInfo};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler};
 use serde::{Deserialize, Serialize};
 
+use crate::analysis::{check_identifier, profile_column_sql, table_stats_sql, top_values_sql};
 use crate::classify::single_statement;
 use crate::grants::ConnectionFacts;
 use crate::policy::{ConnectionPolicy, Decision, VerbClass};
@@ -24,6 +25,36 @@ use crate::shapes::{
     cell_to_json, Column, Database, ForeignKey, Index, Match, ReferencedBy, ResultColumn, Table,
 };
 use crate::workspace::{LiveConnection, ObjectKind, Workspace};
+use mas_core::query::{AnalyzeRefusal, ExplainFormat, FormatFallback};
+
+/// How many of a column's most common values `profile_column` reports.
+///
+/// Ten is enough to see a distribution and short enough to read. More would
+/// be a sample of the data by another name.
+const TOP_VALUES: u32 = 10;
+
+/// A count from an aggregate, which the driver may hand back as any integer
+/// shape depending on the server.
+fn as_count(value: Option<mas_core::models::query::SqlValue>) -> i64 {
+    use mas_core::models::query::SqlValue;
+    match value {
+        Some(SqlValue::Int(n)) => n,
+        Some(SqlValue::UInt(n)) => n as i64,
+        Some(SqlValue::Float(n)) => n as i64,
+        Some(SqlValue::String(s)) => s.parse().unwrap_or(0),
+        _ => 0,
+    }
+}
+
+/// A CAST(... AS CHAR) column, which is null when the table is empty.
+fn as_text(value: Option<mas_core::models::query::SqlValue>) -> Option<String> {
+    use mas_core::models::query::SqlValue;
+    match value {
+        Some(SqlValue::Null) | None => None,
+        Some(SqlValue::String(s)) => Some(s),
+        Some(other) => Some(other.to_string()),
+    }
+}
 
 /// The knobs that are not per-connection.
 #[derive(Debug, Clone, Copy)]
@@ -173,6 +204,94 @@ pub struct SelectResult {
     /// the cap was the posture.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ExplainArg {
+    pub connection: String,
+    #[serde(default)]
+    pub database: Option<String>,
+    /// One statement. The plan for two statements is not a thing.
+    pub sql: String,
+    /// "classic" (the default tabular plan), "json" (the optimiser's own cost
+    /// model) or "tree" (the iterator tree, MySQL 8.0.16+).
+    #[serde(default)]
+    pub format: Option<PlanFormat>,
+    /// Whether to run the statement and report what actually happened, rather
+    /// than what the planner intends. Refused on a read-only connection and
+    /// for anything that would change data; a plain plan comes back instead,
+    /// with a note saying so.
+    #[serde(default)]
+    pub analyze: bool,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum PlanFormat {
+    Classic,
+    Json,
+    Tree,
+}
+
+impl From<PlanFormat> for ExplainFormat {
+    fn from(format: PlanFormat) -> Self {
+        match format {
+            PlanFormat::Classic => ExplainFormat::Classic,
+            PlanFormat::Json => ExplainFormat::Json,
+            PlanFormat::Tree => ExplainFormat::Tree,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Plan {
+    pub columns: Vec<ResultColumn>,
+    pub rows: Vec<Vec<serde_json::Value>>,
+    /// True when these are measured timings rather than an estimate.
+    pub analyzed: bool,
+    /// The format that was actually served, which is not always the one asked
+    /// for — MariaDB has no tree format, and JSON is not available everywhere.
+    pub format: String,
+    /// Set when something was asked for and quietly not done. A plan that
+    /// silently was not ANALYZE reads as measured when it is a guess.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ColumnArg {
+    pub connection: String,
+    pub database: String,
+    pub table: String,
+    pub column: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ColumnProfile {
+    pub rows_total: i64,
+    /// Rows where the column is not null.
+    pub rows_present: i64,
+    pub nulls: i64,
+    pub distinct_values: i64,
+    /// As text, whatever the column's type, so the shape of this answer does
+    /// not depend on the column being profiled.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max: Option<String>,
+    /// The most common values, where the posture allows values at all. A
+    /// top-ten of a column called `email` is row data whatever the tool is
+    /// called.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub most_common: Vec<TopValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct TopValue {
+    pub value: String,
+    pub occurrences: i64,
 }
 
 /// A tool failure, phrased for the model that has to do something next.
@@ -585,6 +704,228 @@ impl SqlPilot {
             },
             row_count: if effective == 0 { 0 } else { row_count },
             execution_time_ms: result.execution_time_ms,
+            note,
+        }))
+    }
+    /// The plan for a statement, as the server sees it.
+    ///
+    /// The first thing to reach for when a query is slow, and available at
+    /// every posture: a plan is about the shape of the work, not the data.
+    #[tool(name = "explain")]
+    pub async fn explain(
+        &self,
+        Parameters(ExplainArg {
+            connection,
+            database,
+            sql,
+            format,
+            analyze,
+        }): Parameters<ExplainArg>,
+    ) -> Result<Json<Plan>, Refusal> {
+        match &database {
+            Some(database) => self.resolve_database(&connection, database)?,
+            None => self.resolve(&connection)?,
+        };
+        // One statement, for the same reason as everywhere else. The plan for
+        // two statements is not a thing.
+        let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+
+        let response = self
+            .workspace
+            .explain(
+                &connection,
+                database.as_deref(),
+                &statement.sql,
+                analyze,
+                format
+                    .map(ExplainFormat::from)
+                    .unwrap_or(ExplainFormat::Classic),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        // Both of these are cases where the server gave something other than
+        // what was asked for. Saying nothing would let a plain plan read as a
+        // measurement.
+        let mut notes: Vec<String> = Vec::new();
+        if let Some(refusal) = &response.refusal {
+            notes.push(
+                match refusal {
+                    AnalyzeRefusal::WouldMutate => {
+                        "ANALYZE was not run: it would have applied the statement's changes in \
+                         order to time them. This is the planner's estimate."
+                    }
+                    AnalyzeRefusal::ReadOnlyConnection => {
+                        "ANALYZE was not run: this connection is read-only. This is the planner's \
+                         estimate."
+                    }
+                }
+                .to_string(),
+            );
+        }
+        if let Some(fallback) = &response.format_fallback {
+            match fallback {
+                FormatFallback::TreeNotSupported => notes.push(
+                    "This server has no tree format, so the tabular plan is what came back."
+                        .to_string(),
+                ),
+                FormatFallback::AnalyzeJsonNotSupported => notes.push(
+                    "This server cannot combine ANALYZE with JSON, so the JSON plan has no \
+                     measured timings."
+                        .to_string(),
+                ),
+                // MariaDB's own spelling of the same thing. Nothing was lost,
+                // so there is nothing to report.
+                FormatFallback::None => {}
+            }
+        }
+
+        Ok(Json(Plan {
+            columns: response
+                .result
+                .columns
+                .into_iter()
+                .map(ResultColumn::from)
+                .collect(),
+            rows: response
+                .result
+                .rows
+                .into_iter()
+                .map(|row| row.into_iter().map(cell_to_json).collect())
+                .collect(),
+            analyzed: response.analyzed,
+            format: format!("{:?}", response.format).to_lowercase(),
+            note: (!notes.is_empty()).then(|| notes.join(" ")),
+        }))
+    }
+
+    /// Size, row estimate and storage for a table.
+    ///
+    /// Read from the catalogue, so it costs the same on a table of ten rows
+    /// and a table of ten million. The row count is InnoDB's estimate and can
+    /// be well out; `run_select` with `COUNT(*)` is the count.
+    #[tool(name = "table_stats")]
+    pub async fn table_stats(
+        &self,
+        Parameters(TableArg {
+            connection,
+            database,
+            table,
+        }): Parameters<TableArg>,
+    ) -> Result<Json<serde_json::Value>, Refusal> {
+        self.resolve_database(&connection, &database)?;
+        check_identifier(&table)?;
+
+        let result = self
+            .workspace
+            .run(
+                &connection,
+                Some(&database),
+                &table_stats_sql(&database, &table),
+                Some(1),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let row =
+            result.rows.into_iter().next().ok_or_else(|| {
+                format!("There is no table called \"{table}\" in \"{database}\".")
+            })?;
+        Ok(Json(serde_json::Value::Object(
+            result
+                .columns
+                .into_iter()
+                .map(|c| c.name)
+                .zip(row.into_iter().map(cell_to_json))
+                .collect(),
+        )))
+    }
+
+    /// What one column contains, without reading it.
+    ///
+    /// Counts, nulls, distinct values and the extremes, computed in the
+    /// database. The most common values are included only where the
+    /// connection's posture allows values at all — a top-ten list of a column
+    /// called `email` is row data whatever the tool is called.
+    #[tool(name = "profile_column")]
+    pub async fn profile_column(
+        &self,
+        Parameters(ColumnArg {
+            connection,
+            database,
+            table,
+            column,
+        }): Parameters<ColumnArg>,
+    ) -> Result<Json<ColumnProfile>, Refusal> {
+        let (_, policy) = self.resolve_database(&connection, &database)?;
+        check_identifier(&table)?;
+        check_identifier(&column)?;
+
+        let result = self
+            .workspace
+            .run(
+                &connection,
+                Some(&database),
+                &profile_column_sql(&database, &table, &column),
+                Some(1),
+            )
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let row = result
+            .rows
+            .into_iter()
+            .next()
+            .ok_or_else(|| "The profile query returned nothing at all.".to_string())?;
+        let mut cells = row.into_iter();
+        let rows_total = as_count(cells.next());
+        let rows_present = as_count(cells.next());
+        let distinct_values = as_count(cells.next());
+        let min = as_text(cells.next());
+        let max = as_text(cells.next());
+
+        // Top values are the one part of this that is data rather than a
+        // number about data, so they follow the posture.
+        let mut most_common = Vec::new();
+        let mut note = None;
+        if policy.posture.allows_values() {
+            let top = self
+                .workspace
+                .run(
+                    &connection,
+                    Some(&database),
+                    &top_values_sql(&database, &table, &column, TOP_VALUES),
+                    Some(TOP_VALUES),
+                )
+                .await
+                .map_err(|e| e.to_string())?;
+            most_common = top
+                .rows
+                .into_iter()
+                .map(|row| {
+                    let mut cells = row.into_iter();
+                    TopValue {
+                        value: as_text(cells.next()).unwrap_or_default(),
+                        occurrences: as_count(cells.next()),
+                    }
+                })
+                .collect();
+        } else {
+            note = Some(
+                "The most common values are not included: this connection is shared as schema \
+                 only. The counts above are computed in the database and do not carry values."
+                    .to_string(),
+            );
+        }
+
+        Ok(Json(ColumnProfile {
+            rows_total,
+            rows_present,
+            nulls: rows_total.saturating_sub(rows_present),
+            distinct_values,
+            min,
+            max,
+            most_common,
             note,
         }))
     }

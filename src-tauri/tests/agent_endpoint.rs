@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use mas_core::error::CoreError;
 use mas_core::models::query::{ColumnMeta, QueryResult, SqlValue};
+use mas_core::query::{ExplainFormat, ExplainResponse};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, ReferencingKey, RoutineInfo, SchemaMatch,
     TableInfo, TriggerInfo, ViewInfo,
@@ -114,6 +115,24 @@ impl Workspace for OneConnection {
         _: u32,
     ) -> Result<Vec<SchemaMatch>, CoreError> {
         Ok(vec![])
+    }
+
+    async fn explain(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        sql: &str,
+        _: bool,
+        format: ExplainFormat,
+    ) -> Result<ExplainResponse, CoreError> {
+        Ok(ExplainResponse {
+            result: self.run("", None, sql, None).await?,
+            analyzed: false,
+            refusal: None,
+            tabular: true,
+            format,
+            format_fallback: None,
+        })
     }
 
     async fn run(
@@ -293,6 +312,9 @@ async fn a_harness_can_list_the_tools() {
         "search_schema",
         "related_tables",
         "run_select",
+        "explain",
+        "table_stats",
+        "profile_column",
     ] {
         assert!(body.contains(tool), "{tool} is missing from tools/list");
     }

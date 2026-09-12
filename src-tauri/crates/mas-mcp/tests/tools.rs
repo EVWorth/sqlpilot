@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use mas_core::error::CoreError;
 use mas_core::models::query::{ColumnMeta, QueryResult, SqlValue};
+use mas_core::query::{AnalyzeRefusal, ExplainFormat, ExplainResponse, FormatFallback};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, ReferencingKey, RoutineInfo, SchemaMatch,
     TableInfo, TriggerInfo, ViewInfo,
@@ -23,8 +24,8 @@ use mas_core::schema::inspector::{
 use mas_mcp::grants::{ConnectionFacts, Grant, Grants};
 use mas_mcp::policy::DataPosture;
 use mas_mcp::server::{
-    ConnectionArg, DatabaseArg, Limits, ObjectsArg, RelatedArg, SearchArg, SelectArg, SqlPilot,
-    TableArg,
+    ColumnArg, ConnectionArg, DatabaseArg, ExplainArg, Limits, ObjectsArg, PlanFormat, RelatedArg,
+    SearchArg, SelectArg, SqlPilot, TableArg,
 };
 use mas_mcp::workspace::{LiveConnection, ObjectKind, Workspace};
 use rmcp::handler::server::wrapper::Parameters;
@@ -41,6 +42,11 @@ struct Fake {
     rows: usize,
     /// Foreign keys as edges: (table, table it references).
     edges: Vec<(&'static str, &'static str)>,
+    /// The row `profile_column`'s aggregate query should return, when a test
+    /// is about profiling rather than about reading.
+    profile: Option<Vec<SqlValue>>,
+    /// The rows its top-values query should return.
+    top: Vec<(String, i64)>,
     calls: AtomicUsize,
 }
 
@@ -251,6 +257,47 @@ impl Workspace for Fake {
         }])
     }
 
+    async fn explain(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        sql: &str,
+        analyze: bool,
+        format: ExplainFormat,
+    ) -> Result<ExplainResponse, CoreError> {
+        // Mirrors the real path's decisions rather than its SQL: ANALYZE is
+        // refused on a read-only connection, and this server has no tree
+        // format. Both are cases the tool has to report rather than hide.
+        let read_only = self.facts.first().is_some_and(|f| f.read_only);
+        let refusal = (analyze && read_only).then_some(AnalyzeRefusal::ReadOnlyConnection);
+        let tree = matches!(format, ExplainFormat::Tree);
+        Ok(ExplainResponse {
+            result: QueryResult {
+                query_id: "q".into(),
+                statement_index: 0,
+                sql: sql.to_string(),
+                columns: vec![ColumnMeta {
+                    name: "type".into(),
+                    data_type: "varchar".into(),
+                    nullable: true,
+                    is_primary_key: false,
+                }],
+                rows: vec![vec![SqlValue::String("ALL".into())]],
+                rows_affected: 0,
+                execution_time_ms: 1,
+                warnings: vec![],
+                rows_truncated: false,
+                truncation_reason: None,
+                total_rows_available: None,
+            },
+            analyzed: analyze && refusal.is_none(),
+            refusal,
+            tabular: true,
+            format: if tree { ExplainFormat::Classic } else { format },
+            format_fallback: tree.then_some(FormatFallback::TreeNotSupported),
+        })
+    }
+
     async fn run(
         &self,
         _: &str,
@@ -260,6 +307,27 @@ impl Workspace for Fake {
     ) -> Result<QueryResult, CoreError> {
         self.ran.lock().unwrap().push(sql.to_string());
         *self.last_limit.lock().unwrap() = limit;
+
+        // The generated analysis queries are answered with the fixture rather
+        // than with the generic row, so a profiling test can say what the
+        // database found.
+        if let Some(profile) = &self.profile {
+            if sql.contains("rows_total") {
+                return Ok(one_row(sql, profile.clone()));
+            }
+        }
+        if sql.contains("occurrences") {
+            return Ok(rows(
+                sql,
+                self.top
+                    .iter()
+                    .map(|(value, count)| {
+                        vec![SqlValue::String(value.clone()), SqlValue::Int(*count)]
+                    })
+                    .collect(),
+            ));
+        }
+
         let wanted = limit.unwrap_or(u32::MAX) as usize;
         let returned = self.rows.min(wanted);
         Ok(QueryResult {
@@ -284,6 +352,35 @@ impl Workspace for Fake {
             total_rows_available: None,
         })
     }
+}
+
+/// A result with the given rows and a column per cell.
+fn rows(sql: &str, rows: Vec<Vec<SqlValue>>) -> QueryResult {
+    let width = rows.first().map(Vec::len).unwrap_or(1);
+    QueryResult {
+        query_id: "q".into(),
+        statement_index: 0,
+        sql: sql.to_string(),
+        columns: (0..width)
+            .map(|i| ColumnMeta {
+                name: format!("c{i}"),
+                data_type: "varchar".into(),
+                nullable: true,
+                is_primary_key: false,
+            })
+            .collect(),
+        rows,
+        rows_affected: 0,
+        execution_time_ms: 1,
+        warnings: vec![],
+        rows_truncated: false,
+        truncation_reason: None,
+        total_rows_available: None,
+    }
+}
+
+fn one_row(sql: &str, row: Vec<SqlValue>) -> QueryResult {
+    rows(sql, vec![row])
 }
 
 fn server(fake: Fake) -> (SqlPilot, Arc<Fake>) {
@@ -760,4 +857,251 @@ async fn a_trailing_semicolon_is_not_two_statements() {
 
     server.run_select(select("SELECT 1;", None)).await.unwrap();
     assert_eq!(fake.ran(), vec!["SELECT 1"]);
+}
+
+// ------------------------------------------------------------------ analysis
+
+#[tokio::test]
+async fn a_plan_is_available_at_every_posture() {
+    // A plan is about the shape of the work, not the data, so schema-only
+    // withholding it would be withholding the wrong thing.
+    let (server, _) = server(Fake::shared(DataPosture::SchemaOnly, "production", false));
+
+    let plan = server
+        .explain(Parameters(ExplainArg {
+            connection: "c1".into(),
+            database: Some("shop".into()),
+            sql: "SELECT * FROM orders".into(),
+            format: None,
+            analyze: false,
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(plan.columns[0].name, "type");
+    assert!(!plan.analyzed);
+    assert!(plan.note.is_none());
+}
+
+#[tokio::test]
+async fn a_plan_that_is_not_a_measurement_says_so() {
+    // Otherwise a model reports an estimate as a timing, which is the whole
+    // reason anyone asked for ANALYZE.
+    let (server, _) = server(Fake::shared(DataPosture::Full, "production", true));
+
+    let plan = server
+        .explain(Parameters(ExplainArg {
+            connection: "c1".into(),
+            database: Some("shop".into()),
+            sql: "SELECT 1".into(),
+            format: None,
+            analyze: true,
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert!(!plan.analyzed);
+    let note = plan.note.expect("a refused ANALYZE is reported");
+    assert!(note.contains("read-only"), "{note}");
+}
+
+#[tokio::test]
+async fn a_format_the_server_cannot_serve_is_reported_not_hidden() {
+    let (server, _) = server(Fake::shared(DataPosture::Full, "development", false));
+
+    let plan = server
+        .explain(Parameters(ExplainArg {
+            connection: "c1".into(),
+            database: Some("shop".into()),
+            sql: "SELECT 1".into(),
+            format: Some(PlanFormat::Tree),
+            analyze: false,
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(plan.format, "classic");
+    assert!(plan.note.unwrap().contains("no tree format"));
+}
+
+#[tokio::test]
+async fn explaining_two_statements_is_refused() {
+    let (server, _) = server(Fake::shared(DataPosture::Full, "development", false));
+
+    let refusal = refused(
+        server
+            .explain(Parameters(ExplainArg {
+                connection: "c1".into(),
+                database: Some("shop".into()),
+                sql: "SELECT 1; SELECT 2".into(),
+                format: None,
+                analyze: false,
+            }))
+            .await,
+    );
+    assert!(refusal.contains("one at a time"), "{refusal}");
+}
+
+#[tokio::test]
+async fn table_stats_reads_the_catalogue() {
+    let (server, fake) = server(Fake::shared(DataPosture::SchemaOnly, "production", false));
+
+    server
+        .table_stats(Parameters(TableArg {
+            connection: "c1".into(),
+            database: "shop".into(),
+            table: "orders".into(),
+        }))
+        .await
+        .unwrap();
+
+    // Not COUNT(*): on a large table that is a full scan, and a tool called
+    // "stats" should not be the most expensive call an agent can make.
+    let ran = fake.ran();
+    assert!(ran[0].contains("INFORMATION_SCHEMA.TABLES"), "{ran:?}");
+}
+
+#[tokio::test]
+async fn a_table_name_that_could_not_exist_is_refused_before_the_database_sees_it() {
+    let (server, fake) = server(Fake::shared(DataPosture::Full, "development", false));
+
+    let refusal = refused(
+        server
+            .table_stats(Parameters(TableArg {
+                connection: "c1".into(),
+                database: "shop".into(),
+                table: "x".repeat(200),
+            }))
+            .await,
+    );
+    assert!(refusal.contains("64"), "{refusal}");
+    assert!(fake.ran().is_empty());
+}
+
+#[tokio::test]
+async fn profiling_a_column_counts_what_is_missing() {
+    let mut fake = Fake::shared(DataPosture::SchemaOnly, "production", false);
+    // rows_total, rows_present, distinct, min, max — in that order.
+    fake.profile = Some(vec![
+        SqlValue::Int(100),
+        SqlValue::Int(80),
+        SqlValue::Int(12),
+        SqlValue::String("2020-01-01".into()),
+        SqlValue::String("2024-12-31".into()),
+    ]);
+    let (server, _) = server(fake);
+
+    let profile = server
+        .profile_column(Parameters(ColumnArg {
+            connection: "c1".into(),
+            database: "shop".into(),
+            table: "orders".into(),
+            column: "created_at".into(),
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(profile.rows_total, 100);
+    assert_eq!(profile.rows_present, 80);
+    assert_eq!(profile.nulls, 20, "the number nobody computes by hand");
+    assert_eq!(profile.distinct_values, 12);
+    assert_eq!(profile.min.as_deref(), Some("2020-01-01"));
+}
+
+#[tokio::test]
+async fn a_schema_only_profile_has_no_values_in_it() {
+    // The counts are numbers about data. The top ten of a column called
+    // `email` is data, whatever the tool is called.
+    let mut fake = Fake::shared(DataPosture::SchemaOnly, "production", false);
+    fake.profile = Some(vec![
+        SqlValue::Int(10),
+        SqlValue::Int(10),
+        SqlValue::Int(3),
+        SqlValue::Null,
+        SqlValue::Null,
+    ]);
+    let (server, fake) = server(fake);
+
+    let profile = server
+        .profile_column(Parameters(ColumnArg {
+            connection: "c1".into(),
+            database: "shop".into(),
+            table: "customers".into(),
+            column: "email".into(),
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert!(profile.most_common.is_empty());
+    assert!(profile.note.unwrap().contains("schema only"));
+    assert_eq!(
+        fake.ran().len(),
+        1,
+        "the top-values query should not have run at all"
+    );
+}
+
+#[tokio::test]
+async fn a_profile_with_values_allowed_includes_the_common_ones() {
+    let mut fake = Fake::shared(DataPosture::Samples, "development", false);
+    fake.profile = Some(vec![
+        SqlValue::Int(10),
+        SqlValue::Int(10),
+        SqlValue::Int(2),
+        SqlValue::String("a".into()),
+        SqlValue::String("b".into()),
+    ]);
+    fake.top = vec![("shipped".to_string(), 7), ("pending".to_string(), 3)];
+    let (server, _) = server(fake);
+
+    let profile = server
+        .profile_column(Parameters(ColumnArg {
+            connection: "c1".into(),
+            database: "shop".into(),
+            table: "orders".into(),
+            column: "status".into(),
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(profile.most_common[0].value, "shipped");
+    assert_eq!(profile.most_common[0].occurrences, 7);
+    assert!(profile.note.is_none());
+}
+
+#[tokio::test]
+async fn an_empty_table_profiles_without_inventing_extremes() {
+    // MIN and MAX of nothing are NULL, and reporting them as "" would be a
+    // value that is not in the table.
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.profile = Some(vec![
+        SqlValue::Int(0),
+        SqlValue::Int(0),
+        SqlValue::Int(0),
+        SqlValue::Null,
+        SqlValue::Null,
+    ]);
+    let (server, _) = server(fake);
+
+    let profile = server
+        .profile_column(Parameters(ColumnArg {
+            connection: "c1".into(),
+            database: "shop".into(),
+            table: "orders".into(),
+            column: "total".into(),
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(profile.rows_total, 0);
+    assert_eq!(profile.nulls, 0);
+    assert!(profile.min.is_none());
+    assert!(profile.max.is_none());
 }

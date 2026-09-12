@@ -20,6 +20,7 @@
 
 use mas_core::error::CoreError;
 use mas_core::models::query::QueryResult;
+use mas_core::query::{ExplainFormat, ExplainResponse};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, ReferencingKey, RoutineInfo, SchemaMatch,
     TableInfo, TriggerInfo, ViewInfo,
@@ -145,6 +146,22 @@ pub trait Workspace: Send + Sync + 'static {
         fragment: &str,
         limit: u32,
     ) -> Result<Vec<SchemaMatch>, CoreError>;
+
+    /// The plan for a statement, through the app's own explain path.
+    ///
+    /// Not assembled here by prefixing "EXPLAIN": that path already knows to
+    /// refuse ANALYZE on a read-only connection, to refuse it for a statement
+    /// that would mutate, and to fall back when MariaDB will not serve the
+    /// format that was asked for. Re-deriving any of that would be a second
+    /// implementation to keep in step.
+    async fn explain(
+        &self,
+        connection_id: &str,
+        database: Option<&str>,
+        sql: &str,
+        analyze: bool,
+        format: ExplainFormat,
+    ) -> Result<ExplainResponse, CoreError>;
 
     /// Run one statement that has already been classified and permitted.
     ///

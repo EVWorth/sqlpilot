@@ -9,6 +9,7 @@
 //! The design is `docs/design/AI_INTEGRATION.md`. This crate is the half that
 //! does not depend on which harness is in use.
 
+pub mod analysis;
 pub mod classify;
 pub mod grants;
 pub mod policy;
