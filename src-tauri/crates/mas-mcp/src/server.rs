@@ -21,6 +21,7 @@ use crate::analysis::{check_identifier, profile_column_sql, table_stats_sql, top
 use crate::classify::single_statement;
 use crate::grants::ConnectionFacts;
 use crate::policy::{ConnectionPolicy, Decision, VerbClass};
+use crate::qualifiers;
 use crate::redact;
 use crate::shapes::{
     cell_to_json, Column, Database, ForeignKey, Index, Match, ReferencedBy, ResultColumn, Table,
@@ -500,8 +501,16 @@ impl SqlPilot {
         Parameters(ConnectionArg { connection }): Parameters<ConnectionArg>,
     ) -> Result<Json<Vec<Database>>, Refusal> {
         let (facts, _) = self.resolve(&connection)?;
+        // Read once. Asking twice would let a revocation land between the two
+        // and turn a missing grant into a panic — which, inside a tool call,
+        // is not an error the agent sees but a request that never answers.
         let grants = self.workspace.grants();
-        let grant = grants.get(&facts.id).expect("resolved");
+        let Some(grant) = grants.get(&facts.id) else {
+            return Err(crate::grants::NotGranted::Connection {
+                name: Some(facts.name),
+            }
+            .to_string());
+        };
         let databases = self
             .workspace
             .databases(&connection)
@@ -782,6 +791,7 @@ impl SqlPilot {
         };
 
         let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+        self.within_grant(&connection, &statement.sql).await?;
         if statement.class != VerbClass::Read {
             return Err(format!(
                 "run_select only runs statements that read. This one is a {}; use run_write or \
@@ -898,6 +908,9 @@ impl SqlPilot {
         // One statement, for the same reason as everywhere else. The plan for
         // two statements is not a thing.
         let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+        // A plan names columns and row estimates, which is enough to map a
+        // database the grant does not cover.
+        self.within_grant(&connection, &statement.sql).await?;
 
         let response = self
             .workspace
@@ -1338,6 +1351,7 @@ impl SqlPilot {
             None => self.resolve(&connection)?,
         };
         let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+        self.within_grant(&connection, &statement.sql).await?;
 
         match statement.class {
             VerbClass::Write => {}
@@ -1443,6 +1457,7 @@ impl SqlPilot {
             None => self.resolve(&connection)?,
         };
         let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+        self.within_grant(&connection, &statement.sql).await?;
 
         if statement.class != VerbClass::Ddl {
             return Err(match statement.class {
@@ -1520,6 +1535,7 @@ impl SqlPilot {
             None => self.resolve(&connection)?,
         };
         let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+        self.within_grant(&connection, &statement.sql).await?;
 
         if statement.class != VerbClass::Write {
             return Err(match statement.class {
@@ -1588,6 +1604,46 @@ impl SqlPilot {
         }
     }
 
+    /// Refuse a statement that names a database outside the grant.
+    ///
+    /// Hiding the other databases from `list_databases` is not enough: the
+    /// connection is the user's own, with the user's own privileges, so
+    /// `SELECT * FROM payroll.staff` would be answered by the server whatever
+    /// the tools said. This is the check that makes a limited grant a limit
+    /// rather than a suggestion.
+    ///
+    /// Costs a `SHOW DATABASES` only where a grant is actually limited: the
+    /// qualifiers in a statement are compared against the databases that exist,
+    /// so an alias is not mistaken for one.
+    async fn within_grant(&self, connection: &str, sql: &str) -> Result<(), Refusal> {
+        let grants = self.workspace.grants();
+        let Some(grant) = grants.get(connection) else {
+            return Ok(());
+        };
+        if grant.databases.is_none() {
+            return Ok(());
+        }
+
+        let existing = self
+            .workspace
+            .databases(connection)
+            .await
+            .map_err(|e| e.to_string())?;
+        let names: Vec<&str> = existing.iter().map(|d| d.name.as_str()).collect();
+        let outside = qualifiers::out_of_bounds(sql, names, |database| grant.covers(database));
+
+        if outside.is_empty() {
+            return Ok(());
+        }
+        Err(format!(
+            "This statement names {}, which this connection is not shared for. \
+             `list_databases` returns the ones it is. (If {} is an alias rather than a database, \
+             rename it — they cannot be told apart from the statement alone.)",
+            outside.join(", "),
+            outside[0]
+        ))
+    }
+
     /// The names of the shared connections, as history records them.
     ///
     /// History spans every connection, including ones the user never shared,
@@ -1625,6 +1681,9 @@ impl SqlPilot {
     }
 
     /// As `resolve`, and the grant covers this database.
+    ///
+    /// The grants are read once inside, for the same reason: two reads leave a
+    /// window in which a revocation makes the second disagree with the first.
     fn resolve_database(
         &self,
         connection: &str,

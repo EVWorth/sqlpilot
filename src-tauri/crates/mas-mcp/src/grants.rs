@@ -212,7 +212,14 @@ impl Grants {
         database: &str,
     ) -> Result<ConnectionPolicy, NotGranted> {
         let policy = self.policy_for(facts)?;
-        let grant = self.get(&facts.id).expect("policy_for found it");
+        // Looked up rather than unwrapped: `policy_for` found it a line ago
+        // and cannot have lost it, but a panic here would be a tool call that
+        // never answers rather than an error anyone can read.
+        let Some(grant) = self.get(&facts.id) else {
+            return Err(NotGranted::Connection {
+                name: Some(facts.name.clone()),
+            });
+        };
         if !grant.covers(database) {
             return Err(NotGranted::Database {
                 connection: facts.name.clone(),
