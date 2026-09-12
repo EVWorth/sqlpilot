@@ -427,3 +427,68 @@ fn open_still_accepts_in_memory() {
     let mgr = manager();
     assert!(mgr.open("c1", ":memory:").is_ok());
 }
+
+// ---------------------------------------------------------------------------
+// The cases the issue named, and the one it proposed that is deliberately not
+// implemented (#463).
+// ---------------------------------------------------------------------------
+
+/// A file with the given bytes, in a directory that lives as long as the
+/// returned handle. The tests above name files in the shared temp directory,
+/// which two runs at once would fight over.
+fn file_with(bytes: &[u8]) -> (tempfile::TempDir, String) {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("candidate");
+    std::fs::write(&path, bytes).unwrap();
+    let name = path.to_string_lossy().into_owned();
+    (dir, name)
+}
+
+#[test]
+fn open_refuses_the_real_etc_passwd() {
+    // The case the issue names, against the actual file where there is one.
+    if !std::path::Path::new("/etc/passwd").exists() {
+        return;
+    }
+    let err = manager()
+        .open("c1", "/etc/passwd")
+        .err()
+        .expect("/etc/passwd is not a database");
+    assert!(err.to_string().contains("not a SQLite database"), "{err}");
+}
+
+#[test]
+fn open_refuses_a_file_shorter_than_the_header() {
+    // The read has to be checked for length as well as content, or a 3-byte
+    // file compares equal on the part that was read.
+    let (_dir, path) = file_with(b"SQL");
+    let err = manager()
+        .open("c1", &path)
+        .err()
+        .expect("three bytes are not a database");
+    assert!(err.to_string().contains("not a SQLite database"), "{err}");
+}
+
+#[test]
+fn a_large_database_is_not_refused_for_being_large() {
+    // The issue proposed a 256 MB cap. Deliberately not implemented: a real
+    // database can be tens of gigabytes, and refusing to open one because it
+    // is big would be a bug wearing the clothes of a safety check. Proven
+    // past that figure with a sparse file, so it costs no disk.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("big.db");
+    {
+        let seed = rusqlite::Connection::open(&path).unwrap();
+        seed.execute_batch("CREATE TABLE t (a INT);").unwrap();
+    }
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open(&path)
+        .unwrap()
+        .set_len(300 * 1024 * 1024)
+        .unwrap();
+
+    manager()
+        .open("c1", &path.to_string_lossy())
+        .expect("a large database should still open");
+}
