@@ -2216,3 +2216,122 @@ async fn the_result_on_screen_is_redacted_too() {
     );
     assert!(result.note.unwrap().contains("api_key"));
 }
+
+// ------------------------------------------------- staying inside the grant
+
+/// A workspace shared for one database out of the several the server has.
+fn limited() -> Fake {
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.grants
+        .set(Grant::new("c1").limited_to(vec!["shop".into()]));
+    fake.affected = 1;
+    fake
+}
+
+#[tokio::test]
+async fn a_statement_cannot_reach_a_database_the_grant_excludes() {
+    // Hiding `payroll` from list_databases is not a limit: the connection is
+    // the user's own, and the server would answer this happily.
+    let (server, fake) = server(limited());
+
+    let refusal = refused(
+        server
+            .run_select(select("SELECT * FROM payroll.staff", None))
+            .await,
+    );
+
+    assert!(refusal.contains("payroll"), "{refusal}");
+    assert!(refusal.contains("list_databases"), "{refusal}");
+    assert!(fake.ran().is_empty(), "and it did not run");
+}
+
+#[tokio::test]
+async fn a_statement_inside_the_grant_runs() {
+    let (server, fake) = server(limited());
+
+    server
+        .run_select(select("SELECT * FROM shop.orders", None))
+        .await
+        .unwrap();
+
+    assert_eq!(fake.ran().len(), 1);
+}
+
+#[tokio::test]
+async fn an_unlimited_grant_pays_nothing_for_the_check() {
+    // The databases are only listed where a grant is actually limited.
+    let (server, fake) = server(Fake::shared(DataPosture::Full, "development", false));
+
+    server
+        .run_select(select("SELECT * FROM payroll.staff", None))
+        .await
+        .unwrap();
+
+    assert_eq!(fake.ran().len(), 1);
+}
+
+#[tokio::test]
+async fn a_write_cannot_reach_outside_the_grant_either() {
+    let mut fake = limited();
+    fake.affected = 4;
+    let fake = Arc::new(fake);
+    let window = Arc::new(FakeWindow {
+        approval: Some(true),
+        ..Default::default()
+    });
+    let server = SqlPilot::new(fake.clone()).with_surface(window.clone());
+
+    let refusal = refused(
+        server
+            .run_write(Parameters(WriteArg {
+                connection: "c1".into(),
+                database: Some("shop".into()),
+                sql: "DELETE FROM payroll.staff".into(),
+                reason: "tidying".into(),
+            }))
+            .await,
+    );
+
+    assert!(refusal.contains("payroll"), "{refusal}");
+    assert!(fake.staged.lock().unwrap().is_empty(), "nothing was staged");
+    assert!(
+        window.approvals.lock().unwrap().is_empty(),
+        "nobody was asked"
+    );
+}
+
+#[tokio::test]
+async fn a_plan_cannot_map_a_database_outside_the_grant() {
+    // EXPLAIN runs nothing, but a plan names columns and row estimates, which
+    // is most of what mapping a schema needs.
+    let (server, _) = server(limited());
+
+    let refusal = refused(
+        server
+            .explain(Parameters(ExplainArg {
+                connection: "c1".into(),
+                database: Some("shop".into()),
+                sql: "SELECT * FROM payroll.staff".into(),
+                format: None,
+                analyze: false,
+            }))
+            .await,
+    );
+    assert!(refusal.contains("payroll"), "{refusal}");
+}
+
+#[tokio::test]
+async fn a_database_name_inside_a_string_is_not_a_reference_to_it() {
+    // Otherwise the check refuses statements that only mention the word.
+    let (server, fake) = server(limited());
+
+    server
+        .run_select(select(
+            "SELECT 'payroll.staff' AS note FROM shop.orders",
+            None,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(fake.ran().len(), 1);
+}

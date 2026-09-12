@@ -14,6 +14,7 @@ pub mod classify;
 pub mod endpoint;
 pub mod grants;
 pub mod policy;
+pub mod qualifiers;
 pub mod redact;
 pub mod server;
 pub mod shapes;
