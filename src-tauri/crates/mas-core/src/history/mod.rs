@@ -149,7 +149,12 @@ impl HistoryStore {
         Ok(Self { db: Mutex::new(db) })
     }
 
-    #[cfg(test)]
+    /// A store that lives only as long as the process.
+    ///
+    /// Used by the tests, and by startup when the real file cannot be opened:
+    /// a corrupt history should cost the user their history, not their app
+    /// (#585 separated the files for that reason, and the `.expect()` at the
+    /// call site undid it).
     pub fn in_memory() -> Result<Self, CoreError> {
         let db = SqliteConn::open_in_memory()?;
         migrations::run(&db).map_err(|e| CoreError::Storage(e.to_string()))?;

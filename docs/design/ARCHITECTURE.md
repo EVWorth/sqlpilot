@@ -1040,6 +1040,13 @@ async fn ping_connection(connection_id: String) -> Result<ConnectionHealth, Stri
 /// How full each live pool is, for the status bar (FR-1.2.3).
 #[tauri::command]
 async fn pool_stats() -> Result<Vec<PoolStats>, String>;
+
+/// Anything that went wrong before the window existed — no saved
+/// connections, no history, a data folder that will not persist. Empty is
+/// the ordinary case. Nothing in startup panics: a process that vanishes
+/// before a window exists tells the user nothing at all.
+#[tauri::command]
+async fn startup_problems() -> Result<Vec<StartupProblem>, String>;
 ```
 
 ### 5.2 Query Commands
@@ -1908,27 +1915,26 @@ let pool = MySqlPool::connect_with(options)
 
 ### 7.4 Graceful Degradation
 
-```
-Feature availability when dependencies are unavailable:
+What the app does without each of the things it would rather have. The rule
+behind all of it: **nothing in startup panics.** A process that dies before a
+window exists leaves a message in a terminal the desktop user does not have
+open, so every failure below degrades to something the app can report from
+inside itself (#278 was this shape, for the keyring).
 
-                  ┌─────────────┐
-                  │ Full App     │ ← All features available
-                  └──────┬──────┘
-                         │
-          ┌──────────────┼──────────────┐
-          ▼              ▼              ▼
-   ┌──────────┐  ┌──────────┐  ┌──────────┐
-   │ No AI    │  │ No SSH   │  │ No SSL   │
-   │ Provider │  │ Keys     │  │ Certs    │
-   └──────┬───┘  └──────┬───┘  └──────┬───┘
-          │              │              │
-          ▼              ▼              ▼
-   AI panel shows   SSH connections  SSL connections
-   "Configure AI    show setup       fall back to
-   provider" msg.   instructions.    plaintext with
-   All other        Password auth    a warning banner.
-   features work.   still works.
-```
+| What is missing            | What happens                                                                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| **OS keyring**             | Passwords are kept for the session only; the status bar says so. A locked keyring never counts as "this profile has no password" (#274)  |
+| **The data directory**     | Falls back to a temp directory, then to the working directory. The status bar says settings may not survive a restart                    |
+| **The log directory**      | Console logging only                                                                                                                     |
+| **`connections.db`**       | Starts with an in-memory store: no saved profiles, and the file is left untouched so whatever is wrong with it can still be recovered    |
+| **`history.db`**           | Starts with an in-memory store: this session's history is not kept, everything else works. History lives in its own file for this reason |
+| **SSH tunnelling**         | Not implemented. A profile configured for one is **refused** — connecting direct while the UI implies a tunnel is worse (#273)           |
+| **An AI provider**         | The panel says to configure one; everything else works. The whole feature is behind the `beta-ai` flag                                   |
+| **A server that has gone** | The health checker marks it and keeps trying (§3.1); sqlx reopens a pooled connection when one is next needed                            |
+
+Each startup failure becomes a `StartupProblem` — a kind, a summary in the
+user's terms, and the underlying error for a bug report — read once by the
+status bar through `startup_problems` (§5.1).
 
 ---
 
