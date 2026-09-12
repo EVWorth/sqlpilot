@@ -33,7 +33,12 @@ fn test_profile() -> ConnectionProfile {
         group: None,
         color: None,
         host: "127.0.0.1".to_string(),
-        port: 13306,
+        // MySQL by default; `MAS_TEST_PORT=13308` runs the same tests against
+        // MariaDB. Running a suite against both is what found #658.
+        port: std::env::var("MAS_TEST_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(13306),
         username: "test_user".to_string(),
         password: "test_password".to_string(),
         default_database: Some("test_db".to_string()),
@@ -278,8 +283,19 @@ async fn a_row_limit_still_bounds_the_statements_it_should() {
     let info = manager.connect(&test_profile()).await.unwrap();
 
     // SELECT, and the two row-returning forms the old prefix check missed —
-    // TABLE and VALUES came back unbounded.
-    for sql in ["SELECT * FROM users", "TABLE users"] {
+    // TABLE and VALUES came back unbounded. `TABLE` is MySQL 8.0.19 and
+    // later; MariaDB has no such statement, so it is left out there rather
+    // than asserted to be bounded.
+    let mariadb = manager
+        .get_server_version(&info.id)
+        .is_some_and(|v| v.to_lowercase().contains("mariadb"));
+    let forms: &[&str] = if mariadb {
+        &["SELECT * FROM users"]
+    } else {
+        &["SELECT * FROM users", "TABLE users"]
+    };
+
+    for sql in forms {
         let results = executor
             .execute(&info.id, sql, None, Some(2), None)
             .await
@@ -1374,16 +1390,20 @@ async fn test_json_data() {
         .await
         .unwrap();
     assert!(!results[0].rows.is_empty());
+
+    // Text on both servers. MariaDB has no JSON type of its own — a JSON
+    // column is LONGTEXT with a check constraint, and its wire metadata says
+    // BLOB — so every JSON value there used to arrive as a byte array and
+    // render as hex.
     let val = &results[0].rows[0][0];
     match val {
         mas_core::models::SqlValue::String(s) => {
             assert!(
-                s.contains("{"),
-                "JSON data should be returned as string containing '{{', got: {}",
-                s
+                s.contains('{'),
+                "JSON should come back as its text, got: {s}"
             );
         }
-        _ => panic!("Expected string for JSON column, got {:?}", val),
+        other => panic!("expected text for a JSON column, got {other:?}"),
     }
 
     manager.disconnect(&info.id).await.unwrap();

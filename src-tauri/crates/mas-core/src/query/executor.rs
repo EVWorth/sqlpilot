@@ -662,7 +662,7 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
             SqlValue::String(v.to_string())
         }),
         "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => {
-            decode_or_text::<Vec<u8>, _>(row, index, t, SqlValue::Bytes)
+            decode_or_text::<Vec<u8>, _>(row, index, t, blob_value)
         }
         "DATE" | "DATETIME" | "TIMESTAMP" => {
             decode_or_text::<chrono::DateTime<chrono::Utc>, _>(row, index, t, |dt| {
@@ -672,6 +672,33 @@ fn extract_value(row: &sqlx::mysql::MySqlRow, index: usize, type_name: &str) -> 
         _ => decode_or_text::<String, _>(row, index, t, SqlValue::String),
     }
     .unwrap_or(SqlValue::Null)
+}
+
+/// What a BLOB-typed column's bytes are, as a value.
+///
+/// Bytes, unless they are a JSON document — in which case they are text.
+///
+/// MariaDB has no JSON type of its own: a `JSON` column is `LONGTEXT` with a
+/// `json_valid()` check, and its result metadata comes back over the wire as
+/// **BLOB**, indistinguishable from a real one. Verified on MariaDB 11.8,
+/// where `LONGTEXT` reports as TEXT but `JSON` reports as BLOB. So every JSON
+/// column on MariaDB reached the grid as a byte array and rendered as hex —
+/// a column of unreadable values where the server has a document.
+///
+/// The test is deliberately narrow: valid UTF-8, starting with `{` or `[`,
+/// and parsing as JSON. A PNG fails the first check, a serialised struct the
+/// second, and a BLOB that really does hold a JSON document is a BLOB the
+/// user would rather read than see as hex.
+fn blob_value(bytes: Vec<u8>) -> SqlValue {
+    if let Ok(text) = std::str::from_utf8(&bytes) {
+        let trimmed = text.trim_start();
+        if (trimmed.starts_with('{') || trimmed.starts_with('['))
+            && serde_json::from_str::<serde_json::Value>(text).is_ok()
+        {
+            return SqlValue::String(text.to_string());
+        }
+    }
+    SqlValue::Bytes(bytes)
 }
 
 /// Decode as `T`, or fall back to the raw text if sqlx refuses.
@@ -1124,5 +1151,77 @@ mod tests {
             truncation_for(true, true),
             Some(TruncationReason::MemoryGuard)
         );
+    }
+    mod blob_values {
+        use super::*;
+
+        #[test]
+        fn a_json_document_in_a_blob_column_is_text() {
+            // MariaDB's JSON columns arrive as BLOB — its JSON is LONGTEXT
+            // with a check constraint, and the wire metadata says BLOB. Every
+            // one of them used to render as hex (#294 sweep).
+            let value = blob_value(br#"{"colour": "black", "dpi": 1600}"#.to_vec());
+            assert!(
+                matches!(&value, SqlValue::String(s) if s.contains("colour")),
+                "got {value:?}"
+            );
+        }
+
+        #[test]
+        fn a_json_array_counts_too() {
+            assert!(matches!(
+                blob_value(b"[1, 2, 3]".to_vec()),
+                SqlValue::String(_)
+            ));
+        }
+
+        #[test]
+        fn leading_whitespace_does_not_hide_a_document() {
+            assert!(matches!(
+                blob_value(b"\n  {\"a\": 1}".to_vec()),
+                SqlValue::String(_)
+            ));
+        }
+
+        #[test]
+        fn real_binary_stays_binary() {
+            // A PNG header: not valid UTF-8, and nothing like a document.
+            let png = vec![0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a];
+            assert!(matches!(blob_value(png.clone()), SqlValue::Bytes(b) if b == png));
+        }
+
+        #[test]
+        fn text_in_a_blob_that_is_not_a_document_stays_binary() {
+            // The narrow test is the point: a BLOB holding a sentence, or a
+            // number, or a serialised struct is still a BLOB. Only something
+            // that opens as an object or an array and parses is text.
+            for raw in [
+                &b"just some text"[..],
+                &b"123"[..],
+                &b"\"a string\""[..],
+                &b"{not json at all"[..],
+                &b"<xml/>"[..],
+            ] {
+                assert!(
+                    matches!(blob_value(raw.to_vec()), SqlValue::Bytes(_)),
+                    "{:?} should have stayed binary",
+                    String::from_utf8_lossy(raw)
+                );
+            }
+        }
+
+        #[test]
+        fn an_empty_blob_stays_binary() {
+            assert!(matches!(blob_value(Vec::new()), SqlValue::Bytes(b) if b.is_empty()));
+        }
+
+        #[test]
+        fn a_blob_whose_bytes_merely_start_like_json_stays_binary() {
+            // `{` followed by rubbish is not a document, and guessing would
+            // turn a corrupt blob into a string nobody can round-trip.
+            let mut bytes = b"{".to_vec();
+            bytes.extend_from_slice(&[0xff, 0xfe]);
+            assert!(matches!(blob_value(bytes), SqlValue::Bytes(_)));
+        }
     }
 }

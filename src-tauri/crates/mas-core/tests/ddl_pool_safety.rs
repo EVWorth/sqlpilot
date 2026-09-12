@@ -22,7 +22,12 @@ fn profile(pool_max: u32) -> ConnectionProfile {
         group: None,
         color: None,
         host: "127.0.0.1".to_string(),
-        port: 13306,
+        // MySQL by default; `MAS_TEST_PORT=13308` runs the same tests against
+        // MariaDB. Running a suite against both is what found #658.
+        port: std::env::var("MAS_TEST_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(13306),
         // root, because this creates two databases of its own: `test_user`
         // is granted only on `test_db`, which is one database and therefore
         // cannot show the failure this is about.
