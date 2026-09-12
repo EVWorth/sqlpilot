@@ -2,14 +2,23 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ImportDialog } from "../ImportDialog";
 
+const { listenFn } = vi.hoisted(() => ({ listenFn: vi.fn() }));
+
 vi.mock("../../../lib/tauri-api", () => ({
   api: {
     pickFile: vi.fn(),
     readFileContents: vi.fn(),
+    readFileHead: vi.fn(),
+    restoreDatabase: vi.fn(),
     executeQuery: vi.fn(),
     getTables: vi.fn(),
     getColumns: vi.fn(),
   },
+}));
+
+vi.mock("../../../lib/bindings", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  events: { restoreProgressEvent: { listen: listenFn } },
 }));
 
 vi.mock("../../../lib/csv-parser", () => ({
@@ -32,9 +41,28 @@ const mockProps = {
   database: "testdb",
 };
 
+/** What the backend reports for a clean run. */
+const cleanSummary = {
+  statementsRun: 2,
+  statementsFailed: 0,
+  bytesRead: 100,
+  elapsedMs: 10,
+  cancelled: false,
+  rolledBack: false,
+  partiallyApplied: false,
+  errors: [] as string[],
+};
+
 describe("ImportDialog", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    listenFn.mockResolvedValue(() => {});
+    vi.mocked(api.readFileHead).mockResolvedValue({
+      text: "-- dump",
+      totalBytes: 100,
+      truncated: false,
+    });
+    vi.mocked(api.restoreDatabase).mockResolvedValue({ ...cleanSummary });
   });
 
   it("renders null when not open", () => {
@@ -85,86 +113,121 @@ describe("ImportDialog", () => {
   });
 
   describe("SQL mode", () => {
-    async function runImport(statements: string[], failAt: number, keepGoing = false) {
+    /** Choose a file whose scanned head splits into `statements`. */
+    async function pickFile(statements: string[], truncated = false) {
       vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
-      vi.mocked(api.readFileContents).mockResolvedValue("-- dump");
+      vi.mocked(api.readFileHead).mockResolvedValue({
+        text: statements.join(";\n"),
+        totalBytes: 4096,
+        truncated,
+      });
       vi.mocked(splitSqlStatements).mockReturnValue(statements);
-      let seen = 0;
-      vi.mocked(api.executeQuery).mockImplementation(
-        (() => {
-          seen += 1;
-          return seen === failAt
-            ? Promise.reject(new Error("Table 'x' doesn't exist"))
-            : Promise.resolve([]);
-        }) as never,
-      );
 
       render(<ImportDialog {...mockProps} />);
       await act(async () => {
         fireEvent.click(screen.getByText("Select file..."));
-      });
-      if (keepGoing) {
-        fireEvent.click(screen.getByLabelText("Stop at the first error"));
-      }
-      await act(async () => {
-        fireEvent.click(screen.getByText("Execute SQL"));
       });
     }
 
-    it("stops at the first failure instead of running the rest of the file", async () => {
-      // Every error used to be counted and the run carried on, so a dump
-      // whose CREATE TABLE failed still executed all of its INSERTs against
-      // whatever was already there (#365).
-      await runImport(["CREATE TABLE t (id INT)", "INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (2)"], 1);
+    it("reads only the head of the file for the preview", async () => {
+      // A dump is run by the backend straight from disk, so the renderer
+      // never needs to hold one (#366).
+      await pickFile(["CREATE TABLE t1 (id INT)", "INSERT INTO t1 VALUES (1)"]);
 
-      expect(api.executeQuery).toHaveBeenCalledTimes(1);
+      expect(api.readFileHead).toHaveBeenCalledWith("/path/to/file.sql", 512 * 1024);
+      expect(api.readFileContents).not.toHaveBeenCalled();
+      expect(screen.getByText(/2 statements detected/)).toBeDefined();
     });
 
-    it("says where it stopped and how much had already applied", async () => {
-      await runImport(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (2)", "INSERT INTO t VALUES (3)"], 2);
+    it("says when the preview did not reach the end of the file", async () => {
+      // Otherwise "3 statements detected" for a 2 GB dump is a lie.
+      await pickFile(["INSERT INTO t VALUES (1)"], true);
+      expect(screen.getByText(/the whole file is imported/)).toBeDefined();
+    });
+
+    it("hands the file to the backend rather than running it statement by statement", async () => {
+      await pickFile(["INSERT INTO t VALUES (1)"]);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Execute SQL"));
+      });
+
+      expect(api.restoreDatabase).toHaveBeenCalledWith(
+        expect.any(String),
+        "conn-1",
+        "testdb",
+        "/path/to/file.sql",
+        expect.objectContaining({ stopOnError: true }),
+      );
+      expect(api.executeQuery).not.toHaveBeenCalled();
+    });
+
+    it("passes on the user's choice to keep going past errors", async () => {
+      await pickFile(["INSERT INTO t VALUES (1)"]);
+      fireEvent.click(screen.getByLabelText("Stop at the first error"));
+      await act(async () => {
+        fireEvent.click(screen.getByText("Execute SQL"));
+      });
+
+      expect(api.restoreDatabase).toHaveBeenCalledWith(
+        expect.any(String),
+        "conn-1",
+        "testdb",
+        "/path/to/file.sql",
+        expect.objectContaining({ stopOnError: false }),
+      );
+    });
+
+    it("says where it stopped and whether anything stands", async () => {
+      vi.mocked(api.restoreDatabase).mockResolvedValue({
+        ...cleanSummary,
+        statementsRun: 1,
+        statementsFailed: 1,
+        partiallyApplied: true,
+        errors: ["Statement 2: Table 'x' doesn't exist"],
+      });
+      await pickFile(["CREATE TABLE t (id INT)", "INSERT INTO x VALUES (1)"]);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Execute SQL"));
+      });
 
       const stopped = screen.getByTestId("stopped-at");
-      expect(stopped.textContent).toContain("statement 2 of 3");
-      expect(stopped.textContent).toContain("1 already applied");
+      expect(stopped.textContent).toContain("statement 2");
+      expect(stopped.textContent).toContain("1 already ran");
+      expect(stopped.textContent).toContain("MySQL commits before every CREATE");
+      expect(screen.getByText(/Table 'x' doesn't exist/)).toBeDefined();
     });
 
-    it("runs the whole file when the user turns stopping off", async () => {
-      await runImport(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (2)", "INSERT INTO t VALUES (3)"], 1, true);
+    it("says the database is unchanged when nothing was committed", async () => {
+      vi.mocked(api.restoreDatabase).mockResolvedValue({
+        ...cleanSummary,
+        statementsRun: 1,
+        statementsFailed: 1,
+        rolledBack: true,
+        partiallyApplied: false,
+        errors: ["Statement 2: Duplicate entry"],
+      });
+      await pickFile(["INSERT INTO t VALUES (1)", "INSERT INTO t VALUES (1)"]);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Execute SQL"));
+      });
 
-      expect(api.executeQuery).toHaveBeenCalledTimes(3);
-      expect(screen.queryByTestId("stopped-at")).toBeNull();
+      expect(screen.getByTestId("stopped-at").textContent)
+        .toContain("the database is as it was");
     });
 
     it("does not claim the import can be rolled back", async () => {
-      // A dump's CREATE, DROP and ALTER each commit as they run. Wrapping the
-      // run in a transaction would not change that, so the UI says so.
-      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
-      vi.mocked(api.readFileContents).mockResolvedValue("-- dump");
-      vi.mocked(splitSqlStatements).mockReturnValue(["INSERT INTO t VALUES (1)"]);
-
-      render(<ImportDialog {...mockProps} />);
-      await act(async () => {
-        fireEvent.click(screen.getByText("Select file..."));
-      });
-
+      await pickFile(["INSERT INTO t VALUES (1)"]);
       expect(screen.getByText(/cannot be rolled back/)).toBeDefined();
     });
 
     it("says what a dump will drop, before it is run", async () => {
       // A DROP TABLE can sit at line 5,000 of a dump. Rendering the file
       // verbatim meant reading all of it to find out (#367).
-      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
-      vi.mocked(api.readFileContents).mockResolvedValue("-- dump");
-      vi.mocked(splitSqlStatements).mockReturnValue([
+      await pickFile([
         "INSERT INTO t1 VALUES (1)",
         "DROP TABLE users",
         "TRUNCATE TABLE audit_log",
       ]);
-
-      render(<ImportDialog {...mockProps} />);
-      await act(async () => {
-        fireEvent.click(screen.getByText("Select file..."));
-      });
 
       const warning = screen.getByTestId("destructive-warning");
       expect(warning.textContent).toContain("2 statements");
@@ -173,77 +236,13 @@ describe("ImportDialog", () => {
     });
 
     it("says nothing about a dump that only inserts", async () => {
-      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
-      vi.mocked(api.readFileContents).mockResolvedValue("-- dump");
-      vi.mocked(splitSqlStatements).mockReturnValue([
-        "INSERT INTO t1 VALUES (1)",
-        "INSERT INTO t1 VALUES (2)",
-      ]);
-
-      render(<ImportDialog {...mockProps} />);
-      await act(async () => {
-        fireEvent.click(screen.getByText("Select file..."));
-      });
-
+      await pickFile(["INSERT INTO t1 VALUES (1)", "INSERT INTO t1 VALUES (2)"]);
       expect(screen.queryByTestId("destructive-warning")).toBeNull();
     });
 
-    it("picks SQL file and shows preview", async () => {
-      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
-      vi.mocked(api.readFileContents).mockResolvedValue(
-        "CREATE TABLE t1 (id INT);\nINSERT INTO t1 VALUES (1);",
-      );
-      vi.mocked(splitSqlStatements).mockReturnValue([
-        "CREATE TABLE t1 (id INT)",
-        "INSERT INTO t1 VALUES (1)",
-      ]);
-
-      render(<ImportDialog {...mockProps} />);
-
-      await act(async () => {
-        fireEvent.click(screen.getByText("Select file..."));
-      });
-
-      expect(screen.getByText(/2 statements detected/)).toBeDefined();
-      expect(screen.getByText("Execute SQL")).toBeDefined();
-    });
-
-    it("executes SQL statements on import", async () => {
-      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
-      vi.mocked(api.readFileContents).mockResolvedValue(
-        "CREATE TABLE t1 (id INT);\nINSERT INTO t1 VALUES (1);",
-      );
-      vi.mocked(splitSqlStatements).mockReturnValue([
-        "CREATE TABLE t1 (id INT)",
-        "INSERT INTO t1 VALUES (1)",
-      ]);
-      vi.mocked(api.executeQuery).mockResolvedValue([]);
-
-      render(<ImportDialog {...mockProps} />);
-
-      await act(async () => {
-        fireEvent.click(screen.getByText("Select file..."));
-      });
-
-      await act(async () => {
-        fireEvent.click(screen.getByText("Execute SQL"));
-      });
-
-      expect(api.executeQuery).toHaveBeenCalled();
-    });
-
-    it("handles import errors gracefully", async () => {
-      vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
-      vi.mocked(api.readFileContents).mockResolvedValue("BAD SQL");
-      vi.mocked(splitSqlStatements).mockReturnValue(["BAD SQL"]);
-      vi.mocked(api.executeQuery).mockRejectedValue("Syntax error");
-
-      render(<ImportDialog {...mockProps} />);
-
-      await act(async () => {
-        fireEvent.click(screen.getByText("Select file..."));
-      });
-
+    it("handles a run that could not start", async () => {
+      vi.mocked(api.restoreDatabase).mockRejectedValue("Syntax error");
+      await pickFile(["BAD SQL"]);
       await act(async () => {
         fireEvent.click(screen.getByText("Execute SQL"));
       });
@@ -354,9 +353,18 @@ describe("ImportDialog", () => {
   describe("progress and errors", () => {
     it("shows error details in error list", async () => {
       vi.mocked(api.pickFile).mockResolvedValue("/path/to/file.sql");
-      vi.mocked(api.readFileContents).mockResolvedValue("BAD");
+      vi.mocked(api.readFileHead).mockResolvedValue({
+        text: "BAD",
+        totalBytes: 3,
+        truncated: false,
+      });
       vi.mocked(splitSqlStatements).mockReturnValue(["BAD"]);
-      vi.mocked(api.executeQuery).mockRejectedValue("Failed");
+      vi.mocked(api.restoreDatabase).mockResolvedValue({
+        ...cleanSummary,
+        statementsRun: 0,
+        statementsFailed: 1,
+        errors: ["Statement 1: Failed"],
+      });
 
       render(<ImportDialog {...mockProps} />);
 

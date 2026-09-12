@@ -1,5 +1,7 @@
 import { AlertCircle, AlertTriangle, CheckCircle2, FileText, Loader2, Table2, Upload, X } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
+import { attachProgress, formatBytes } from "../../lib/backup-progress";
+import { events } from "../../lib/bindings";
 import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
 import { runStatement } from "../../lib/run-statement";
 import { generateBatchInsert, splitSqlStatements } from "../../lib/sql-import";
@@ -16,6 +18,15 @@ interface ImportDialogProps {
 }
 
 type ImportMode = "sql" | "csv";
+
+/**
+ * How much of a SQL file is read to preview it and to count what it will do.
+ *
+ * The file itself is run by the backend, straight from disk, so this is only
+ * what the dialog shows. A dump longer than this is imported in full; the
+ * warning above the preview says the scan did not reach the end.
+ */
+const SQL_SCAN_BYTES = 512 * 1024;
 
 interface ImportProgress {
   current: number;
@@ -42,11 +53,17 @@ export function ImportDialog({
 
   // SQL mode state
   const [sqlPreview, setSqlPreview] = useState<string[]>([]);
+  const [fileBytes, setFileBytes] = useState<number | null>(null);
+  const importIdRef = useRef<string | null>(null);
   const [destructiveStatements, setDestructiveStatements] = useState<string[]>([]);
+  /** True when the file is longer than the part that was scanned for them. */
+  const [scanTruncated, setScanTruncated] = useState(false);
   // Default on: running the rest of a dump after one statement failed applies
   // it to a database in a state the file did not expect (#365).
   const [stopOnError, setStopOnError] = useState(true);
   const [statementCount, setStatementCount] = useState(0);
+  /** Whether anything the run did survives its rollback. */
+  const [partiallyApplied, setPartiallyApplied] = useState(false);
 
   // CSV mode state
   const [csvOptions, setCsvOptions] = useState<CsvParseOptions>({
@@ -74,6 +91,9 @@ export function ImportDialog({
     setSqlPreview([]);
     setDestructiveStatements([]);
     setStatementCount(0);
+    setScanTruncated(false);
+    setPartiallyApplied(false);
+    setFileBytes(null);
     setCsvHeaders([]);
     setCsvRows([]);
     setCsvBareEmpty([]);
@@ -96,19 +116,26 @@ export function ImportDialog({
 
       if (!path) return;
 
-      const content = await api.readFileContents(path);
       setFilePath(path);
-      setFileContent(content);
 
       if (mode === "sql") {
-        const lines = content.split("\n").slice(0, 50);
-        setSqlPreview(lines);
-        const stmts = splitSqlStatements(content);
+        // Only the head of it. A dump is run by the backend, straight from
+        // the file, so the renderer never needs to hold one (#366).
+        const head = await api.readFileHead(path, SQL_SCAN_BYTES);
+        setFileContent(null);
+        setFileBytes(head.totalBytes);
+        setSqlPreview(head.text.split("\n").slice(0, 50));
+
+        const stmts = splitSqlStatements(head.text);
         setStatementCount(stmts.length);
-        // A dump's DROP TABLE can sit at line 5,000. Counting them up front
-        // means the user is told what the file does without reading it (#367).
+        setScanTruncated(head.truncated);
+        // A dump's DROP TABLE can sit at line 5,000. Naming them up front
+        // means the user is told what the file does without reading it
+        // (#367). Only the part that was scanned, and the UI says so.
         setDestructiveStatements(stmts.filter(isDestructiveStatement));
       } else {
+        const content = await api.readFileContents(path);
+        setFileContent(content);
         parseCsvContent(content, csvOptions);
         await loadTables();
       }
@@ -184,61 +211,92 @@ export function ImportDialog({
   );
 
   const handleImportSql = useCallback(async () => {
-    if (!fileContent) return;
-    setImporting(true);
-    const statements = splitSqlStatements(fileContent);
-    const prog: ImportProgress = {
-      current: 0,
-      total: statements.length,
-      successCount: 0,
-      errorCount: 0,
-      errors: [],
-      done: false,
-      stoppedAt: null,
-    };
-    setProgress({ ...prog });
+    if (!filePath) return;
 
     // Once for the run rather than per statement: a dump can hold thousands,
     // and a prompt on each would be held down rather than read (#588).
     if (
       !(await confirmDestructive({
         connectionId,
-        sql: statements,
-        action: `Import ${statements.length} statement(s) into \`${database}\`?`,
-        detail: "Some of them drop or alter existing objects.",
+        sql: destructiveStatements,
+        action: `Import ${filePath.split(/[\\/]/).pop()} into \`${database}\`?`,
+        detail: "Some of the statements in it drop or alter existing objects.",
+        alwaysAsk: scanTruncated && destructiveStatements.length === 0,
       }))
     ) {
-      setImporting(false);
       return;
     }
 
-    // Every error used to be counted and the run carried on to the end, so a
-    // dump whose CREATE TABLE failed still executed all of its INSERTs
-    // against whatever was already there. Stopping is the default now; going
-    // on is a choice (#365).
-    for (let i = 0; i < statements.length; i++) {
-      prog.current = i + 1;
-      try {
-        await runStatement({ connectionId, sql: statements[i], database, origin: "import" });
-        prog.successCount++;
-      } catch (e) {
-        prog.errorCount++;
-        prog.errors.push(
-          `Statement ${i + 1}: ${String(e).slice(0, 200)}`,
-        );
-        if (stopOnError) {
-          prog.stoppedAt = i + 1;
-          setProgress({ ...prog });
-          break;
-        }
-      }
-      setProgress({ ...prog });
-    }
+    const id = crypto.randomUUID();
+    importIdRef.current = id;
+    setImporting(true);
+    setProgress({
+      current: 0,
+      total: 0,
+      successCount: 0,
+      errorCount: 0,
+      errors: [],
+      done: false,
+      stoppedAt: null,
+    });
 
-    prog.done = true;
-    setProgress({ ...prog });
-    setImporting(false);
-  }, [fileContent, connectionId, stopOnError]);
+    // A progress listener that cannot attach is not a reason to refuse to
+    // run: the work still happens, the bar just does not move.
+    const unlisten = await attachProgress(() =>
+      events.restoreProgressEvent.listen((e) => {
+        if (e.payload.restoreId !== id) return;
+        const p = e.payload.progress;
+        setProgress({
+          current: p.bytesRead,
+          total: p.totalBytes,
+          successCount: p.statementsRun,
+          errorCount: p.statementsFailed,
+          errors: [],
+          done: false,
+          stoppedAt: null,
+        });
+      })
+    );
+
+    try {
+      // The same path the restore dialog uses: the backend reads the file in
+      // chunks, splits it there and runs the statements on one connection.
+      // The renderer used to read the whole file, split it, and send back one
+      // statement per call — each on whichever pooled connection it landed
+      // on, so a `USE` or a session setting did not carry (#359).
+      const summary = await api.restoreDatabase(id, connectionId, database, filePath, {
+        stopOnError,
+        disableForeignKeyChecks: true,
+        wrapInTransaction: true,
+      });
+      setProgress({
+        current: summary.bytesRead,
+        total: summary.bytesRead,
+        successCount: summary.statementsRun,
+        errorCount: summary.statementsFailed,
+        errors: summary.errors,
+        done: true,
+        stoppedAt: summary.statementsFailed > 0 && stopOnError
+          ? Number(summary.statementsRun) + 1
+          : null,
+      });
+      setPartiallyApplied(summary.partiallyApplied);
+    } catch (e) {
+      setProgress({
+        current: 0,
+        total: 0,
+        successCount: 0,
+        errorCount: 1,
+        errors: [String(e)],
+        done: true,
+        stoppedAt: null,
+      });
+    } finally {
+      unlisten();
+      importIdRef.current = null;
+      setImporting(false);
+    }
+  }, [filePath, connectionId, database, stopOnError, destructiveStatements, scanTruncated]);
 
   const handleImportCsv = useCallback(async () => {
     if (!targetTable || csvRows.length === 0) return;
@@ -383,10 +441,15 @@ export function ImportDialog({
           </div>
 
           {/* SQL Mode */}
-          {mode === "sql" && fileContent && (
+          {mode === "sql" && filePath && (
             <div className="space-y-3">
               <div className="text-xs text-[var(--color-text-muted)]">
-                {statementCount} statement{statementCount !== 1 ? "s" : ""} detected
+                {fileBytes !== null && <>{formatBytes(fileBytes)} ·</>}
+                {scanTruncated
+                  ? `${statementCount}+ statements (the whole file is imported; only the first ${
+                    formatBytes(SQL_SCAN_BYTES)
+                  } were scanned for this preview)`
+                  : `${statementCount} statement${statementCount !== 1 ? "s" : ""} detected`}
               </div>
               <label className="flex cursor-pointer items-start gap-2">
                 <input
@@ -420,7 +483,8 @@ export function ImportDialog({
                   <p className="flex items-center gap-1.5 font-medium">
                     <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
                     {destructiveStatements.length} statement
-                    {destructiveStatements.length !== 1 ? "s" : ""} in this file will drop or overwrite data
+                    {destructiveStatements.length !== 1 ? "s" : ""}{" "}
+                    {scanTruncated ? "in the scanned part of this file" : "in this file"} will drop or overwrite data
                   </p>
                   <ul className="mt-1.5 space-y-0.5 font-mono">
                     {destructiveStatements.slice(0, 5).map((stmt, i) => (
@@ -602,7 +666,11 @@ export function ImportDialog({
                   {progress.done
                     ? "Import complete"
                     : mode === "sql"
-                    ? `Executing statement ${progress.current} of ${progress.total}...`
+                    // By bytes of the file: the statement count is not known
+                    // until the file has been read, which is what is running.
+                    ? `Read ${formatBytes(progress.current)} of ${
+                      formatBytes(progress.total)
+                    } — ${progress.successCount} statements`
                     : `Importing row ${progress.current} of ${progress.total}...`}
                 </span>
                 {importing && <Loader2 className="h-3.5 w-3.5 animate-spin text-brand-400" />}
@@ -626,8 +694,10 @@ export function ImportDialog({
                 </span>
                 {progress.stoppedAt !== null && (
                   <span data-testid="stopped-at" className="text-[11px] text-amber-400">
-                    Stopped at statement {progress.stoppedAt} of {progress.total}. {progress.successCount}{" "}
-                    already applied.
+                    Stopped at statement {progress.stoppedAt}. {progress.successCount} already ran.
+                    {partiallyApplied
+                      ? " What they changed stands: MySQL commits before every CREATE, DROP or ALTER."
+                      : " Rolled back — the database is as it was."}
                   </span>
                 )}
                 {progress.errorCount > 0 && (
@@ -667,7 +737,7 @@ export function ImportDialog({
           {mode === "sql" && (
             <button
               onClick={handleImportSql}
-              disabled={!fileContent || importing || progress?.done === true}
+              disabled={!filePath || importing || progress?.done === true}
               className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {importing ? "Executing..." : "Execute SQL"}
