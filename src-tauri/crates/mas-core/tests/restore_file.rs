@@ -494,3 +494,80 @@ async fn a_database_survives_a_round_trip_through_a_dump() {
     }
     h.done().await;
 }
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_commit_that_cannot_happen_is_reported_as_a_failure() {
+    // The transaction's own outcome used to be ignored, so a restore could
+    // report "complete — 400 statements" with nothing committed. Provoked
+    // here by killing the session between the last statement and the commit.
+    let h = harness().await;
+    h.restore("CREATE TABLE t (id INT);", RestoreOptions::default())
+        .await;
+
+    // A restore whose connection is cut mid-run: the statements are gone and
+    // the summary has to say so rather than counting them as applied.
+    let path = h.dir.path().join("big.sql");
+    let statements: String = (0..200)
+        .map(|i| format!("INSERT INTO t VALUES ({i});\n"))
+        .collect();
+    tokio::fs::write(&path, &statements).await.unwrap();
+
+    let killer = {
+        let pool = h.pool.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+            // Every session but this one's own.
+            let ids: Vec<i64> = sqlx::query_scalar(
+                "SELECT ID FROM information_schema.PROCESSLIST
+                 WHERE USER = 'root' AND ID <> CONNECTION_ID() AND INFO LIKE 'INSERT%'",
+            )
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+            for id in ids {
+                let _ = sqlx::query(sqlx::AssertSqlSafe(format!("KILL {id}")))
+                    .execute(&pool)
+                    .await;
+            }
+        })
+    };
+
+    let summary = run_restore(
+        h.manager.clone(),
+        &h.connection_id,
+        DB,
+        &path,
+        &RestoreOptions {
+            stop_on_error: false,
+            ..Default::default()
+        },
+        Arc::new(AtomicBool::new(false)),
+        |_| {},
+    )
+    .await;
+    let _ = killer.await;
+
+    // Either the run itself failed, or it finished and reported the failure —
+    // what must not happen is a clean summary over a database that did not
+    // receive the rows.
+    match summary {
+        Err(_) => {}
+        Ok(s) => {
+            let rows: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(format!(
+                "SELECT COUNT(*) FROM `{DB}`.t"
+            )))
+            .fetch_one(&h.pool)
+            .await
+            .unwrap_or(0);
+            if rows == 0 {
+                assert!(
+                    s.statements_failed > 0,
+                    "nothing was written and nothing was reported: {s:?}"
+                );
+            }
+        }
+    }
+
+    h.done().await;
+}

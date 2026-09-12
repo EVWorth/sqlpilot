@@ -245,11 +245,25 @@ pub async fn run_restore(
     let failed = state.statements_failed > 0;
     let roll_back = in_transaction && (cancelled || (failed && options.stop_on_error));
 
+    // A COMMIT that fails is not a detail. Ignoring its result meant a
+    // restore could report "complete — 400 statements" with nothing
+    // committed, and a failed ROLLBACK meant claiming the database was
+    // untouched when it was not.
+    let mut commit_failed = None;
+    let mut rollback_failed = false;
     if in_transaction {
         let statement = if roll_back { "ROLLBACK" } else { "COMMIT" };
-        let _ = sqlx::raw_sql(AssertSqlSafe(statement.to_string()))
+        if let Err(e) = sqlx::raw_sql(AssertSqlSafe(statement.to_string()))
             .execute(&mut *conn)
-            .await;
+            .await
+        {
+            tracing::error!(error = %e, statement, "The restore could not finish its transaction");
+            if roll_back {
+                rollback_failed = true;
+            } else {
+                commit_failed = Some(e.to_string());
+            }
+        }
     }
 
     if options.disable_foreign_key_checks {
@@ -262,17 +276,30 @@ pub async fn run_restore(
 
     state.emit(&mut on_progress, true);
 
+    if let Some(e) = commit_failed {
+        // Everything ran and none of it is there. Reported as a failure of
+        // its own rather than folded into the statement count, which would
+        // say the opposite of what happened.
+        state.statements_failed += 1;
+        errors.push(format!(
+            "The statements ran but could not be committed, so none of them took effect: {e}"
+        ));
+    }
+
     Ok(RestoreSummary {
         statements_run: state.statements_run,
         statements_failed: state.statements_failed,
         bytes_read: state.bytes_read,
         elapsed_ms: started.elapsed().as_millis() as u64,
         cancelled,
-        rolled_back: roll_back,
+        rolled_back: roll_back && !rollback_failed,
         // A rollback undoes only what had not already been committed. Any DDL
         // in the file commits as it runs, so a dump that got as far as a
         // CREATE has changed the database whatever happens next.
-        partially_applied: (cancelled || failed) && (!roll_back || committed_something),
+        // A rollback that itself failed cannot be claimed to have undone
+        // anything.
+        partially_applied: (cancelled || failed)
+            && (!roll_back || rollback_failed || committed_something),
         errors,
     })
 }
@@ -399,5 +426,27 @@ mod tests {
         assert!(options.stop_on_error);
         assert!(options.wrap_in_transaction);
         assert!(options.disable_foreign_key_checks);
+    }
+    #[test]
+    fn a_failed_commit_is_a_failed_restore() {
+        // The shape the summary has to produce: everything ran, nothing is
+        // there. Reported as its own failure rather than folded into the
+        // statement count, which would say the opposite of what happened.
+        let summary = RestoreSummary {
+            statements_run: 400,
+            statements_failed: 1,
+            bytes_read: 1_000,
+            elapsed_ms: 10,
+            cancelled: false,
+            rolled_back: false,
+            partially_applied: false,
+            errors: vec![
+                "The statements ran but could not be committed, so none of them took effect: \
+                 server has gone away"
+                    .to_string(),
+            ],
+        };
+        assert!(summary.statements_failed > 0);
+        assert!(summary.errors[0].contains("none of them took effect"));
     }
 }

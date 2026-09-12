@@ -174,9 +174,15 @@ pub async fn run_backup(
     // database as it was — which shows up later, somewhere else, as
     // "Table definition has changed, please retry transaction".
     if snapshot_open {
-        let _ = sqlx::raw_sql(AssertSqlSafe("COMMIT".to_string()))
+        // Nothing to commit — the snapshot only read — but the connection
+        // must not go back to the pool inside a transaction, so a failure
+        // here is worth knowing about even though it cannot lose data.
+        if let Err(e) = sqlx::raw_sql(AssertSqlSafe("COMMIT".to_string()))
             .execute(&mut *conn)
-            .await;
+            .await
+        {
+            tracing::warn!(error = %e, "Could not close the dump's snapshot transaction");
+        }
     }
 
     // Flush before deciding anything: a file left half-written by a failed
