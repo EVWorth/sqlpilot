@@ -28,16 +28,16 @@ use crate::mcp::state::McpState;
 
 pub struct AppWorkspace {
     connections: Arc<ConnectionManager>,
-    inspector: SchemaInspector,
-    executor: QueryExecutor,
+    inspector: Arc<SchemaInspector>,
+    executor: Arc<QueryExecutor>,
     state: McpState,
 }
 
 impl AppWorkspace {
     pub fn new(
         connections: Arc<ConnectionManager>,
-        inspector: SchemaInspector,
-        executor: QueryExecutor,
+        inspector: Arc<SchemaInspector>,
+        executor: Arc<QueryExecutor>,
         state: McpState,
     ) -> Self {
         Self {

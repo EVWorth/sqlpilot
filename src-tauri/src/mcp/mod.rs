@@ -6,9 +6,11 @@
 //! grants — the user's record of which connections are shared and on what
 //! terms.
 
+pub mod agent_state;
 pub mod endpoint;
 pub mod state;
 pub mod workspace;
 
+pub use agent_state::AgentState;
 pub use state::McpState;
 pub use workspace::AppWorkspace;

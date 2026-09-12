@@ -25,6 +25,15 @@ fn slot_key(profile_id: &str, slot: &str) -> String {
     format!("{profile_id}:{slot}")
 }
 
+/// A grant as it is stored: strings, and no opinion about what they mean.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StoredGrant {
+    pub connection_id: String,
+    pub posture: String,
+    /// A JSON array of database names, or None for "every database".
+    pub databases: Option<String>,
+}
+
 impl ConnectionStore {
     pub fn new(path: &Path) -> Result<Self, CoreError> {
         let db = SqliteConn::open(path)?;
@@ -307,11 +316,75 @@ impl ConnectionStore {
             .lock()
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         db.execute("DELETE FROM connection_profiles WHERE id = ?1", params![id])?;
+        // Explicitly, rather than relying on the grant table's cascade:
+        // SQLite enforces foreign keys only when the pragma is on, it is off
+        // by default, and a grant left pointing at a deleted id would be a
+        // connection shared with agents that nobody can see or revoke.
+        db.execute(
+            "DELETE FROM agent_grants WHERE connection_id = ?1",
+            params![id],
+        )?;
         drop(db);
         self.delete_password(id)?;
         self.delete_password(&slot_key(id, SSH_PASSWORD_SLOT))?;
         self.delete_password(&slot_key(id, SSH_PASSPHRASE_SLOT))?;
         tracing::debug!("Connection profile deleted");
+        Ok(())
+    }
+
+    /// Which connections are shared with agents, and on what terms.
+    ///
+    /// Stored here rather than in a settings file because a grant belongs to a
+    /// connection: deleting the connection takes the grant with it, which is
+    /// the only behaviour that cannot leave a stale grant pointing at an id
+    /// that now means something else.
+    ///
+    /// The posture is stored as the string the caller gave. This layer does
+    /// not know what postures exist, and does not need to — an unreadable
+    /// value is a problem for whoever interprets it, not a reason for the
+    /// store to reject a write it cannot judge.
+    pub fn list_agent_grants(&self) -> Result<Vec<StoredGrant>, CoreError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        let mut statement =
+            db.prepare("SELECT connection_id, posture, databases FROM agent_grants")?;
+        let grants = statement
+            .query_map([], |row| {
+                Ok(StoredGrant {
+                    connection_id: row.get(0)?,
+                    posture: row.get(1)?,
+                    databases: row.get::<_, Option<String>>(2)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(grants)
+    }
+
+    pub fn save_agent_grant(&self, grant: &StoredGrant) -> Result<(), CoreError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        db.execute(
+            "INSERT INTO agent_grants (connection_id, posture, databases)
+             VALUES (?1, ?2, ?3)
+             ON CONFLICT(connection_id) DO UPDATE SET posture = ?2, databases = ?3",
+            params![grant.connection_id, grant.posture, grant.databases],
+        )?;
+        Ok(())
+    }
+
+    pub fn delete_agent_grant(&self, connection_id: &str) -> Result<(), CoreError> {
+        let db = self
+            .db
+            .lock()
+            .map_err(|e| CoreError::Storage(e.to_string()))?;
+        db.execute(
+            "DELETE FROM agent_grants WHERE connection_id = ?1",
+            params![connection_id],
+        )?;
         Ok(())
     }
 
@@ -429,5 +502,109 @@ impl ConnectionStore {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod agent_grant_tests {
+    use super::*;
+
+    /// A store whose keyring is a HashMap.
+    ///
+    /// Saving a profile writes its password to the OS keyring, and CI has no
+    /// keyring to write to. The mock store is part of keyring-core for exactly
+    /// this, and it is process-global, so setting it repeatedly is harmless.
+    fn store() -> ConnectionStore {
+        keyring_core::set_default_store(keyring_core::mock::Store::new().unwrap());
+        ConnectionStore::in_memory().unwrap()
+    }
+
+    fn profile(id: &str) -> ConnectionProfile {
+        ConnectionProfile {
+            id: id.to_string(),
+            name: format!("{id} server"),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_fresh_store_shares_nothing() {
+        assert!(store().list_agent_grants().unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_grant_survives_being_written_and_read() {
+        let store = store();
+        store.save(&profile("c1")).unwrap();
+        store
+            .save_agent_grant(&StoredGrant {
+                connection_id: "c1".into(),
+                posture: "samples".into(),
+                databases: Some(r#"["shop"]"#.into()),
+            })
+            .unwrap();
+
+        let grants = store.list_agent_grants().unwrap();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].posture, "samples");
+        assert_eq!(grants[0].databases.as_deref(), Some(r#"["shop"]"#));
+    }
+
+    #[test]
+    fn saving_the_same_connection_twice_replaces_the_grant() {
+        // Two grants for one connection would make "which posture applies" a
+        // question of row order.
+        let store = store();
+        store.save(&profile("c1")).unwrap();
+        for posture in ["full", "schema-only"] {
+            store
+                .save_agent_grant(&StoredGrant {
+                    connection_id: "c1".into(),
+                    posture: posture.into(),
+                    databases: None,
+                })
+                .unwrap();
+        }
+
+        let grants = store.list_agent_grants().unwrap();
+        assert_eq!(grants.len(), 1);
+        assert_eq!(grants[0].posture, "schema-only");
+    }
+
+    #[test]
+    fn deleting_a_connection_takes_its_grant_with_it() {
+        // Otherwise a connection stays shared with agents after the user has
+        // deleted it, and there is nothing left in the UI to revoke.
+        let store = store();
+        store.save(&profile("c1")).unwrap();
+        store
+            .save_agent_grant(&StoredGrant {
+                connection_id: "c1".into(),
+                posture: "full".into(),
+                databases: None,
+            })
+            .unwrap();
+
+        store.delete("c1").unwrap();
+
+        assert!(store.list_agent_grants().unwrap().is_empty());
+    }
+
+    #[test]
+    fn revoking_leaves_the_connection_alone() {
+        let store = store();
+        store.save(&profile("c1")).unwrap();
+        store
+            .save_agent_grant(&StoredGrant {
+                connection_id: "c1".into(),
+                posture: "full".into(),
+                databases: None,
+            })
+            .unwrap();
+
+        store.delete_agent_grant("c1").unwrap();
+
+        assert!(store.list_agent_grants().unwrap().is_empty());
+        assert!(store.get_existing("c1").unwrap().is_some());
     }
 }

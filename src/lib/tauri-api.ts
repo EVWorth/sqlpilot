@@ -2,7 +2,9 @@ import { getVersion } from "@tauri-apps/api/app";
 import type { ConnectionProfileInput, QueryResult } from "../types";
 import type {
   BackupOptions,
+  DataPosture,
   ExplainFormat,
+  Harness,
   HistoryEntry,
   HistoryExportFormat,
   HistoryQuery,
@@ -351,4 +353,31 @@ export const api = {
   // False when no OS credential store was available at startup, so the UI can
   // say passwords will not be remembered rather than letting the user find out.
   keyringAvailable: () => commands.keyringAvailable(),
+
+  // Agents. These decide what an agent harness can reach; the tool calls
+  // themselves never cross this boundary — they arrive over HTTP at the
+  // endpoint and are answered in Rust.
+  listAgentConnections: () => unwrap("list_agent_connections", () => commands.listAgentConnections()),
+
+  shareConnectionWithAgents: (connectionId: string, posture: DataPosture, databases?: string[]) =>
+    unwrap(
+      "share_connection_with_agents",
+      () => commands.shareConnectionWithAgents(connectionId, posture, orNull(databases)),
+    ),
+
+  revokeAgentConnection: (connectionId: string) =>
+    unwrap("revoke_agent_connection", () => commands.revokeAgentConnection(connectionId)),
+
+  unlockAgentDdl: (connectionId: string, unlocked: boolean) =>
+    unwrap("unlock_agent_ddl", () => commands.unlockAgentDdl(connectionId, unlocked)),
+
+  agentEndpointStatus: () => unwrap("agent_endpoint_status", () => commands.agentEndpointStatus()),
+
+  startAgentEndpoint: () => unwrap("start_agent_endpoint", () => commands.startAgentEndpoint()),
+
+  stopAgentEndpoint: () => unwrap("stop_agent_endpoint", () => commands.stopAgentEndpoint()),
+
+  rotateAgentToken: () => unwrap("rotate_agent_token", () => commands.rotateAgentToken()),
+
+  agentHarnessSetup: (harness: Harness) => unwrap("agent_harness_setup", () => commands.agentHarnessSetup(harness)),
 };
