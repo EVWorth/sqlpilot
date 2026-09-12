@@ -1,5 +1,12 @@
 [workspace]
-members = [".", "crates/mas-admin", "crates/mas-core", "crates/mas-export", "crates/mas-sqlite"]
+members = [
+  ".",
+  "crates/mas-admin",
+  "crates/mas-core",
+  "crates/mas-export",
+  "crates/mas-mcp",
+  "crates/mas-sqlite",
+]
 resolver = "2"
 
 [workspace.dependencies]

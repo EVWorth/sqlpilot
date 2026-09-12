@@ -2874,6 +2874,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "mas-mcp"
+version = "0.1.0"
+dependencies = [
+ "mas-core",
+ "serde",
+ "serde_json",
+ "specta",
+]
+
+[[package]]
 name = "mas-sqlite"
 version = "0.1.0"
 dependencies = [

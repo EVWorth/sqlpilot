@@ -1,0 +1,10 @@
+[package]
+name = "mas-mcp"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+mas-core = { path = "../mas-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+specta = { workspace = true }

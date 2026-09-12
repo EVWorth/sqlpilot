@@ -767,7 +767,12 @@ fn returns_rows(sql: &str) -> bool {
     ROW_RETURNING.contains(&crate::query::statement::effective_verb(sql).as_str())
 }
 
-pub(crate) fn split_statements(sql: &str) -> Vec<String> {
+/// Split SQL into statements, aware of quotes and comments.
+///
+/// Public because the MCP tool surface needs the same answer the executor
+/// uses: a tool that refuses two statements must agree with the thing that
+/// would have run them.
+pub fn split_statements(sql: &str) -> Vec<String> {
     let mut statements = Vec::new();
     let mut current = String::new();
     let mut in_string = false;
