@@ -1,26 +1,20 @@
-import { AlertCircle, CheckCircle2, Database, Loader2, Settings, Shield, Terminal, X, XCircle } from "lucide-react";
-import { useEffect, useState } from "react";
-import { POOL_MAX_LIMIT, validatePoolSizing } from "../../lib/connection-validation";
-import { api } from "../../lib/tauri-api";
-import { useConnectionStore } from "../../stores/connectionStore";
-import type {
-  ConnectionProfile,
-  ConnectionProfileInput,
-  SSHConfigInput,
-  SSLConfig,
-  TestConnectionResult,
-} from "../../types";
+import { CheckCircle2, Database, Loader2, Settings, Shield, Terminal, X, XCircle } from "lucide-react";
+import { useState } from "react";
+import type { ConnectionProfile } from "../../types";
+import { AdvancedTab } from "./tabs/AdvancedTab";
+import { GeneralTab } from "./tabs/GeneralTab";
+import { SshTab } from "./tabs/SshTab";
+import { SslTab } from "./tabs/SslTab";
+import { useConnectionForm } from "./useConnectionForm";
 
-const PRESET_COLORS = [
-  "#3B82F6",
-  "#10B981",
-  "#F59E0B",
-  "#EF4444",
-  "#8B5CF6",
-  "#EC4899",
-  "#06B6D4",
-  "#F97316",
-];
+/**
+ * The connection form: chrome, tab switching, and the two buttons.
+ *
+ * Everything the form knows is in `useConnectionForm`; each tab is its own
+ * component. This file was 700 lines holding all four tabs, nine pieces of
+ * state and six handlers, so adding a fifth meant reading all of it (#275) —
+ * it is now one entry in `TABS` and one file.
+ */
 
 interface Props {
   isOpen: boolean;
@@ -28,236 +22,59 @@ interface Props {
   editProfile?: ConnectionProfile;
 }
 
-const defaultProfile: Omit<
-  ConnectionProfileInput,
-  "id" | "created_at" | "updated_at"
-> = {
-  name: "",
-  host: "127.0.0.1",
-  port: 3306,
-  username: "root",
-  password: "",
-  default_database: "",
-  pool_min: 1,
-  pool_max: 5,
-  read_only: false,
-  connect_timeout_secs: 10,
-  query_timeout_secs: 0,
-  charset: "utf8mb4",
-  // Rust Options are required-but-nullable, so these are stated explicitly
-  // instead of being left off as they were with the hand-written type.
-  group: null,
-  color: null,
-  environment: null,
-  ssh_config: null,
-  ssl_config: null,
-};
-
 type TabId = "general" | "ssl" | "ssh" | "advanced";
 
-/**
- * Drop keys whose value is `undefined`.
- *
- * The generated types spell optional fields `T | null` (Rust's Option), but
- * `Partial<T>` spells them `T | undefined`. Spreading a Partial over a full
- * object would therefore reintroduce `undefined` where only `null` is valid.
- */
-function definedOnly<T extends object>(updates: Partial<T>): Partial<T> {
-  return Object.fromEntries(
-    Object.entries(updates).filter(([, v]) => v !== undefined),
-  ) as Partial<T>;
-}
-
-const tabs: { id: TabId; label: string; icon: typeof Database }[] = [
+const TABS: { id: TabId; label: string; icon: typeof Database }[] = [
   { id: "general", label: "General", icon: Database },
   { id: "ssl", label: "SSL", icon: Shield },
   { id: "ssh", label: "SSH Tunnel", icon: Terminal },
   { id: "advanced", label: "Advanced", icon: Settings },
 ];
 
-const sslModes: { value: SSLConfig["mode"]; label: string; description: string }[] = [
-  { value: "Disabled", label: "Disabled", description: "No SSL encryption" },
-  { value: "Preferred", label: "Preferred", description: "Use SSL if available, fall back to unencrypted" },
-  { value: "Required", label: "Required", description: "Always use SSL, fail if unavailable" },
-  { value: "VerifyCA", label: "Verify CA", description: "Require SSL and verify the server certificate" },
-  { value: "VerifyIdentity", label: "Verify Identity", description: "Verify CA and server hostname" },
-];
-
-/**
- * Seed the editable form from a saved profile.
- *
- * A saved profile has no credentials — the backend never sends them back — so
- * they start blank. That is the protocol save_connection_profile expects: an
- * empty password means "keep the stored one".
- */
-function toInput(profile: ConnectionProfile): ConnectionProfileInput {
-  return {
-    ...profile,
-    password: "",
-    ssh_config: profile.ssh_config ? { ...profile.ssh_config, password: null, passphrase: null } : null,
-  };
-}
-
 export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("general");
-  const [form, setForm] = useState<ConnectionProfileInput>(
-    editProfile
-      ? toInput(editProfile)
-      : {
-        ...defaultProfile,
-        id: crypto.randomUUID(),
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      },
-  );
-  const [sshEnabled, setSshEnabled] = useState(!!editProfile?.ssh_config);
-  const [sshAuthMethod, setSshAuthMethod] = useState<"password" | "key">(
-    editProfile?.ssh_config?.private_key_path ? "key" : "password",
-  );
-  const [testResult, setTestResult] = useState<TestConnectionResult | null>(
-    null,
-  );
-  const [testing, setTesting] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const saveProfile = useConnectionStore((s) => s.saveProfile);
-
-  useEffect(() => {
-    if (isOpen) {
-      setActiveTab("general");
-      setForm(
-        editProfile
-          ?? ({
-            ...defaultProfile,
-            id: crypto.randomUUID(),
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-          } as ConnectionProfile),
-      );
-      setSshEnabled(!!editProfile?.ssh_config);
-      setSshAuthMethod(
-        editProfile?.ssh_config?.private_key_path ? "key" : "password",
-      );
-      setTestResult(null);
-    }
-  }, [isOpen, editProfile]);
+  const {
+    form,
+    sshEnabled,
+    setSshEnabled,
+    sshAuthMethod,
+    setSshAuthMethod,
+    testResult,
+    testing,
+    saving,
+    poolProblems,
+    canSave,
+    handleChange,
+    handleSSLChange,
+    handleSSHChange,
+    handleTest,
+    handleSave,
+  } = useConnectionForm(isOpen, editProfile);
 
   if (!isOpen) return null;
-
-  const handleChange = (
-    field: keyof ConnectionProfileInput,
-    value: string | number | boolean | undefined,
-  ) => {
-    setForm((prev) => ({ ...prev, [field]: value }));
-    setTestResult(null);
-  };
-
-  const handleSSLChange = (updates: Partial<SSLConfig>) => {
-    setForm((prev) => {
-      // Start from a complete SSLConfig: the generated type requires every
-      // field to be present (nullable, not optional), so spreading a possibly
-      // null prev.ssl_config directly would leave them optional.
-      const base: SSLConfig = prev.ssl_config ?? {
-        mode: "Disabled",
-        ca_cert_path: null,
-        client_cert_path: null,
-        client_key_path: null,
-      };
-      return { ...prev, ssl_config: { ...base, ...definedOnly(updates) } };
-    });
-    setTestResult(null);
-  };
-
-  const handleSSHChange = (updates: Partial<SSHConfigInput>) => {
-    setForm((prev) => {
-      const base: SSHConfigInput = prev.ssh_config ?? {
-        host: "",
-        port: 22,
-        username: "",
-        private_key_path: null,
-      };
-      return { ...prev, ssh_config: { ...base, ...definedOnly(updates) } };
-    });
-    setTestResult(null);
-  };
-
-  const handleTest = async () => {
-    setTesting(true);
-    setTestResult(null);
-    const profile = buildProfileForSave();
-    try {
-      const result = await api.testConnection(profile);
-      setTestResult(result);
-    } catch (e) {
-      setTestResult({ success: false, message: String(e), server_version: null, latency_ms: 0 });
-    }
-    setTesting(false);
-  };
-
-  const buildProfileForSave = (): ConnectionProfileInput => {
-    const profile = { ...form };
-    // Clear SSH config if disabled
-    if (!sshEnabled) {
-      profile.ssh_config = null;
-    } else if (profile.ssh_config) {
-      // Clear irrelevant auth fields based on method
-      if (sshAuthMethod === "password") {
-        profile.ssh_config = {
-          ...profile.ssh_config,
-          private_key_path: null,
-          passphrase: null,
-        };
-      } else {
-        profile.ssh_config = {
-          ...profile.ssh_config,
-          password: null,
-        };
-      }
-    }
-    // Clear SSL file paths if mode is Disabled
-    if (!profile.ssl_config || profile.ssl_config.mode === "Disabled") {
-      profile.ssl_config = null;
-    }
-    return profile;
-  };
-
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await saveProfile(buildProfileForSave());
-      onClose();
-    } catch (e) {
-      console.error("Save failed:", e);
-    }
-    setSaving(false);
-  };
-
-  const sslMode = form.ssl_config?.mode ?? "Disabled";
-  // Checked as they are typed, so the answer is beside the field rather than
-  // a connection that fails later or a number quietly changed on the way in.
-  const poolProblems = validatePoolSizing(form.pool_min, form.pool_max);
-  const hasPoolProblem = Object.keys(poolProblems).length > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
       <div className="w-[560px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
-        {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
           <h2 className="text-sm font-semibold">
             {editProfile ? "Edit Connection" : "New Connection"}
           </h2>
           <button
             onClick={onClose}
+            aria-label="Close"
             className="text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
           >
             <X className="h-4 w-4" />
           </button>
         </div>
 
-        {/* Tabs */}
-        <div className="flex border-b border-[var(--color-border)]">
-          {tabs.map((tab) => (
+        <div className="flex border-b border-[var(--color-border)]" role="tablist">
+          {TABS.map((tab) => (
             <button
               key={tab.id}
+              role="tab"
+              aria-selected={activeTab === tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={`flex items-center gap-1.5 px-4 py-2.5 text-xs font-medium transition-colors ${
                 activeTab === tab.id
@@ -271,346 +88,22 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
           ))}
         </div>
 
-        {/* Tab Content */}
         <div className="min-h-[320px] p-4">
-          {/* General Tab */}
-          {activeTab === "general" && (
-            <div className="space-y-3">
-              <Field
-                label="Name"
-                value={form.name}
-                onChange={(v) => handleChange("name", v)}
-                placeholder="My Database"
-              />
-              <div className="grid grid-cols-3 gap-3">
-                <div className="col-span-2">
-                  <Field
-                    label="Host"
-                    value={form.host}
-                    onChange={(v) => handleChange("host", v)}
-                  />
-                </div>
-                <Field
-                  label="Port"
-                  value={String(form.port)}
-                  onChange={(v) => handleChange("port", parseInt(v) || 3306)}
-                  type="number"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field
-                  label="Username"
-                  value={form.username}
-                  onChange={(v) => handleChange("username", v)}
-                />
-                <Field
-                  label="Password"
-                  value={form.password ?? ""}
-                  onChange={(v) => handleChange("password", v)}
-                  type="password"
-                  placeholder={editProfile && !form.password ? "Saved (leave blank to keep)" : undefined}
-                />
-              </div>
-              <Field
-                label="Default Database"
-                value={form.default_database || ""}
-                onChange={(v) => handleChange("default_database", v)}
-                placeholder="(optional)"
-              />
-              {/* Color picker */}
-              <div>
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Color
-                </label>
-                <div className="flex items-center gap-1.5">
-                  {PRESET_COLORS.map((c) => (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => handleChange("color", c)}
-                      className={`h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 ${
-                        form.color === c
-                          ? "border-[var(--color-text-primary)] scale-110"
-                          : "border-transparent"
-                      }`}
-                      style={{ backgroundColor: c }}
-                      title={c}
-                    />
-                  ))}
-                  {form.color && (
-                    <button
-                      type="button"
-                      onClick={() => handleChange("color", "")}
-                      className="ml-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                    >
-                      Clear
-                    </button>
-                  )}
-                </div>
-              </div>
-              {/* Environment */}
-              <div>
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Environment
-                </label>
-                <select
-                  value={form.environment ?? ""}
-                  onChange={(e) =>
-                    handleChange(
-                      "environment",
-                      e.target.value || undefined,
-                    )}
-                  className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-brand-500"
-                >
-                  <option value="">None</option>
-                  <option value="development">Development</option>
-                  <option value="staging">Staging</option>
-                  <option value="production">Production</option>
-                </select>
-              </div>
-            </div>
-          )}
-
-          {/* SSL Tab */}
-          {activeTab === "ssl" && (
-            <div className="space-y-4">
-              <div>
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                  SSL Mode
-                </label>
-                <select
-                  value={sslMode}
-                  onChange={(e) => handleSSLChange({ mode: e.target.value as SSLConfig["mode"] })}
-                  className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] outline-none focus:border-brand-500"
-                >
-                  {sslModes.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-                <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
-                  {sslModes.find((m) => m.value === sslMode)?.description}
-                </p>
-              </div>
-
-              {sslMode !== "Disabled" && (
-                <div className="space-y-3">
-                  <Field
-                    label="CA Certificate"
-                    value={form.ssl_config?.ca_cert_path || ""}
-                    onChange={(v) => handleSSLChange({ ca_cert_path: v || undefined })}
-                    placeholder="/path/to/ca.pem"
-                  />
-                  <Field
-                    label="Client Certificate"
-                    value={form.ssl_config?.client_cert_path || ""}
-                    onChange={(v) => handleSSLChange({ client_cert_path: v || undefined })}
-                    placeholder="/path/to/client-cert.pem"
-                  />
-                  <Field
-                    label="Client Key"
-                    value={form.ssl_config?.client_key_path || ""}
-                    onChange={(v) => handleSSLChange({ client_key_path: v || undefined })}
-                    placeholder="/path/to/client-key.pem"
-                  />
-                  {(sslMode === "VerifyCA" || sslMode === "VerifyIdentity")
-                    && !form.ssl_config?.ca_cert_path && (
-                    <p className="text-[10px] text-yellow-400">
-                      ⚠ CA certificate is required for {sslMode === "VerifyCA" ? "Verify CA" : "Verify Identity"} mode
-                    </p>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* SSH Tunnel Tab */}
+          {activeTab === "general" && <GeneralTab form={form} isExisting={!!editProfile} onChange={handleChange} />}
+          {activeTab === "ssl" && <SslTab form={form} onChange={handleSSLChange} />}
           {activeTab === "ssh" && (
-            <div className="space-y-4">
-              {
-                /*
-                The fields below are stored but not acted on: nothing in the
-                backend opens a tunnel. A profile configured here used to
-                connect straight to the database host while the UI implied
-                the traffic was tunnelled, so the connection is now refused
-                outright rather than quietly going direct (#273).
-              */
-              }
-              <div
-                data-testid="ssh-unsupported"
-                className="flex items-start gap-2 rounded border border-amber-700 bg-amber-900/20 px-3 py-2 text-xs text-amber-300"
-              >
-                <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                <span>
-                  SSH tunnelling is not implemented yet. These settings are saved, but a profile that uses them cannot
-                  connect — SQLPilot will refuse rather than connect directly to the database and leave you thinking the
-                  traffic is tunnelled. Open a tunnel yourself and point the profile at the forwarded local port
-                  instead.
-                </span>
-              </div>
-
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={sshEnabled}
-                  onChange={(e) => setSshEnabled(e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-[var(--color-border)] accent-brand-500"
-                />
-                <span className="text-xs font-medium text-[var(--color-text-primary)]">
-                  Enable SSH Tunnel
-                </span>
-              </label>
-
-              {sshEnabled && (
-                <>
-                  <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-2">
-                    <p className="text-center text-[10px] tracking-wide text-[var(--color-text-muted)]">
-                      App → <span className="text-brand-400">SSH Tunnel</span> → MySQL Server
-                    </p>
-                  </div>
-
-                  <div className="grid grid-cols-3 gap-3">
-                    <div className="col-span-2">
-                      <Field
-                        label="SSH Host"
-                        value={form.ssh_config?.host || ""}
-                        onChange={(v) => handleSSHChange({ host: v })}
-                        placeholder="ssh.example.com"
-                      />
-                    </div>
-                    <Field
-                      label="SSH Port"
-                      value={String(form.ssh_config?.port ?? 22)}
-                      onChange={(v) => handleSSHChange({ port: parseInt(v) || 22 })}
-                      type="number"
-                    />
-                  </div>
-
-                  <Field
-                    label="SSH Username"
-                    value={form.ssh_config?.username || ""}
-                    onChange={(v) => handleSSHChange({ username: v })}
-                  />
-
-                  <div>
-                    <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                      Authentication
-                    </label>
-                    <div className="flex gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-0.5">
-                      <button
-                        onClick={() => setSshAuthMethod("password")}
-                        className={`flex-1 rounded px-3 py-1 text-xs font-medium transition-colors ${
-                          sshAuthMethod === "password"
-                            ? "bg-brand-600 text-white"
-                            : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-                        }`}
-                      >
-                        Password
-                      </button>
-                      <button
-                        onClick={() => setSshAuthMethod("key")}
-                        className={`flex-1 rounded px-3 py-1 text-xs font-medium transition-colors ${
-                          sshAuthMethod === "key"
-                            ? "bg-brand-600 text-white"
-                            : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
-                        }`}
-                      >
-                        Key File
-                      </button>
-                    </div>
-                  </div>
-
-                  {sshAuthMethod === "password"
-                    ? (
-                      <Field
-                        label="SSH Password"
-                        value={form.ssh_config?.password || ""}
-                        onChange={(v) => handleSSHChange({ password: v || undefined })}
-                        type="password"
-                      />
-                    )
-                    : (
-                      <div className="space-y-3">
-                        <Field
-                          label="Private Key File"
-                          value={form.ssh_config?.private_key_path || ""}
-                          onChange={(v) => handleSSHChange({ private_key_path: v || undefined })}
-                          placeholder="~/.ssh/id_rsa"
-                        />
-                        <Field
-                          label="Passphrase"
-                          value={form.ssh_config?.passphrase || ""}
-                          onChange={(v) => handleSSHChange({ passphrase: v || undefined })}
-                          type="password"
-                          placeholder="(optional)"
-                        />
-                      </div>
-                    )}
-                </>
-              )}
-            </div>
+            <SshTab
+              form={form}
+              enabled={sshEnabled}
+              onEnabledChange={setSshEnabled}
+              authMethod={sshAuthMethod}
+              onAuthMethodChange={setSshAuthMethod}
+              onChange={handleSSHChange}
+            />
           )}
-
-          {/* Advanced Tab */}
-          {activeTab === "advanced" && (
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <Field
-                  label="Pool Min Connections"
-                  value={String(form.pool_min)}
-                  onChange={(v) => handleChange("pool_min", parseInt(v) || 0)}
-                  type="number"
-                  problem={poolProblems.min}
-                  hint="Opened up front. 0 opens them as they are needed."
-                />
-                <Field
-                  label="Pool Max Connections"
-                  value={String(form.pool_max)}
-                  onChange={(v) => handleChange("pool_max", parseInt(v) || 1)}
-                  type="number"
-                  problem={poolProblems.max}
-                  hint={`How many queries can run at once. 1–${POOL_MAX_LIMIT}.`}
-                />
-              </div>
-              <label className="flex cursor-pointer items-center gap-2">
-                <input
-                  type="checkbox"
-                  checked={form.read_only}
-                  onChange={(e) => handleChange("read_only", e.target.checked)}
-                  className="h-3.5 w-3.5 rounded border-[var(--color-border)] accent-brand-500"
-                />
-                <span className="text-xs font-medium text-[var(--color-text-primary)]">
-                  Read-only mode
-                </span>
-              </label>
-              <div className="grid grid-cols-2 gap-3">
-                <Field
-                  label="Connect Timeout (s)"
-                  value={String(form.connect_timeout_secs ?? 10)}
-                  onChange={(v) => handleChange("connect_timeout_secs", parseInt(v) || 10)}
-                  type="number"
-                  placeholder="10"
-                />
-                <Field
-                  label="Query Timeout (s, 0=unlimited)"
-                  value={String(form.query_timeout_secs ?? 0)}
-                  onChange={(v) => handleChange("query_timeout_secs", parseInt(v) || 0)}
-                  type="number"
-                  placeholder="0"
-                />
-              </div>
-              <Field
-                label="Character Set"
-                value={form.charset ?? "utf8mb4"}
-                onChange={(v) => handleChange("charset", v || "utf8mb4")}
-                placeholder="utf8mb4"
-              />
-            </div>
-          )}
+          {activeTab === "advanced" && <AdvancedTab form={form} onChange={handleChange} poolProblems={poolProblems} />}
         </div>
 
-        {/* Test Result */}
         {testResult && (
           <div className="px-4 pb-2">
             <div
@@ -631,7 +124,6 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
           </div>
         )}
 
-        {/* Actions */}
         <div className="flex items-center justify-between border-t border-[var(--color-border)] p-4">
           <button
             onClick={handleTest}
@@ -649,8 +141,8 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
               Cancel
             </button>
             <button
-              onClick={handleSave}
-              disabled={saving || !form.name || !form.host || hasPoolProblem}
+              onClick={() => void handleSave(onClose)}
+              disabled={!canSave}
               className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save"}
@@ -658,55 +150,6 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = "text",
-  placeholder,
-  problem,
-  hint,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  type?: string;
-  placeholder?: string;
-  /** Why this value cannot be saved, if it cannot. */
-  problem?: string;
-  /** What the field is for, when the label is not enough. */
-  hint?: string;
-}) {
-  const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
-  return (
-    <div>
-      <label
-        htmlFor={id}
-        className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]"
-      >
-        {label}
-      </label>
-      <input
-        id={id}
-        type={type}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        aria-invalid={problem !== undefined}
-        aria-describedby={problem ? `${id}-problem` : hint ? `${id}-hint` : undefined}
-        className={`w-full rounded border bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-brand-500 ${
-          problem ? "border-red-500/60" : "border-[var(--color-border)]"
-        }`}
-      />
-      {problem
-        ? <p id={`${id}-problem`} className="mt-0.5 text-[10px] text-red-400">{problem}</p>
-        : hint
-        ? <p id={`${id}-hint`} className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">{hint}</p>
-        : null}
     </div>
   );
 }
