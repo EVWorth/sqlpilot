@@ -39,7 +39,9 @@ pub struct AppState {
     // same in-flight statement, and both honour one set of timeouts and caps.
     pub query_executor: Arc<QueryExecutor>,
     pub schema_inspector: Arc<SchemaInspector>,
-    pub history_store: HistoryStore,
+    // Shared with the agent workspace: `query_history` reads the same store
+    // the history panel does, redaction and all.
+    pub history_store: Arc<HistoryStore>,
     pub admin_service: AdminService,
     pub sqlite_manager: Arc<SqliteConnectionManager>,
     pub sqlite_executor: Arc<SqliteQueryExecutor>,

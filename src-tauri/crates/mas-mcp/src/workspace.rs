@@ -19,6 +19,7 @@
 //! tool remembering to check.
 
 use mas_core::error::CoreError;
+use mas_core::history::HistoryEntry;
 use mas_core::models::query::QueryResult;
 use mas_core::query::{ExplainFormat, ExplainResponse};
 use mas_core::schema::inspector::{
@@ -163,6 +164,13 @@ pub trait Workspace: Send + Sync + 'static {
         format: ExplainFormat,
     ) -> Result<ExplainResponse, CoreError>;
 
+    /// Statements run here before, filtered to the connections named.
+    ///
+    /// Reads the app's own history store, so a statement an agent sees is one
+    /// the user could have seen too — including its redaction, which happens
+    /// on the way into storage rather than on the way out.
+    async fn history(&self, filter: HistoryFilter) -> Result<Vec<HistoryEntry>, CoreError>;
+
     /// Run one statement that has already been classified and permitted.
     ///
     /// `limit` is the row cap the posture arrived at, not the model's request;
@@ -174,4 +182,20 @@ pub trait Workspace: Send + Sync + 'static {
         sql: &str,
         limit: Option<u32>,
     ) -> Result<QueryResult, CoreError>;
+}
+
+/// What to look for in the history.
+///
+/// Narrower than the app's own `HistoryQuery`, which has a dozen fields for a
+/// panel with a dozen controls. An agent needs the recent statements, the ones
+/// matching a fragment, and the ones that failed.
+#[derive(Debug, Clone)]
+pub struct HistoryFilter {
+    pub search: Option<String>,
+    /// Connection *names*, as history records them. Empty means nothing comes
+    /// back — never "everything", because this list is what limits an agent to
+    /// the connections the user shared.
+    pub connection_names: Vec<String>,
+    pub failed_only: bool,
+    pub limit: u32,
 }

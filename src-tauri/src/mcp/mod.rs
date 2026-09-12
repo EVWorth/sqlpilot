@@ -7,7 +7,9 @@
 //! terms.
 
 pub mod agent_state;
+pub mod bridge;
 pub mod state;
+pub mod window;
 pub mod workspace;
 
 pub use agent_state::AgentState;

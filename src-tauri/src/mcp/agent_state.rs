@@ -10,11 +10,17 @@ use std::sync::{Arc, Mutex};
 
 use crate::commands::agents::AgentEndpoint;
 use crate::commands::AppState;
+use crate::mcp::bridge::WindowBridge;
 use crate::mcp::state::McpState;
+use crate::mcp::window::WindowSurface;
 use crate::mcp::workspace::AppWorkspace;
 use mas_mcp::endpoint::{self, Endpoint};
 
 pub struct AgentState {
+    /// The channel to the window. Held here so that it survives the endpoint
+    /// being stopped and started, and so the frontend's answers reach the
+    /// same bridge the tools are waiting on.
+    pub bridge: Arc<WindowBridge>,
     /// The grants, shared with the running server so a change takes effect at
     /// the agent's next call rather than at the next restart.
     pub state: McpState,
@@ -25,6 +31,7 @@ pub struct AgentState {
 impl AgentState {
     pub fn new(data_dir: PathBuf, state: McpState) -> Self {
         Self {
+            bridge: Arc::new(WindowBridge::new()),
             state,
             data_dir,
             running: Mutex::new(None),
@@ -60,12 +67,16 @@ impl AgentState {
         let workspace = Arc::new(AppWorkspace::new(
             app.connection_manager.clone(),
             app.connection_store.clone(),
+            app.history_store.clone(),
             app.schema_inspector.clone(),
             app.query_executor.clone(),
             self.state.clone(),
         ));
 
-        let endpoint = endpoint::start(workspace, token, endpoint::PREFERRED_PORT).await?;
+        let surface: Arc<dyn mas_mcp::surface::Surface> =
+            Arc::new(WindowSurface::new(self.bridge.clone()));
+        let endpoint =
+            endpoint::start(workspace, Some(surface), token, endpoint::PREFERRED_PORT).await?;
         *self.running() = Some(endpoint);
         Ok(())
     }

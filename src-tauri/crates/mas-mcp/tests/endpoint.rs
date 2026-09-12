@@ -10,6 +10,7 @@
 use std::sync::Arc;
 
 use mas_core::error::CoreError;
+use mas_core::history::HistoryEntry;
 use mas_core::models::query::{ColumnMeta, QueryResult, SqlValue};
 use mas_core::query::{ExplainFormat, ExplainResponse};
 use mas_core::schema::inspector::{
@@ -18,7 +19,7 @@ use mas_core::schema::inspector::{
 };
 use mas_mcp::endpoint;
 use mas_mcp::grants::{ConnectionFacts, Grant, Grants};
-use mas_mcp::workspace::{LiveConnection, ObjectKind, Workspace};
+use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, Workspace};
 use serde_json::json;
 
 /// A workspace with one shared connection and nothing else.
@@ -117,6 +118,10 @@ impl Workspace for OneConnection {
         Ok(vec![])
     }
 
+    async fn history(&self, _: HistoryFilter) -> Result<Vec<HistoryEntry>, CoreError> {
+        Ok(vec![])
+    }
+
     async fn explain(
         &self,
         _: &str,
@@ -180,7 +185,7 @@ impl Drop for Running {
 async fn start() -> Running {
     // Port 0: these tests must not fight each other, or the user's own running
     // copy of the app, over the preferred port.
-    let endpoint = endpoint::start(Arc::new(OneConnection), "test-token".into(), 0)
+    let endpoint = endpoint::start(Arc::new(OneConnection), None, "test-token".into(), 0)
         .await
         .expect("the endpoint starts");
     Running {
@@ -278,7 +283,7 @@ async fn a_request_with_the_wrong_token_is_refused() {
 #[tokio::test]
 async fn the_endpoint_only_listens_on_loopback() {
     // The one property of this server that would be a disaster to get wrong.
-    let endpoint = endpoint::start(Arc::new(OneConnection), "t".into(), 0)
+    let endpoint = endpoint::start(Arc::new(OneConnection), None, "t".into(), 0)
         .await
         .unwrap();
     assert!(endpoint.address.ip().is_loopback(), "{}", endpoint.address);
@@ -315,6 +320,12 @@ async fn a_harness_can_list_the_tools() {
         "explain",
         "table_stats",
         "profile_column",
+        "get_editor_context",
+        "get_result_context",
+        "get_last_error",
+        "propose_edit",
+        "open_draft",
+        "query_history",
     ] {
         assert!(body.contains(tool), "{tool} is missing from tools/list");
     }

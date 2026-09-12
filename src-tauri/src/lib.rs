@@ -195,11 +195,13 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::agents::stop_agent_endpoint,
             commands::agents::rotate_agent_token,
             commands::agents::agent_harness_setup,
+            commands::agents::answer_agent_request,
         ])
         .events(tauri_specta::collect_events![
             commands::backup::BackupProgressEvent,
             commands::backup::RestoreProgressEvent,
-            commands::ConnectionHealthEvent
+            commands::ConnectionHealthEvent,
+            mcp::bridge::AgentRequest
         ]);
     specta_builder
 }
@@ -400,6 +402,7 @@ pub fn run() {
     // `.expect()` here undid that — a corrupt history.db took the whole app
     // with it, profiles and all.
     let (history_store, history_problem) = open_history_store(&data_dir);
+    let history_store = Arc::new(history_store);
     if let Some(problem) = history_problem {
         startup_problems.push(problem);
     }
@@ -419,6 +422,11 @@ pub fn run() {
 
     let specta_builder = specta_builder();
     let health_manager = Arc::clone(&manager);
+    let agents = mcp::AgentState::new(
+        data_dir.clone(),
+        mcp::McpState::new(commands::agents::load_grants(&store)),
+    );
+    let agent_bridge = agents.bridge.clone();
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -429,6 +437,18 @@ pub fn run() {
             // broadcasts health changes, this turns them into events the
             // frontend can listen for (#276).
             commands::forward_health_events(health_manager, app.handle().clone());
+
+            // The other direction: a tool call in Rust asking the window a
+            // question. Connected here rather than at construction because
+            // there is no app handle to emit through until now — which is also
+            // why "no window" is the honest answer before this runs.
+            {
+                let handle = app.handle().clone();
+                agent_bridge.connect(Arc::new(move |request| {
+                    use tauri_specta::Event as _;
+                    request.emit(&handle).map_err(|e| e.to_string())
+                }));
+            }
 
             #[cfg(target_os = "macos")]
             {
@@ -455,10 +475,7 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         })
-        .manage(mcp::AgentState::new(
-            data_dir.clone(),
-            mcp::McpState::new(commands::agents::load_grants(&store)),
-        ))
+        .manage(agents)
         .manage(commands::StartupReport(startup_problems))
         .manage(AppState {
             connection_manager: manager,
