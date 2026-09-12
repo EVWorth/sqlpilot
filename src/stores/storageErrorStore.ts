@@ -5,7 +5,11 @@ import { describeStorageError } from "../lib/storage-error";
  * Identifies which persisted thing failed to save. Keyed rather than a single
  * slot so a successful write of one setting cannot clear another's error.
  */
-export type StorageErrorKey = "query-settings" | "formatter-settings" | "theme";
+export type StorageErrorKey =
+  | "query-settings"
+  | "formatter-settings"
+  | "theme"
+  | "editor-session";
 
 interface StorageErrorState {
   errors: Partial<Record<StorageErrorKey, string>>;

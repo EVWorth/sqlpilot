@@ -1,3 +1,4 @@
+import { useStorageErrorStore } from "../stores/storageErrorStore";
 import type { EditorTab } from "../types";
 
 /**
@@ -113,11 +114,23 @@ export function loadSession(): PersistedSession | null {
   }
 }
 
+/**
+ * Write the session, and say so when it cannot be written.
+ *
+ * This used to swallow the failure. Of everything the app keeps in
+ * localStorage, the session is the one whose loss is most visible: a user
+ * with a dozen tabs of unsaved SQL restarts and finds them gone, with nothing
+ * at any point having said that saving had stopped working. The quota is
+ * around 5 MB and the tabs hold whatever has been typed or pasted into them,
+ * so it is reachable.
+ */
 export function saveSession(tabs: EditorTab[], activeTabId: string | null) {
+  const { reportStorageError } = useStorageErrorStore.getState();
   try {
     localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ tabs, activeTabId }));
-  } catch {
-    // localStorage unavailable
+    reportStorageError("editor-session", null, "open tabs");
+  } catch (e) {
+    reportStorageError("editor-session", e, "open tabs");
   }
 }
 
