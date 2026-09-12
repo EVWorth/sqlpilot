@@ -430,9 +430,13 @@ exist: `test_connect_mysql57` and `test_connect_with_ssl` need containers the
 compose file does not define, and `test_connect_with_ssh_tunnel` needs a
 feature that is not built (FR-1.2.1) — a profile using one is refused.
 
-Several integration files take `MAS_TEST_PORT`, so the same tests can be run
-against MariaDB on 13308. That is not decoration: running the EXPLAIN suite
-against MariaDB for the first time is what found #658.
+Every integration file takes `MAS_TEST_PORT`, so the whole suite runs against
+MariaDB on 13308 as well as MySQL on 13306. That is not decoration: running it
+there for the first time found a lost connection after every query timeout
+(#658) and JSON columns arriving as binary. Three tests skip themselves on
+MariaDB, each saying why — functional indexes, the `TABLE` statement and a
+CTE-prefixed DELETE are MySQL-only syntax, so there is nothing there to
+assert.
 
 ### `query_tests.rs`
 

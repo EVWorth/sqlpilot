@@ -17,7 +17,12 @@ fn test_profile() -> ConnectionProfile {
         group: None,
         color: None,
         host: "127.0.0.1".to_string(),
-        port: 13306,
+        // MySQL by default; `MAS_TEST_PORT=13308` runs the same tests against
+        // MariaDB. Running a suite against both is what found #658.
+        port: std::env::var("MAS_TEST_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(13306),
         username: "test_user".to_string(),
         password: "test_password".to_string(),
         default_database: Some("test_db".to_string()),
@@ -41,6 +46,17 @@ async fn get_indexes_survives_a_functional_index() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
     let info = manager.connect(&test_profile()).await.unwrap();
+
+    // MariaDB has no functional indexes — `UNIQUE KEY ((LOWER(a)))` is a
+    // syntax error there — so there is nothing for this to regress against.
+    if manager
+        .get_server_version(&info.id)
+        .is_some_and(|v| v.to_lowercase().contains("mariadb"))
+    {
+        eprintln!("skipped: functional indexes are MySQL-only");
+        manager.disconnect(&info.id).await.unwrap();
+        return;
+    }
 
     let pool = manager.get_pool(&info.id).unwrap();
     sqlx::query("DROP TABLE IF EXISTS test_db.fn_index_probe")

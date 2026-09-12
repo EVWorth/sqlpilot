@@ -218,7 +218,11 @@ async fn planning_a_cte_prefixed_delete_does_not_delete() {
             .unwrap();
     }
 
-    let response = explain(
+    // MariaDB cannot parse a CTE-prefixed DELETE at all — error 1064 — so
+    // there the guard has nothing to guard: the statement the risk lives in
+    // does not exist. What must hold on both servers is that the rows are
+    // still there afterwards.
+    let result = explain(
         &manager,
         &executor,
         info.id.clone(),
@@ -228,11 +232,20 @@ async fn planning_a_cte_prefixed_delete_does_not_delete() {
         true,
         ExplainFormat::Classic,
     )
-    .await
-    .expect("should downgrade to a plain EXPLAIN");
+    .await;
 
-    assert!(!response.analyzed, "must not have run the DELETE");
-    assert_eq!(response.refusal, Some(AnalyzeRefusal::WouldMutate));
+    match result {
+        Ok(response) => {
+            assert!(!response.analyzed, "must not have run the DELETE");
+            assert_eq!(response.refusal, Some(AnalyzeRefusal::WouldMutate));
+        }
+        Err(e) => {
+            assert!(
+                e.to_string().contains("syntax"),
+                "the only acceptable failure here is the server refusing to parse it: {e}"
+            );
+        }
+    }
 
     let after = executor
         .execute(

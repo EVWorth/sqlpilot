@@ -34,7 +34,12 @@ async fn probe(table: &str, select_list: &str) -> Vec<SqlValue> {
         group: None,
         color: None,
         host: "127.0.0.1".into(),
-        port: 13306,
+        // MySQL by default; `MAS_TEST_PORT=13308` runs the same tests against
+        // MariaDB. Running a suite against both is what found #658.
+        port: std::env::var("MAS_TEST_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(13306),
         username: "root".into(),
         password: "test_root_password".into(),
         default_database: Some("test_db".into()),
