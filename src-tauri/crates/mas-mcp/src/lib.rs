@@ -10,7 +10,9 @@
 //! does not depend on which harness is in use.
 
 pub mod classify;
+pub mod grants;
 pub mod policy;
 
 pub use classify::{classify, single_statement, Rejected, Statement};
+pub use grants::{ConnectionFacts, Grant, Grants, NotGranted};
 pub use policy::{ConnectionPolicy, DataPosture, Decision, Environment, VerbClass};
