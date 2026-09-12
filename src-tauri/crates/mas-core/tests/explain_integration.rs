@@ -36,7 +36,7 @@ fn test_profile() -> ConnectionProfile {
         host: "127.0.0.1".to_string(),
         // MySQL by default; `MAS_TEST_PORT=13308` runs the same tests against
         // MariaDB, whose EXPLAIN differs in shape and in which formats it has.
-        // The timeout test in this file needs #657's fix before that run is
+        // The timeout test in this file needs #658 fixed before that run is
         // clean on MariaDB; the format tests below pass on both today.
         port: std::env::var("MAS_TEST_PORT")
             .ok()
