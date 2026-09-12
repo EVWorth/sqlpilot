@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { buildDropRoutine, buildFunctionCall, formatParamValue, isPlainIdentifier } from "../routine-sql";
+import {
+  buildDropRoutine,
+  buildFunctionCall,
+  buildProcedureBatch,
+  formatParamValue,
+  isPlainIdentifier,
+  paramVariable,
+  validateParams,
+} from "../routine-sql";
 
 describe("formatParamValue", () => {
   describe("string parameters", () => {
@@ -103,5 +111,168 @@ describe("isPlainIdentifier", () => {
     for (const name of ["a b", "a`b", "a'b", "1a", "", "a;DROP"]) {
       expect(isPlainIdentifier(name)).toBe(false);
     }
+  });
+});
+
+describe("session variables for parameters (#394)", () => {
+  it("namespaces them, so a call cannot clobber the user's own", () => {
+    // The connection is shared with the editor: calling a procedure whose
+    // parameter is `x` used to overwrite whatever was in `@x`, with nothing
+    // in the editor to say it had happened.
+    expect(paramVariable("x")).toBe("@sqlpilot_param_x");
+    expect(paramVariable("x")).not.toBe("@x");
+  });
+
+  it("gives two parameters two variables", () => {
+    expect(paramVariable("a")).not.toBe(paramVariable("b"));
+  });
+});
+
+describe("validating parameters as they are typed (#398)", () => {
+  const params = [
+    { name: "count", direction: "IN", dataType: "INT" },
+    { name: "label", direction: "IN", dataType: "VARCHAR(64)" },
+    { name: "result", direction: "OUT", dataType: "INT" },
+  ];
+
+  it("finds nothing wrong with values that can be sent", () => {
+    expect(validateParams(params, { count: "42", label: "anything at all" })).toEqual({});
+  });
+
+  it("names the parameter and says what is wrong with it", () => {
+    const problems = validateParams(params, { count: "123abc" });
+    expect(Object.keys(problems)).toEqual(["count"]);
+    expect(problems.count).toContain("INT");
+  });
+
+  it("treats an empty value as NULL rather than as a mistake", () => {
+    // Passing NULL to a parameter is a legitimate thing to want.
+    expect(validateParams(params, { count: "", label: "" })).toEqual({});
+  });
+
+  it("never complains about an OUT parameter", () => {
+    // It takes no input; whatever is in the box is the last result.
+    expect(validateParams(params, { result: "not a number" })).toEqual({});
+  });
+
+  it("reports every bad value, not just the first", () => {
+    const problems = validateParams(
+      [
+        { name: "a", direction: "IN", dataType: "INT" },
+        { name: "b", direction: "IN", dataType: "DECIMAL(10,2)" },
+      ],
+      { a: "x", b: "y" },
+    );
+    expect(Object.keys(problems).sort()).toEqual(["a", "b"]);
+  });
+
+  it("agrees with what the execute path would do", () => {
+    // If these two disagree, either Execute is disabled for a value that
+    // would have worked, or it is enabled for one that will not. The execute
+    // path passes an empty value as NULL without formatting it, and formats
+    // everything else.
+    for (const value of ["12", "12.5", "1e5", "abc", "", "  ", "-0.001", "9999999999999"]) {
+      const executeWouldAccept = value === "" || formatParamValue(value, "INT").ok;
+      const flaggedByTheUi = validateParams(
+        [{ name: "n", direction: "IN", dataType: "INT" }],
+        { n: value },
+      ).n !== undefined;
+      expect(flaggedByTheUi).toBe(!executeWouldAccept);
+    }
+  });
+});
+
+describe("the batch a procedure call runs (#394)", () => {
+  const params = [
+    { name: "p_in", direction: "IN", dataType: "VARCHAR(64)" },
+    { name: "p_out", direction: "OUT", dataType: "VARCHAR(64)" },
+  ];
+
+  const sqlOf = (values: Record<string, string>) => {
+    const built = buildProcedureBatch("shop", "recalc", params, values);
+    if (!built.ok) throw new Error(built.reason);
+    return built.sql;
+  };
+
+  it("sets every parameter, calls, and reads the OUT values back", () => {
+    const sql = sqlOf({ p_in: "hello" });
+    expect(sql).toContain("SET @sqlpilot_param_p_in = 'hello'");
+    expect(sql).toContain("SET @sqlpilot_param_p_out = NULL");
+    expect(sql).toContain(
+      "CALL `shop`.`recalc`(@sqlpilot_param_p_in, @sqlpilot_param_p_out)",
+    );
+    expect(sql).toContain("SELECT @sqlpilot_param_p_out AS `p_out`");
+  });
+
+  it("keeps a hostile value inside its literal", () => {
+    // Verified against MySQL 8.0.46: the procedure receives this as data and
+    // the injected predicate does not run.
+    const sql = sqlOf({ p_in: "a' OR 1=1 -- " });
+    expect(sql).toContain("SET @sqlpilot_param_p_in = 'a'' OR 1=1 -- '");
+    expect(sql).not.toContain("\\'");
+  });
+
+  it("quotes the database and the routine name", () => {
+    const built = buildProcedureBatch("odd`db", "odd`name", [], {});
+    expect(built.ok && built.sql).toContain("CALL `odd``db`.`odd``name`()");
+  });
+
+  it("passes an empty value as NULL rather than as an empty string", () => {
+    expect(sqlOf({ p_in: "" })).toContain("SET @sqlpilot_param_p_in = NULL");
+  });
+
+  it("refuses rather than sending a value the type cannot hold", () => {
+    const built = buildProcedureBatch(
+      "shop",
+      "recalc",
+      [{ name: "n", direction: "IN", dataType: "INT" }],
+      { n: "123abc" },
+    );
+    expect(built.ok).toBe(false);
+    expect(built.ok === false && built.reason).toContain("n:");
+  });
+
+  it("refuses a parameter name that is not a plain identifier", () => {
+    // `SET @name` takes the name unquoted, with no way to escape anything.
+    const built = buildProcedureBatch(
+      "shop",
+      "recalc",
+      [{ name: "odd name", direction: "IN", dataType: "INT" }],
+      {},
+    );
+    expect(built.ok).toBe(false);
+    expect(built.ok === false && built.reason).toContain("plain identifier");
+  });
+
+  it("reads an INOUT parameter back as well as an OUT one", () => {
+    const sql = (() => {
+      const built = buildProcedureBatch(
+        "shop",
+        "recalc",
+        [{ name: "both", direction: "INOUT", dataType: "INT" }],
+        { both: "1" },
+      );
+      return built.ok ? built.sql : "";
+    })();
+    expect(sql).toContain("SET @sqlpilot_param_both = 1");
+    expect(sql).toContain("SELECT @sqlpilot_param_both AS `both`");
+  });
+
+  it("has nothing to select when there are no output parameters", () => {
+    const built = buildProcedureBatch(
+      "shop",
+      "recalc",
+      [{ name: "x", direction: "IN", dataType: "INT" }],
+      { x: "1" },
+    );
+    expect(built.ok && built.sql).not.toContain("SELECT");
+  });
+
+  it("is one batch, because the variables live on one connection", () => {
+    // The executor runs a batch on a single pooled connection; sent
+    // separately the CALL could land on a session where the SETs never ran.
+    const sql = sqlOf({ p_in: "x" });
+    expect(sql.trim().endsWith(";")).toBe(true);
+    expect(sql.split(";\n").length).toBeGreaterThan(1);
   });
 });

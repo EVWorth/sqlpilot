@@ -9,7 +9,12 @@ vi.mock("../connectionStore", () => ({
   useConnectionStore: { getState: () => connectionState },
 }));
 
-import { confirmDestructive, isProductionConnection, useProductionGuardStore } from "../productionGuardStore";
+import {
+  confirmDestructive,
+  confirmDrop,
+  isProductionConnection,
+  useProductionGuardStore,
+} from "../productionGuardStore";
 
 /** Point `conn` at a profile in the given environment. */
 function connectAs(environment: string) {
@@ -185,5 +190,41 @@ describe("productionGuardStore", () => {
       answer(true);
       await expect(second).resolves.toBe(true);
     });
+  });
+});
+
+describe("confirmDrop (routine audit F9)", () => {
+  beforeEach(() => {
+    useProductionGuardStore.setState({ pending: null, resolve: null });
+    connectionState.activeConnections = [];
+    connectionState.profiles = [];
+  });
+
+  it("asks in the app's own dialog on an ordinary connection", async () => {
+    const pending = confirmDrop("conn-dev", "view `shop`.`v`");
+    await Promise.resolve();
+
+    const request = useProductionGuardStore.getState().pending;
+    expect(request?.confirmLabel).toBe("Drop");
+    expect(request?.message).toContain("view `shop`.`v`");
+
+    useProductionGuardStore.getState().answer(true);
+    expect(await pending).toBe(true);
+  });
+
+  it("resolves false when the dialog is declined", async () => {
+    const pending = confirmDrop("conn-dev", "trigger `t`");
+    await Promise.resolve();
+    useProductionGuardStore.getState().answer(false);
+    expect(await pending).toBe(false);
+  });
+
+  it("stays out of the way on production, where the stronger gate asks", async () => {
+    // The drop runs through resultStore, whose production dialog names the
+    // statement. Two confirmations for one click is worse than one.
+    connectAs("production");
+
+    await expect(confirmDrop("conn", "procedure `p`")).resolves.toBe(true);
+    expect(useProductionGuardStore.getState().pending).toBeNull();
   });
 });

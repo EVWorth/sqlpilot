@@ -34,10 +34,15 @@ export function parseRoutineMetadata(ddl: string): RoutineMetadata {
     meta.parameters = splitParams(paramStr).map((p) => parseSingleParam(p.trim(), isFunction));
   }
 
-  // RETURNS clause (functions only)
-  const returnsMatch = ddl.match(/\)\s+RETURNS\s+(\S+(?:\([^)]*\))?)/i);
+  // RETURNS clause (functions only). The character set and collation are
+  // part of the return type — `RETURNS VARCHAR(80) CHARSET utf8mb4` is a
+  // different function from one returning latin1 — and showing the bare
+  // `VARCHAR(80)` hid the difference (routine audit F8).
+  const returnsMatch = ddl.match(
+    /\)\s+RETURNS\s+(\S+(?:\s*\([^)]*\))?(?:\s+(?:CHARSET|CHARACTER\s+SET)\s+\S+)?(?:\s+COLLATE\s+\S+)?)/i,
+  );
   if (returnsMatch) {
-    meta.returnsType = returnsMatch[1];
+    meta.returnsType = returnsMatch[1].replace(/\s+/g, " ").trim();
   }
 
   // DETERMINISTIC (check NOT DETERMINISTIC first to avoid false positive)

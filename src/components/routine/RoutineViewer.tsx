@@ -15,13 +15,21 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { parseRoutineMetadata, type RoutineParameter } from "../../lib/routine-parser";
-import { buildDropRoutine, buildFunctionCall, formatParamValue, isPlainIdentifier } from "../../lib/routine-sql";
+import {
+  buildDropRoutine,
+  buildFunctionCall,
+  buildProcedureBatch,
+  formatParamValue,
+  validateParams,
+} from "../../lib/routine-sql";
 import { runStatement } from "../../lib/run-statement";
-import { quoteIdentifier } from "../../lib/sql-quote";
+import { isNumericSqlType } from "../../lib/sql-types";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import { useEditorStore } from "../../stores/editorStore";
+import { confirmDrop } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useThemeStore } from "../../stores/themeStore";
 import type { QueryResult } from "../../types";
 
 interface RoutineViewerProps {
@@ -41,6 +49,7 @@ export function RoutineViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showDdl, setShowDdl] = useState(true);
+  const effectiveTheme = useThemeStore((s) => s.effectiveTheme);
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
   const [executing, setExecuting] = useState(false);
   const [results, setResults] = useState<QueryResult[] | null>(null);
@@ -79,6 +88,14 @@ export function RoutineViewer({
     () => params.filter((p) => p.direction === "IN" || p.direction === "INOUT"),
     [params],
   );
+  // Checked as the user types, so the answer is beside the input rather than
+  // an error after clicking Execute (#398).
+  const paramProblems = useMemo(
+    () => validateParams(params, paramValues),
+    [params, paramValues],
+  );
+  const hasInvalidParam = Object.keys(paramProblems).length > 0;
+
   const outParams = useMemo(
     () => params.filter((p) => p.direction === "OUT" || p.direction === "INOUT"),
     [params],
@@ -112,51 +129,10 @@ export function RoutineViewer({
   };
 
   const executeProcedure = async () => {
-    const statements: string[] = [];
+    const batch = buildProcedureBatch(database, routineName, params, paramValues);
+    if (!batch.ok) throw new Error(batch.reason);
+    const sql = batch.sql;
 
-    // A parameter name comes from the routine's own declaration, so it should
-    // already be a plain identifier. `SET @name` takes it unquoted, with no
-    // way to escape anything, so refuse rather than build a statement whose
-    // meaning depends on what the name happens to contain.
-    const oddName = params.find((p) => !isPlainIdentifier(p.name));
-    if (oddName) {
-      throw new Error(
-        `Cannot call this routine: the parameter name "${oddName.name}" is not a plain identifier`,
-      );
-    }
-
-    // Set IN/INOUT params as session variables
-    for (const p of params) {
-      if (p.direction === "IN" || p.direction === "INOUT") {
-        const val = paramValues[p.name];
-        if (val !== undefined && val !== "") {
-          const formatted = formatParamValue(val, p.dataType);
-          if (!formatted.ok) {
-            throw new Error(`${p.name}: ${formatted.reason}`);
-          }
-          statements.push(`SET @${p.name} = ${formatted.sql}`);
-        } else {
-          statements.push(`SET @${p.name} = NULL`);
-        }
-      } else {
-        // OUT params: initialize to NULL
-        statements.push(`SET @${p.name} = NULL`);
-      }
-    }
-
-    // Build CALL statement with session variable references
-    const callArgs = params.map((p) => `@${p.name}`).join(", ");
-    statements.push(
-      `CALL ${quoteIdentifier(database)}.${quoteIdentifier(routineName)}(${callArgs})`,
-    );
-
-    // Read OUT/INOUT params
-    if (outParams.length > 0) {
-      const selectParts = outParams.map((p) => `@${p.name} AS ${quoteIdentifier(p.name)}`);
-      statements.push(`SELECT ${selectParts.join(", ")}`);
-    }
-
-    const sql = statements.join(";\n") + ";";
     const queryResults = await runStatement({ connectionId, sql, origin: "routine" });
     setResults(queryResults);
 
@@ -196,13 +172,8 @@ export function RoutineViewer({
   };
 
   const handleDrop = async () => {
-    if (
-      !window.confirm(
-        `Are you sure you want to drop ${routineType.toLowerCase()} \`${database}\`.\`${routineName}\`?`,
-      )
-    ) {
-      return;
-    }
+    const subject = `${routineType.toLowerCase()} \`${database}\`.\`${routineName}\``;
+    if (!(await confirmDrop(connectionId, subject))) return;
     // Through the store, not api.executeQuery. The store is where the
     // production gate lives: on a connection marked production a destructive
     // statement raises the app's own confirmation before anything runs. Going
@@ -283,7 +254,10 @@ export function RoutineViewer({
         <div className="ml-auto flex items-center gap-1">
           <button
             onClick={handleExecute}
-            disabled={executing}
+            disabled={executing || hasInvalidParam}
+            title={hasInvalidParam
+              ? "Fix the parameter values below first"
+              : `Run this ${routineType.toLowerCase()}`}
             className="flex items-center gap-1 rounded bg-brand-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50"
           >
             {executing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
@@ -340,7 +314,9 @@ export function RoutineViewer({
               <Editor
                 value={ddl}
                 language="sql"
-                theme="vs-dark"
+                // The app's theme, not a fixed dark one: on a light theme the
+                // DDL panel was the only black rectangle on the screen.
+                theme={effectiveTheme === "dark" ? "vs-dark" : "vs"}
                 options={{
                   readOnly: true,
                   minimap: { enabled: false },
@@ -375,6 +351,7 @@ export function RoutineViewer({
                   param={p}
                   value={paramValues[p.name] ?? ""}
                   outValue={outParamResults[p.name]}
+                  problem={paramProblems[p.name]}
                   onChange={(v) => handleParamChange(p.name, v)}
                 />
               ))}
@@ -427,11 +404,14 @@ function ParameterRow({
   param,
   value,
   outValue,
+  problem,
   onChange,
 }: {
   param: RoutineParameter;
   value: string;
   outValue?: string;
+  /** Why this value cannot be sent, if it cannot. */
+  problem?: string;
   onChange: (v: string) => void;
 }) {
   const isReadOnly = param.direction === "OUT";
@@ -445,36 +425,56 @@ function ParameterRow({
 
   const inputType = getInputType(param.dataType);
 
+  const errorId = `param-error-${param.name}`;
+
   return (
-    <div className="flex items-center gap-2">
-      <span
-        className={cn(
-          "w-12 shrink-0 rounded border px-1.5 py-0.5 text-center text-[9px] font-bold",
-          directionColor,
-        )}
-      >
-        {param.direction}
-      </span>
-      <span className="w-28 shrink-0 truncate text-xs font-medium text-[var(--color-text-primary)]">
-        {param.name}
-      </span>
-      <span className="w-32 shrink-0 truncate text-[10px] text-[var(--color-text-muted)]">
-        {param.dataType}
-      </span>
-      <input
-        type={inputType}
-        value={displayValue}
-        onChange={(e) => onChange(e.target.value)}
-        readOnly={isReadOnly}
-        placeholder={isReadOnly ? "(output)" : `Enter ${param.name}...`}
-        className={cn(
-          "flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-brand-500 focus:outline-none",
-          isReadOnly && "cursor-default opacity-70",
-          outValue !== undefined
-            && isReadOnly
-            && "border-amber-500/30 bg-amber-500/5 text-amber-300",
-        )}
-      />
+    <div>
+      <div className="flex items-center gap-2">
+        <span
+          className={cn(
+            "w-12 shrink-0 rounded border px-1.5 py-0.5 text-center text-[9px] font-bold",
+            directionColor,
+          )}
+        >
+          {param.direction}
+        </span>
+        <label
+          className="w-28 shrink-0 truncate text-xs font-medium text-[var(--color-text-primary)]"
+          htmlFor={`param-${param.name}`}
+        >
+          {param.name}
+        </label>
+        <span className="w-32 shrink-0 truncate text-[10px] text-[var(--color-text-muted)]">
+          {param.dataType}
+        </span>
+        <input
+          id={`param-${param.name}`}
+          type={inputType}
+          // A numeric keypad on a phone, without the browser's own parsing.
+          inputMode={inputType === "text" && isNumericSqlType(param.dataType)
+            ? "numeric"
+            : undefined}
+          value={displayValue}
+          onChange={(e) => onChange(e.target.value)}
+          readOnly={isReadOnly}
+          placeholder={isReadOnly ? "(output)" : `Enter ${param.name}...`}
+          aria-invalid={problem !== undefined}
+          aria-describedby={problem ? errorId : undefined}
+          className={cn(
+            "flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] focus:border-brand-500 focus:outline-none",
+            isReadOnly && "cursor-default opacity-70",
+            outValue !== undefined
+              && isReadOnly
+              && "border-amber-500/30 bg-amber-500/5 text-amber-300",
+            problem && "border-red-500/60 bg-red-500/5",
+          )}
+        />
+      </div>
+      {problem && (
+        <p id={errorId} className="ml-[13.5rem] mt-0.5 text-[10px] text-red-400">
+          {problem}
+        </p>
+      )}
     </div>
   );
 }
@@ -549,14 +549,23 @@ function ResultTable({
   );
 }
 
+/**
+ * The input a parameter gets.
+ *
+ * Exact numerics deliberately get a text box rather than `type="number"`. A
+ * number input silently discards what the browser cannot parse — the value
+ * reads back as `""`, which this dialog sends as NULL, so a mistyped id
+ * became a call with no id rather than an error. Its spinner also rounds a
+ * BIGINT past 2^53, which is the precision the type exists for. Text plus the
+ * numeric keypad plus the inline check below keeps the value the user typed
+ * and says what is wrong with it (#398).
+ */
 function getInputType(dataType: string): string {
   const upper = dataType.toUpperCase();
-  if (
-    /^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT)\b/.test(upper)
-  ) {
-    return "number";
+  if (/^(TINYINT|SMALLINT|MEDIUMINT|INT|INTEGER|BIGINT|DECIMAL|NUMERIC)\b/.test(upper)) {
+    return "text";
   }
-  if (/^(FLOAT|DOUBLE|DECIMAL|NUMERIC|REAL)\b/.test(upper)) {
+  if (/^(FLOAT|DOUBLE|REAL)\b/.test(upper)) {
     return "number";
   }
   if (/^DATE$/.test(upper)) {

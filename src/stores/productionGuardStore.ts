@@ -125,3 +125,27 @@ export async function confirmDestructive(
     confirmLabel: "Run anyway",
   });
 }
+
+/**
+ * Ask before dropping something, in the app's own dialog.
+ *
+ * These used `window.confirm`, which is unstyled, blocks the whole window and
+ * cannot be tested without stubbing a global (routine audit F9).
+ *
+ * On a production connection this returns true without asking: the drop runs
+ * through `resultStore`, whose production gate raises its own dialog naming
+ * the statement, and two confirmations in a row for one click is worse than
+ * one. The production dialog is the stronger of the two, so it is the one
+ * that survives.
+ */
+export async function confirmDrop(
+  connectionId: string,
+  subject: string,
+): Promise<boolean> {
+  if (isProductionConnection(connectionId)) return true;
+  return useProductionGuardStore.getState().ask({
+    title: "Drop it?",
+    message: `${subject} will be dropped. This cannot be undone.`,
+    confirmLabel: "Drop",
+  });
+}
