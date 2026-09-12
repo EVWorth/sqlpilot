@@ -1823,12 +1823,13 @@ own harness.
 
 ### 6.3 Network Security
 
-| Scenario              | Protection                                                                                     |
-| --------------------- | ---------------------------------------------------------------------------------------------- |
-| **Direct Connection** | Optional SSL/TLS (`ssl-mode=REQUIRED` or `VERIFY_IDENTITY`) with custom CA certificate support |
-| **SSH Tunnel**        | All MySQL traffic encrypted through SSH tunnel; supports Ed25519, RSA, and ECDSA keys          |
-| **Cloud Databases**   | Enforced SSL for RDS, PlanetScale, etc.; certificate bundles included or user-provided         |
-| **AI API Calls**      | HTTPS only; OAuth tokens stored in OS keychain; no query data logged server-side               |
+| Scenario              | Protection                                                                                                                                                                                                                                                |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Direct Connection** | Optional SSL/TLS (`ssl-mode=REQUIRED` or `VERIFY_IDENTITY`) with custom CA certificate support                                                                                                                                                            |
+| **SSH Tunnel**        | All MySQL traffic encrypted through SSH tunnel; supports Ed25519, RSA, and ECDSA keys                                                                                                                                                                     |
+| **Cloud Databases**   | Enforced SSL for RDS, PlanetScale, etc.; certificate bundles included or user-provided                                                                                                                                                                    |
+| **Agent endpoint**    | Loopback only, never a network interface. Bearer token in a 0600 file, compared without early exit, rotatable. Requests carrying an `Origin` header are refused: no harness sends one, and DNS rebinding is the one attacker a token alone would not stop |
+| **Agent API calls**   | None. SQLPilot does not call a model and holds no key (ADR-011); the user's own CLI talks to its own provider with its own credentials                                                                                                                    |
 
 ### 6.4 Destructive Operation Safeguards
 
@@ -1876,6 +1877,11 @@ User attempts: DROP TABLE customers;
 - [x] Read-only mode per connection to prevent accidental writes
 - [x] Local SQLite databases use WAL mode (prevents corruption on crash)
 - [x] Log files exclude query parameters and credentials (redaction filters)
+- [x] Agent endpoint on loopback behind a bearer token, refusing browser origins
+- [x] Nothing is exposed to an agent until the user shares that connection
+- [x] Every agent write and schema change is approved in SQLPilot's own window,
+      with no flag or setting that skips it
+- [x] Credential-named columns return no values to an agent at any posture
 
 ---
 

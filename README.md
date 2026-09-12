@@ -104,6 +104,35 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 - **Query favorites** — save queries with name, category, and description; organized in folders
 - **Stored procedure/function viewer** — auto-detect parameters, execute with input form, display results
 
+### Agents — bring your own
+
+SQLPilot never calls a model, never holds an API key, and never signs in for
+you. It exposes your databases to the agent CLI you already have, on terms you
+set, over the [Model Context Protocol](https://modelcontextprotocol.io).
+
+- **Your harness, your account** — [Claude Code](https://claude.com/claude-code)
+  and [GitHub Copilot CLI](https://github.com/github/copilot-cli) run inside the
+  app, logged in as you. Any other MCP client can use the same endpoint from a
+  terminal or an editor
+- **Nothing is shared until you share it** — per connection, with a posture:
+  schema only, samples, or full. Production defaults to schema only, and a
+  connection can be shared for one database out of twenty
+- **Writes are approved in SQLPilot's window** — the statement runs inside a
+  transaction that is not committed, so the question you answer says _4,213
+  rows_, not _some rows_. Saying no rolls it back. No harness flag, `--yolo`
+  included, can skip this
+- **Schema changes are refused on production** unless you unlock that
+  connection, because a server commits before a schema change and there is
+  nothing to roll back
+- **Credential columns never leave** — `password`, `api_key`, `ssn` and the
+  rest return no values at any posture, in queries, profiles, or the grid the
+  agent is reading over your shoulder
+- **It can see what you are looking at** — the statement in the editor, the
+  result underneath it, the error you just hit — and offers changes as a
+  **diff you accept, reject, or edit first**
+- **The endpoint is loopback-only**, behind a bearer token you can rotate, and
+  refuses anything a browser sent
+
 ### UX & Polish
 
 - **Dark & light themes** — toggle with one click, or follow system preference; Monaco editor theme syncs automatically
