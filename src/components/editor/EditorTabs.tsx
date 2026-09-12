@@ -99,12 +99,77 @@ export function EditorTabs() {
     setDropIndex(null);
   };
 
+  /** Move focus to a tab by index, wrapping, and make it the active one. */
+  const focusTab = useCallback((index: number) => {
+    const target = tabs[(index + tabs.length) % tabs.length];
+    if (!target) return;
+    setActiveTab(target.id);
+    // After the re-render that moves the roving tabindex onto it.
+    requestAnimationFrame(() => {
+      scrollRef.current
+        ?.querySelector<HTMLElement>(`[data-tab-id="${CSS.escape(target.id)}"]`)
+        ?.focus();
+    });
+  }, [tabs, setActiveTab]);
+
+  /**
+   * The tab strip's keyboard map.
+   *
+   * Arrows move, Home and End jump, Delete closes, and Ctrl+Shift+arrow
+   * reorders — the one thing that was mouse-only, since dragging is not
+   * something everyone can do (#298 F-backlog).
+   */
+  const handleTabKeyDown = (e: React.KeyboardEvent, index: number) => {
+    // Renaming: the input's own handler owns the keyboard.
+    if (editingTabId === tabs[index]?.id) return;
+
+    const reorder = e.ctrlKey && e.shiftKey;
+    switch (e.key) {
+      case "ArrowLeft":
+        e.preventDefault();
+        // Moving a tab does not wrap: a tab dragged off the left end would
+        // land on the right, which is not what anyone meant by "left".
+        if (reorder) {
+          if (index === 0) break;
+          reorderTabs(index, index - 1);
+        }
+        focusTab(index - 1);
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        if (reorder) {
+          if (index === tabs.length - 1) break;
+          reorderTabs(index, index + 1);
+        }
+        focusTab(index + 1);
+        break;
+      case "Home":
+        e.preventDefault();
+        focusTab(0);
+        break;
+      case "End":
+        e.preventDefault();
+        focusTab(tabs.length - 1);
+        break;
+      case "Delete":
+        e.preventDefault();
+        closeTab(tabs[index].id);
+        break;
+      case "F2":
+        e.preventDefault();
+        handleDoubleClick(tabs[index].id, tabs[index].title);
+        break;
+    }
+  };
+
   const queryTabCount = tabs.filter((t) => t.type === "query").length;
 
   return (
     <div className="flex h-9 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
       {showScrollLeft && (
         <button
+          type="button"
+          aria-label="Scroll tabs left"
           onClick={() => scrollBy(-120)}
           className="flex h-9 w-6 shrink-0 items-center justify-center text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
         >
@@ -113,6 +178,8 @@ export function EditorTabs() {
       )}
       <div
         ref={scrollRef}
+        role="tablist"
+        aria-label="Open tabs"
         className="flex flex-1 items-center overflow-x-auto scrollbar-none"
       >
         {tabs.map((tab, index) => {
@@ -123,16 +190,25 @@ export function EditorTabs() {
           const tabColor = profile?.color;
           const isProduction = profile?.environment === "production";
 
+          const isActive = activeTabId === tab.id;
+
           return (
-            <button
+            <div
               key={tab.id}
               data-tab-id={tab.id}
+              role="tab"
+              aria-selected={isActive}
+              // One stop for the whole strip: Tab reaches the tabs, the arrow
+              // keys move within them. Tabbing through every open tab to get
+              // past the strip is the thing this pattern exists to avoid.
+              tabIndex={isActive ? 0 : -1}
               draggable
               onDragStart={(e) => handleDragStart(e, index)}
               onDragOver={(e) => handleDragOver(e, index)}
               onDrop={(e) => handleDrop(e, index)}
               onDragEnd={handleDragEnd}
               onClick={() => setActiveTab(tab.id)}
+              onKeyDown={(e) => handleTabKeyDown(e, index)}
               onMouseDown={(e) => {
                 if (e.button === 1) {
                   e.preventDefault();
@@ -149,7 +225,7 @@ export function EditorTabs() {
               }}
               className={cn(
                 "group relative flex h-9 items-center gap-1.5 border-r border-[var(--color-border)] px-3 text-xs transition-colors",
-                activeTabId === tab.id
+                isActive
                   ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)]"
                   : "text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]",
                 dragIndex === index && "opacity-50",
@@ -189,20 +265,29 @@ export function EditorTabs() {
                 )
                 : <span className="max-w-[120px] truncate">{tab.title}</span>}
               {!(tab.type === "query" && queryTabCount <= 1) && (
-                <span
+                <button
+                  type="button"
+                  // A span with an onClick could not be reached by keyboard
+                  // and announced as nothing. It is also invisible until
+                  // hover, so focus has to reveal it too.
+                  aria-label={`Close ${tab.title}`}
+                  tabIndex={-1}
                   onClick={(e) => {
                     e.stopPropagation();
                     closeTab(tab.id);
                   }}
-                  className="ml-1 rounded p-0.5 opacity-0 hover:bg-[var(--color-bg-tertiary)] group-hover:opacity-100"
+                  onKeyDown={(e) => e.stopPropagation()}
+                  className="ml-1 rounded p-0.5 opacity-0 hover:bg-[var(--color-bg-tertiary)] focus-visible:opacity-100 group-hover:opacity-100"
                 >
                   <X className="h-3 w-3" />
-                </span>
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
         <button
+          type="button"
+          aria-label="New query tab"
           onClick={() => addTab()}
           className="flex h-9 w-9 shrink-0 items-center justify-center text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
         >

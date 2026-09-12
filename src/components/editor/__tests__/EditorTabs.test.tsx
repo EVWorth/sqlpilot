@@ -108,14 +108,10 @@ describe("EditorTabs", () => {
   });
 
   it("calls addTab when the plus button is clicked", () => {
-    const { container } = render(<EditorTabs />);
+    render(<EditorTabs />);
 
-    const buttons = container.querySelectorAll("button");
-    const addBtn = Array.from(buttons).find((btn) => btn.querySelector("svg") !== null && !btn.textContent);
-    if (addBtn) {
-      fireEvent.click(addBtn);
-      expect(mockAddTab).toHaveBeenCalledTimes(1);
-    }
+    fireEvent.click(screen.getByRole("button", { name: "New query tab" }));
+    expect(mockAddTab).toHaveBeenCalledTimes(1);
   });
 
   it("shows dirty indicator on unsaved tabs", () => {
@@ -213,8 +209,8 @@ describe("EditorTabs", () => {
   it("reorders tabs via drag and drop", () => {
     render(<EditorTabs />);
 
-    const firstTab = screen.getByText("Untitled Query").closest("button");
-    const secondTab = screen.getByText("Second Query").closest("button");
+    const firstTab = screen.getByText("Untitled Query").closest("[role=tab]");
+    const secondTab = screen.getByText("Second Query").closest("[role=tab]");
 
     // Create a proper DataTransfer mock for jsdom
     const dataTransfer = {
@@ -239,8 +235,9 @@ describe("EditorTabs", () => {
   it("highlights active tab", () => {
     render(<EditorTabs />);
 
-    const activeTab = screen.getByText("Untitled Query").closest("button")!;
+    const activeTab = screen.getByText("Untitled Query").closest("[role=tab]")!;
     expect(activeTab.className).toContain("bg-[var(--color-bg-primary)]");
+    expect(activeTab).toHaveAttribute("aria-selected", "true");
   });
 
   it("shows production indicator for production tabs", () => {
@@ -283,8 +280,8 @@ describe("EditorTabs", () => {
     const xSvgs = document.querySelectorAll(".lucide-x");
     expect(xSvgs.length).toBeGreaterThan(0);
 
-    // Click the first close icon's parent
-    const closeBtn = xSvgs[0].closest("span")!;
+    // Click the first close icon's button
+    const closeBtn = xSvgs[0].closest("button")!;
     fireEvent.click(closeBtn);
 
     expect(mockCloseTab).toHaveBeenCalled();
@@ -301,5 +298,79 @@ describe("EditorTabs", () => {
 
     fireEvent.change(input, { target: { value: "Edited" } });
     expect(input.value).toBe("Edited");
+  });
+
+  describe("keyboard", () => {
+    const tabAt = (title: string) => screen.getByText(title).closest("[role=tab]")!;
+
+    it("exposes the strip as a tablist with one stop in it", () => {
+      render(<EditorTabs />);
+      expect(screen.getByRole("tablist", { name: "Open tabs" })).toBeInTheDocument();
+      // Roving tabindex: Tab reaches the strip once, arrows move within it.
+      const stops = screen.getAllByRole("tab").filter((t) => t.getAttribute("tabindex") === "0");
+      expect(stops).toHaveLength(1);
+      expect(stops[0]).toBe(tabAt("Untitled Query"));
+    });
+
+    it("moves to the next tab on ArrowRight", () => {
+      render(<EditorTabs />);
+      fireEvent.keyDown(tabAt("Untitled Query"), { key: "ArrowRight" });
+      expect(mockSetActiveTab).toHaveBeenCalledWith("tab-1");
+    });
+
+    it("wraps from the last tab to the first", () => {
+      render(<EditorTabs />);
+      fireEvent.keyDown(tabAt("Structure Tab"), { key: "ArrowRight" });
+      expect(mockSetActiveTab).toHaveBeenCalledWith("tab-0");
+    });
+
+    it("jumps to the ends with Home and End", () => {
+      render(<EditorTabs />);
+      fireEvent.keyDown(tabAt("Second Query"), { key: "End" });
+      expect(mockSetActiveTab).toHaveBeenCalledWith("tab-2");
+      fireEvent.keyDown(tabAt("Second Query"), { key: "Home" });
+      expect(mockSetActiveTab).toHaveBeenCalledWith("tab-0");
+    });
+
+    it("closes the focused tab with Delete", () => {
+      render(<EditorTabs />);
+      fireEvent.keyDown(tabAt("Second Query"), { key: "Delete" });
+      expect(mockCloseTab).toHaveBeenCalledWith("tab-1");
+    });
+
+    it("renames with F2, like the double-click", () => {
+      render(<EditorTabs />);
+      fireEvent.keyDown(tabAt("Second Query"), { key: "F2" });
+      expect(screen.getByDisplayValue("Second Query")).toBeInTheDocument();
+    });
+
+    it("reorders with Ctrl+Shift+arrow, so dragging is not the only way", () => {
+      render(<EditorTabs />);
+      fireEvent.keyDown(tabAt("Second Query"), {
+        key: "ArrowLeft",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      expect(mockReorderTabs).toHaveBeenCalledWith(1, 0);
+    });
+
+    it("does not move a tab off the end of the strip", () => {
+      render(<EditorTabs />);
+      fireEvent.keyDown(tabAt("Untitled Query"), {
+        key: "ArrowLeft",
+        ctrlKey: true,
+        shiftKey: true,
+      });
+      // Wrapping a reorder would drop it on the far right, which is not what
+      // anyone meant by "left".
+      expect(mockReorderTabs).not.toHaveBeenCalled();
+    });
+
+    it("names each close control after the tab it closes", () => {
+      render(<EditorTabs />);
+      const close = screen.getByRole("button", { name: "Close Second Query" });
+      fireEvent.click(close);
+      expect(mockCloseTab).toHaveBeenCalledWith("tab-1");
+    });
   });
 });
