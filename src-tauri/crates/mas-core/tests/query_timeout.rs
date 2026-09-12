@@ -19,7 +19,13 @@ fn profile(query_timeout_secs: Option<u32>) -> ConnectionProfile {
         group: None,
         color: None,
         host: "127.0.0.1".to_string(),
-        port: 13306,
+        // MySQL by default; `MAS_TEST_PORT=13308` runs the same tests against
+        // MariaDB, where a timed-out statement used to cost its connection
+        // for good (#658).
+        port: std::env::var("MAS_TEST_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(13306),
         username: "test_user".to_string(),
         password: "test_password".to_string(),
         default_database: Some("test_db".to_string()),
@@ -155,4 +161,55 @@ async fn no_timeout_means_no_timeout() {
 
     assert_eq!(results.len(), 1);
     manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_timed_out_statement_gives_its_connection_back() {
+    // The timeout used to abandon the stream and then kill the statement,
+    // which left sqlx draining a connection that, on MariaDB, never finished.
+    // Two connections and ten timeouts: if even one is lost the pool is empty
+    // by the third, and the later attempts take as long as the statement
+    // rather than as long as the timeout (#658).
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let mut profile = profile(Some(1));
+    profile.pool_max = 2;
+    let info = manager.connect(&profile).await.unwrap();
+
+    for attempt in 1..=10 {
+        let started = Instant::now();
+        let err = executor
+            .execute(&info.id, "SELECT SLEEP(5)", None, None, None)
+            .await
+            .expect_err("a 5s sleep under a 1s timeout is not a result");
+
+        assert!(
+            matches!(err, CoreError::Timeout(_)),
+            "attempt {attempt}: {err:?}"
+        );
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(3),
+            "attempt {attempt} took {:?} — it waited for the statement, not the timeout, \
+             so an earlier attempt kept its connection",
+            started.elapsed()
+        );
+    }
+
+    // And the pool is still usable afterwards.
+    let results = executor
+        .execute(&info.id, "SELECT 1", None, None, None)
+        .await
+        .expect("the connection should still work");
+    assert_eq!(results.len(), 1);
+
+    // Disconnect waits for every connection to come back, so it hangs for
+    // ever if one never does. Bounded here rather than trusted.
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        manager.disconnect(&info.id),
+    )
+    .await
+    .expect("disconnect should not hang after a timeout")
+    .unwrap();
 }

@@ -510,15 +510,27 @@ impl QueryExecutor {
         // Abandoning the stream would leave the statement running on the server,
         // so tell the server to stop before reporting the timeout.
         if timed_out {
-            drop(stream);
-            // This execution's own thread, not whatever is registered for the
-            // connection — a concurrent statement must not be killed instead.
+            // Kill first, then read the stream to its end.
+            //
+            // Dropping it here instead — which is what this did — leaves sqlx
+            // to drain the connection's remaining packets before it can go
+            // back to the pool, and on MariaDB that drain never finishes: the
+            // connection stays checked out for good. `pool_max` timeouts then
+            // exhaust the pool, after which the *next* timeout waits for a
+            // statement to end naturally rather than at its deadline, and
+            // `disconnect` hangs on `pool.close()` for ever. MySQL happened to
+            // recover, which is why every test in the tree missed it (#658).
+            //
+            // Reading on gives sqlx the server's "query interrupted" error,
+            // which ends the stream properly and returns the connection.
             let thread_id = my_thread_id.load(Ordering::Relaxed);
             if thread_id != 0 {
                 if let Err(e) = kill_query(&pool, thread_id).await {
                     tracing::warn!(error = %e, thread_id, "Failed to kill timed-out query");
                 }
             }
+            drain_after_kill(&mut stream).await;
+            drop(stream);
             let secs = query_timeout.map(|d| d.as_secs()).unwrap_or(0);
             tracing::warn!(connection_id = %connection_id, timeout_secs = secs, "Query timed out");
             return Err(CoreError::Timeout(format!(
@@ -549,6 +561,40 @@ impl QueryExecutor {
         }
 
         Ok(results)
+    }
+}
+
+/// How long to keep reading a killed statement's stream before giving up.
+///
+/// The server answers a `KILL QUERY` almost at once, so this is not a wait so
+/// much as a bound: a server that says nothing costs one grace period rather
+/// than a connection that never comes back.
+const DRAIN_AFTER_KILL: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Read a killed statement's stream to its end.
+///
+/// The rows are discarded — the caller is about to report a timeout. What
+/// matters is that the stream finishes, because that is what returns the
+/// connection to the pool (#658).
+async fn drain_after_kill(
+    stream: &mut (impl futures::Stream<
+        Item = Result<Either<sqlx::mysql::MySqlQueryResult, sqlx::mysql::MySqlRow>, sqlx::Error>,
+    > + Unpin),
+) {
+    let deadline = tokio::time::Instant::now() + DRAIN_AFTER_KILL;
+    loop {
+        match tokio::time::timeout_at(deadline, stream.next()).await {
+            // The end of the stream, or the interrupted error the kill caused.
+            Ok(None) | Ok(Some(Err(_))) => return,
+            Ok(Some(Ok(_))) => continue,
+            Err(_) => {
+                tracing::warn!(
+                    "A killed statement's stream did not end within {}s; its connection may be lost",
+                    DRAIN_AFTER_KILL.as_secs()
+                );
+                return;
+            }
+        }
     }
 }
 
