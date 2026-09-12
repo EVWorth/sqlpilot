@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorStore } from "../../../stores/editorStore";
 import { ConnectionTabs } from "../ConnectionTabs";
@@ -10,6 +10,8 @@ const { setStateSpy } = vi.hoisted(() => ({ setStateSpy: vi.fn() }));
 
 /** Overridden per test to render tabs for specific profiles. */
 let storeState: Record<string, unknown> = {};
+/** What the health checker last said, by connection id. */
+let healthState: Record<string, unknown> = {};
 
 function currentState() {
   return {
@@ -42,12 +44,39 @@ vi.mock("../../../stores/editorStore", () => ({
   },
 }));
 
+/** Captures the items a right-click would offer, so they can be invoked. */
+const { menuItems, showContextMenu } = vi.hoisted(() => {
+  const menuItems: { label?: string; onClick?: () => void; disabled?: boolean }[] = [];
+  return {
+    menuItems,
+    showContextMenu: vi.fn((_e: unknown, items: typeof menuItems) => {
+      menuItems.length = 0;
+      menuItems.push(...items);
+    }),
+  };
+});
+
 vi.mock("../../../hooks/useContextMenu", () => ({
-  useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu: vi.fn() })),
+  useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu })),
+}));
+
+vi.mock("../../../stores/connectionHealthStore", () => ({
+  useConnectionHealthStore: vi.fn((s: (v: unknown) => unknown) => s({ health: healthState })),
 }));
 
 vi.mock("../../connection/ConnectionDialog", () => ({
-  ConnectionDialog: vi.fn(() => <div data-testid="connection-dialog">ConnectionDialog</div>),
+  ConnectionDialog: vi.fn(({ editProfile, duplicateOf }: {
+    editProfile?: { name: string };
+    duplicateOf?: { name: string };
+  }) => (
+    <div
+      data-testid="connection-dialog"
+      data-editing={editProfile?.name ?? ""}
+      data-duplicating={duplicateOf?.name ?? ""}
+    >
+      ConnectionDialog
+    </div>
+  )),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -55,6 +84,8 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 beforeEach(() => {
   vi.clearAllMocks();
   storeState = {};
+  healthState = {};
+  menuItems.length = 0;
   setStateSpy.mockClear();
   mockLoadProfiles.mockResolvedValue(undefined);
 });
@@ -130,5 +161,76 @@ describe("startup reconnect (#276)", () => {
         expect.objectContaining({ error: expect.stringContaining("prod-eu") }),
       );
     });
+  });
+});
+
+describe("connection state on the tab (FR-1.3.2)", () => {
+  const conn = { id: "c1", profile_id: "p1", name: "prod", database: "app" };
+  const profiles = [{ id: "p1", name: "prod", host: "db" }];
+
+  it("is green while the server answers", () => {
+    storeState = { profiles, activeConnections: [conn] };
+    render(<ConnectionTabs />);
+    // `className` on an SVG element is an SVGAnimatedString, not a string.
+    expect(screen.getByLabelText("Connected").getAttribute("class")).toContain("green");
+  });
+
+  it("is red once the health checker says the server has gone", () => {
+    // It was green whatever was true, so a dead connection looked live.
+    healthState = { c1: { connectionId: "c1", healthy: false, consecutiveFailures: 2 } };
+    storeState = { profiles, activeConnections: [conn] };
+    render(<ConnectionTabs />);
+    expect(screen.getByLabelText("Disconnected").getAttribute("class")).toContain("red");
+  });
+
+  it("is amber while a connect is in flight", () => {
+    storeState = { profiles, activeConnections: [conn], loading: true };
+    render(<ConnectionTabs />);
+    expect(screen.getByLabelText("Connecting").getAttribute("class")).toContain("amber");
+  });
+
+  it("shows a lost connection as lost even while another is connecting", () => {
+    healthState = { c1: { connectionId: "c1", healthy: false, consecutiveFailures: 1 } };
+    storeState = { profiles, activeConnections: [conn], loading: true };
+    render(<ConnectionTabs />);
+    expect(screen.getByLabelText("Disconnected")).toBeInTheDocument();
+  });
+});
+
+describe("duplicating a profile (FR-1.1.4)", () => {
+  const conn = { id: "c1", profile_id: "p1", name: "prod", database: "app" };
+  const profiles = [{ id: "p1", name: "prod-eu", host: "db" }];
+
+  const rightClickTab = () => {
+    storeState = { profiles, activeConnections: [conn] };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("prod-eu"));
+  };
+
+  it("offers it on the tab menu", () => {
+    // A second profile against the same server — another database, a
+    // read-only user — was a matter of retyping every field.
+    rightClickTab();
+    expect(menuItems.map((i) => i.label)).toContain("Duplicate Profile");
+  });
+
+  it("opens the dialog as a copy rather than as an edit", () => {
+    rightClickTab();
+    // Outside an event handler, so React needs telling to flush the state
+    // change the menu item makes.
+    act(() => menuItems.find((i) => i.label === "Duplicate Profile")!.onClick!());
+
+    const dialog = screen.getByTestId("connection-dialog");
+    expect(dialog).toHaveAttribute("data-duplicating", "prod-eu");
+    expect(dialog).toHaveAttribute("data-editing", "");
+  });
+
+  it("opens an edit as an edit, not as a copy", () => {
+    rightClickTab();
+    act(() => menuItems.find((i) => i.label === "Edit Connection")!.onClick!());
+
+    const dialog = screen.getByTestId("connection-dialog");
+    expect(dialog).toHaveAttribute("data-editing", "prod-eu");
+    expect(dialog).toHaveAttribute("data-duplicating", "");
   });
 });

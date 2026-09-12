@@ -209,44 +209,51 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 ### FR-1: Connection Management [partial]
 
-> Outstanding: no reconnect backoff (#276), no pool statistics (#279).
-> Everything else in this section is implemented — SSH tunnelling, keyring
-> storage, read-only enforcement and query cancellation all landed.
+> Built: profiles with keyring storage, test-before-save, duplicate,
+> read-only enforcement (in the executor, not just the UI), SSL/TLS, pool
+> sizing with limits, health checks with backoff, pool statistics, and the
+> three-state connection indicator.
+>
+> **Not built, and each says so in its row:** SSH tunnelling (FR-1.2.1 — the
+> settings are stored, and a profile that uses them is refused rather than
+> quietly connected direct), encrypted profile import/export (FR-1.1.6),
+> connection groups (FR-1.2.6), recent connections (FR-1.3.1) and quick
+> connect (FR-1.3.4).
 
 **Priority:** P0 — Critical\
 **Description:** Manage MySQL server connections with support for multiple authentication methods, tunneling, and organizational features.
 
 #### FR-1.1: Connection Profiles
 
-| ID       | Requirement                       | Acceptance Criteria                                                                                                               |
-| -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| FR-1.1.1 | Create new connection profiles    | User can enter host, port, username, password, default database, and save the profile with a custom name                          |
-| FR-1.1.2 | Edit existing connection profiles | All connection parameters can be modified after creation; changes are persisted immediately                                       |
-| FR-1.1.3 | Delete connection profiles        | User can delete a profile with a confirmation dialog; all associated data (history, favorites) is optionally preserved or deleted |
-| FR-1.1.4 | Duplicate connection profiles     | One-click duplication of an existing profile with "(copy)" appended to the name                                                   |
-| FR-1.1.5 | Test connection before saving     | "Test Connection" button validates connectivity and authentication; displays success or detailed error message                    |
-| FR-1.1.6 | Import/export connection profiles | Export selected or all profiles as an encrypted JSON file; import from the same format; password-protect export files             |
+| ID       | Requirement                       | Acceptance Criteria                                                                                                                                                                                                                                                                 |
+| -------- | --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-1.1.1 | Create new connection profiles    | User can enter host, port, username, password, default database, and save the profile with a custom name                                                                                                                                                                            |
+| FR-1.1.2 | Edit existing connection profiles | All connection parameters can be modified after creation; changes are persisted immediately                                                                                                                                                                                         |
+| FR-1.1.3 | Delete connection profiles        | User can delete a profile with a confirmation dialog; all associated data (history, favorites) is optionally preserved or deleted                                                                                                                                                   |
+| FR-1.1.4 | Duplicate connection profiles     | Built: "Duplicate Profile" on a tab's menu opens the dialog as a copy — same settings, new id, "(copy)" on the name. The password is not copied: it lives in the keyring under the original's id                                                                                    |
+| FR-1.1.5 | Test connection before saving     | "Test Connection" button validates connectivity and authentication; displays success or detailed error message                                                                                                                                                                      |
+| FR-1.1.6 | Import/export connection profiles | **Not built.** No commands and no UI. It needs a decision first: an export that carries passwords is a credential file on disk, and one that does not is a list of hosts someone must retype into. Query history and favourites both export today, and neither carries a credential |
 
 #### FR-1.2: Connection Features
 
-| ID       | Requirement               | Acceptance Criteria                                                                                                                                                                                                                                                                                                       |
-| -------- | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-1.2.1 | SSH tunnel support        | Support password and private key authentication (RSA, Ed25519, ECDSA); configurable SSH port; jump host support                                                                                                                                                                                                           |
-| FR-1.2.2 | SSL/TLS support           | Support CA certificate, client certificate, and client key; option to verify server certificate or allow self-signed                                                                                                                                                                                                      |
-| FR-1.2.3 | Connection pooling        | Configurable pool size (default: 5, max: 50) per connection profile; idle connection timeout; pool statistics visible in status bar                                                                                                                                                                                       |
-| FR-1.2.4 | Auto-reconnect            | A background check per connection (`SELECT 1` every 15s) backing off 1s, 2s, 4s, 8s, 16s, 30s while a connection is down; the status bar says it is lost and how many attempts have been made, and says nothing once it is back. No explicit reconnect step: sqlx opens a fresh pooled connection when one is next needed |
-| FR-1.2.5 | Connection color-coding   | Assign a color to each connection (with presets: red = production, yellow = staging, green = development); color displayed in tab bar, status bar, and sidebar                                                                                                                                                            |
-| FR-1.2.6 | Connection groups/folders | Organize connections into hierarchical folders (e.g., "Production / US-East", "Development / Local"); drag-and-drop reordering                                                                                                                                                                                            |
-| FR-1.2.7 | Read-only mode            | Per-connection toggle to prevent any write operations (INSERT, UPDATE, DELETE, DROP, etc.); visual indicator when active                                                                                                                                                                                                  |
+| ID       | Requirement               | Acceptance Criteria                                                                                                                                                                                                                                                                                                                    |
+| -------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-1.2.1 | SSH tunnel support        | **Not built.** The dialog collects the settings and the store keeps them, but no tunnel is opened — there is no ssh2 or russh dependency. A profile configured for one is **refused**, because connecting straight to the database while the UI implies a tunnel is worse than not connecting (#273). The tab says so above the fields |
+| FR-1.2.2 | SSL/TLS support           | Support CA certificate, client certificate, and client key; option to verify server certificate or allow self-signed                                                                                                                                                                                                                   |
+| FR-1.2.3 | Connection pooling        | Configurable pool size (default: 5, max: 50) per connection profile; idle connection timeout; pool statistics visible in status bar                                                                                                                                                                                                    |
+| FR-1.2.4 | Auto-reconnect            | A background check per connection (`SELECT 1` every 15s) backing off 1s, 2s, 4s, 8s, 16s, 30s while a connection is down; the status bar says it is lost and how many attempts have been made, and says nothing once it is back. No explicit reconnect step: sqlx opens a fresh pooled connection when one is next needed              |
+| FR-1.2.5 | Connection color-coding   | Built: eight presets and a custom colour, shown on the tab and in the status bar. The colour is not tied to the environment — that is what the environment field and its PROD/STG/DEV badge are for, and two things saying the same thing can disagree                                                                                 |
+| FR-1.2.6 | Connection groups/folders | **Not built.** The `group` field exists on the profile and is stored; nothing reads it. Worth building when a user has enough profiles for a flat list to be the problem                                                                                                                                                               |
+| FR-1.2.7 | Read-only mode            | Per-connection toggle to prevent any write operations (INSERT, UPDATE, DELETE, DROP, etc.); visual indicator when active                                                                                                                                                                                                               |
 
 #### FR-1.3: Connection UX
 
-| ID       | Requirement                       | Acceptance Criteria                                                                                     |
-| -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| FR-1.3.1 | Recent connections                | Show last 10 used connections on the home screen for quick access                                       |
-| FR-1.3.2 | Connection status indicator       | Real-time visual indicator (green dot = connected, red = disconnected, yellow = connecting)             |
-| FR-1.3.3 | Multiple simultaneous connections | Support unlimited concurrent connections; each editor tab can be associated with a different connection |
-| FR-1.3.4 | Quick connect                     | Ctrl+Shift+C opens a dialog for rapid connection without saving a profile                               |
+| ID       | Requirement                       | Acceptance Criteria                                                                                                                                                                     |
+| -------- | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-1.3.1 | Recent connections                | **Not built**, and there is no home screen to put it on. The connect popover lists every profile, which is the same thing while the list is short                                       |
+| FR-1.3.2 | Connection status indicator       | Built: green while the server answers, red once the health checker says it does not, amber while a connect is in flight — on the tab and in the status bar                              |
+| FR-1.3.3 | Multiple simultaneous connections | Support unlimited concurrent connections; each editor tab can be associated with a different connection                                                                                 |
+| FR-1.3.4 | Quick connect                     | **Not built.** Ctrl+Shift+C is the sidebar toggle, and connecting without saving is a narrow case: the dialog already tests before saving, and an unsaved connection cannot be reopened |
 
 ---
 
