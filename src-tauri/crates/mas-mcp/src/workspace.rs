@@ -28,7 +28,7 @@ use mas_core::schema::inspector::{
 use crate::grants::{ConnectionFacts, Grants};
 
 /// A live connection, as an agent sees it.
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, schemars::JsonSchema)]
 pub struct LiveConnection {
     pub id: String,
     pub name: String,
@@ -40,8 +40,11 @@ pub struct LiveConnection {
 }
 
 /// What kind of object a DDL request is about.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, schemars::JsonSchema,
+)]
 #[serde(rename_all = "lowercase")]
+#[schemars(rename_all = "lowercase")]
 pub enum ObjectKind {
     Table,
     View,
