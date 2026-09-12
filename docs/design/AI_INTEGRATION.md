@@ -245,13 +245,13 @@ below is from the documentation as of 2026-09-12._
 
 The CLI has everything a host needs:
 
-| Need                    | Mechanism                                                                                                                                              |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Structured transcript   | `-p --output-format stream-json --verbose --include-partial-messages` — NDJSON of `system/init`, assistant/user messages, deltas, and a final `result` |
-| Wire in our server      | `--mcp-config <file-or-json>`, without touching the user's global config                                                                               |
-| **Approvals in our UI** | `--permission-prompt-tool`, an MCP tool that answers permission requests — so SQLPilot renders the prompt natively                                     |
-| Multi-turn              | `--resume <session_id>`, or `--input-format stream-json`                                                                                               |
-| Cancel a turn           | SIGINT ends the turn; SIGTERM leaves it unfinished (exit 143)                                                                                          |
+| Need                    | Mechanism                                                                                                                                                                                                                                                                              |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Structured transcript   | `--print --output-format stream-json --verbose --include-partial-messages` — NDJSON: `system/init`, `stream_event` deltas, assistant/user messages, a final `result`                                                                                                                   |
+| Wire in our server      | `--mcp-config <json>` with `--strict-mcp-config`, so the session has our server and none of the user's own. Confirmed: the init line then lists ours alone                                                                                                                             |
+| **Approvals in our UI** | Not the harness's job. Our tools are allow-listed (`--allowedTools mcp__sqlpilot`) so they never prompt, and SQLPilot asks its own question about the ones that change data. `--permission-prompts none` refuses everything else, and the refusals are reported at the end of the turn |
+| Multi-turn              | `--input-format stream-json`: one process, many messages on stdin. Verified                                                                                                                                                                                                            |
+| Cancel a turn           | A `control_request` with subtype `interrupt` on stdin. A signal would end the process, and the session with it                                                                                                                                                                         |
 
 Two constraints worth writing down:
 

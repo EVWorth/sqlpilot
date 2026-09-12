@@ -10,6 +10,7 @@
 //! above this crate sees only the normalised events.
 
 pub mod acp;
+pub mod claude;
 pub mod event;
 pub mod harness;
 pub mod think;
