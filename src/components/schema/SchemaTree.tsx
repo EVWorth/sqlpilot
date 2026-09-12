@@ -45,6 +45,7 @@ import {
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { confirmDrop } from "../../stores/productionGuardStore";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
 import { loadKey, type SchemaFolder, schemaFor, useSchemaStore } from "../../stores/schemaStore";
@@ -785,8 +786,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Drop View",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
-                            onClick: () => {
-                              if (window.confirm(`Are you sure you want to drop view \`${db.name}\`.\`${v.name}\`?`)) {
+                            onClick: async () => {
+                              if (await confirmDrop(connectionId, `view \`${db.name}\`.\`${v.name}\``)) {
                                 executeQuery(connectionId, `DROP VIEW \`${db.name}\`.\`${v.name}\``).then(() =>
                                   refreshFolder(db.name, "views")
                                 );
@@ -859,9 +860,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Drop Procedure",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
-                            onClick: () => {
+                            onClick: async () => {
                               if (
-                                window.confirm(`Are you sure you want to drop procedure \`${db.name}\`.\`${r.name}\`?`)
+                                await confirmDrop(connectionId, `procedure \`${db.name}\`.\`${r.name}\``)
                               ) {
                                 executeQuery(connectionId, `DROP PROCEDURE \`${db.name}\`.\`${r.name}\``).then(() =>
                                   refreshFolder(db.name, "routines")
@@ -935,9 +936,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Drop Function",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
-                            onClick: () => {
+                            onClick: async () => {
                               if (
-                                window.confirm(`Are you sure you want to drop function \`${db.name}\`.\`${r.name}\`?`)
+                                await confirmDrop(connectionId, `function \`${db.name}\`.\`${r.name}\``)
                               ) {
                                 executeQuery(connectionId, `DROP FUNCTION \`${db.name}\`.\`${r.name}\``).then(() =>
                                   refreshFolder(db.name, "routines")
@@ -1004,9 +1005,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Drop Trigger",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
-                            onClick: () => {
+                            onClick: async () => {
                               if (
-                                window.confirm(`Are you sure you want to drop trigger \`${db.name}\`.\`${t.name}\`?`)
+                                await confirmDrop(connectionId, `trigger \`${db.name}\`.\`${t.name}\``)
                               ) {
                                 executeQuery(connectionId, `DROP TRIGGER \`${db.name}\`.\`${t.name}\``).then(() =>
                                   refreshFolder(db.name, "triggers")
@@ -1091,8 +1092,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Drop Event",
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
-                            onClick: () => {
-                              if (window.confirm(`Drop event \`${db.name}\`.\`${ev.name}\`?`)) {
+                            onClick: async () => {
+                              if (await confirmDrop(connectionId, `event \`${db.name}\`.\`${ev.name}\``)) {
                                 void executeQuery(
                                   connectionId,
                                   `DROP EVENT \`${db.name}\`.\`${ev.name}\``,

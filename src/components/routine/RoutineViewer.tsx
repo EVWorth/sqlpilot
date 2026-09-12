@@ -27,7 +27,9 @@ import { isNumericSqlType } from "../../lib/sql-types";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import { useEditorStore } from "../../stores/editorStore";
+import { confirmDrop } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useThemeStore } from "../../stores/themeStore";
 import type { QueryResult } from "../../types";
 
 interface RoutineViewerProps {
@@ -47,6 +49,7 @@ export function RoutineViewer({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showDdl, setShowDdl] = useState(true);
+  const effectiveTheme = useThemeStore((s) => s.effectiveTheme);
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
   const [executing, setExecuting] = useState(false);
   const [results, setResults] = useState<QueryResult[] | null>(null);
@@ -169,13 +172,8 @@ export function RoutineViewer({
   };
 
   const handleDrop = async () => {
-    if (
-      !window.confirm(
-        `Are you sure you want to drop ${routineType.toLowerCase()} \`${database}\`.\`${routineName}\`?`,
-      )
-    ) {
-      return;
-    }
+    const subject = `${routineType.toLowerCase()} \`${database}\`.\`${routineName}\``;
+    if (!(await confirmDrop(connectionId, subject))) return;
     // Through the store, not api.executeQuery. The store is where the
     // production gate lives: on a connection marked production a destructive
     // statement raises the app's own confirmation before anything runs. Going
@@ -316,7 +314,9 @@ export function RoutineViewer({
               <Editor
                 value={ddl}
                 language="sql"
-                theme="vs-dark"
+                // The app's theme, not a fixed dark one: on a light theme the
+                // DDL panel was the only black rectangle on the screen.
+                theme={effectiveTheme === "dark" ? "vs-dark" : "vs"}
                 options={{
                   readOnly: true,
                   minimap: { enabled: false },

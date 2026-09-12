@@ -2,6 +2,8 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RoutineViewer } from "../RoutineViewer";
 
+const { confirmDropFn } = vi.hoisted(() => ({ confirmDropFn: vi.fn() }));
+
 vi.mock("../../../lib/tauri-api", () => ({
   api: {
     getRoutineDdl: vi.fn(),
@@ -21,6 +23,10 @@ vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: {
     getState: vi.fn(),
   },
+}));
+
+vi.mock("../../../stores/productionGuardStore", () => ({
+  confirmDrop: confirmDropFn,
 }));
 
 vi.mock("../../../stores/resultStore", () => ({
@@ -56,6 +62,7 @@ describe("RoutineViewer", () => {
       error: null,
       confirmDialog: null,
     } as never);
+    confirmDropFn.mockResolvedValue(true);
   });
 
   it("shows loading state", async () => {
@@ -169,8 +176,16 @@ describe("RoutineViewer", () => {
 
 describe("dropping a routine", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(api.getRoutineDdl).mockResolvedValue(mockDdl);
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    // A fresh one per test: the store's getState is mocked, so a shared
+    // executeQuery would carry the previous test's calls into this one.
+    vi.mocked(useResultStore.getState).mockReturnValue({
+      executeQuery: vi.fn().mockResolvedValue(undefined),
+      error: null,
+      confirmDialog: null,
+    } as never);
+    confirmDropFn.mockResolvedValue(true);
   });
 
   async function renderAndDrop(name = "test_sp") {
@@ -196,6 +211,22 @@ describe("dropping a routine", () => {
       "testdb",
     );
     expect(api.executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("asks in the app's own dialog rather than the browser's", async () => {
+    // window.confirm is unstyled, blocks the whole window, and cannot be
+    // tested without stubbing a global (routine audit F9).
+    await renderAndDrop();
+    expect(confirmDropFn).toHaveBeenCalledWith(
+      "conn-1",
+      "procedure `testdb`.`test_sp`",
+    );
+  });
+
+  it("drops nothing when the dialog is declined", async () => {
+    confirmDropFn.mockResolvedValue(false);
+    await renderAndDrop();
+    expect(useResultStore.getState().executeQuery).not.toHaveBeenCalled();
   });
 
   it("quotes a name containing a backtick instead of ending the quoting", async () => {
@@ -244,6 +275,7 @@ describe("RoutineViewer parameters", () => {
       error: null,
       confirmDialog: null,
     } as never);
+    confirmDropFn.mockResolvedValue(true);
   });
 
   describe("parameter values that cannot be sent (#398)", () => {
