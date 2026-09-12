@@ -12,7 +12,9 @@
 pub mod classify;
 pub mod grants;
 pub mod policy;
+pub mod workspace;
 
 pub use classify::{classify, single_statement, Rejected, Statement};
 pub use grants::{ConnectionFacts, Grant, Grants, NotGranted};
 pub use policy::{ConnectionPolicy, DataPosture, Decision, Environment, VerbClass};
+pub use workspace::{LiveConnection, ObjectKind, Workspace};

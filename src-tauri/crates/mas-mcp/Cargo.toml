@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-mas-core = { path = "../mas-core" }
+async-trait = "0.1.92"
+mas-core = { version = "0.1.0", path = "../mas-core" }
+rmcp = { version = "=3.2.0", features = ["server", "transport-streamable-http-server"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros", "sync"] }
