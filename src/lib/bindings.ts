@@ -278,6 +278,24 @@ export type AgentAsk =
 { kind: "lastError" } | 
 /**  Show a diff and wait for the user to accept, reject, or edit it. */
 { kind: "proposeEdit"; tab: string | null; sql: string; rationale: string } | 
+/**
+ *  Ask the user to approve a change to the database.
+ * 
+ *  The only question here whose answer is a permission rather than a piece
+ *  of information, and the one the whole design exists for.
+ */
+{ kind: "approve"; connection: string; environment: string; database: string | null; sql: string; 
+/**
+ *  What the statement actually changed, measured inside a transaction
+ *  that has not been committed. Absent for a schema change, which
+ *  cannot be run first.
+ */
+rowsAffected: number | null; 
+/**
+ *  "write" or "schema". Not called `kind`: the union is already tagged
+ *  on that name, and a field of the same name would be shadowed by it.
+ */
+change: string; reason: string | null } | 
 /**  Open a new tab. Never touches an existing one. */
 { kind: "openDraft"; sql: string; title: string | null; connection: string | null; database: string | null };
 

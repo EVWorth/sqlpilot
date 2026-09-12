@@ -24,7 +24,9 @@ use crate::policy::{ConnectionPolicy, Decision, VerbClass};
 use crate::shapes::{
     cell_to_json, Column, Database, ForeignKey, Index, Match, ReferencedBy, ResultColumn, Table,
 };
-use crate::surface::{EditOutcome, EditorContext, ResultContext, Surface, SurfaceError};
+use crate::surface::{
+    ApprovalRequest, EditOutcome, EditorContext, ResultContext, Surface, SurfaceError,
+};
 use crate::workspace::{HistoryFilter, LiveConnection, ObjectKind, Workspace};
 use mas_core::query::{AnalyzeRefusal, ExplainFormat, FormatFallback};
 
@@ -363,6 +365,37 @@ pub struct HistoryItem {
     pub redacted: bool,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct WriteArg {
+    pub connection: String,
+    #[serde(default)]
+    pub database: Option<String>,
+    /// One statement. Two is refused rather than truncated.
+    pub sql: String,
+    /// Why this change, in a sentence. Shown to the user next to the statement
+    /// and the row count, as your claim about what it does — so say what it
+    /// changes and why, rather than restating the SQL.
+    pub reason: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct Impact {
+    /// Rows the statement changed before being rolled back.
+    pub rows_affected: u64,
+    pub note: String,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct WriteOutcome {
+    /// True when the user approved it and it was committed.
+    pub applied: bool,
+    /// How many rows changed. For an approved write this is what was
+    /// committed; for a rejected one, what would have been.
+    pub rows_affected: u64,
+    /// What to tell the user, and what to do next.
+    pub note: String,
+}
+
 /// A tool failure, phrased for the model that has to do something next.
 type Refusal = String;
 
@@ -371,6 +404,28 @@ const HISTORY_LIMIT: u32 = 50;
 
 fn refuse(error: SurfaceError) -> Refusal {
     error.to_string()
+}
+
+/// The sentence a decision carries. `Allow` has none, and reaching this with
+/// one would be a bug in the caller rather than something to explain.
+fn reason_of(decision: Decision) -> Refusal {
+    match decision {
+        Decision::Allow => "This is allowed; nothing to explain.".to_string(),
+        Decision::Ask { reason } | Decision::Refuse { reason } => reason,
+    }
+}
+
+/// A change with no stated reason is one the user has to work out for
+/// themselves while deciding whether to allow it.
+fn require_reason(reason: &str) -> Result<(), Refusal> {
+    if reason.trim().is_empty() {
+        return Err(
+            "Say why, in a sentence. The user reads it next to the statement while deciding, and \
+             a change with no reason is one they have to work out for themselves."
+                .to_string(),
+        );
+    }
+    Ok(())
 }
 
 impl From<mas_core::history::HistoryEntry> for HistoryItem {
@@ -1227,6 +1282,252 @@ impl SqlPilot {
 
         Ok(Json(entries.into_iter().map(HistoryItem::from).collect()))
     }
+    /// Run a statement that changes data, with the user's approval.
+    ///
+    /// The statement is run inside a transaction first, so the user is asked
+    /// with the real number of affected rows in front of them — then it is
+    /// committed or thrown away by their answer. Nothing is visible to anyone
+    /// else in between.
+    ///
+    /// Approval happens in SQLPilot's window. There is no argument, setting or
+    /// phrasing that skips it, so do not try to work around a refusal: tell the
+    /// user what you wanted instead.
+    #[tool(name = "run_write")]
+    pub async fn run_write(
+        &self,
+        Parameters(WriteArg {
+            connection,
+            database,
+            sql,
+            reason,
+        }): Parameters<WriteArg>,
+    ) -> Result<Json<WriteOutcome>, Refusal> {
+        let (facts, policy) = match &database {
+            Some(database) => self.resolve_database(&connection, database)?,
+            None => self.resolve(&connection)?,
+        };
+        let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+
+        match statement.class {
+            VerbClass::Write => {}
+            VerbClass::Ddl => {
+                return Err(
+                    "This changes the schema rather than the data. Use run_ddl, which asks before \
+                     it runs — a schema change cannot be undone by rolling back."
+                        .to_string(),
+                )
+            }
+            VerbClass::Read => return Err("This only reads. Use run_select.".to_string()),
+            VerbClass::Admin => return Err(reason_of(policy.decide(VerbClass::Admin))),
+        }
+
+        // The policy decides whether this may be asked about at all: a
+        // read-only connection refuses here, before anything is staged.
+        let decision = policy.decide(VerbClass::Write);
+        if !matches!(decision, Decision::Ask { .. }) {
+            return Err(reason_of(decision));
+        }
+        require_reason(&reason)?;
+        // Before staging, not after: a write that has run and cannot be asked
+        // about would sit in an open transaction holding locks until its
+        // deadline, for a question nobody was ever going to see.
+        let surface = self.surface()?;
+
+        let staged = self
+            .workspace
+            .stage_write(&connection, database.as_deref(), &statement.sql)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        let approved = surface
+            .approve(ApprovalRequest {
+                connection: facts.name,
+                environment: format!("{:?}", policy.environment).to_lowercase(),
+                database,
+                sql: statement.sql,
+                rows_affected: Some(staged.rows_affected),
+                kind: "write".to_string(),
+                reason: Some(reason),
+            })
+            .await;
+
+        match approved {
+            Ok(true) => {
+                let rows = self
+                    .workspace
+                    .commit_write(&staged.id)
+                    .await
+                    .map_err(|e| e.to_string())?;
+                Ok(Json(WriteOutcome {
+                    applied: true,
+                    rows_affected: rows,
+                    note: format!("Applied. {rows} row(s) changed."),
+                }))
+            }
+            Ok(false) => {
+                self.undo(&staged.id).await;
+                Ok(Json(WriteOutcome {
+                    applied: false,
+                    rows_affected: staged.rows_affected,
+                    note: format!(
+                        "The user said no, and nothing was changed — the {} row(s) this would \
+                         have affected are as they were. Ask them what they would prefer rather \
+                         than looking for another way in.",
+                        staged.rows_affected
+                    ),
+                }))
+            }
+            // A window that never answered is not consent. The transaction is
+            // rolled back for the same reason it would be on a refusal.
+            Err(e) => {
+                self.undo(&staged.id).await;
+                Err(refuse(e))
+            }
+        }
+    }
+
+    /// Change the schema, with the user's approval.
+    ///
+    /// Unlike a write, this cannot be tried and undone: both MySQL and MariaDB
+    /// commit the open transaction before a schema change, so there is nothing
+    /// to roll back. The user is therefore asked *before* it runs, with no row
+    /// count, and it is refused outright on a production connection unless
+    /// that connection has been unlocked for schema changes.
+    ///
+    /// For a migration, prefer `open_draft`: the user reviews it in the editor
+    /// and runs it themselves, which is a better fit for anything they will
+    /// want to keep.
+    #[tool(name = "run_ddl")]
+    pub async fn run_ddl(
+        &self,
+        Parameters(WriteArg {
+            connection,
+            database,
+            sql,
+            reason,
+        }): Parameters<WriteArg>,
+    ) -> Result<Json<WriteOutcome>, Refusal> {
+        let (facts, policy) = match &database {
+            Some(database) => self.resolve_database(&connection, database)?,
+            None => self.resolve(&connection)?,
+        };
+        let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+
+        if statement.class != VerbClass::Ddl {
+            return Err(match statement.class {
+                VerbClass::Write => "This changes data rather than the schema. Use run_write.",
+                VerbClass::Read => "This only reads. Use run_select.",
+                _ => "This is a server command, not a schema change.",
+            }
+            .to_string());
+        }
+
+        let decision = policy.decide(VerbClass::Ddl);
+        if !matches!(decision, Decision::Ask { .. }) {
+            return Err(reason_of(decision));
+        }
+        require_reason(&reason)?;
+
+        let approved = self
+            .surface()?
+            .approve(ApprovalRequest {
+                connection: facts.name,
+                environment: format!("{:?}", policy.environment).to_lowercase(),
+                database: database.clone(),
+                sql: statement.sql.clone(),
+                // Deliberately absent: there is no honest number to show, and
+                // an estimate here would be a guess presented as a measurement.
+                rows_affected: None,
+                kind: "schema".to_string(),
+                reason: Some(reason),
+            })
+            .await
+            .map_err(refuse)?;
+
+        if !approved {
+            return Ok(Json(WriteOutcome {
+                applied: false,
+                rows_affected: 0,
+                note: "The user said no. Nothing was changed.".to_string(),
+            }));
+        }
+
+        self.workspace
+            .run_ddl(&connection, database.as_deref(), &statement.sql)
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(Json(WriteOutcome {
+            applied: true,
+            rows_affected: 0,
+            note: "Applied.".to_string(),
+        }))
+    }
+
+    /// How much a write would change, without changing it.
+    ///
+    /// Runs the statement inside a transaction, counts the rows, and rolls it
+    /// back. Nothing is committed and nobody is asked, so use this to decide
+    /// whether a change is the right size before proposing it — a `DELETE`
+    /// that turns out to match four million rows is one to think again about
+    /// rather than to put in front of the user.
+    ///
+    /// Schema changes cannot be measured this way: both servers commit before
+    /// running one, so there would be nothing to roll back.
+    #[tool(name = "estimate_impact")]
+    pub async fn estimate_impact(
+        &self,
+        Parameters(SelectArg {
+            connection,
+            database,
+            sql,
+            limit: _,
+        }): Parameters<SelectArg>,
+    ) -> Result<Json<Impact>, Refusal> {
+        let (_, policy) = match &database {
+            Some(database) => self.resolve_database(&connection, database)?,
+            None => self.resolve(&connection)?,
+        };
+        let statement = single_statement(&sql).map_err(|e| e.to_string())?;
+
+        if statement.class != VerbClass::Write {
+            return Err(match statement.class {
+                VerbClass::Ddl => {
+                    "A schema change cannot be measured this way: the server commits before it \
+                     runs, so there would be nothing to roll back."
+                        .to_string()
+                }
+                VerbClass::Read => {
+                    "This only reads, so it changes nothing. Use run_select.".to_string()
+                }
+                _ => reason_of(policy.decide(VerbClass::Admin)),
+            });
+        }
+
+        // A read-only connection refuses here too. Measuring means running,
+        // and running is what a read-only connection does not do.
+        let decision = policy.decide(VerbClass::Write);
+        if matches!(decision, Decision::Refuse { .. }) {
+            return Err(reason_of(decision));
+        }
+
+        let staged = self
+            .workspace
+            .stage_write(&connection, database.as_deref(), &statement.sql)
+            .await
+            .map_err(|e| e.to_string())?;
+        let rows = staged.rows_affected;
+        self.undo(&staged.id).await;
+
+        Ok(Json(Impact {
+            rows_affected: rows,
+            note: format!(
+                "Nothing was changed: this ran inside a transaction that was rolled back. To \
+                 apply it, use run_write — the user approves it in SQLPilot with this same \
+                 number, {rows}, in front of them."
+            ),
+        }))
+    }
 }
 
 /// A connection an agent may use, with the terms attached.
@@ -1245,6 +1546,17 @@ pub struct SharedConnection {
 }
 
 impl SqlPilot {
+    /// Undo a staged write, logging if even that failed.
+    ///
+    /// A rollback that fails leaves a transaction open on a pooled connection,
+    /// which is worth a log line — but not worth replacing the refusal the
+    /// caller is about to report.
+    async fn undo(&self, staged: &str) {
+        if let Err(e) = self.workspace.rollback_write(staged).await {
+            tracing::error!(error = %e, "could not roll back a staged write");
+        }
+    }
+
     /// The names of the shared connections, as history records them.
     ///
     /// History spans every connection, including ones the user never shared,

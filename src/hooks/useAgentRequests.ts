@@ -111,6 +111,23 @@ async function handle(request: AgentRequest) {
         return;
       }
 
+      case "approve": {
+        // Not answered here either. The dialog answers, and until it does the
+        // write sits in an open transaction that has changed nothing anyone
+        // else can see.
+        useAgentStore.getState().showApproval({
+          id: request.id,
+          connection: request.connection,
+          environment: request.environment,
+          database: request.database ?? undefined,
+          sql: request.sql,
+          rowsAffected: request.rowsAffected ?? undefined,
+          change: request.change,
+          reason: request.reason ?? undefined,
+        });
+        return;
+      }
+
       case "lastError":
         // Answered in Rust from the history store, so it survives the tab
         // being closed. Nothing to do here.
@@ -129,7 +146,12 @@ async function fail(id: string, error: string) {
   await api.answerAgentRequest(id, undefined, error);
 }
 
-/** Send a decision about a proposal. Used by the dialog. */
+/** Send a decision about a change. Used by the approval dialog. */
+export async function answerApproval(id: string, approved: boolean) {
+  await api.answerAgentRequest(id, JSON.stringify({ approved }));
+}
+
+/** Send a decision about a proposal. Used by the diff dialog. */
 export async function answerProposal(
   id: string,
   outcome: { accepted: boolean; edited: boolean; sql?: string },

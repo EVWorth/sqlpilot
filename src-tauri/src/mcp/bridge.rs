@@ -38,7 +38,11 @@ pub const DECISION_TIMEOUT: Duration = Duration::from_secs(600);
 /// gets a discriminated union it can switch on exhaustively, so adding a
 /// question here is a type error there rather than a silently unhandled event.
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
 pub enum AgentAsk {
     /// The tab the user is looking at.
     EditorContext,
@@ -51,6 +55,24 @@ pub enum AgentAsk {
         tab: Option<String>,
         sql: String,
         rationale: String,
+    },
+    /// Ask the user to approve a change to the database.
+    ///
+    /// The only question here whose answer is a permission rather than a piece
+    /// of information, and the one the whole design exists for.
+    Approve {
+        connection: String,
+        environment: String,
+        database: Option<String>,
+        sql: String,
+        /// What the statement actually changed, measured inside a transaction
+        /// that has not been committed. Absent for a schema change, which
+        /// cannot be run first.
+        rows_affected: Option<u32>,
+        /// "write" or "schema". Not called `kind`: the union is already tagged
+        /// on that name, and a field of the same name would be shadowed by it.
+        change: String,
+        reason: Option<String>,
     },
     /// Open a new tab. Never touches an existing one.
     OpenDraft {

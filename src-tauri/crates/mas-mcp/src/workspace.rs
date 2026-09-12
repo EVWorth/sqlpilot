@@ -171,6 +171,34 @@ pub trait Workspace: Send + Sync + 'static {
     /// on the way into storage rather than on the way out.
     async fn history(&self, filter: HistoryFilter) -> Result<Vec<HistoryEntry>, CoreError>;
 
+    /// Run a write inside a transaction and hold it open.
+    ///
+    /// The rows it changed come back with a handle; nothing is visible to
+    /// anyone else until [`Workspace::commit_write`]. This is what makes the
+    /// approval a real question rather than a guess: the user is told what the
+    /// statement did, not what it might do.
+    async fn stage_write(
+        &self,
+        connection_id: &str,
+        database: Option<&str>,
+        sql: &str,
+    ) -> Result<StagedWrite, CoreError>;
+
+    /// Keep a staged write. Returns the rows it changed.
+    async fn commit_write(&self, staged: &str) -> Result<u64, CoreError>;
+
+    /// Throw a staged write away, as though it never ran.
+    async fn rollback_write(&self, staged: &str) -> Result<(), CoreError>;
+
+    /// Run a schema change, which cannot be staged: both servers commit the
+    /// open transaction before it, so approval has to come first.
+    async fn run_ddl(
+        &self,
+        connection_id: &str,
+        database: Option<&str>,
+        sql: &str,
+    ) -> Result<(), CoreError>;
+
     /// Run one statement that has already been classified and permitted.
     ///
     /// `limit` is the row cap the posture arrived at, not the model's request;
@@ -182,6 +210,14 @@ pub trait Workspace: Send + Sync + 'static {
         sql: &str,
         limit: Option<u32>,
     ) -> Result<QueryResult, CoreError>;
+}
+
+/// A write that has run and is waiting to be kept or undone.
+#[derive(Debug, Clone)]
+pub struct StagedWrite {
+    /// The handle to commit or roll back with.
+    pub id: String,
+    pub rows_affected: u64,
 }
 
 /// What to look for in the history.

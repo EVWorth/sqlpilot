@@ -17,6 +17,7 @@ import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 import { AgentPanel } from "../agent/AgentPanel";
+import { ApprovalDialog } from "../agent/ApprovalDialog";
 import { ProposedEditDialog } from "../agent/ProposedEditDialog";
 import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
@@ -329,6 +330,7 @@ export function AppLayout() {
         onClose={closeDialog}
       />
       <ProposedEditDialog />
+      <ApprovalDialog />
       <HistoryQuickOpen
         isOpen={showHistoryPicker}
         onClose={() => setShowHistoryPicker(false)}

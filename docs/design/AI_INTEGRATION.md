@@ -303,9 +303,17 @@ approvals do not care.
    token, with Settings → Agents to share connections and hand over the setup
    command. Writes and schema changes are refused with a sentence pointing at
    what does work.
-2. **In-app sessions**, Claude Code natively and Copilot in a terminal view,
-   with the app-aware tools — `propose_edit` is what makes this worth doing.
-3. **Writes**: dry-run, graded approval, transaction wrapping, undo.
+2. **In-app sessions.** ~~Copilot in a terminal view~~ — Copilot ships natively
+   over ACP (§7), with the app-aware tools and `propose_edit`. **Claude Code's
+   adapter is still to come**, over its own `stream-json` transport.
+3. ~~**Writes**: dry-run, graded approval, transaction wrapping, undo.~~
+   **Shipped**, and simpler than planned: the dry run and the write are the
+   same run. `run_write` executes inside a transaction, so the user is asked
+   with the _measured_ row count in front of them and their answer commits or
+   rolls back — which is the undo. `estimate_impact` is the same machinery
+   without the question. `run_ddl` cannot work that way, because both servers
+   commit the open transaction before a schema change (verified on 8.0.46 and
+   MariaDB 11.8), so it is approved before it runs and says so.
 4. **Background and multi-session.**
 
 Reads before writes, even in-app. A session that can only look is a useful

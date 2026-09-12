@@ -27,9 +27,12 @@ use mas_mcp::policy::DataPosture;
 use mas_mcp::server::{
     ColumnArg, ConnectionArg, DatabaseArg, ExplainArg, HistoryArg, Limits, ObjectsArg,
     OpenDraftArg, PlanFormat, ProposeEditArg, RelatedArg, SearchArg, SelectArg, SqlPilot, TableArg,
+    WriteArg,
 };
-use mas_mcp::surface::{EditOutcome, EditorContext, RawResult, Surface, SurfaceError};
-use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, Workspace};
+use mas_mcp::surface::{
+    ApprovalRequest, EditOutcome, EditorContext, RawResult, Surface, SurfaceError,
+};
+use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, StagedWrite, Workspace};
 use rmcp::handler::server::wrapper::Parameters;
 
 #[derive(Default)]
@@ -51,6 +54,14 @@ struct Fake {
     top: Vec<(String, i64)>,
     /// What the history store holds.
     history: Vec<HistoryEntry>,
+    /// How many rows a staged write reports.
+    affected: u64,
+    /// Statements that were staged, and what was decided about each.
+    staged: std::sync::Mutex<Vec<String>>,
+    decisions: std::sync::Mutex<Vec<String>>,
+    /// Set to make staging fail, for the case where the statement itself is
+    /// broken.
+    stage_fails: Option<String>,
     last_history: std::sync::Mutex<Option<HistoryFilter>>,
     calls: AtomicUsize,
 }
@@ -260,6 +271,43 @@ impl Workspace for Fake {
             column_type: "int".into(),
             comment: format!("limit was {limit}"),
         }])
+    }
+
+    async fn stage_write(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        sql: &str,
+    ) -> Result<StagedWrite, CoreError> {
+        if let Some(failure) = &self.stage_fails {
+            return Err(CoreError::Query(failure.clone()));
+        }
+        self.staged.lock().unwrap().push(sql.to_string());
+        Ok(StagedWrite {
+            id: "staged-1".into(),
+            rows_affected: self.affected,
+        })
+    }
+
+    async fn commit_write(&self, staged: &str) -> Result<u64, CoreError> {
+        self.decisions
+            .lock()
+            .unwrap()
+            .push(format!("commit {staged}"));
+        Ok(self.affected)
+    }
+
+    async fn rollback_write(&self, staged: &str) -> Result<(), CoreError> {
+        self.decisions
+            .lock()
+            .unwrap()
+            .push(format!("rollback {staged}"));
+        Ok(())
+    }
+
+    async fn run_ddl(&self, _: &str, _: Option<&str>, sql: &str) -> Result<(), CoreError> {
+        self.ran.lock().unwrap().push(sql.to_string());
+        Ok(())
     }
 
     async fn history(&self, filter: HistoryFilter) -> Result<Vec<HistoryEntry>, CoreError> {
@@ -1135,6 +1183,10 @@ struct FakeWindow {
     drafts: std::sync::Mutex<Vec<String>>,
     /// Set to fail every question, for the no-window case.
     gone: bool,
+    /// What the user says to an approval. None stands for a window that never
+    /// answered.
+    approval: Option<bool>,
+    approvals: std::sync::Mutex<Vec<ApprovalRequest>>,
 }
 
 #[async_trait::async_trait]
@@ -1151,6 +1203,16 @@ impl Surface for FakeWindow {
             return Err(SurfaceError::NoWindow);
         }
         Ok(self.result.clone())
+    }
+
+    async fn approve(&self, request: ApprovalRequest) -> Result<bool, SurfaceError> {
+        self.approvals.lock().unwrap().push(request);
+        match self.approval {
+            Some(answer) => Ok(answer),
+            // No answer configured stands for a window that went away, which
+            // is the case the caller must not read as consent.
+            None => Err(SurfaceError::Abandoned),
+        }
     }
 
     async fn propose_edit(
@@ -1623,4 +1685,380 @@ async fn the_last_error_is_the_last_failure_with_its_error_number() {
 async fn nothing_has_failed_is_an_answer_too() {
     let (server, _) = server(Fake::shared(DataPosture::Full, "development", false));
     assert!(server.get_last_error().await.unwrap().0.is_none());
+}
+
+// --------------------------------------------------------------------- writes
+
+fn write(sql: &str) -> Parameters<WriteArg> {
+    Parameters(WriteArg {
+        connection: "c1".into(),
+        database: Some("shop".into()),
+        sql: sql.into(),
+        reason: "the orders were imported with the wrong status".into(),
+    })
+}
+
+/// A workspace and a window that answers approvals the given way.
+fn with_approval(
+    posture: DataPosture,
+    environment: &str,
+    approval: Option<bool>,
+) -> (SqlPilot, Arc<Fake>, Arc<FakeWindow>) {
+    let mut fake = Fake::shared(posture, environment, false);
+    fake.affected = 4;
+    let fake = Arc::new(fake);
+    let window = Arc::new(FakeWindow {
+        approval,
+        ..Default::default()
+    });
+    let server = SqlPilot::new(fake.clone()).with_surface(window.clone());
+    (server, fake, window)
+}
+
+#[tokio::test]
+async fn a_write_is_run_before_the_user_is_asked_so_the_number_is_real() {
+    // "Are you sure?" is unanswerable without knowing how much this changes,
+    // and that is not in the statement.
+    let (server, fake, window) = with_approval(DataPosture::Full, "staging", Some(true));
+
+    let outcome = server
+        .run_write(write(
+            "UPDATE orders SET status = 'new' WHERE status = 'nwe'",
+        ))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(window.approvals.lock().unwrap()[0].rows_affected, Some(4));
+    assert!(outcome.applied);
+    assert_eq!(outcome.rows_affected, 4);
+    assert_eq!(fake.decisions.lock().unwrap()[0], "commit staged-1");
+}
+
+#[tokio::test]
+async fn saying_no_rolls_it_back_and_says_nothing_changed() {
+    let (server, fake, _) = with_approval(DataPosture::Full, "production", Some(false));
+
+    let outcome = server
+        .run_write(write("DELETE FROM orders"))
+        .await
+        .unwrap()
+        .0;
+
+    assert!(!outcome.applied);
+    assert_eq!(fake.decisions.lock().unwrap()[0], "rollback staged-1");
+    // The agent is told to ask rather than to try again another way.
+    assert!(
+        outcome.note.contains("nothing was changed"),
+        "{}",
+        outcome.note
+    );
+    assert!(outcome.note.contains("another way in"), "{}", outcome.note);
+}
+
+#[tokio::test]
+async fn a_window_that_never_answers_is_not_consent() {
+    // The failure that would make the whole model decorative.
+    let (server, fake, _) = with_approval(DataPosture::Full, "production", None);
+
+    let refusal = refused(server.run_write(write("DELETE FROM orders")).await);
+
+    assert_eq!(fake.decisions.lock().unwrap()[0], "rollback staged-1");
+    assert!(refusal.contains("no"), "{refusal}");
+}
+
+#[tokio::test]
+async fn the_approval_says_which_database_and_which_environment() {
+    // The same statement is a different decision on production.
+    let (server, _, window) = with_approval(DataPosture::SchemaOnly, "production", Some(false));
+
+    server.run_write(write("DELETE FROM orders")).await.unwrap();
+
+    let request = &window.approvals.lock().unwrap()[0];
+    assert_eq!(request.connection, "shop");
+    assert_eq!(request.environment, "production");
+    assert_eq!(request.database.as_deref(), Some("shop"));
+    assert_eq!(request.kind, "write");
+    assert!(request.reason.as_ref().unwrap().contains("wrong status"));
+}
+
+#[tokio::test]
+async fn a_write_is_allowed_even_where_the_posture_hides_the_rows() {
+    // Posture is about what an agent may *see*. It has nothing to say about
+    // what the user may approve.
+    let (server, _, _) = with_approval(DataPosture::SchemaOnly, "production", Some(true));
+    assert!(
+        server
+            .run_write(write("DELETE FROM orders"))
+            .await
+            .unwrap()
+            .0
+            .applied
+    );
+}
+
+#[tokio::test]
+async fn a_read_only_connection_refuses_before_anything_is_staged() {
+    let mut fake = Fake::shared(DataPosture::Full, "production", true);
+    fake.affected = 4;
+    let fake = Arc::new(fake);
+    let window = Arc::new(FakeWindow {
+        approval: Some(true),
+        ..Default::default()
+    });
+    let server = SqlPilot::new(fake.clone()).with_surface(window.clone());
+
+    let refusal = refused(server.run_write(write("DELETE FROM orders")).await);
+
+    assert!(refusal.contains("read-only"), "{refusal}");
+    assert!(fake.staged.lock().unwrap().is_empty(), "nothing ran");
+    assert!(
+        window.approvals.lock().unwrap().is_empty(),
+        "nobody was asked"
+    );
+}
+
+#[tokio::test]
+async fn a_write_with_no_reason_is_refused_before_it_runs() {
+    let (server, fake, _) = with_approval(DataPosture::Full, "development", Some(true));
+
+    let refusal = refused(
+        server
+            .run_write(Parameters(WriteArg {
+                connection: "c1".into(),
+                database: Some("shop".into()),
+                sql: "DELETE FROM orders".into(),
+                reason: "   ".into(),
+            }))
+            .await,
+    );
+
+    assert!(refusal.contains("why"), "{refusal}");
+    assert!(fake.staged.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn two_statements_are_refused_here_too() {
+    let (server, fake, _) = with_approval(DataPosture::Full, "development", Some(true));
+    refused(
+        server
+            .run_write(write("DELETE FROM a; DELETE FROM b"))
+            .await,
+    );
+    assert!(fake.staged.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_schema_change_sent_to_run_write_is_redirected_rather_than_staged() {
+    // Staging it would promise an undo the server does not offer.
+    let (server, fake, _) = with_approval(DataPosture::Full, "development", Some(true));
+
+    let refusal = refused(
+        server
+            .run_write(write("ALTER TABLE orders ADD note TEXT"))
+            .await,
+    );
+
+    assert!(refusal.contains("run_ddl"), "{refusal}");
+    assert!(refusal.contains("cannot be undone"), "{refusal}");
+    assert!(fake.staged.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn a_select_sent_to_run_write_is_redirected() {
+    let (server, _, _) = with_approval(DataPosture::Full, "development", Some(true));
+    let refusal = refused(server.run_write(write("SELECT * FROM orders")).await);
+    assert!(refusal.contains("run_select"), "{refusal}");
+}
+
+#[tokio::test]
+async fn a_statement_that_fails_never_reaches_the_user() {
+    // Nothing to approve: it did not run.
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.stage_fails = Some("Unknown column 'nope'".into());
+    let fake = Arc::new(fake);
+    let window = Arc::new(FakeWindow {
+        approval: Some(true),
+        ..Default::default()
+    });
+    let server = SqlPilot::new(fake.clone()).with_surface(window.clone());
+
+    let refusal = refused(server.run_write(write("UPDATE orders SET nope = 1")).await);
+
+    assert!(refusal.contains("Unknown column"), "{refusal}");
+    assert!(window.approvals.lock().unwrap().is_empty());
+}
+
+// ----------------------------------------------------------------- schema
+
+fn ddl(sql: &str) -> Parameters<WriteArg> {
+    Parameters(WriteArg {
+        connection: "c1".into(),
+        database: Some("shop".into()),
+        sql: sql.into(),
+        reason: "the query scans the whole table without it".into(),
+    })
+}
+
+#[tokio::test]
+async fn a_schema_change_is_approved_before_it_runs_with_no_row_count() {
+    // There is no honest number to show, and an estimate would be a guess
+    // presented as a measurement.
+    let (server, fake, window) = with_approval(DataPosture::Full, "development", Some(true));
+
+    let outcome = server
+        .run_ddl(ddl("ALTER TABLE orders ADD INDEX (customer_id)"))
+        .await
+        .unwrap()
+        .0;
+
+    let request = &window.approvals.lock().unwrap()[0];
+    assert_eq!(request.kind, "schema");
+    assert_eq!(request.rows_affected, None);
+    assert!(outcome.applied);
+    assert_eq!(fake.ran()[0], "ALTER TABLE orders ADD INDEX (customer_id)");
+}
+
+#[tokio::test]
+async fn a_schema_change_the_user_refuses_does_not_run() {
+    let (server, fake, _) = with_approval(DataPosture::Full, "staging", Some(false));
+
+    let outcome = server.run_ddl(ddl("DROP TABLE orders")).await.unwrap().0;
+
+    assert!(!outcome.applied);
+    assert!(fake.ran().is_empty(), "the table is still there");
+}
+
+#[tokio::test]
+async fn production_schema_changes_are_refused_before_anyone_is_asked() {
+    // Not "ask harder": refused, until the user unlocks that connection in
+    // SQLPilot itself.
+    let (server, fake, window) = with_approval(DataPosture::Full, "production", Some(true));
+
+    let refusal = refused(server.run_ddl(ddl("DROP TABLE orders")).await);
+
+    assert!(refusal.contains("production"), "{refusal}");
+    assert!(
+        refusal.contains("draft"),
+        "and points at the way that works: {refusal}"
+    );
+    assert!(window.approvals.lock().unwrap().is_empty());
+    assert!(fake.ran().is_empty());
+}
+
+#[tokio::test]
+async fn an_unlocked_production_connection_asks_rather_than_refusing() {
+    let mut fake = Fake::shared(DataPosture::Full, "production", false);
+    fake.grants.unlock_ddl("c1", true);
+    let fake = Arc::new(fake);
+    let window = Arc::new(FakeWindow {
+        approval: Some(true),
+        ..Default::default()
+    });
+    let server = SqlPilot::new(fake.clone()).with_surface(window.clone());
+
+    assert!(
+        server
+            .run_ddl(ddl("ALTER TABLE orders ADD note TEXT"))
+            .await
+            .unwrap()
+            .0
+            .applied
+    );
+    assert_eq!(window.approvals.lock().unwrap().len(), 1, "still asked");
+}
+
+#[tokio::test]
+async fn a_write_sent_to_run_ddl_is_redirected() {
+    let (server, fake, _) = with_approval(DataPosture::Full, "development", Some(true));
+    let refusal = refused(server.run_ddl(ddl("DELETE FROM orders")).await);
+    assert!(refusal.contains("run_write"), "{refusal}");
+    assert!(fake.ran().is_empty());
+}
+
+#[tokio::test]
+async fn without_a_window_a_write_cannot_be_approved_and_is_not_applied() {
+    // A headless server — the app closed, the endpoint still up — must not
+    // fall through to applying it.
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.affected = 4;
+    let fake = Arc::new(fake);
+    let server = SqlPilot::new(fake.clone());
+
+    let refusal = refused(server.run_write(write("DELETE FROM orders")).await);
+
+    assert!(refusal.contains("no window"), "{refusal}");
+    // And it was never staged: a write that has run with nobody to ask would
+    // hold locks in an open transaction until its deadline, for a question
+    // that was never going to be seen.
+    assert!(fake.staged.lock().unwrap().is_empty());
+    assert!(fake.decisions.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_estimate_runs_it_and_puts_it_back_without_asking_anyone() {
+    // For deciding whether a change is the right size before proposing it.
+    let (server, fake, window) = with_approval(DataPosture::Full, "production", Some(true));
+
+    let impact = server
+        .estimate_impact(select(
+            "DELETE FROM orders WHERE created_at < '2020-01-01'",
+            None,
+        ))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(impact.rows_affected, 4);
+    assert_eq!(fake.decisions.lock().unwrap()[0], "rollback staged-1");
+    assert!(
+        window.approvals.lock().unwrap().is_empty(),
+        "nobody was asked"
+    );
+    assert!(impact.note.contains("rolled back"), "{}", impact.note);
+    assert!(impact.note.contains("run_write"), "{}", impact.note);
+}
+
+#[tokio::test]
+async fn estimating_a_schema_change_says_why_it_cannot_be_done() {
+    let (server, fake, _) = with_approval(DataPosture::Full, "development", Some(true));
+
+    let refusal = refused(
+        server
+            .estimate_impact(select("DROP TABLE orders", None))
+            .await,
+    );
+
+    assert!(refusal.contains("commits before"), "{refusal}");
+    assert!(fake.staged.lock().unwrap().is_empty(), "and it did not run");
+}
+
+#[tokio::test]
+async fn estimating_a_read_points_at_the_tool_that_runs_reads() {
+    let (server, _, _) = with_approval(DataPosture::Full, "development", Some(true));
+    let refusal = refused(
+        server
+            .estimate_impact(select("SELECT * FROM orders", None))
+            .await,
+    );
+    assert!(refusal.contains("run_select"), "{refusal}");
+}
+
+#[tokio::test]
+async fn a_read_only_connection_will_not_even_measure() {
+    // Measuring means running, and running is the thing a read-only
+    // connection does not do.
+    let mut fake = Fake::shared(DataPosture::Full, "production", true);
+    fake.affected = 4;
+    let fake = Arc::new(fake);
+    let server = SqlPilot::new(fake.clone());
+
+    let refusal = refused(
+        server
+            .estimate_impact(select("DELETE FROM orders", None))
+            .await,
+    );
+
+    assert!(refusal.contains("read-only"), "{refusal}");
+    assert!(fake.staged.lock().unwrap().is_empty());
 }
