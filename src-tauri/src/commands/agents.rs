@@ -312,6 +312,38 @@ pub fn load_grants(store: &mas_core::connection::ConnectionStore) -> Grants {
     )
 }
 
+/// The window's answer to something an agent asked.
+///
+/// The other half of `AgentRequest`: a tool call is waiting on this, and an id
+/// nobody is waiting for is ignored rather than reported — the request may
+/// have timed out a moment before the user clicked, and the window has no way
+/// to know that.
+///
+/// `value` is the answer, shaped by the request's kind. `error` is sent
+/// instead when the window could not answer — no connection selected, no such
+/// tab — and reaches the agent as the failure it is.
+///
+/// `value` is JSON text rather than a typed value: its shape depends on what
+/// was asked, and typing it would mean a second union to keep in step with
+/// `AgentAsk`.
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_agent_request(
+    agents: State<'_, AgentState>,
+    id: String,
+    value: Option<String>,
+    error: Option<String>,
+) -> Result<(), String> {
+    let answer = match (error, value) {
+        (Some(reason), _) => Err(reason),
+        (None, Some(json)) => serde_json::from_str(&json)
+            .map_err(|e| format!("SQLPilot could not read its own answer: {e}"))?,
+        (None, None) => Ok(serde_json::Value::Null),
+    };
+    agents.bridge.answer(&id, answer);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

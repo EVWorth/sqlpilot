@@ -24,7 +24,8 @@ use crate::policy::{ConnectionPolicy, Decision, VerbClass};
 use crate::shapes::{
     cell_to_json, Column, Database, ForeignKey, Index, Match, ReferencedBy, ResultColumn, Table,
 };
-use crate::workspace::{LiveConnection, ObjectKind, Workspace};
+use crate::surface::{EditOutcome, EditorContext, ResultContext, Surface, SurfaceError};
+use crate::workspace::{HistoryFilter, LiveConnection, ObjectKind, Workspace};
 use mas_core::query::{AnalyzeRefusal, ExplainFormat, FormatFallback};
 
 /// How many of a column's most common values `profile_column` reports.
@@ -83,6 +84,12 @@ impl Default for Limits {
 
 pub struct SqlPilot {
     workspace: Arc<dyn Workspace>,
+    /// The window, when there is one to ask.
+    ///
+    /// Optional because the database half of this server is useful without it
+    /// — and because a tool that needs the window should say "there is no
+    /// window" rather than fail in some other way.
+    surface: Option<Arc<dyn Surface>>,
     limits: Limits,
 }
 
@@ -294,20 +301,116 @@ pub struct TopValue {
     pub occurrences: i64,
 }
 
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ProposeEditArg {
+    /// The tab to change, from `get_editor_context`. Without it, the tab the
+    /// user is looking at.
+    #[serde(default)]
+    pub tab: Option<String>,
+    /// The whole statement as it should read, not a patch. The user sees a
+    /// diff against what is there now.
+    pub sql: String,
+    /// Why, in a sentence. Shown next to the diff — this is what the user
+    /// reads before deciding, so it should say what changed and what it fixes,
+    /// not restate the SQL.
+    pub rationale: String,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct OpenDraftArg {
+    pub sql: String,
+    /// The tab's title. A name beats "Untitled Query" when there are six tabs.
+    #[serde(default)]
+    pub title: Option<String>,
+    /// The connection to open it against. Defaults to the active tab's.
+    #[serde(default)]
+    pub connection: Option<String>,
+    #[serde(default)]
+    pub database: Option<String>,
+}
+
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct HistoryArg {
+    /// Substring of the SQL, case-insensitive. Without it, the most recent
+    /// statements.
+    #[serde(default)]
+    pub search: Option<String>,
+    /// Only this connection, by profile id.
+    #[serde(default)]
+    pub connection: Option<String>,
+    /// Only statements that failed, which is usually the interesting half.
+    #[serde(default)]
+    pub failed_only: bool,
+    #[serde(default)]
+    pub limit: Option<u32>,
+}
+
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct HistoryItem {
+    pub sql: String,
+    pub connection: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    pub executed_at: String,
+    pub execution_time_ms: i64,
+    pub row_count: i64,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// True when a credential was stripped out before this was stored, so the
+    /// statement will not run as written.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub redacted: bool,
+}
+
 /// A tool failure, phrased for the model that has to do something next.
 type Refusal = String;
+
+/// The most statements `query_history` returns.
+const HISTORY_LIMIT: u32 = 50;
+
+fn refuse(error: SurfaceError) -> Refusal {
+    error.to_string()
+}
+
+impl From<mas_core::history::HistoryEntry> for HistoryItem {
+    fn from(entry: mas_core::history::HistoryEntry) -> Self {
+        Self {
+            sql: entry.sql,
+            connection: entry.connection_name,
+            database: entry.database,
+            executed_at: entry.executed_at,
+            execution_time_ms: entry.execution_time_ms,
+            row_count: entry.row_count,
+            status: entry.status,
+            error: entry.error,
+            redacted: entry.redacted,
+        }
+    }
+}
 
 #[tool_router]
 impl SqlPilot {
     pub fn new(workspace: Arc<dyn Workspace>) -> Self {
         Self {
             workspace,
+            surface: None,
             limits: Limits::default(),
         }
     }
 
     pub fn with_limits(workspace: Arc<dyn Workspace>, limits: Limits) -> Self {
-        Self { workspace, limits }
+        Self {
+            workspace,
+            surface: None,
+            limits,
+        }
+    }
+
+    /// The same server, able to see and change what is on screen.
+    pub fn with_surface(mut self, surface: Arc<dyn Surface>) -> Self {
+        self.surface = Some(surface);
+        self
     }
 
     /// The connections the user has shared with agents, and on what terms.
@@ -929,6 +1032,201 @@ impl SqlPilot {
             note,
         }))
     }
+    /// The statement the user is looking at, and where it would run.
+    ///
+    /// Start here when the user says "this query" or "fix this". The selection
+    /// matters: running a selection is how people run one statement out of a
+    /// file, so a request about "this query" usually means the selection and
+    /// not the whole tab.
+    #[tool(name = "get_editor_context")]
+    pub async fn get_editor_context(&self) -> Result<Json<EditorContext>, Refusal> {
+        let context = self.surface()?.editor_context().await.map_err(refuse)?;
+        // A tab on a connection the user has not shared is not readable here
+        // either. Sharing is one decision, not one per surface.
+        if let Some(connection) = &context.connection {
+            self.resolve(connection)?;
+        }
+        Ok(Json(context))
+    }
+
+    /// The result on screen: what ran, what came back, how long it took.
+    ///
+    /// Row values follow the connection's posture, the same as everywhere
+    /// else. The user being able to see them is not the same rule as their
+    /// being allowed to leave the machine.
+    #[tool(name = "get_result_context")]
+    pub async fn get_result_context(&self) -> Result<Json<Option<ResultContext>>, Refusal> {
+        let Some(raw) = self.surface()?.result_context().await.map_err(refuse)? else {
+            return Ok(Json(None));
+        };
+
+        let policy = match &raw.connection {
+            Some(connection) => Some(self.resolve(connection)?.1),
+            None => None,
+        };
+        let allowed = policy
+            .as_ref()
+            .map(|p| p.posture.allows_values())
+            .unwrap_or(false);
+
+        Ok(Json(Some(ResultContext {
+            sql: raw.sql,
+            columns: raw.columns,
+            row_count: raw.row_count,
+            execution_time_ms: raw.execution_time_ms,
+            truncated: raw.truncated,
+            rows: if allowed { raw.rows } else { Vec::new() },
+            note: (!allowed).then(|| {
+                policy.map(|p| p.no_values_hint()).unwrap_or_else(|| {
+                    "This result is from a connection that is not shared with agents, so its \
+                         values are not included."
+                        .to_string()
+                })
+            }),
+        })))
+    }
+
+    /// The last statement that failed, with the driver's own error number.
+    ///
+    /// `Ok(null)` when nothing has failed. Read from the same history the user
+    /// can see rather than from the window, so it survives the tab being
+    /// closed and carries the error number — which is the difference between
+    /// guessing at "something went wrong" and knowing that the table does not
+    /// exist.
+    #[tool(name = "get_last_error")]
+    pub async fn get_last_error(&self) -> Result<Json<Option<HistoryItem>>, Refusal> {
+        let names = self.shared_connection_names();
+        if names.is_empty() {
+            return Ok(Json(None));
+        }
+        let entries = self
+            .workspace
+            .history(HistoryFilter {
+                search: None,
+                connection_names: names,
+                failed_only: true,
+                limit: 1,
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+        Ok(Json(entries.into_iter().next().map(HistoryItem::from)))
+    }
+
+    /// Offer a change to the statement in a tab, as a diff.
+    ///
+    /// The user sees what you propose next to what is there and accepts,
+    /// rejects, or edits it first. Nothing is written unless they accept, and
+    /// the answer says which of the three happened — an edited acceptance is
+    /// the clearest signal you will get that the answer was close but not
+    /// right.
+    ///
+    /// This is the tool to use for "rewrite this query". Do not use `run_*` to
+    /// apply a change the user asked to see.
+    #[tool(name = "propose_edit")]
+    pub async fn propose_edit(
+        &self,
+        Parameters(ProposeEditArg {
+            tab,
+            sql,
+            rationale,
+        }): Parameters<ProposeEditArg>,
+    ) -> Result<Json<EditOutcome>, Refusal> {
+        // Proposing two statements is legitimate — a migration is several —
+        // so this is not the single-statement rule. What is refused is an
+        // empty proposal, which would show the user a diff that deletes their
+        // query and says nothing.
+        if sql.trim().is_empty() {
+            return Err(
+                "There is nothing to propose. Send the statement as it should read, in full."
+                    .to_string(),
+            );
+        }
+        if rationale.trim().is_empty() {
+            return Err(
+                "Say why, in a sentence. The user reads the rationale next to the diff, and a \
+                 proposal with no reason is one they have to work out for themselves."
+                    .to_string(),
+            );
+        }
+
+        self.surface()?
+            .propose_edit(tab, sql, rationale)
+            .await
+            .map(Json)
+            .map_err(refuse)
+    }
+
+    /// Open a new tab with this SQL in it.
+    ///
+    /// Never overwrites anything: use this for a migration, a scratch query,
+    /// or anything the user should look at before running. `propose_edit` is
+    /// for changing a statement that already exists.
+    #[tool(name = "open_draft")]
+    pub async fn open_draft(
+        &self,
+        Parameters(OpenDraftArg {
+            sql,
+            title,
+            connection,
+            database,
+        }): Parameters<OpenDraftArg>,
+    ) -> Result<Json<String>, Refusal> {
+        if sql.trim().is_empty() {
+            return Err("There is nothing to open. Send the SQL for the draft.".to_string());
+        }
+        if let Some(connection) = &connection {
+            self.resolve(connection)?;
+        }
+
+        self.surface()?
+            .open_draft(sql, title, connection, database)
+            .await
+            .map(Json)
+            .map_err(refuse)
+    }
+
+    /// What has been run here before.
+    ///
+    /// The fastest way to learn how a database is actually used, and the way
+    /// to find the query the user is describing from memory. Credentials are
+    /// stripped on the way into storage, so an entry marked redacted will not
+    /// run as written.
+    #[tool(name = "query_history")]
+    pub async fn query_history(
+        &self,
+        Parameters(HistoryArg {
+            search,
+            connection,
+            failed_only,
+            limit,
+        }): Parameters<HistoryArg>,
+    ) -> Result<Json<Vec<HistoryItem>>, Refusal> {
+        let shared = self.shared_connection_names();
+        if shared.is_empty() {
+            return Ok(Json(Vec::new()));
+        }
+
+        let names = match &connection {
+            Some(id) => {
+                let (facts, _) = self.resolve(id)?;
+                vec![facts.name]
+            }
+            None => shared,
+        };
+
+        let entries = self
+            .workspace
+            .history(HistoryFilter {
+                search,
+                connection_names: names,
+                failed_only,
+                limit: limit.unwrap_or(HISTORY_LIMIT).min(HISTORY_LIMIT),
+            })
+            .await
+            .map_err(|e| e.to_string())?;
+
+        Ok(Json(entries.into_iter().map(HistoryItem::from).collect()))
+    }
 }
 
 /// A connection an agent may use, with the terms attached.
@@ -947,6 +1245,28 @@ pub struct SharedConnection {
 }
 
 impl SqlPilot {
+    /// The names of the shared connections, as history records them.
+    ///
+    /// History spans every connection, including ones the user never shared,
+    /// so it is filtered to these rather than returned whole — a statement is
+    /// as revealing as the schema it names.
+    fn shared_connection_names(&self) -> Vec<String> {
+        let grants = self.workspace.grants();
+        self.workspace
+            .live_connections()
+            .into_iter()
+            .filter(|c| grants.get(&c.id).is_some())
+            .map(|c| c.name)
+            .collect()
+    }
+
+    /// The window, or a refusal saying there is not one.
+    fn surface(&self) -> Result<&Arc<dyn Surface>, Refusal> {
+        self.surface
+            .as_ref()
+            .ok_or_else(|| SurfaceError::NoWindow.to_string())
+    }
+
     /// Which connection is meant, and what may be done to it.
     fn resolve(&self, connection: &str) -> Result<(ConnectionFacts, ConnectionPolicy), Refusal> {
         let facts = self

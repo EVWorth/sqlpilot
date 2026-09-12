@@ -16,6 +16,7 @@ pub mod grants;
 pub mod policy;
 pub mod server;
 pub mod shapes;
+pub mod surface;
 pub mod workspace;
 
 pub use classify::{classify, single_statement, Rejected, Statement};

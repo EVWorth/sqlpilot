@@ -2,6 +2,7 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
+import { useAgentRequests } from "../../hooks/useAgentRequests";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useTheme } from "../../hooks/useTheme";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
@@ -14,6 +15,7 @@ import { useResultStore } from "../../stores/resultStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
+import { ProposedEditDialog } from "../agent/ProposedEditDialog";
 import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
 import { ConfirmDialog } from "../common/ConfirmDialog";
@@ -58,6 +60,9 @@ export function AppLayout() {
   // sidebar's context menus and the toolbar can all open one without reaching
   // into this component (#450).
   const openDialogName = useDialogStore((s) => s.open);
+  // The window's half of the agent surface: questions arrive as events and are
+  // answered from whatever the stores hold at that moment.
+  useAgentRequests();
   const dialogTarget = useDialogStore((s) => s.target);
   const helpTab = useDialogStore((s) => s.helpTab);
   const openDialog = useDialogStore((s) => s.openDialog);
@@ -306,6 +311,7 @@ export function AppLayout() {
         isOpen={openDialogName === "agents"}
         onClose={closeDialog}
       />
+      <ProposedEditDialog />
       <HistoryQuickOpen
         isOpen={showHistoryPicker}
         onClose={() => setShowHistoryPicker(false)}

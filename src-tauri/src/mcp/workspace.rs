@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use mas_core::connection::{ConnectionManager, ConnectionStore};
 use mas_core::error::CoreError;
+use mas_core::history::{HistoryEntry, HistoryQuery, HistoryStore};
 use mas_core::models::query::QueryResult;
 use mas_core::query::{ExplainFormat, ExplainResponse, QueryExecutor};
 use mas_core::schema::inspector::{
@@ -30,12 +31,13 @@ use mas_core::schema::inspector::{
 };
 use mas_core::schema::SchemaInspector;
 use mas_mcp::grants::{ConnectionFacts, Grants};
-use mas_mcp::workspace::{LiveConnection, ObjectKind, Workspace};
+use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, Workspace};
 
 use crate::mcp::state::McpState;
 
 pub struct AppWorkspace {
     connections: Arc<ConnectionManager>,
+    history: Arc<HistoryStore>,
     /// The saved profiles, so a shared connection has a policy whether or not
     /// it is connected right now.
     store: Arc<ConnectionStore>,
@@ -68,12 +70,14 @@ impl AppWorkspace {
     pub fn new(
         connections: Arc<ConnectionManager>,
         store: Arc<ConnectionStore>,
+        history: Arc<HistoryStore>,
         inspector: Arc<SchemaInspector>,
         executor: Arc<QueryExecutor>,
         state: McpState,
     ) -> Self {
         Self {
             connections,
+            history,
             store,
             inspector,
             executor,
@@ -280,6 +284,16 @@ impl Workspace for AppWorkspace {
         .await
     }
 
+    async fn history(&self, filter: HistoryFilter) -> Result<Vec<HistoryEntry>, CoreError> {
+        self.history.list(&HistoryQuery {
+            search: filter.search,
+            connection_names: Some(filter.connection_names),
+            status: filter.failed_only.then(|| "error".to_string()),
+            limit: Some(filter.limit),
+            ..Default::default()
+        })
+    }
+
     async fn run(
         &self,
         connection_id: &str,
@@ -322,6 +336,7 @@ mod tests {
         let workspace = AppWorkspace::new(
             manager.clone(),
             store.clone(),
+            Arc::new(HistoryStore::in_memory().unwrap()),
             Arc::new(SchemaInspector::new(manager.clone())),
             Arc::new(QueryExecutor::new(manager)),
             McpState::default(),

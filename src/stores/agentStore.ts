@@ -16,6 +16,19 @@ import { api } from "../lib/tauri-api";
 /** How a connection is shared, with "not at all" as a value rather than null. */
 export type Sharing = DataPosture | "none";
 
+/** A change an agent has offered, waiting for the user to decide. */
+export interface Proposal {
+  /** The request id to answer with. */
+  id: string;
+  tabId: string;
+  tabTitle: string;
+  /** What is in the tab now. */
+  current: string;
+  /** What the agent suggests instead. */
+  proposed: string;
+  rationale: string;
+}
+
 interface AgentState {
   endpoint: AgentEndpoint | null;
   connections: AgentConnection[];
@@ -24,6 +37,14 @@ interface AgentState {
   error: string | null;
   /** Setup text for the selected harness, once asked for. */
   setup: string | null;
+  /**
+   * The change waiting for an answer.
+   *
+   * One at a time: a queue of diffs is a thing nobody reads, and an agent that
+   * sends a second proposal before the first is answered is one that should
+   * wait.
+   */
+  proposal: Proposal | null;
 
   refresh: () => Promise<void>;
   start: () => Promise<void>;
@@ -32,6 +53,8 @@ interface AgentState {
   share: (connectionId: string, sharing: Sharing) => Promise<void>;
   unlockDdl: (connectionId: string, unlocked: boolean) => Promise<void>;
   loadSetup: (harness: Harness) => Promise<void>;
+  showProposal: (proposal: Proposal) => void;
+  clearProposal: () => void;
   clearError: () => void;
 }
 
@@ -50,6 +73,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   loading: false,
   error: null,
   setup: null,
+  proposal: null,
 
   refresh: async () => {
     set({ loading: true });
@@ -107,6 +131,10 @@ export const useAgentStore = create<AgentState>((set) => ({
       set({ setup: await api.agentHarnessSetup(harness), error: null });
     });
   },
+
+  showProposal: (proposal) => set({ proposal }),
+
+  clearProposal: () => set({ proposal: null }),
 
   clearError: () => set({ error: null }),
 }));

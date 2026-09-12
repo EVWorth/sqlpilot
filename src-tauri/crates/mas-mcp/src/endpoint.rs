@@ -28,6 +28,7 @@ use rmcp::transport::streamable_http_server::StreamableHttpServerConfig;
 use rmcp::transport::streamable_http_server::StreamableHttpService;
 
 use crate::server::SqlPilot;
+use crate::surface::Surface;
 use crate::workspace::Workspace;
 
 /// The path under the MCP server's origin that speaks MCP.
@@ -131,13 +132,21 @@ fn write_private(path: &Path, token: &str) -> std::io::Result<()> {
 /// Start listening, and serve until the returned endpoint is stopped.
 pub async fn start(
     workspace: Arc<dyn Workspace>,
+    surface: Option<Arc<dyn Surface>>,
     token: String,
     port: u16,
 ) -> std::io::Result<Endpoint> {
     let service = StreamableHttpService::new(
         {
             let workspace = workspace.clone();
-            move || Ok(SqlPilot::new(workspace.clone()))
+            let surface = surface.clone();
+            move || {
+                let server = SqlPilot::new(workspace.clone());
+                Ok(match surface.clone() {
+                    Some(surface) => server.with_surface(surface),
+                    None => server,
+                })
+            }
         },
         Arc::new(LocalSessionManager::default()),
         StreamableHttpServerConfig::default(),

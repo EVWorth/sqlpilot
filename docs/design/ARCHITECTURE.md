@@ -1647,7 +1647,30 @@ async fn agent_harness_setup(
     agents: State<'_, AgentState>,
     harness: Harness,
 ) -> Result<String, String>;
+
+/// The window's answer to something an agent asked it.
+///
+/// The return leg of the only backend → frontend call in the app: an
+/// `AgentRequest` event goes out, the window answers here, and the tool call
+/// waiting in Rust resolves. `value` is JSON text because its shape depends on
+/// what was asked; `error` is sent instead when the window cannot answer, and
+/// reaches the agent as the failure it is. An id nobody is waiting for is
+/// ignored rather than reported — the request may have timed out a moment
+/// before the user clicked.
+#[tauri::command]
+async fn answer_agent_request(
+    agents: State<'_, AgentState>,
+    id: String,
+    value: Option<String>,
+    error: Option<String>,
+) -> Result<(), String>;
 ```
+
+The `AgentRequest` event carries a discriminated union (`AgentAsk`), so adding
+a question the window must answer is a type error in the frontend rather than a
+silently unhandled event. Every request has a deadline: ten seconds for a
+question about what is on screen, ten minutes for a proposal, which is waiting
+on a person reading a diff.
 
 Grants are stored in the connection store (schema v6, `agent_grants`) and
 deleted with the connection they belong to, so a grant can never outlive the

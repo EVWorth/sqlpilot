@@ -15,6 +15,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use mas_core::error::CoreError;
+use mas_core::history::HistoryEntry;
 use mas_core::models::query::{ColumnMeta, QueryResult, SqlValue};
 use mas_core::query::{AnalyzeRefusal, ExplainFormat, ExplainResponse, FormatFallback};
 use mas_core::schema::inspector::{
@@ -24,10 +25,11 @@ use mas_core::schema::inspector::{
 use mas_mcp::grants::{ConnectionFacts, Grant, Grants};
 use mas_mcp::policy::DataPosture;
 use mas_mcp::server::{
-    ColumnArg, ConnectionArg, DatabaseArg, ExplainArg, Limits, ObjectsArg, PlanFormat, RelatedArg,
-    SearchArg, SelectArg, SqlPilot, TableArg,
+    ColumnArg, ConnectionArg, DatabaseArg, ExplainArg, HistoryArg, Limits, ObjectsArg,
+    OpenDraftArg, PlanFormat, ProposeEditArg, RelatedArg, SearchArg, SelectArg, SqlPilot, TableArg,
 };
-use mas_mcp::workspace::{LiveConnection, ObjectKind, Workspace};
+use mas_mcp::surface::{EditOutcome, EditorContext, RawResult, Surface, SurfaceError};
+use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, Workspace};
 use rmcp::handler::server::wrapper::Parameters;
 
 #[derive(Default)]
@@ -47,6 +49,9 @@ struct Fake {
     profile: Option<Vec<SqlValue>>,
     /// The rows its top-values query should return.
     top: Vec<(String, i64)>,
+    /// What the history store holds.
+    history: Vec<HistoryEntry>,
+    last_history: std::sync::Mutex<Option<HistoryFilter>>,
     calls: AtomicUsize,
 }
 
@@ -255,6 +260,18 @@ impl Workspace for Fake {
             column_type: "int".into(),
             comment: format!("limit was {limit}"),
         }])
+    }
+
+    async fn history(&self, filter: HistoryFilter) -> Result<Vec<HistoryEntry>, CoreError> {
+        *self.last_history.lock().unwrap() = Some(filter.clone());
+        Ok(self
+            .history
+            .iter()
+            .filter(|entry| filter.connection_names.contains(&entry.connection_name))
+            .filter(|entry| !filter.failed_only || entry.status == "error")
+            .take(filter.limit as usize)
+            .cloned()
+            .collect())
     }
 
     async fn explain(
@@ -1104,4 +1121,506 @@ async fn an_empty_table_profiles_without_inventing_extremes() {
     assert_eq!(profile.nulls, 0);
     assert!(profile.min.is_none());
     assert!(profile.max.is_none());
+}
+
+// ------------------------------------------------------------ what is onscreen
+
+/// A window that answers whatever the test set, and records what it was asked.
+#[derive(Default)]
+struct FakeWindow {
+    editor: Option<EditorContext>,
+    result: Option<RawResult>,
+    outcome: Option<EditOutcome>,
+    proposals: std::sync::Mutex<Vec<(Option<String>, String, String)>>,
+    drafts: std::sync::Mutex<Vec<String>>,
+    /// Set to fail every question, for the no-window case.
+    gone: bool,
+}
+
+#[async_trait::async_trait]
+impl Surface for FakeWindow {
+    async fn editor_context(&self) -> Result<EditorContext, SurfaceError> {
+        if self.gone {
+            return Err(SurfaceError::NoWindow);
+        }
+        self.editor.clone().ok_or(SurfaceError::NoWindow)
+    }
+
+    async fn result_context(&self) -> Result<Option<RawResult>, SurfaceError> {
+        if self.gone {
+            return Err(SurfaceError::NoWindow);
+        }
+        Ok(self.result.clone())
+    }
+
+    async fn propose_edit(
+        &self,
+        tab: Option<String>,
+        sql: String,
+        rationale: String,
+    ) -> Result<EditOutcome, SurfaceError> {
+        self.proposals.lock().unwrap().push((tab, sql, rationale));
+        self.outcome.clone().ok_or(SurfaceError::Abandoned)
+    }
+
+    async fn open_draft(
+        &self,
+        sql: String,
+        _: Option<String>,
+        _: Option<String>,
+        _: Option<String>,
+    ) -> Result<String, SurfaceError> {
+        self.drafts.lock().unwrap().push(sql);
+        Ok("tab-9".to_string())
+    }
+}
+
+fn editor(connection: Option<&str>) -> EditorContext {
+    EditorContext {
+        tab: "t1".into(),
+        title: "Untitled Query".into(),
+        connection: connection.map(str::to_string),
+        database: Some("shop".into()),
+        sql: "SELECT * FROM orders".into(),
+        selection: Some("FROM orders".into()),
+    }
+}
+
+fn with_window(fake: Fake, window: FakeWindow) -> (SqlPilot, Arc<FakeWindow>) {
+    let window = Arc::new(window);
+    let server = SqlPilot::new(Arc::new(fake)).with_surface(window.clone());
+    (server, window)
+}
+
+#[tokio::test]
+async fn without_a_window_the_database_tools_still_work() {
+    // A server started before the UI is up, or after the last window closed.
+    let (server, _) = server(Fake::shared(DataPosture::Full, "development", false));
+
+    let refusal = refused(server.get_editor_context().await);
+    assert!(refusal.contains("no window"), "{refusal}");
+    assert!(
+        refusal.contains("database tools"),
+        "an agent should not conclude the whole server is down: {refusal}"
+    );
+    assert!(server.run_select(select("SELECT 1", None)).await.is_ok());
+}
+
+#[tokio::test]
+async fn the_editor_context_carries_the_selection() {
+    // "Fix this query" almost always means the selection, because running a
+    // selection is how people run one statement out of a file.
+    let (server, _) = with_window(
+        Fake::shared(DataPosture::Samples, "development", false),
+        FakeWindow {
+            editor: Some(editor(Some("c1"))),
+            ..Default::default()
+        },
+    );
+
+    let context = server.get_editor_context().await.unwrap().0;
+    assert_eq!(context.selection.as_deref(), Some("FROM orders"));
+    assert_eq!(context.tab, "t1");
+}
+
+#[tokio::test]
+async fn a_tab_on_an_unshared_connection_is_not_readable_either() {
+    // Sharing is one decision, not one per surface. Otherwise "not shared"
+    // would mean "not through the database tools".
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.grants = Grants::default();
+    let (server, _) = with_window(
+        fake,
+        FakeWindow {
+            editor: Some(editor(Some("c1"))),
+            ..Default::default()
+        },
+    );
+
+    let refusal = refused(server.get_editor_context().await);
+    assert!(refusal.contains("not shared"), "{refusal}");
+}
+
+#[tokio::test]
+async fn a_tab_with_no_connection_yet_is_still_readable() {
+    // Someone drafting SQL before picking a server. There is nothing to leak.
+    let (server, _) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow {
+            editor: Some(editor(None)),
+            ..Default::default()
+        },
+    );
+
+    assert!(server
+        .get_editor_context()
+        .await
+        .unwrap()
+        .0
+        .connection
+        .is_none());
+}
+
+fn on_screen(connection: Option<&str>) -> RawResult {
+    RawResult {
+        sql: "SELECT id FROM orders".into(),
+        columns: vec!["id".into()],
+        rows: vec![vec![serde_json::json!(1)], vec![serde_json::json!(2)]],
+        row_count: 2,
+        execution_time_ms: 4,
+        truncated: false,
+        connection: connection.map(str::to_string),
+    }
+}
+
+#[tokio::test]
+async fn the_result_on_screen_comes_back_with_its_rows_when_the_posture_allows() {
+    let (server, _) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow {
+            result: Some(on_screen(Some("c1"))),
+            ..Default::default()
+        },
+    );
+
+    let result = server.get_result_context().await.unwrap().0.unwrap();
+    assert_eq!(result.rows.len(), 2);
+    assert!(result.note.is_none());
+}
+
+#[tokio::test]
+async fn the_user_seeing_rows_is_not_the_same_as_an_agent_receiving_them() {
+    // The whole point of a schema-only posture. The agent is told the shape
+    // and what it cannot have.
+    let (server, _) = with_window(
+        Fake::shared(DataPosture::SchemaOnly, "production", false),
+        FakeWindow {
+            result: Some(on_screen(Some("c1"))),
+            ..Default::default()
+        },
+    );
+
+    let result = server.get_result_context().await.unwrap().0.unwrap();
+    assert!(result.rows.is_empty());
+    assert_eq!(result.columns, vec!["id"], "the shape is not the data");
+    assert_eq!(result.row_count, 2, "how many is a number, not a value");
+    assert!(result.note.unwrap().contains("schema only"));
+}
+
+#[tokio::test]
+async fn a_result_from_an_unshared_connection_is_refused_rather_than_stripped() {
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.grants = Grants::default();
+    let (server, _) = with_window(
+        fake,
+        FakeWindow {
+            result: Some(on_screen(Some("c1"))),
+            ..Default::default()
+        },
+    );
+
+    assert!(refused(server.get_result_context().await).contains("not shared"));
+}
+
+#[tokio::test]
+async fn nothing_run_yet_is_an_answer() {
+    let (server, _) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow::default(),
+    );
+    assert!(server.get_result_context().await.unwrap().0.is_none());
+}
+
+#[tokio::test]
+async fn a_proposal_reaches_the_window_with_its_rationale() {
+    let (server, window) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow {
+            outcome: Some(EditOutcome {
+                accepted: true,
+                edited: false,
+                sql: Some("SELECT id FROM orders".into()),
+            }),
+            ..Default::default()
+        },
+    );
+
+    let outcome = server
+        .propose_edit(Parameters(ProposeEditArg {
+            tab: Some("t1".into()),
+            sql: "SELECT id FROM orders".into(),
+            rationale: "SELECT * reads every column".into(),
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert!(outcome.accepted);
+    let proposals = window.proposals.lock().unwrap();
+    assert_eq!(proposals[0].0.as_deref(), Some("t1"));
+    assert_eq!(proposals[0].2, "SELECT * reads every column");
+}
+
+#[tokio::test]
+async fn a_proposal_with_no_rationale_is_refused_before_the_user_sees_it() {
+    // The rationale is what the user reads next to the diff. Without it they
+    // have to work out what changed and why for themselves.
+    let (server, window) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow::default(),
+    );
+
+    let refusal = refused(
+        server
+            .propose_edit(Parameters(ProposeEditArg {
+                tab: None,
+                sql: "SELECT 1".into(),
+                rationale: "  ".into(),
+            }))
+            .await,
+    );
+    assert!(refusal.contains("why"), "{refusal}");
+    assert!(window.proposals.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn an_empty_proposal_is_refused() {
+    // A diff that deletes the user's query and says nothing.
+    let (server, window) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow::default(),
+    );
+
+    refused(
+        server
+            .propose_edit(Parameters(ProposeEditArg {
+                tab: None,
+                sql: "   ".into(),
+                rationale: "tidier".into(),
+            }))
+            .await,
+    );
+    assert!(window.proposals.lock().unwrap().is_empty());
+}
+
+#[tokio::test]
+async fn several_statements_may_be_proposed_because_a_migration_is_several() {
+    // Deliberately not the single-statement rule: this writes into an editor,
+    // it does not run anything.
+    let (server, window) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow {
+            outcome: Some(EditOutcome {
+                accepted: false,
+                edited: false,
+                sql: None,
+            }),
+            ..Default::default()
+        },
+    );
+
+    server
+        .propose_edit(Parameters(ProposeEditArg {
+            tab: None,
+            sql: "ALTER TABLE a ADD b INT; UPDATE a SET b = 1;".into(),
+            rationale: "the migration".into(),
+        }))
+        .await
+        .unwrap();
+
+    assert_eq!(window.proposals.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_user_who_closes_the_diff_is_reported_as_not_having_answered() {
+    let (server, _) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow::default(),
+    );
+
+    let refusal = refused(
+        server
+            .propose_edit(Parameters(ProposeEditArg {
+                tab: None,
+                sql: "SELECT 1".into(),
+                rationale: "why".into(),
+            }))
+            .await,
+    );
+    // Read as a no, so the agent asks rather than proposing the same thing
+    // again — which is how a dialog becomes a loop.
+    assert!(refusal.contains("no"), "{refusal}");
+}
+
+#[tokio::test]
+async fn a_draft_opens_a_new_tab_and_names_it() {
+    let (server, window) = with_window(
+        Fake::shared(DataPosture::Full, "development", false),
+        FakeWindow::default(),
+    );
+
+    let tab = server
+        .open_draft(Parameters(OpenDraftArg {
+            sql: "ALTER TABLE orders ADD INDEX (customer_id)".into(),
+            title: Some("Add the index".into()),
+            connection: Some("c1".into()),
+            database: Some("shop".into()),
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(tab, "tab-9");
+    assert_eq!(window.drafts.lock().unwrap().len(), 1);
+}
+
+#[tokio::test]
+async fn a_draft_on_an_unshared_connection_is_refused() {
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.grants = Grants::default();
+    let (server, window) = with_window(fake, FakeWindow::default());
+
+    refused(
+        server
+            .open_draft(Parameters(OpenDraftArg {
+                sql: "SELECT 1".into(),
+                title: None,
+                connection: Some("c1".into()),
+                database: None,
+            }))
+            .await,
+    );
+    assert!(window.drafts.lock().unwrap().is_empty());
+}
+
+// -------------------------------------------------------------------- history
+
+fn entry(connection: &str, sql: &str, status: &str) -> HistoryEntry {
+    HistoryEntry {
+        id: uuid::Uuid::new_v4().to_string(),
+        sql: sql.into(),
+        connection_name: connection.into(),
+        database: Some("shop".into()),
+        executed_at: "2026-09-12T10:00:00Z".into(),
+        execution_time_ms: 12,
+        row_count: 3,
+        status: status.into(),
+        error: (status == "error").then(|| "Table 'shop.nope' doesn't exist".to_string()),
+        error_code: (status == "error").then_some(1146),
+        error_sql_state: (status == "error").then(|| "42S02".to_string()),
+        redacted: false,
+        truncated: false,
+        origin: "editor".into(),
+    }
+}
+
+#[tokio::test]
+async fn history_is_limited_to_the_connections_the_user_shared() {
+    // A statement is as revealing as the schema it names, and history spans
+    // every connection the user has ever used.
+    let mut fake = Fake::shared(DataPosture::Samples, "development", false);
+    fake.history = vec![
+        entry("shop", "SELECT 1", "success"),
+        entry("payroll", "SELECT salary FROM staff", "success"),
+    ];
+    let (server, fake) = server(fake);
+
+    let items = server
+        .query_history(Parameters(HistoryArg {
+            search: None,
+            connection: None,
+            failed_only: false,
+            limit: None,
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].connection, "shop");
+    assert_eq!(
+        fake.last_history
+            .lock()
+            .unwrap()
+            .as_ref()
+            .unwrap()
+            .connection_names,
+        vec!["shop"]
+    );
+}
+
+#[tokio::test]
+async fn with_nothing_shared_history_is_empty_rather_than_everything() {
+    // The failure mode worth guarding: an empty filter list read as "no
+    // filter" would hand over every statement the user has ever run.
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.grants = Grants::default();
+    fake.history = vec![entry("payroll", "SELECT salary FROM staff", "success")];
+    let (server, fake) = server(fake);
+
+    assert!(server
+        .query_history(Parameters(HistoryArg {
+            search: None,
+            connection: None,
+            failed_only: false,
+            limit: None,
+        }))
+        .await
+        .unwrap()
+        .0
+        .is_empty());
+    assert!(
+        fake.last_history.lock().unwrap().is_none(),
+        "the store should not even be asked"
+    );
+}
+
+#[tokio::test]
+async fn the_history_limit_is_the_tools_not_the_models() {
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.history = (0..500)
+        .map(|_| entry("shop", "SELECT 1", "success"))
+        .collect();
+    let (server, fake) = server(fake);
+
+    server
+        .query_history(Parameters(HistoryArg {
+            search: None,
+            connection: None,
+            failed_only: false,
+            limit: Some(10_000),
+        }))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        fake.last_history.lock().unwrap().as_ref().unwrap().limit,
+        50
+    );
+}
+
+#[tokio::test]
+async fn the_last_error_is_the_last_failure_with_its_error_number() {
+    let mut fake = Fake::shared(DataPosture::SchemaOnly, "production", false);
+    fake.history = vec![entry("shop", "SELECT * FROM nope", "error")];
+    let (server, fake) = server(fake);
+
+    let last = server
+        .get_last_error()
+        .await
+        .unwrap()
+        .0
+        .expect("one failure");
+    assert!(last.error.unwrap().contains("doesn't exist"));
+    assert_eq!(last.sql, "SELECT * FROM nope");
+
+    let filter = fake.last_history.lock().unwrap().clone().unwrap();
+    assert!(filter.failed_only, "successes are not errors");
+    assert_eq!(filter.limit, 1, "the *last* one");
+}
+
+#[tokio::test]
+async fn nothing_has_failed_is_an_answer_too() {
+    let (server, _) = server(Fake::shared(DataPosture::Full, "development", false));
+    assert!(server.get_last_error().await.unwrap().0.is_none());
 }

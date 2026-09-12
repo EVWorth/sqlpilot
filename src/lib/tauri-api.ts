@@ -380,4 +380,17 @@ export const api = {
   rotateAgentToken: () => unwrap("rotate_agent_token", () => commands.rotateAgentToken()),
 
   agentHarnessSetup: (harness: Harness) => unwrap("agent_harness_setup", () => commands.agentHarnessSetup(harness)),
+
+  /**
+   * Answer something an agent asked of the window.
+   *
+   * `value` is JSON text because its shape depends on what was asked. Exactly
+   * one of value and error is meaningful; an error reaches the agent as the
+   * failure it is.
+   */
+  answerAgentRequest: (id: string, value?: string, error?: string) =>
+    unwrap(
+      "answer_agent_request",
+      () => commands.answerAgentRequest(id, orNull(value), orNull(error)),
+    ),
 };

@@ -205,16 +205,53 @@ export const commands = {
 	rotateAgentToken: () => typedError<AgentEndpoint_Serialize, string>(__TAURI_INVOKE("rotate_agent_token")),
 	/**  What to paste, or run, to point a harness at this app. */
 	agentHarnessSetup: (harness: Harness) => typedError<string, string>(__TAURI_INVOKE("agent_harness_setup", { harness })),
+	/**
+	 *  The window's answer to something an agent asked.
+	 * 
+	 *  The other half of `AgentRequest`: a tool call is waiting on this, and an id
+	 *  nobody is waiting for is ignored rather than reported — the request may
+	 *  have timed out a moment before the user clicked, and the window has no way
+	 *  to know that.
+	 * 
+	 *  `value` is the answer, shaped by the request's kind. `error` is sent
+	 *  instead when the window could not answer — no connection selected, no such
+	 *  tab — and reaches the agent as the failure it is.
+	 * 
+	 *  `value` is JSON text rather than a typed value: its shape depends on what
+	 *  was asked, and typing it would mean a second union to keep in step with
+	 *  `AgentAsk`.
+	 */
+	answerAgentRequest: (id: string, value: string | null, error: string | null) => typedError<null, string>(__TAURI_INVOKE("answer_agent_request", { id, value, error })),
 };
 
 /** Events */
 export const events = {
+	agentRequest: makeEvent<AgentRequest>("agent-request"),
 	backupProgressEvent: makeEvent<BackupProgressEvent>("backup-progress-event"),
 	connectionHealthEvent: makeEvent<ConnectionHealthEvent>("connection-health-event"),
 	restoreProgressEvent: makeEvent<RestoreProgressEvent>("restore-progress-event"),
 };
 
 /* Types */
+/**
+ *  What an agent is asking the window for.
+ * 
+ *  A tagged union rather than a kind string and a bag of JSON: the frontend
+ *  gets a discriminated union it can switch on exhaustively, so adding a
+ *  question here is a type error there rather than a silently unhandled event.
+ */
+export type AgentAsk = 
+/**  The tab the user is looking at. */
+{ kind: "editorContext" } | 
+/**  The result underneath it, if anything has been run. */
+{ kind: "resultContext" } | 
+/**  The last statement that failed. */
+{ kind: "lastError" } | 
+/**  Show a diff and wait for the user to accept, reject, or edit it. */
+{ kind: "proposeEdit"; tab: string | null; sql: string; rationale: string } | 
+/**  Open a new tab. Never touches an existing one. */
+{ kind: "openDraft"; sql: string; title: string | null; connection: string | null; database: string | null };
+
 /**
  *  A connection as the settings screen shows it: what it is, and how it is
  *  shared, if it is.
@@ -301,6 +338,12 @@ export type AgentEndpoint_Serialize = {
 	 */
 	token?: string | null,
 };
+
+/**  A question put to the window. */
+export type AgentRequest = {
+	/**  Echoed back with the answer. */
+	id: string,
+} & AgentAsk;
 
 /**  Why a requested ANALYZE was not performed. */
 export type AnalyzeRefusal = 
