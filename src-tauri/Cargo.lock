@@ -2941,6 +2941,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "mas-agent"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "specta",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "mas-core"
 version = "0.1.0"
 dependencies = [
@@ -5085,6 +5097,7 @@ dependencies = [
  "keyring-core",
  "linux-keyutils-keyring-store",
  "mas-admin",
+ "mas-agent",
  "mas-core",
  "mas-export",
  "mas-mcp",

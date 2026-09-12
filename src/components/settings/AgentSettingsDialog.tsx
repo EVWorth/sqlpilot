@@ -1,9 +1,9 @@
 import { Bot, Check, Copy, Eye, EyeOff, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import type { AgentConnection, Harness } from "../../lib/bindings";
+import type { AgentConnection, SetupTarget } from "../../lib/bindings";
 import {
   endpointSummary,
-  HARNESSES,
+  SETUP_TARGETS,
   type Sharing,
   SHARING_OPTIONS,
   sharingOf,
@@ -134,7 +134,7 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
   const rotateToken = useAgentStore((s) => s.rotateToken);
   const loadSetup = useAgentStore((s) => s.loadSetup);
 
-  const [harness, setHarness] = useState<Harness>("claude-code");
+  const [target, setTarget] = useState<SetupTarget>("claude-code");
   const [showToken, setShowToken] = useState(false);
 
   useEffect(() => {
@@ -144,8 +144,8 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
   // The setup text carries the URL and the token, so it is re-fetched whenever
   // either could have changed rather than being cached against the harness.
   useEffect(() => {
-    if (isOpen && endpoint?.running) void loadSetup(harness);
-  }, [isOpen, harness, endpoint?.running, endpoint?.token, loadSetup]);
+    if (isOpen && endpoint?.running) void loadSetup(target);
+  }, [isOpen, target, endpoint?.running, endpoint?.token, loadSetup]);
 
   if (!isOpen) return null;
 
@@ -225,13 +225,13 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
             </h3>
             <select
               aria-label="Harness"
-              value={harness}
-              onChange={(e) => setHarness(e.target.value as Harness)}
+              value={target}
+              onChange={(e) => setTarget(e.target.value as SetupTarget)}
               className="mt-2 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
             >
-              {HARNESSES.map((h) => (
-                <option key={h.value} value={h.value}>
-                  {h.label}
+              {SETUP_TARGETS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
                 </option>
               ))}
             </select>

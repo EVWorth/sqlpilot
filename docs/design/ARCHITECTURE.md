@@ -1666,6 +1666,75 @@ async fn answer_agent_request(
 ) -> Result<(), String>;
 ```
 
+### Sessions
+
+A session is the user's own harness CLI, spawned by SQLPilot, with the MCP
+endpoint handed to it at startup — so the agent in the panel has the tools the
+policy allows and nothing the working directory happened to contribute. Each
+session runs in its own directory under the app's data folder, removed when it
+ends.
+
+Copilot is driven over the [Agent Client Protocol](https://agentclientprotocol.com)
+(`copilot --acp`), which gives streaming text, tool calls, plans and permission
+requests that come back to SQLPilot to answer. `mas-agent` normalises that into
+one `SessionEvent` stream, so the panel is written once and a second harness is
+a file in that crate rather than a branch in every component.
+
+```rust
+/// Harnesses on this machine, with versions. SQLPilot never installs or
+/// authenticates one: "not there" is answered with the command that installs
+/// it, not an offer to run it.
+#[tauri::command]
+async fn list_harnesses() -> Result<Vec<HarnessStatus>, String>;
+
+/// Start a harness and open a session with SQLPilot's tools wired in. Starts
+/// the endpoint too, if it is not already running.
+#[tauri::command]
+async fn start_agent_session(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
+    sessions: State<'_, AgentSessions>,
+    harness: Harness,
+) -> Result<StartedSession, String>;
+
+/// Send a turn. Returns at once — the answer arrives as `AgentSessionEvent`s,
+/// because a turn can take minutes and a command that waited for one would
+/// leave the UI unable to cancel it.
+#[tauri::command]
+async fn send_agent_message(
+    app: tauri::AppHandle,
+    sessions: State<'_, AgentSessions>,
+    session: String,
+    text: String,
+) -> Result<(), String>;
+
+/// Stop the turn in progress. The session stays open.
+#[tauri::command]
+async fn cancel_agent_turn(
+    sessions: State<'_, AgentSessions>,
+    session: String,
+) -> Result<(), String>;
+
+/// Answer the harness's own permission prompt, in SQLPilot's window. `option`
+/// is absent when the user dismissed it — which the protocol distinguishes
+/// from a refusal.
+#[tauri::command]
+async fn answer_agent_permission(
+    sessions: State<'_, AgentSessions>,
+    session: String,
+    request: String,
+    option: Option<String>,
+) -> Result<(), String>;
+
+/// End a session and remove its working directory.
+#[tauri::command]
+async fn stop_agent_session(
+    sessions: State<'_, AgentSessions>,
+    session: String,
+) -> Result<(), String>;
+```
+
 The `AgentRequest` event carries a discriminated union (`AgentAsk`), so adding
 a question the window must answer is a type error in the frontend rather than a
 silently unhandled event. Every request has a deadline: ten seconds for a

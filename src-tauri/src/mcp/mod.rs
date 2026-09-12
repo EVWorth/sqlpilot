@@ -8,10 +8,12 @@
 
 pub mod agent_state;
 pub mod bridge;
+pub mod sessions;
 pub mod state;
 pub mod window;
 pub mod workspace;
 
 pub use agent_state::AgentState;
+pub use sessions::AgentSessions;
 pub use state::McpState;
 pub use workspace::AppWorkspace;

@@ -35,6 +35,12 @@ Object.defineProperty(window, "localStorage", {
   writable: true,
 });
 
+// jsdom implements no scrolling at all, so anything that follows a growing
+// list — a transcript, a log — throws on a method every browser has.
+if (typeof Element !== "undefined" && !Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 // Monaco's clipboard contribution asks this at import time, and jsdom has no
 // implementation — not even a stub that returns false. A real browser has it,
 // so this is a jsdom gap rather than anything about the app.

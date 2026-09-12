@@ -43,7 +43,7 @@ test: test-rust test-frontend
 
 # Rust unit tests. No database required — mirrors what CI runs per PR.
 test-rust:
-    cd src-tauri && cargo test -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite --verbose
+    cd src-tauri && cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite --verbose
 
 # These are #[ignore]d so the default run stays container-free, which means
 # CI only runs them at release time — this is the way to exercise them before
@@ -67,7 +67,7 @@ test-all: db-up test test-integration
 
 # Clippy, TypeScript type check, and formatting check.
 lint:
-    cd src-tauri && cargo clippy -p mas-core -p mas-export -p mas-admin -p mas-mcp -- -D warnings
+    cd src-tauri && cargo clippy -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -- -D warnings
     npx tsc --noEmit
     npx dprint check
 

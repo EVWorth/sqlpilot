@@ -340,7 +340,7 @@ jobs:
         with:
           workspaces: src-tauri
       - name: Run Rust tests
-        run: cargo test -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite
+        run: cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite
         working-directory: src-tauri
 
   test-frontend:

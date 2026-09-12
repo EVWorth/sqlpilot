@@ -240,6 +240,9 @@ inside the running app to reach live connections, not be spawned by the harness.
 
 ### Claude Code — full in-app session
 
+_Not yet re-verified live: the CLI is not installed on this machine. The table
+below is from the documentation as of 2026-09-12._
+
 The CLI has everything a host needs:
 
 | Need                    | Mechanism                                                                                                                                              |
@@ -263,17 +266,32 @@ Two constraints worth writing down:
   also rules out labelling anything "Claude Code" in our UI — "Claude Agent" or
   "Powered by Claude" are the permitted forms.
 
-### GitHub Copilot CLI — MCP now, session view when it can
+### GitHub Copilot CLI — ACP, verified live
 
-Copilot CLI has `-p`, `--resume`, `--continue`, and MCP configuration, but the
-public documentation describes **no structured streaming output and no
-permission-host callback** — only `--allow-all` / `--yolo`. So:
+**Revised 2026-09-12 after testing, replacing the note below it.** Copilot CLI
+1.0.75 has `--acp`: it speaks the [Agent Client Protocol](https://agentclientprotocol.com)
+over stdio, which is the protocol editors use to embed an agent. Verified by
+driving it end to end from this machine:
 
-- **Slice 1 is complete for Copilot today**: the MCP server works in the CLI
-  and in VS Code, under our policy.
-- **The in-app view for Copilot** starts as an embedded terminal (PTY) rather
-  than a native transcript, and upgrades if a structured mode appears.
-- `--yolo` is exactly why §2 exists. Our approvals do not care.
+| Need                    | Mechanism                                                                                                                                                                    |
+| ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Structured transcript   | `session/update` notifications: `agent_message_chunk`, `agent_thought_chunk`, tool calls with status, plan updates                                                           |
+| Wire in our server      | `session/new` takes `mcpServers` — and it reports `mcpCapabilities: {http: true, sse: true}`, so our endpoint goes in per session, without touching the user's global config |
+| **Approvals in our UI** | `session/request_permission` is a request _from_ the agent _to_ us, with the options to offer. Exactly the shape §2 wants                                                    |
+| Multi-turn              | One session, many `session/prompt` calls                                                                                                                                     |
+| Cancel a turn           | `session/cancel`                                                                                                                                                             |
+| Resume                  | `loadSession: true`, and `session/list`                                                                                                                                      |
+
+This is better than the embedded terminal this section used to plan for: a real
+transcript, a real permission callback, and no PTY.
+
+One quirk found in testing: the model Copilot defaults to emits its reasoning
+inline in `agent_message_chunk` as `<think>…</think>` rather than as
+`agent_thought_chunk`, and the tags arrive split across chunks. Normalising
+that is the host's job.
+
+`--allow-all` / `--yolo` still exist, and are still exactly why §2 exists. Our
+approvals do not care.
 
 ---
 

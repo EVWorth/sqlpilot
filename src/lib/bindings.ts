@@ -204,7 +204,7 @@ export const commands = {
 	 */
 	rotateAgentToken: () => typedError<AgentEndpoint_Serialize, string>(__TAURI_INVOKE("rotate_agent_token")),
 	/**  What to paste, or run, to point a harness at this app. */
-	agentHarnessSetup: (harness: Harness) => typedError<string, string>(__TAURI_INVOKE("agent_harness_setup", { harness })),
+	agentHarnessSetup: (harness: SetupTarget) => typedError<string, string>(__TAURI_INVOKE("agent_harness_setup", { harness })),
 	/**
 	 *  The window's answer to something an agent asked.
 	 * 
@@ -222,11 +222,40 @@ export const commands = {
 	 *  `AgentAsk`.
 	 */
 	answerAgentRequest: (id: string, value: string | null, error: string | null) => typedError<null, string>(__TAURI_INVOKE("answer_agent_request", { id, value, error })),
+	/**
+	 *  The harnesses on this machine, and their versions.
+	 * 
+	 *  SQLPilot never installs or authenticates one: BYOH means the answer to "it
+	 *  is not there" is the command that installs it, not an offer to do it.
+	 */
+	listHarnesses: () => typedError<HarnessStatus_Serialize[], string>(__TAURI_INVOKE("list_harnesses")),
+	/**
+	 *  Start a session with a harness, with SQLPilot's tools wired into it.
+	 * 
+	 *  The endpoint is started if it is not already: a session whose agent cannot
+	 *  reach the database is not what anyone opened this panel for.
+	 */
+	startAgentSession: (harness: Harness) => typedError<StartedSession, string>(__TAURI_INVOKE("start_agent_session", { harness })),
+	/**  Send a message. The answer arrives as events, not as a return value. */
+	sendAgentMessage: (session: string, text: string) => typedError<null, string>(__TAURI_INVOKE("send_agent_message", { session, text })),
+	/**  Stop the turn in progress. The session stays open. */
+	cancelAgentTurn: (session: string) => typedError<null, string>(__TAURI_INVOKE("cancel_agent_turn", { session })),
+	/**
+	 *  Answer the harness's own permission prompt, in SQLPilot's window.
+	 * 
+	 *  `option` is absent when the user dismissed it without deciding, which the
+	 *  protocol distinguishes from a refusal: the agent should stop rather than
+	 *  look for another way round.
+	 */
+	answerAgentPermission: (session: string, request: string, option: string | null) => typedError<null, string>(__TAURI_INVOKE("answer_agent_permission", { session, request, option })),
+	/**  End a session and clean up after it. */
+	stopAgentSession: (session: string) => typedError<null, string>(__TAURI_INVOKE("stop_agent_session", { session })),
 };
 
 /** Events */
 export const events = {
 	agentRequest: makeEvent<AgentRequest>("agent-request"),
+	agentSessionEvent: makeEvent<AgentSessionEvent_Deserialize>("agent-session-event"),
 	backupProgressEvent: makeEvent<BackupProgressEvent>("backup-progress-event"),
 	connectionHealthEvent: makeEvent<ConnectionHealthEvent>("connection-health-event"),
 	restoreProgressEvent: makeEvent<RestoreProgressEvent>("restore-progress-event"),
@@ -344,6 +373,23 @@ export type AgentRequest = {
 	/**  Echoed back with the answer. */
 	id: string,
 } & AgentAsk;
+
+/**  A session event, addressed to the session it came from. */
+export type AgentSessionEvent = AgentSessionEvent_Serialize | AgentSessionEvent_Deserialize;
+
+/**  A session event, addressed to the session it came from. */
+export type AgentSessionEvent_Deserialize = {
+	/**  SQLPilot's id for the session, not the harness's. */
+	session: string,
+	event: SessionEvent_Deserialize,
+};
+
+/**  A session event, addressed to the session it came from. */
+export type AgentSessionEvent_Serialize = {
+	/**  SQLPilot's id for the session, not the harness's. */
+	session: string,
+	event: SessionEvent_Serialize,
+};
 
 /**  Why a requested ANALYZE was not performed. */
 export type AnalyzeRefusal = 
@@ -758,14 +804,35 @@ export type FormatFallback =
  */
 "none";
 
-/**  The harnesses SQLPilot knows how to write a configuration for. */
-export type Harness = "claude-code" | "copilot" | 
-/**
- *  Anything else that speaks MCP over HTTP. Shown as the raw values, so
- *  there is always an answer for a harness this list has not caught up
- *  with.
- */
-"other";
+/**  A harness SQLPilot knows how to run in-app. */
+export type Harness = 
+/**  Anthropic's CLI. Spoken to over its own NDJSON stream. */
+"claude-code" | 
+/**  GitHub's CLI. Spoken to over the Agent Client Protocol. */
+"copilot";
+
+/**  Whether a harness is usable, and what version. */
+export type HarnessStatus = HarnessStatus_Serialize | HarnessStatus_Deserialize;
+
+/**  Whether a harness is usable, and what version. */
+export type HarnessStatus_Deserialize = {
+	harness: Harness,
+	label: string,
+	installed: boolean,
+	version: string | null,
+	/**  Set when it is not installed: what to run to get it. */
+	installHint: string | null,
+};
+
+/**  Whether a harness is usable, and what version. */
+export type HarnessStatus_Serialize = {
+	harness: Harness,
+	label: string,
+	installed: boolean,
+	version?: string | null,
+	/**  Set when it is not installed: what to run to get it. */
+	installHint?: string | null,
+};
 
 export type HistoryEntry = {
 	id: string,
@@ -906,6 +973,24 @@ export type PartitionInfo = {
 	description: string,
 	row_count: number,
 	data_size: number,
+};
+
+/**  One answer the user can give to a permission request. */
+export type PermissionOption = {
+	id: string,
+	label: string,
+	/**
+	 *  "allow_once", "allow_always", "reject_once", "reject_always" — or
+	 *  whatever the harness calls it. Used to decide which button is the
+	 *  dangerous one.
+	 */
+	kind: string,
+};
+
+export type PlanEntry = {
+	content: string,
+	/**  "pending", "in_progress", "completed". */
+	status: string,
 };
 
 export type PlatformInfo = {
@@ -1163,6 +1248,144 @@ export type ServerVariable = {
 	readOnly: boolean | null,
 };
 
+/**  One thing that happened in a session. */
+export type SessionEvent = SessionEvent_Serialize | SessionEvent_Deserialize;
+
+/**  One thing that happened in a session. */
+export type SessionEvent_Deserialize = 
+/**
+ *  The session is ready. Carries the harness's own id for it, which is
+ *  what resuming later needs.
+ */
+({ type: "started"; session: string }) & { delta?: never; detail?: never; entries?: never; id?: never; kind?: never; message?: never; options?: never; reason?: never; status?: never; title?: never } | 
+/**
+ *  More of the agent's answer. Deltas, not whole messages: a transcript
+ *  that only updates when a turn ends reads as a hang.
+ */
+({ type: "text"; delta: string }) & { detail?: never; entries?: never; id?: never; kind?: never; message?: never; options?: never; reason?: never; session?: never; status?: never; title?: never } | 
+/**
+ *  More of the agent's reasoning, where the harness reports it separately
+ *  — or where we have separated it out ourselves.
+ */
+({ type: "thought"; delta: string }) & { detail?: never; entries?: never; id?: never; kind?: never; message?: never; options?: never; reason?: never; session?: never; status?: never; title?: never } | 
+/**  The agent started doing something. */
+({ type: "toolStarted"; id: string; 
+/**  What to show: "Reading src/lib.rs", "run_select on shop". */
+title: string; 
+/**
+ *  A rough class for the icon: "read", "edit", "execute", "search",
+ *  "think", "other". Not an enum, because each harness has its own
+ *  list and an unknown kind should render as "other" rather than fail
+ *  to parse.
+ */
+kind: string }) & { delta?: never; detail?: never; entries?: never; message?: never; options?: never; reason?: never; session?: never; status?: never } | 
+/**  It finished, or failed. */
+({ type: "toolFinished"; id: string; 
+/**  "completed" or "failed". */
+status: string; 
+/**  What came back, when it is worth showing. */
+detail: string | null }) & { delta?: never; entries?: never; kind?: never; message?: never; options?: never; reason?: never; session?: never; title?: never } | 
+/**
+ *  The agent wants permission. The session is paused until the user
+ *  answers with one of the options.
+ * 
+ *  This is the harness's own permission prompt, rendered in SQLPilot's
+ *  window. Separate from the approval SQLPilot demands for a write —
+ *  that one happens regardless, and is not negotiable through here.
+ */
+({ type: "permissionRequested"; id: string; title: string; detail: string | null; options: PermissionOption[] }) & { delta?: never; entries?: never; kind?: never; message?: never; reason?: never; session?: never; status?: never } | 
+/**  The plan the agent is working to, when it publishes one. */
+({ type: "plan"; entries: PlanEntry[] }) & { delta?: never; detail?: never; id?: never; kind?: never; message?: never; options?: never; reason?: never; session?: never; status?: never; title?: never } | 
+/**
+ *  The turn ended.
+ * 
+ *  `reason` is the harness's own word — "end_turn", "cancelled",
+ *  "max_tokens", "refusal" — passed through rather than mapped, because a
+ *  turn that stopped for an unusual reason should say so in the harness's
+ *  terms rather than be flattened into "done".
+ */
+({ type: "turnEnded"; reason: string }) & { delta?: never; detail?: never; entries?: never; id?: never; kind?: never; message?: never; options?: never; session?: never; status?: never; title?: never } | 
+/**
+ *  Something went wrong with the session itself: the process died, the
+ *  protocol was violated, the harness is not logged in.
+ */
+({ type: "failed"; message: string }) & { delta?: never; detail?: never; entries?: never; id?: never; kind?: never; options?: never; reason?: never; session?: never; status?: never; title?: never };
+
+/**  One thing that happened in a session. */
+export type SessionEvent_Serialize = 
+/**
+ *  The session is ready. Carries the harness's own id for it, which is
+ *  what resuming later needs.
+ */
+({ type: "started"; session: string }) & { delta?: never; detail?: never; entries?: never; id?: never; kind?: never; message?: never; options?: never; reason?: never; status?: never; title?: never } | 
+/**
+ *  More of the agent's answer. Deltas, not whole messages: a transcript
+ *  that only updates when a turn ends reads as a hang.
+ */
+({ type: "text"; delta: string }) & { detail?: never; entries?: never; id?: never; kind?: never; message?: never; options?: never; reason?: never; session?: never; status?: never; title?: never } | 
+/**
+ *  More of the agent's reasoning, where the harness reports it separately
+ *  — or where we have separated it out ourselves.
+ */
+({ type: "thought"; delta: string }) & { detail?: never; entries?: never; id?: never; kind?: never; message?: never; options?: never; reason?: never; session?: never; status?: never; title?: never } | 
+/**  The agent started doing something. */
+({ type: "toolStarted"; id: string; 
+/**  What to show: "Reading src/lib.rs", "run_select on shop". */
+title: string; 
+/**
+ *  A rough class for the icon: "read", "edit", "execute", "search",
+ *  "think", "other". Not an enum, because each harness has its own
+ *  list and an unknown kind should render as "other" rather than fail
+ *  to parse.
+ */
+kind: string }) & { delta?: never; detail?: never; entries?: never; message?: never; options?: never; reason?: never; session?: never; status?: never } | 
+/**  It finished, or failed. */
+({ type: "toolFinished"; id: string; 
+/**  "completed" or "failed". */
+status: string; 
+/**  What came back, when it is worth showing. */
+detail?: string | null }) & { delta?: never; entries?: never; kind?: never; message?: never; options?: never; reason?: never; session?: never; title?: never } | 
+/**
+ *  The agent wants permission. The session is paused until the user
+ *  answers with one of the options.
+ * 
+ *  This is the harness's own permission prompt, rendered in SQLPilot's
+ *  window. Separate from the approval SQLPilot demands for a write —
+ *  that one happens regardless, and is not negotiable through here.
+ */
+({ type: "permissionRequested"; id: string; title: string; detail?: string | null; options: PermissionOption[] }) & { delta?: never; entries?: never; kind?: never; message?: never; reason?: never; session?: never; status?: never } | 
+/**  The plan the agent is working to, when it publishes one. */
+({ type: "plan"; entries: PlanEntry[] }) & { delta?: never; detail?: never; id?: never; kind?: never; message?: never; options?: never; reason?: never; session?: never; status?: never; title?: never } | 
+/**
+ *  The turn ended.
+ * 
+ *  `reason` is the harness's own word — "end_turn", "cancelled",
+ *  "max_tokens", "refusal" — passed through rather than mapped, because a
+ *  turn that stopped for an unusual reason should say so in the harness's
+ *  terms rather than be flattened into "done".
+ */
+({ type: "turnEnded"; reason: string }) & { delta?: never; detail?: never; entries?: never; id?: never; kind?: never; message?: never; options?: never; session?: never; status?: never; title?: never } | 
+/**
+ *  Something went wrong with the session itself: the process died, the
+ *  protocol was violated, the harness is not logged in.
+ */
+({ type: "failed"; message: string }) & { delta?: never; detail?: never; entries?: never; id?: never; kind?: never; options?: never; reason?: never; session?: never; status?: never; title?: never };
+
+/**
+ *  What SQLPilot can write setup instructions for.
+ * 
+ *  Wider than the harnesses it can *run* in-app: any MCP client can use the
+ *  endpoint, and the third case exists so there is always an answer for one
+ *  this list has not caught up with.
+ */
+export type SetupTarget = "claude-code" | "copilot" | 
+/**
+ *  Anything else that speaks MCP over HTTP. Shown as the raw values, so
+ *  there is always an answer for a harness this list has not caught up
+ *  with.
+ */
+"other";
+
 export type SqlValue = "Null" | boolean | number | number | null | string | number[];
 
 export type SqliteColumnInfo = {
@@ -1202,6 +1425,23 @@ export type SqliteTableInfo = {
 	table_type: string,
 	row_count: number | null,
 	sql: string | null,
+};
+
+/**  What starting a session produced. */
+export type StartedSession = {
+	session: string,
+	/**
+	 *  What the harness calls itself, and its version — worth showing, because
+	 *  "which model am I talking to" is answered by the harness, not by us.
+	 */
+	agent: string,
+	version: string,
+	/**
+	 *  False when the harness cannot take an HTTP MCP server, which means the
+	 *  session has no database tools at all. The panel says so rather than
+	 *  leaving the user to wonder why the agent cannot see anything.
+	 */
+	toolsAvailable: boolean,
 };
 
 /**
