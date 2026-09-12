@@ -35,6 +35,17 @@ Object.defineProperty(window, "localStorage", {
   writable: true,
 });
 
+// Monaco's clipboard contribution asks this at import time, and jsdom has no
+// implementation — not even a stub that returns false. A real browser has it,
+// so this is a jsdom gap rather than anything about the app.
+if (typeof document !== "undefined" && !("queryCommandSupported" in document)) {
+  Object.defineProperty(document, "queryCommandSupported", {
+    writable: true,
+    configurable: true,
+    value: () => false,
+  });
+}
+
 // Polyfill matchMedia for jsdom
 Object.defineProperty(window, "matchMedia", {
   writable: true,

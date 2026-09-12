@@ -35,13 +35,12 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 │  │  (Monaco)   │ │ (TanStack) │ │   (Tree View)    │ │
 │  └────────────┘ └────────────┘ └──────────────────┘ │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────────┐ │
-│  │ ERD Canvas  │ │ Dashboard  │ │  AI Chat Panel   │ │
-│  │(React Flow) │ │ (Recharts) │ │  (Copilot SDK)   │ │
+│  │   Table     │ │  Backup /  │ │  AI Chat Panel   │ │
+│  │  Designer   │ │  Restore   │ │  (beta-ai only)  │ │
 │  └────────────┘ └────────────┘ └──────────────────┘ │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────────┐ │
-│  │  Command    │ │ Resizable  │ │   Settings /     │ │
-│  │  Palette    │ │  Panels    │ │   Preferences    │ │
-│  │   (cmdk)    │ │            │ │                  │ │
+│  │   Admin     │ │ Resizable  │ │   Settings /     │ │
+│  │   Panel     │ │  Panels    │ │   Preferences    │ │
 │  └────────────┘ └────────────┘ └──────────────────┘ │
 ├─────────────────────────────────────────────────────┤
 │               Tauri IPC Bridge                       │
@@ -112,22 +111,19 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 
 ### Frontend Stack
 
-| Technology                 | Purpose          | Version | Rationale                                                                    |
-| -------------------------- | ---------------- | ------- | ---------------------------------------------------------------------------- |
-| **React**                  | UI Framework     | 18+     | Largest ecosystem, extensive component library support, concurrent rendering |
-| **TypeScript**             | Type Safety      | 5.x     | Catch errors at compile time, superior IDE experience, self-documenting APIs |
-| **Vite**                   | Build Tool       | 5.x     | Sub-second HMR, ESBuild-powered bundling, first-class Tauri integration      |
-| **TanStack Table**         | Data Grid        | v8      | Headless & virtualized, handles 1M+ rows, fully customizable rendering       |
-| **TanStack Virtual**       | Virtualization   | v3      | Smooth scrolling for large datasets, row and column virtualization           |
-| **Monaco Editor**          | SQL Editor       | Latest  | VS Code's editor engine, rich IntelliSense, bracket matching, minimap        |
-| **monaco-sql-languages**   | SQL Support      | Latest  | MySQL dialect support, keyword autocomplete, syntax validation               |
-| **Zustand**                | State Management | v4      | Lightweight (~1 KB), no boilerplate, supports middleware and devtools        |
-| **Tailwind CSS**           | Styling          | v3      | Utility-first, dark/light theming via CSS variables, minimal CSS bundle      |
-| **React Flow**             | ERD Diagrams     | v11     | Node-based graph rendering, pan/zoom, custom node types, minimap             |
-| **Recharts**               | Charts           | v2      | Declarative charting for dashboards, responsive, composable                  |
-| **cmdk**                   | Command Palette  | Latest  | VS Code–style `Cmd+K` command palette, fuzzy search, keyboard navigation     |
-| **React Resizable Panels** | Layout           | Latest  | Draggable panel system, persistent sizes, nested layouts                     |
-| **@tauri-apps/api**        | Tauri Bridge     | 2.x     | Type-safe IPC invoke/listen, file dialogs, window management                 |
+| Technology                 | Purpose          | Version | Rationale                                                                                                                                                                                                                                                                                   |
+| -------------------------- | ---------------- | ------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **React**                  | UI Framework     | 18+     | Largest ecosystem, extensive component library support, concurrent rendering                                                                                                                                                                                                                |
+| **TypeScript**             | Type Safety      | 5.x     | Catch errors at compile time, superior IDE experience, self-documenting APIs                                                                                                                                                                                                                |
+| **Vite**                   | Build Tool       | 5.x     | Sub-second HMR, ESBuild-powered bundling, first-class Tauri integration                                                                                                                                                                                                                     |
+| **TanStack Table**         | Data Grid        | v8      | Headless & virtualized, handles 1M+ rows, fully customizable rendering                                                                                                                                                                                                                      |
+| **TanStack Virtual**       | Virtualization   | v3      | Smooth scrolling for large datasets, row and column virtualization                                                                                                                                                                                                                          |
+| **Monaco Editor**          | SQL Editor       | Latest  | VS Code's editor engine. Imported as `editor.all` plus the SQL and MySQL language contributions, **not** the `monaco-editor` barrel: that barrel carries the TypeScript, CSS, HTML and JSON language services, whose workers are 10.8 MB of a build that never edits any of those languages |
+| **Zustand**                | State Management | v5      | Lightweight, no boilerplate, supports middleware and devtools                                                                                                                                                                                                                               |
+| **Tailwind CSS**           | Styling          | v4      | Utility-first, dark/light theming via CSS variables, minimal CSS bundle                                                                                                                                                                                                                     |
+| **sql-formatter**          | SQL Formatting   | Latest  | Formatting is the frontend's; a round trip to Rust to reformat the text the user is typing would buy nothing                                                                                                                                                                                |
+| **React Resizable Panels** | Layout           | Latest  | Draggable panel system, persistent sizes, nested layouts                                                                                                                                                                                                                                    |
+| **@tauri-apps/api**        | Tauri Bridge     | 2.x     | Type-safe IPC invoke/listen, file dialogs, window management                                                                                                                                                                                                                                |
 
 ### Backend Stack
 
