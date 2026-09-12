@@ -167,6 +167,14 @@ export const api = {
   /** How full each live pool is (FR-1.2.3). */
   poolStats: () => unwrap("pool_stats", () => commands.poolStats()),
 
+  /**
+   * Anything that went wrong before the window existed.
+   *
+   * Empty is the ordinary case; a non-empty answer means the app is running
+   * with something missing, and the status bar says which.
+   */
+  startupProblems: () => unwrap("startup_problems", () => commands.startupProblems()),
+
   explainQuery: (
     connectionId: string,
     sql: string,

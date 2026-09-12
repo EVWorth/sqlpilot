@@ -16,6 +16,7 @@ vi.mock("../../../lib/tauri-api", () => ({
     getAppVersion: vi.fn().mockResolvedValue("2.1.0"),
     getPlatformInfo: vi.fn().mockResolvedValue({ package_format: "standard", arch: "x86_64" }),
     keyringAvailable: vi.fn().mockResolvedValue(true),
+    startupProblems: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -765,5 +766,77 @@ describe("StatusBar connection health (#276, FR-1.2.3)", () => {
   it("shows no pool figure before the first reading", () => {
     render(<StatusBar />);
     expect(screen.queryByTestId("pool-stats")).toBeNull();
+  });
+});
+
+describe("what went wrong before the window existed", () => {
+  const problem = {
+    kind: "history-store",
+    summary: "Query history could not be opened, so this session's history will not be kept.",
+    detail: "/home/u/.local/share/sqlpilot/history.db: database disk image is malformed",
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getAppVersion).mockResolvedValue("2.1.0");
+    vi.mocked(api.keyringAvailable).mockResolvedValue(true);
+    vi.mocked(api.startupProblems).mockResolvedValue([]);
+    useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
+    useStorageErrorStore.setState({ errors: {} });
+    useConnectionHealthStore.setState({ health: {}, pools: {} });
+    useConnectionStore.setState({ activeConnections: [], selectedConnectionId: null } as any);
+  });
+
+  it("says nothing when startup went fine", async () => {
+    render(<StatusBar />);
+    await vi.waitFor(() => expect(api.startupProblems).toHaveBeenCalled());
+    expect(screen.queryByTestId("startup-problem-history-store")).toBeNull();
+  });
+
+  it("says what the user has lost, in their terms", async () => {
+    // These used to be panics: the process vanished before a window existed
+    // and the user saw nothing at all.
+    vi.mocked(api.startupProblems).mockResolvedValue([problem]);
+    render(<StatusBar />);
+
+    const chip = await screen.findByTestId("startup-problem-history-store");
+    expect(chip.textContent).toContain("history could not be opened");
+  });
+
+  it("keeps the underlying error for a bug report, out of the way", async () => {
+    vi.mocked(api.startupProblems).mockResolvedValue([problem]);
+    render(<StatusBar />);
+
+    const chip = await screen.findByTestId("startup-problem-history-store");
+    expect(chip.getAttribute("title")).toContain("database disk image is malformed");
+  });
+
+  it("can be dismissed once read", async () => {
+    vi.mocked(api.startupProblems).mockResolvedValue([problem]);
+    render(<StatusBar />);
+
+    const chip = await screen.findByTestId("startup-problem-history-store");
+    fireEvent.click(chip);
+    expect(screen.queryByTestId("startup-problem-history-store")).toBeNull();
+  });
+
+  it("shows each problem separately", async () => {
+    vi.mocked(api.startupProblems).mockResolvedValue([
+      problem,
+      { kind: "connection-store", summary: "Your saved connections could not be opened.", detail: "x" },
+    ]);
+    render(<StatusBar />);
+
+    expect(await screen.findByTestId("startup-problem-history-store")).toBeInTheDocument();
+    expect(screen.getByTestId("startup-problem-connection-store")).toBeInTheDocument();
+  });
+
+  it("stays quiet when the report itself cannot be read", async () => {
+    // Not knowing whether startup went well is not the same as it going
+    // badly, and a chip saying so would be noise.
+    vi.mocked(api.startupProblems).mockRejectedValue(new Error("no backend"));
+    render(<StatusBar />);
+    await vi.waitFor(() => expect(api.startupProblems).toHaveBeenCalled());
+    expect(screen.queryByTestId("startup-problem-history-store")).toBeNull();
   });
 });

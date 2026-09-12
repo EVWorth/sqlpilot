@@ -35,6 +35,19 @@ impl ConnectionStore {
         Ok(store)
     }
 
+    /// A store that lives only as long as the process.
+    ///
+    /// Used by startup when the real file cannot be opened. The app runs with
+    /// no saved profiles and says so, rather than dying before the window
+    /// exists — and the file on disk is left untouched, so whatever is wrong
+    /// with it is still there to be recovered.
+    pub fn in_memory() -> Result<Self, CoreError> {
+        let db = SqliteConn::open_in_memory()?;
+        let store = Self { db: Mutex::new(db) };
+        store.init_tables()?;
+        Ok(store)
+    }
+
     fn init_tables(&self) -> Result<(), CoreError> {
         let db = self
             .db

@@ -264,6 +264,27 @@ pub async fn execute_query(
     Ok(results)
 }
 
+/// What went wrong before the window existed, for the frontend to show.
+///
+/// Managed state rather than part of `AppState`, because it is set once at
+/// startup and read once by the UI — and because `AppState` is built after
+/// the problems that produced it.
+pub struct StartupReport(pub Vec<crate::StartupProblem>);
+
+/// Anything that went wrong during startup.
+///
+/// Empty is the ordinary case. A non-empty answer means the app is running
+/// with something missing — no saved connections, no history, or a data
+/// folder that will not persist — and the status bar says which.
+#[tauri::command]
+#[tracing::instrument(skip(report))]
+#[specta::specta]
+pub async fn startup_problems(
+    report: State<'_, StartupReport>,
+) -> Result<Vec<crate::StartupProblem>, String> {
+    Ok(report.0.clone())
+}
+
 /// A connection has gone away, or come back.
 ///
 /// Emitted on every check while a connection is down — so the UI can count

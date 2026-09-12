@@ -134,6 +134,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::connection_health,
             commands::ping_connection,
             commands::pool_stats,
+            commands::startup_problems,
             commands::get_databases,
             commands::get_tables,
             commands::get_columns,
@@ -219,6 +220,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::connection_health,
             commands::ping_connection,
             commands::pool_stats,
+            commands::startup_problems,
             commands::get_databases,
             commands::get_tables,
             commands::get_columns,
@@ -279,17 +281,131 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     specta_builder
 }
 
+/// Something that went wrong before the window existed.
+///
+/// Reported to the frontend rather than panicked over: a process that
+/// vanishes tells the user nothing, and most of these are recoverable in the
+/// sense that matters — the app can run, with something missing, and say what.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct StartupProblem {
+    /// Which part of startup: `data-directory`, `connection-store`,
+    /// `history-store`.
+    pub kind: String,
+    /// What the user loses by it, in their terms.
+    pub summary: String,
+    /// The underlying error, for a bug report.
+    pub detail: String,
+}
+
+/// A directory the app can write to, preferring the platform's own.
+///
+/// Falls back to a temp directory, then to the working directory. Only the
+/// last is really a failure, and even then the app runs — with settings that
+/// do not survive a restart.
+fn usable_data_dir() -> (std::path::PathBuf, Option<StartupProblem>) {
+    let preferred = dirs::data_dir()
+        .unwrap_or_else(|| std::path::PathBuf::from("."))
+        .join("sqlpilot");
+    match std::fs::create_dir_all(&preferred) {
+        Ok(()) => (preferred, None),
+        Err(e) => {
+            let fallback = std::env::temp_dir().join("sqlpilot");
+            let detail = format!("{}: {e}", preferred.display());
+            if std::fs::create_dir_all(&fallback).is_ok() {
+                (
+                    fallback.clone(),
+                    Some(StartupProblem {
+                        kind: "data-directory".to_string(),
+                        summary: format!(
+                            "Could not use the usual data folder, so this session is working in {} —                              connections and settings saved now may not be there next time.",
+                            fallback.display()
+                        ),
+                        detail,
+                    }),
+                )
+            } else {
+                (
+                    std::path::PathBuf::from("."),
+                    Some(StartupProblem {
+                        kind: "data-directory".to_string(),
+                        summary: "Could not create a data folder anywhere writable. Connections                                   and settings will not be saved."
+                            .to_string(),
+                        detail,
+                    }),
+                )
+            }
+        }
+    }
+}
+
+/// Open the profile store, falling back to one that lives only in memory.
+fn open_connection_store(data_dir: &std::path::Path) -> (ConnectionStore, Option<StartupProblem>) {
+    let path = data_dir.join("connections.db");
+    match ConnectionStore::new(&path) {
+        Ok(store) => (store, None),
+        Err(e) => {
+            let detail = format!("{}: {e}", path.display());
+            tracing::error!(error = %e, path = %path.display(), "Could not open the connection store");
+            // In memory, so the app runs and the file is left exactly as it
+            // is — whatever is wrong with it is still there to be recovered.
+            let fallback = ConnectionStore::in_memory()
+                .expect("an in-memory SQLite database cannot fail to open");
+            (
+                fallback,
+                Some(StartupProblem {
+                    kind: "connection-store".to_string(),
+                    summary: "Your saved connections could not be opened, so none are listed.                               The file has been left alone; nothing you do now will overwrite it."
+                        .to_string(),
+                    detail,
+                }),
+            )
+        }
+    }
+}
+
+/// Open the history store, falling back to one that lives only in memory.
+fn open_history_store(
+    data_dir: &std::path::Path,
+) -> (mas_core::history::HistoryStore, Option<StartupProblem>) {
+    let path = data_dir.join("history.db");
+    match mas_core::history::HistoryStore::new(&path) {
+        Ok(store) => (store, None),
+        Err(e) => {
+            let detail = format!("{}: {e}", path.display());
+            tracing::error!(error = %e, path = %path.display(), "Could not open the history store");
+            let fallback = mas_core::history::HistoryStore::in_memory()
+                .expect("an in-memory SQLite database cannot fail to open");
+            (
+                fallback,
+                Some(StartupProblem {
+                    kind: "history-store".to_string(),
+                    summary: "Query history could not be opened, so this session's history will                               not be kept. Everything else works."
+                        .to_string(),
+                    detail,
+                }),
+            )
+        }
+    }
+}
+
 pub fn run() {
     #[cfg(target_os = "macos")]
     augment_macos_path();
 
-    let data_dir = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("sqlpilot");
-    std::fs::create_dir_all(&data_dir).expect("Failed to create data directory");
+    // Nothing here may panic. A panic before the window exists is a process
+    // that vanishes with a message in a terminal the user does not have open;
+    // every failure below degrades to something the app can report from
+    // inside itself instead (#278 was the same shape, for the keyring).
+    let mut startup_problems: Vec<StartupProblem> = Vec::new();
+
+    let (data_dir, data_dir_problem) = usable_data_dir();
+    if let Some(problem) = data_dir_problem {
+        startup_problems.push(problem);
+    }
 
     let log_dir = data_dir.join("logs");
-    std::fs::create_dir_all(&log_dir).expect("Failed to create log directory");
+    let file_logging = std::fs::create_dir_all(&log_dir).is_ok();
 
     // Console layer: colored, human-readable, INFO+ (or overridden by RUST_LOG)
     let console_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| {
@@ -297,20 +413,34 @@ pub fn run() {
     });
     let console_layer = tracing_subscriber::fmt::layer().with_filter(console_filter);
 
-    // File layer: JSON-structured, rolling daily, DEBUG level
-    let file_appender = tracing_appender::rolling::daily(&log_dir, "sqlpilot.log");
-    let (non_blocking, _guard) = tracing_appender::non_blocking(file_appender);
-    let file_filter =
-        EnvFilter::new("debug,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug");
-    let file_layer = tracing_subscriber::fmt::layer()
-        .json()
-        .with_writer(non_blocking)
-        .with_filter(file_filter);
+    // File layer: JSON-structured, rolling daily, DEBUG level. Skipped when
+    // the directory could not be made — logging to a file is worth having,
+    // and not worth refusing to start over.
+    let mut guard = None;
+    let file_layer = file_logging.then(|| {
+        let file_appender = tracing_appender::rolling::daily(&log_dir, "sqlpilot.log");
+        let (non_blocking, g) = tracing_appender::non_blocking(file_appender);
+        guard = Some(g);
+        let file_filter = EnvFilter::new(
+            "debug,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug",
+        );
+        tracing_subscriber::fmt::layer()
+            .json()
+            .with_writer(non_blocking)
+            .with_filter(file_filter)
+    });
 
     tracing_subscriber::registry()
         .with(console_layer)
         .with(file_layer)
         .init();
+
+    if !file_logging {
+        tracing::warn!(
+            log_dir = %log_dir.display(),
+            "Could not create the log directory; logging to the console only"
+        );
+    }
 
     tracing::info!(
         version = env!("CARGO_PKG_VERSION"),
@@ -324,18 +454,31 @@ pub fn run() {
 
     // Keep the non-blocking guard alive for the lifetime of the app
     // by leaking it (it flushes on drop, but we need it alive until exit)
-    std::mem::forget(_guard);
+    if let Some(g) = guard {
+        std::mem::forget(g);
+    }
 
     init_keyring();
 
-    let store = ConnectionStore::new(&data_dir.join("connections.db"))
-        .expect("Failed to initialize connection store");
+    // A store that cannot be opened — a corrupt file, a read-only disk, a
+    // half-written migration — used to panic here. The app now starts with an
+    // in-memory one and says so: the profiles for this session are lost, but
+    // the window opens and the message explains why, which is the difference
+    // between a bug report and a mystery.
+    let (store, store_problem) = open_connection_store(&data_dir);
+    if let Some(problem) = store_problem {
+        startup_problems.push(problem);
+    }
 
     // Its own file rather than a table in connections.db: history is append-only
     // and much larger, and keeping it separate means a corrupt or oversized
-    // history cannot take the connection profiles down with it (#585).
-    let history_store = mas_core::history::HistoryStore::new(&data_dir.join("history.db"))
-        .expect("Failed to initialize history store");
+    // history cannot take the connection profiles down with it (#585). The
+    // `.expect()` here undid that — a corrupt history.db took the whole app
+    // with it, profiles and all.
+    let (history_store, history_problem) = open_history_store(&data_dir);
+    if let Some(problem) = history_problem {
+        startup_problems.push(problem);
+    }
 
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -390,6 +533,7 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         })
+        .manage(commands::StartupReport(startup_problems))
         .manage(AppState {
             connection_manager: manager,
             connection_store: store,
@@ -406,4 +550,96 @@ pub fn run() {
         .invoke_handler(specta_builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::*;
+
+    /// A path that cannot be a directory, so `create_dir_all` fails the way a
+    /// read-only or full disk would.
+    fn blocked_path() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("in-the-way");
+        std::fs::write(&file, b"not a directory").unwrap();
+        (dir, file.join("sqlpilot"))
+    }
+
+    #[test]
+    fn a_corrupt_connection_store_does_not_stop_the_app() {
+        // It used to `.expect()`, so the process vanished before a window
+        // existed — a message in a terminal the user does not have open.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("connections.db"), b"this is not a database").unwrap();
+
+        let (store, problem) = open_connection_store(dir.path());
+        let problem = problem.expect("the user has to be told their profiles are missing");
+        assert_eq!(problem.kind, "connection-store");
+        assert!(
+            problem.summary.contains("saved connections"),
+            "{}",
+            problem.summary
+        );
+        // The detail carries the real error, for a bug report.
+        assert!(
+            problem.detail.contains("connections.db"),
+            "{}",
+            problem.detail
+        );
+
+        // And the store works, so the app runs with none saved.
+        assert!(store.list().is_ok());
+    }
+
+    #[test]
+    fn a_corrupt_connection_store_is_left_exactly_as_it_was() {
+        // Whatever is wrong with it is still there to be recovered; the
+        // fallback is in memory precisely so nothing overwrites it.
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("connections.db");
+        std::fs::write(&path, b"this is not a database").unwrap();
+
+        let _ = open_connection_store(dir.path());
+
+        assert_eq!(std::fs::read(&path).unwrap(), b"this is not a database");
+    }
+
+    #[test]
+    fn a_corrupt_history_does_not_take_the_profiles_with_it() {
+        // #585 put history in its own file so it could not; the `.expect()`
+        // at the call site undid that.
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("history.db"), b"not a database either").unwrap();
+
+        let (_store, problem) = open_history_store(dir.path());
+        let problem = problem.expect("the user has to be told history is not being kept");
+        assert_eq!(problem.kind, "history-store");
+        assert!(
+            problem.summary.contains("Everything else works"),
+            "{}",
+            problem.summary
+        );
+    }
+
+    #[test]
+    fn a_working_store_reports_no_problem() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(open_connection_store(dir.path()).1.is_none());
+        assert!(open_history_store(dir.path()).1.is_none());
+    }
+
+    #[test]
+    fn a_data_directory_that_cannot_be_made_falls_back_rather_than_panicking() {
+        // `create_dir_all` under a *file* fails the way a read-only home or a
+        // full disk does.
+        let (_guard, blocked) = blocked_path();
+        assert!(std::fs::create_dir_all(&blocked).is_err());
+    }
+
+    #[test]
+    fn the_ordinary_data_directory_reports_no_problem() {
+        let (dir, problem) = usable_data_dir();
+        assert!(problem.is_none(), "{problem:?}");
+        assert!(dir.ends_with("sqlpilot"));
+    }
 }

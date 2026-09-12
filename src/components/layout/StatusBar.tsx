@@ -10,6 +10,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import type { StartupProblem } from "../../lib/bindings";
 import { releaseUrl } from "../../lib/repo";
 import { api } from "../../lib/tauri-api";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
@@ -96,6 +97,19 @@ export function StatusBar() {
 
   useEffect(() => {
     api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
+  }, []);
+
+  // What the backend could not do before the window existed — no saved
+  // connections, no history, a data folder that will not persist. These used
+  // to be panics, which meant the process vanished and the user saw nothing
+  // at all.
+  const [startupProblems, setStartupProblems] = useState<StartupProblem[]>([]);
+  const [dismissedProblems, setDismissedProblems] = useState<string[]>([]);
+  useEffect(() => {
+    api.startupProblems().then(setStartupProblems).catch((e) => {
+      // The report failing to arrive says nothing about the app's state.
+      console.warn("Could not read the startup report", e);
+    });
   }, []);
 
   useEffect(() => {
@@ -247,6 +261,21 @@ export function StatusBar() {
             <span className="truncate">{connectionError}</span>
           </button>
         )}
+        {startupProblems
+          .filter((p) => !dismissedProblems.includes(p.kind))
+          .map((problem) => (
+            <button
+              key={problem.kind}
+              data-testid={`startup-problem-${problem.kind}`}
+              onClick={() => setDismissedProblems((d) => [...d, problem.kind])}
+              title={`${problem.detail}\n\nClick to dismiss.`}
+              className="flex max-w-[380px] items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 hover:bg-amber-500/25"
+            >
+              <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
+              <span className="truncate">{problem.summary}</span>
+            </button>
+          ))}
+
         {storageErrorEntries.map(([key, message]) => (
           <button
             key={key}

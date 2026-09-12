@@ -69,6 +69,14 @@ export const commands = {
 	pingConnection: (connectionId: string) => typedError<ConnectionHealth, string>(__TAURI_INVOKE("ping_connection", { connectionId })),
 	/**  How full each live pool is, for the status bar (FR-1.2.3). */
 	poolStats: () => typedError<PoolStats[], string>(__TAURI_INVOKE("pool_stats")),
+	/**
+	 *  Anything that went wrong during startup.
+	 * 
+	 *  Empty is the ordinary case. A non-empty answer means the app is running
+	 *  with something missing — no saved connections, no history, or a data
+	 *  folder that will not persist — and the status bar says which.
+	 */
+	startupProblems: () => typedError<StartupProblem[], string>(__TAURI_INVOKE("startup_problems")),
 	getDatabases: (connectionId: string) => typedError<DatabaseInfo[], string>(__TAURI_INVOKE("get_databases", { connectionId })),
 	getTables: (connectionId: string, database: string) => typedError<TableInfo[], string>(__TAURI_INVOKE("get_tables", { connectionId, database })),
 	getColumns: (connectionId: string, database: string, table: string) => typedError<ColumnInfo[], string>(__TAURI_INVOKE("get_columns", { connectionId, database, table })),
@@ -1022,6 +1030,25 @@ export type SqliteTableInfo = {
 	table_type: string,
 	row_count: number | null,
 	sql: string | null,
+};
+
+/**
+ *  Something that went wrong before the window existed.
+ * 
+ *  Reported to the frontend rather than panicked over: a process that
+ *  vanishes tells the user nothing, and most of these are recoverable in the
+ *  sense that matters — the app can run, with something missing, and say what.
+ */
+export type StartupProblem = {
+	/**
+	 *  Which part of startup: `data-directory`, `connection-store`,
+	 *  `history-store`.
+	 */
+	kind: string,
+	/**  What the user loses by it, in their terms. */
+	summary: string,
+	/**  The underlying error, for a bug report. */
+	detail: string,
 };
 
 export type TableInfo = {
