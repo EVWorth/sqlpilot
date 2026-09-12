@@ -439,3 +439,43 @@ async fn a_refusal_comes_back_as_a_tool_error_and_not_a_dropped_call() {
     );
     assert!(body.contains("one at a time"), "{body}");
 }
+
+#[tokio::test]
+async fn a_request_from_a_web_page_is_refused_even_with_the_token() {
+    // A page cannot read our replies — nothing here sends CORS headers — but
+    // DNS rebinding can make one same-origin with 127.0.0.1, and a request it
+    // cannot read is still a request that ran. No harness sends `Origin`; a
+    // browser always does.
+    let running = start().await;
+
+    let response = reqwest::Client::new()
+        .post(&running.url)
+        .bearer_auth(&running.token)
+        .header("Origin", "https://example.com")
+        .header("Accept", "application/json, text/event-stream")
+        .json(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 403);
+    assert!(response.text().await.unwrap().contains("web pages"));
+}
+
+#[tokio::test]
+async fn a_page_pretending_to_be_the_app_itself_is_refused_too() {
+    // "Origin: http://127.0.0.1:47311" is what a rebound page would send.
+    let running = start().await;
+
+    let response = reqwest::Client::new()
+        .post(&running.url)
+        .bearer_auth(&running.token)
+        .header("Origin", "http://127.0.0.1:47311")
+        .header("Accept", "application/json, text/event-stream")
+        .json(&json!({"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}}))
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(response.status(), 403);
+}

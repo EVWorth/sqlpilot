@@ -163,6 +163,11 @@ is new machinery.
 | `samples`                             | Up to N rows, redacted, for tables the user has allowed              |
 | `full`                                | Rows up to the connection's row cap, redacted                        |
 
+Redaction sits _across_ the postures rather than inside them: a column whose
+name says it holds a credential returns no values at any posture, including
+`full`. Sharing a database as `full` says "you can read this data", not "you
+can read the password hashes".
+
 Redaction is by column name or pattern, configured per profile. The posture is
 shown in the session header, always visible, because a user needs to know what
 the thing attached to their production database is allowed to see.
@@ -323,12 +328,14 @@ product and a much smaller blast radius.
 
 ## 9. Open questions
 
-1. **Transport.** Settled in part: loopback HTTP, bearer token in a 0600 file
-   in the data directory, rotation from Settings → Agents which restarts the
-   endpoint so the old token stops working immediately. **Still open:** two
-   SQLPilot windows. The second loses the preferred port and takes an
-   ephemeral one, so both serve and a harness config points at whichever
-   started first.
+1. **Transport.** Settled: loopback HTTP, bearer token in a 0600 file in the
+   data directory, rotation from Settings → Agents which restarts the endpoint
+   so the old token stops working immediately, and requests carrying an
+   `Origin` header are refused outright — no harness sends one, and a page
+   that DNS-rebinding has made same-origin with 127.0.0.1 is the one attacker
+   the token alone would not stop. **Still open:** two SQLPilot windows. The
+   second loses the preferred port and takes an ephemeral one, so both serve
+   and a harness config points at whichever started first.
 2. ~~**Identity of a "connection" across restarts.**~~ **Settled: profile id.**
    An agent addresses a connection by the id of the saved profile, which
    survives restarts, and the app translates to the per-session connection id
@@ -340,8 +347,16 @@ product and a much smaller blast radius.
    model; a refusal should teach it what to do instead ("this connection is
    schema-only; use `profile_column`") rather than just failing.
 4. **Sampling grants.** Per table, per column, or per session? Per table is
-   probably right; per column is where redaction already lives.
-5. **Does `run_ddl` exist at all in v1?** The migration workflow wants it. The
-   table designer already produces reviewed DDL, and `propose_edit` plus a
-   draft tab may be the better shape — the agent writes the migration, the
-   user runs it.
+   probably right; per column is where redaction already lives. Shipped as
+   per-connection, with an optional list of databases — enough to share one
+   database out of twenty, not enough to share one table out of a database.
+   Column redaction is built, but as a fixed rule rather than a setting: a
+   column whose name says credential — `password`, `api_key`, `ssn`, and a
+   dozen more — returns no values at any posture, and no top-N or min/max
+   either. **Per-profile patterns are still open**; the fixed list is the
+   ordinary case, and a schema that spells it differently is not yet served.
+5. ~~**Does `run_ddl` exist at all in v1?**~~ **Yes, narrowly.** It exists,
+   asks before it runs, and is refused on production unless that connection
+   has been unlocked — and its refusal points at `open_draft`, which remains
+   the better shape for a migration: the agent writes it, the user reads it in
+   the editor and runs it themselves.
