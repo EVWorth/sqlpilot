@@ -2,6 +2,7 @@
 members = [
   ".",
   "crates/mas-admin",
+  "crates/mas-agent",
   "crates/mas-core",
   "crates/mas-export",
   "crates/mas-mcp",
