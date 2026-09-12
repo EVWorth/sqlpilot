@@ -203,3 +203,34 @@ END`;
     expect(meta.isDeterministic).toBe(false);
   });
 });
+
+describe("the return type (routine audit F8)", () => {
+  const fn = (returns: string) =>
+    parseRoutineMetadata(
+      `CREATE DEFINER=\`root\`@\`%\` FUNCTION \`f\`(x INT) RETURNS ${returns}\nDETERMINISTIC\nRETURN x`,
+    ).returnsType;
+
+  it("keeps the character set, which is part of the type", () => {
+    // A function returning utf8mb4 is a different function from one
+    // returning latin1, and the badge showed neither.
+    expect(fn("varchar(80) CHARSET utf8mb4")).toBe("varchar(80) CHARSET utf8mb4");
+  });
+
+  it("keeps the collation too", () => {
+    expect(fn("varchar(80) CHARSET utf8mb4 COLLATE utf8mb4_bin"))
+      .toBe("varchar(80) CHARSET utf8mb4 COLLATE utf8mb4_bin");
+  });
+
+  it("accepts the CHARACTER SET spelling", () => {
+    expect(fn("char(4) CHARACTER SET latin1")).toBe("char(4) CHARACTER SET latin1");
+  });
+
+  it("still reads a plain type", () => {
+    expect(fn("int")).toBe("int");
+    expect(fn("decimal(10,2)")).toBe("decimal(10,2)");
+  });
+
+  it("does not swallow what comes after the type", () => {
+    expect(fn("int")).not.toContain("DETERMINISTIC");
+  });
+});
