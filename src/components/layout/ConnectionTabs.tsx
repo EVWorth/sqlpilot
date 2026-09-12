@@ -1,7 +1,8 @@
-import { Database, FileText, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
+import { Copy, Database, FileText, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { cn } from "../../lib/utils";
+import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useSqliteStore } from "../../stores/sqliteStore";
@@ -26,19 +27,46 @@ export function ConnectionTabs() {
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
   const [showDialog, setShowDialog] = useState(false);
   const [editingProfile, setEditingProfile] = useState<ConnectionProfileSummary | undefined>();
+  const [duplicatingProfile, setDuplicatingProfile] = useState<
+    ConnectionProfileSummary | undefined
+  >();
+  const health = useConnectionHealthStore((s) => s.health);
+  const connecting = useConnectionStore((s) => s.loading);
+
+  /**
+   * What to show on a tab's icon: FR-1.3.2's three states.
+   *
+   * "Connecting" is the store's own in-flight flag rather than a per-tab one,
+   * so it shows while any connect is running — which is when the user is
+   * waiting on one.
+   */
+  const connectionState = (connectionId: string) => {
+    if (health[connectionId] && !health[connectionId].healthy) return "Disconnected";
+    if (connecting) return "Connecting";
+    return "Connected";
+  };
   const popoverRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const { contextMenu, showContextMenu } = useContextMenu();
 
   const openEdit = (profile: ConnectionProfileSummary) => {
     setPopoverOpen(false);
+    setDuplicatingProfile(undefined);
     setEditingProfile(profile);
+    setShowDialog(true);
+  };
+
+  const openDuplicate = (profile: ConnectionProfileSummary) => {
+    setPopoverOpen(false);
+    setEditingProfile(undefined);
+    setDuplicatingProfile(profile);
     setShowDialog(true);
   };
 
   const openNew = () => {
     setPopoverOpen(false);
     setEditingProfile(undefined);
+    setDuplicatingProfile(undefined);
     setShowDialog(true);
   };
 
@@ -173,6 +201,17 @@ export function ConnectionTabs() {
                     disabled: !profile,
                   },
                   {
+                    // FR-1.1.4. A second profile against the same server —
+                    // another database, a read-only user — was a matter of
+                    // retyping every field (#294).
+                    label: "Duplicate Profile",
+                    icon: <Copy className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      if (profile) openDuplicate(profile);
+                    },
+                    disabled: !profile,
+                  },
+                  {
                     label: "Disconnect",
                     icon: <X className="h-3.5 w-3.5" />,
                     onClick: () => disconnect(conn.id),
@@ -193,10 +232,22 @@ export function ConnectionTabs() {
               {/* Active indicator bar */}
               {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}
 
+              {
+                /* Green while the server answers, red once the health checker
+                  says it does not, amber while a connect is in flight — which
+                  is FR-1.3.2's three states. It was green whatever was true
+                  (#294). */
+              }
               <Database
+                role="img"
+                aria-label={connectionState(conn.id)}
                 className={cn(
                   "h-3 w-3 shrink-0",
-                  "text-green-400",
+                  connectionState(conn.id) === "Disconnected"
+                    ? "text-red-500"
+                    : connectionState(conn.id) === "Connecting"
+                    ? "animate-pulse text-amber-400"
+                    : "text-green-400",
                 )}
               />
 
@@ -365,6 +416,7 @@ export function ConnectionTabs() {
       <ConnectionDialog
         isOpen={showDialog}
         editProfile={editingProfile}
+        duplicateOf={duplicatingProfile}
         onClose={() => {
           setShowDialog(false);
           setEditingProfile(undefined);

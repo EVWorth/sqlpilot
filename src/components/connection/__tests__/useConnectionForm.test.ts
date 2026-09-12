@@ -188,3 +188,35 @@ describe("useConnectionForm (#275)", () => {
     });
   });
 });
+
+describe("duplicating a profile (FR-1.1.4)", () => {
+  it("copies the settings but not the identity", () => {
+    const { result } = renderHook(() => useConnectionForm(true, undefined, saved));
+
+    expect(result.current.form.name).toBe("Prod (copy)");
+    expect(result.current.form.host).toBe("db.example.com");
+    expect(result.current.form.default_database).toBe("shop");
+    // A new profile, not an edit of the old one.
+    expect(result.current.form.id).not.toBe("p1");
+  });
+
+  it("does not carry the password over", () => {
+    // It lives in the keyring under the original's id; the copy needs its
+    // own, and an empty one here means "no password stored" rather than
+    // "keep what is stored", because there is nothing stored for this id.
+    const { result } = renderHook(() => useConnectionForm(true, undefined, saved));
+    expect(result.current.form.password).toBe("");
+  });
+
+  it("can be saved as soon as it is opened", () => {
+    // Everything a save needs is already filled in.
+    const { result } = renderHook(() => useConnectionForm(true, undefined, saved));
+    expect(result.current.canSave).toBe(true);
+  });
+
+  it("prefers an edit when both are somehow given", () => {
+    const { result } = renderHook(() => useConnectionForm(true, saved, saved));
+    expect(result.current.form.id).toBe("p1");
+    expect(result.current.form.name).toBe("Prod");
+  });
+});

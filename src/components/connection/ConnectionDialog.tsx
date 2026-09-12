@@ -20,6 +20,13 @@ interface Props {
   isOpen: boolean;
   onClose: () => void;
   editProfile?: ConnectionProfile;
+  /**
+   * Open as a copy of this profile rather than as an edit of it (FR-1.1.4).
+   * The copy is a new profile: it gets its own id, "(copy)" on the name, and
+   * needs its own password, since the original's lives in the keyring under
+   * the original's id.
+   */
+  duplicateOf?: ConnectionProfile;
 }
 
 type TabId = "general" | "ssl" | "ssh" | "advanced";
@@ -31,7 +38,7 @@ const TABS: { id: TabId; label: string; icon: typeof Database }[] = [
   { id: "advanced", label: "Advanced", icon: Settings },
 ];
 
-export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
+export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const {
     form,
@@ -49,7 +56,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
     handleSSHChange,
     handleTest,
     handleSave,
-  } = useConnectionForm(isOpen, editProfile);
+  } = useConnectionForm(isOpen, editProfile, duplicateOf);
 
   if (!isOpen) return null;
 
@@ -58,7 +65,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
       <div className="w-[560px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
         <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
           <h2 className="text-sm font-semibold">
-            {editProfile ? "Edit Connection" : "New Connection"}
+            {editProfile ? "Edit Connection" : duplicateOf ? "Duplicate Connection" : "New Connection"}
           </h2>
           <button
             onClick={onClose}

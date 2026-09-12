@@ -81,13 +81,44 @@ function toInput(profile: ConnectionProfile): ConnectionProfileInput {
   };
 }
 
-export function useConnectionForm(isOpen: boolean, editProfile?: ConnectionProfile) {
+/**
+ * A copy of a profile, ready to be saved as a new one.
+ *
+ * Everything but the identity and the credentials: the password lives in the
+ * keyring under the original's id, so the copy needs its own (FR-1.1.4).
+ */
+function toCopy(profile: ConnectionProfile): ConnectionProfileInput {
+  return {
+    ...toInput(profile),
+    id: crypto.randomUUID(),
+    name: `${profile.name} (copy)`,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function initialForm(
+  editProfile?: ConnectionProfile,
+  duplicateOf?: ConnectionProfile,
+): ConnectionProfileInput {
+  if (editProfile) return toInput(editProfile);
+  if (duplicateOf) return toCopy(duplicateOf);
+  return blankProfile();
+}
+
+export function useConnectionForm(
+  isOpen: boolean,
+  editProfile?: ConnectionProfile,
+  duplicateOf?: ConnectionProfile,
+) {
   const [form, setForm] = useState<ConnectionProfileInput>(
-    editProfile ? toInput(editProfile) : blankProfile(),
+    initialForm(editProfile, duplicateOf),
   );
-  const [sshEnabled, setSshEnabled] = useState(!!editProfile?.ssh_config);
+  const [sshEnabled, setSshEnabled] = useState(
+    !!(editProfile ?? duplicateOf)?.ssh_config,
+  );
   const [sshAuthMethod, setSshAuthMethod] = useState<"password" | "key">(
-    editProfile?.ssh_config?.private_key_path ? "key" : "password",
+    (editProfile ?? duplicateOf)?.ssh_config?.private_key_path ? "key" : "password",
   );
   const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
   const [testing, setTesting] = useState(false);
@@ -98,11 +129,12 @@ export function useConnectionForm(isOpen: boolean, editProfile?: ConnectionProfi
   // again after an edit was abandoned.
   useEffect(() => {
     if (!isOpen) return;
-    setForm(editProfile ? toInput(editProfile) : blankProfile());
-    setSshEnabled(!!editProfile?.ssh_config);
-    setSshAuthMethod(editProfile?.ssh_config?.private_key_path ? "key" : "password");
+    setForm(initialForm(editProfile, duplicateOf));
+    const ssh = (editProfile ?? duplicateOf)?.ssh_config;
+    setSshEnabled(!!ssh);
+    setSshAuthMethod(ssh?.private_key_path ? "key" : "password");
     setTestResult(null);
-  }, [isOpen, editProfile]);
+  }, [isOpen, editProfile, duplicateOf]);
 
   const handleChange = (
     field: keyof ConnectionProfileInput,
