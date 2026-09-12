@@ -72,12 +72,14 @@ lint:
     npx dprint check
 
 # actionlint covers syntax, expressions and the shell inside `run:` blocks;
-# the script covers the one thing it does not — whether a pinned action SHA
-# actually resolves upstream (#534).
+# the script covers the two things it does not — whether a pinned action SHA
+# actually resolves upstream (#534), and whether the version comment beside it
+# is true (#563).
 [doc("Lint the GitHub Actions workflows and verify every pinned action SHA.")]
 lint-workflows:
     actionlint -no-color -oneline
     ./scripts/check-action-pins.sh
+    ./scripts/test-check-action-pins.sh
 
 # Format Rust and everything dprint owns.
 fmt:
