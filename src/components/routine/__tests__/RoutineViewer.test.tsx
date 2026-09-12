@@ -228,3 +228,86 @@ describe("dropping a routine", () => {
     expect(closeTab).not.toHaveBeenCalled();
   });
 });
+
+describe("RoutineViewer parameters", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getRoutineDdl).mockResolvedValue(mockDdl);
+    vi.mocked(useEditorStore.getState).mockReturnValue({
+      addTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      tabs: [],
+      closeTab: vi.fn(),
+    } as never);
+    vi.mocked(useResultStore.getState).mockReturnValue({
+      executeQuery: vi.fn().mockResolvedValue(undefined),
+      error: null,
+      confirmDialog: null,
+    } as never);
+  });
+
+  describe("parameter values that cannot be sent (#398)", () => {
+    const show = async () => {
+      render(
+        <RoutineViewer
+          connectionId="conn-1"
+          database="testdb"
+          routineName="test_sp"
+          routineType="PROCEDURE"
+        />,
+      );
+      return await screen.findByPlaceholderText("Enter p_id...");
+    };
+
+    it("says what is wrong beside the input, as it is typed", async () => {
+      const input = await show();
+      fireEvent.change(input, { target: { value: "123abc" } });
+
+      // Not after clicking Execute and waiting for MySQL to say
+      // "Incorrect integer value".
+      expect(await screen.findByText(/not a valid INT/)).toBeDefined();
+      expect(input).toHaveAttribute("aria-invalid", "true");
+    });
+
+    it("disables Execute while a value is wrong", async () => {
+      const input = await show();
+      expect(screen.getByText("Execute").closest("button")).not.toBeDisabled();
+
+      fireEvent.change(input, { target: { value: "123abc" } });
+      expect(screen.getByText("Execute").closest("button")).toBeDisabled();
+    });
+
+    it("enables it again once the value is fixed", async () => {
+      const input = await show();
+      fireEvent.change(input, { target: { value: "123abc" } });
+      fireEvent.change(input, { target: { value: "123" } });
+
+      expect(screen.getByText("Execute").closest("button")).not.toBeDisabled();
+      expect(screen.queryByText(/not a valid INT/)).toBeNull();
+    });
+
+    it("accepts an empty value, which means NULL", async () => {
+      const input = await show();
+      fireEvent.change(input, { target: { value: "" } });
+      expect(screen.getByText("Execute").closest("button")).not.toBeDisabled();
+    });
+
+    it("keeps a mistyped number instead of silently sending NULL", async () => {
+      // `type="number"` reads back "" for anything the browser cannot parse,
+      // and this dialog sends an empty value as NULL — so a mistyped id
+      // became a call with no id rather than an error.
+      const input = await show();
+      expect(input).toHaveAttribute("type", "text");
+      fireEvent.change(input, { target: { value: "123abc" } });
+      expect(input).toHaveValue("123abc");
+    });
+
+    it("never complains about the OUT parameter's box", async () => {
+      // It holds the last result, not an input.
+      await show();
+      const out = screen.getByPlaceholderText("(output)");
+      expect(out).not.toHaveAttribute("aria-invalid", "true");
+      expect(screen.getByText("Execute").closest("button")).not.toBeDisabled();
+    });
+  });
+});
