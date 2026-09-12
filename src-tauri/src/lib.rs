@@ -1,4 +1,5 @@
 mod commands;
+pub mod mcp;
 #[cfg(target_os = "macos")]
 mod menu;
 
