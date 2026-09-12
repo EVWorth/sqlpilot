@@ -31,7 +31,7 @@ MySQL database management tools have stagnated. The most widely used options eac
 
 - **Paid tools** like TablePlus and DataGrip offer modern UIs and excellent keyboard-driven workflows, but they require per-seat licensing that limits accessibility, and neither is open source.
 
-There is a clear gap in the market for an **open-source, cross-platform, high-performance, AI-native MySQL GUI** that combines the speed of native tools with modern UX and intelligent assistance.
+There is a clear gap in the market for an **open-source, cross-platform, high-performance MySQL GUI** that combines the speed of native tools with modern UX — and that meets an AI agent as a first-class client rather than bolting a chat window onto the side (ADR-011).
 
 ### 1.2 Target Users
 
@@ -451,54 +451,52 @@ row rather than the section reading as done (#295).
 
 ---
 
-### FR-6: AI Features (Copilot Integration) [partial]
+### FR-6: AI — bring your own harness [designed, not built]
 
-> Behind the `beta-ai` cargo feature and not built by default, with twelve open
-> issues including prompt injection (#309) and a `.expect()` panic (#314).
-> Nothing in this section should be read as shipped.
+> Rewritten by ADR-011. The embedded Copilot assistant this section used to
+> describe has been removed, along with the twelve issues it carried. Nothing
+> here is shipped; the design is [AI_INTEGRATION.md](AI_INTEGRATION.md).
 
 **Priority:** P0 — Critical\
-**Description:** AI-powered features using GitHub Copilot to assist with SQL development, optimization, and documentation.
+**Description:** SQLPilot does not call a model. It exposes its live
+connections, under its own policy, to whatever agent the user already runs and
+pays for — Claude Code, Copilot, or anything else that speaks MCP.
 
-#### FR-6.1: Natural Language to SQL
+#### FR-6.1: The tool surface
 
-| ID       | Requirement          | Acceptance Criteria                                                                                                                                                                          |
-| -------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-6.1.1 | NL-to-SQL generation | User types a natural language question (e.g., "Find all users who signed up last month and haven't placed an order"); AI generates syntactically correct MySQL query using the actual schema |
-| FR-6.1.2 | Schema context       | AI receives current database schema (tables, columns, types, relationships) as context for accurate query generation                                                                         |
-| FR-6.1.3 | Iterative refinement | User can refine the generated query through follow-up natural language instructions ("add a GROUP BY on country", "exclude admin users")                                                     |
-| FR-6.1.4 | Insert into editor   | Generated SQL can be inserted into the active editor tab with one click; option to replace current content or append                                                                         |
+| ID       | Requirement    | Acceptance Criteria                                                                                                                                                   |
+| -------- | -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-6.1.1 | Schema tools   | An agent can list databases, tables, columns, indexes and both directions of the foreign-key graph, and search the schema by fragment rather than being handed it all |
+| FR-6.1.2 | Analysis tools | `EXPLAIN` in any supported format, table statistics, and column profiling computed **in the database** so aggregates leave and rows do not                            |
+| FR-6.1.3 | Read queries   | `SELECT` under the connection's row cap and query timeout, refused if it is more than one statement or if the effective verb is not a read                            |
+| FR-6.1.4 | Write queries  | Refused on a read-only profile. Otherwise: dry-run in a transaction for an affected-row count, then SQLPilot's own confirmation, then execution in a transaction      |
+| FR-6.1.5 | App awareness  | The agent can read the active tab, the selection, the result on screen and the last error, and propose an edit as a **diff** the user accepts or rejects              |
 
-#### FR-6.2: Query Assistance
+#### FR-6.2: Policy
 
-| ID       | Requirement        | Acceptance Criteria                                                                                                                                              |
-| -------- | ------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-6.2.1 | Query explanation  | Select a query and request a plain-English explanation; AI breaks down the query logic, JOINs, filters, and aggregations                                         |
-| FR-6.2.2 | Query optimization | AI analyzes a query and suggests optimizations with reasoning (e.g., "Add index on users.email to avoid full table scan", "Rewrite correlated subquery as JOIN") |
-| FR-6.2.3 | Error resolution   | When a query fails, AI suggests fixes based on the error message and query context; common cases: syntax errors, missing tables, type mismatches                 |
-| FR-6.2.4 | Query rewriting    | AI can rewrite queries for different purposes: convert SELECT to INSERT...SELECT, add pagination, convert to prepared statement syntax                           |
+| ID       | Requirement           | Acceptance Criteria                                                                                                                             |
+| -------- | --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-6.2.1 | Data posture          | Per connection: schema only, samples, or full results — defaulting to schema only on production. Column redaction by name or pattern            |
+| FR-6.2.2 | Environment grading   | Reads auto; writes always ask; DDL refused on production unless the session is explicitly unlocked                                              |
+| FR-6.2.3 | Approval is the app's | The confirmation for a destructive action is SQLPilot's own dialog, whatever harness is driving — harness permission flags cannot switch it off |
+| FR-6.2.4 | Visible posture       | What the attached session may see and do is shown while it is attached                                                                          |
 
-#### FR-6.3: Schema Intelligence
+#### FR-6.3: Sessions
 
-| ID       | Requirement              | Acceptance Criteria                                                                                                            |
-| -------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
-| FR-6.3.1 | Schema documentation     | AI generates human-readable documentation for tables, columns, and relationships based on naming conventions and data patterns |
-| FR-6.3.2 | Index recommendations    | AI analyzes query patterns and suggests indexes to improve performance; includes CREATE INDEX statements ready to execute      |
-| FR-6.3.3 | Data anomaly suggestions | AI suggests queries to detect common data anomalies (orphaned records, duplicate entries, null distributions, outliers)        |
+| ID       | Requirement       | Acceptance Criteria                                                                                                                                 |
+| -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-6.3.1 | Attach in-app     | A harness session runs inside SQLPilot with a transcript, its tool calls shown as the SQL they ran, and inline approvals                            |
+| FR-6.3.2 | Own connection    | Each session gets its own pooled connection, timeout and grants, so a runaway agent query cannot starve the user's                                  |
+| FR-6.3.3 | Cancellable       | Cancelling a session issues `KILL QUERY` for anything in flight                                                                                     |
+| FR-6.3.4 | Audited           | Every statement lands in query history tagged with the session, and "undo what this session did" is offered where the statements were transactional |
+| FR-6.3.5 | Harness discovery | Installed harnesses are detected and offered; with none installed the app says so rather than showing a dead panel                                  |
 
-#### FR-6.4: AI Chat Sidebar
+#### FR-6.4: Configuration
 
-| ID       | Requirement          | Acceptance Criteria                                                                                                                       |
-| -------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-6.4.1 | Chat interface       | Dedicated sidebar panel for conversational AI interaction; markdown rendering for responses; code blocks with copy/insert buttons         |
-| FR-6.4.2 | Context awareness    | Chat has access to: current schema, active query, recent query history, selected result data; user can explicitly include/exclude context |
-| FR-6.4.3 | Conversation history | Chat history persisted per session; searchable; can reference previous conversations                                                      |
-
-#### FR-6.5: AI Configuration
-
-| ID       | Requirement          | Acceptance Criteria                                                              |
-| -------- | -------------------- | -------------------------------------------------------------------------------- |
-| FR-6.5.1 | GitHub Copilot setup | Token-based authentication; status indicator; graceful fallback when unavailable |
+| ID       | Requirement    | Acceptance Criteria                                                                                                       |
+| -------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| FR-6.4.1 | No credentials | SQLPilot never stores an API key or calls a model provider. Authentication belongs to the user's harness                  |
+| FR-6.4.2 | Config export  | The app emits the one-line MCP configuration for each supported harness, so it works from a terminal or an editor as well |
 
 ---
 

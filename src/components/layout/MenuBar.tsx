@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useAiStore } from "../../stores/aiStore";
 
 type MenuItemDef =
   | { type: "item"; id: string; label: string; shortcut?: string }
@@ -66,28 +65,21 @@ const MENUS: MenuDef[] = [
   },
 ];
 
-function aiToolsMenu(aiEnabled: boolean): MenuDef {
-  return {
-    label: "Tools",
-    items: [
-      { type: "item", id: "format-sql", label: "Format SQL", shortcut: "Ctrl+Shift+F" },
-      ...(aiEnabled
-        ? [{ type: "separator" as const }, { type: "item" as const, id: "ai-assistant", label: "AI Assistant" }]
-        : []),
-    ],
-  };
-}
+const TOOLS_MENU: MenuDef = {
+  label: "Tools",
+  items: [
+    { type: "item", id: "format-sql", label: "Format SQL", shortcut: "Ctrl+Shift+F" },
+  ],
+};
 
 export function MenuBar() {
   const [openMenu, setOpenMenu] = useState<number | null>(null);
   const barRef = useRef<HTMLDivElement>(null);
-  const aiEnabled = useAiStore((s) => s.aiEnabled);
-
   const menus = useMemo(() => {
     const m = [...MENUS];
-    m.splice(4, 0, aiToolsMenu(aiEnabled));
+    m.splice(4, 0, TOOLS_MENU);
     return m;
-  }, [aiEnabled]);
+  }, []);
 
   useEffect(() => {
     if (openMenu === null) return;

@@ -81,20 +81,6 @@ vi.mock("../../../stores/connectionStore", () => ({
   ),
 }));
 
-// ─── Mutable refs for aiStore ─────────────────────────────────
-let aiMockEnabled = false;
-let aiMockSend = vi.fn();
-
-vi.mock("../../../stores/aiStore", () => ({
-  useAiStore: Object.assign(
-    vi.fn((selector?: (s: unknown) => unknown) => {
-      const s = { aiEnabled: aiMockEnabled, sendMessage: aiMockSend };
-      return selector ? selector(s) : s;
-    }),
-    { getState: vi.fn(() => ({ aiEnabled: aiMockEnabled, sendMessage: aiMockSend })) },
-  ),
-}));
-
 // ─── Hook mocks ───────────────────────────────────────────────
 vi.mock("../../../lib/run-statement", () => ({
   runStatement: vi.fn(async () => []),
@@ -310,8 +296,6 @@ function resetState() {
   editorTabs = [];
   editorActiveTabId = null;
   connSelectedId = null;
-  aiMockEnabled = false;
-  aiMockSend = vi.fn();
   mockGridEditing.editMode = false;
   mockGridEditing.inserts = [];
   mockGridEditing.hasChanges = false;
@@ -649,31 +633,8 @@ describe("ResultsGrid (browser)", () => {
 
   it("does not show 'Fix with AI' button when AI is disabled", () => {
     resultState.error = "Some error";
-    aiMockEnabled = false;
     render(<ResultsGrid />);
     expect(screen.queryByText("Fix with AI")).not.toBeInTheDocument();
-  });
-
-  it("shows 'Fix with AI' button when AI is enabled and error exists", () => {
-    resultState.error = "Syntax error";
-    aiMockEnabled = true;
-    render(<ResultsGrid />);
-    expect(screen.getByText("Fix with AI")).toBeInTheDocument();
-  });
-
-  it("clicking 'Fix with AI' sends message to AI store", async () => {
-    aiMockEnabled = true;
-    resultState.error = "Syntax error";
-    editorTabs = [{ id: "tab-0", content: "SELEC * FROM users", connectionId: "conn-1" }];
-    editorActiveTabId = "tab-0";
-
-    const user = userEvent.setup();
-    render(<ResultsGrid />);
-    await user.click(screen.getByText("Fix with AI"));
-
-    expect(aiMockSend).toHaveBeenCalledWith(
-      expect.stringContaining("Fix this SQL query"),
-    );
   });
 
   // ─── Empty states ─────────────────────────────────────────

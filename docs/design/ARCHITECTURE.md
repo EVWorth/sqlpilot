@@ -35,8 +35,8 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 │  │  (Monaco)   │ │ (TanStack) │ │   (Tree View)    │ │
 │  └────────────┘ └────────────┘ └──────────────────┘ │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────────┐ │
-│  │   Table     │ │  Backup /  │ │  AI Chat Panel   │ │
-│  │  Designer   │ │  Restore   │ │  (beta-ai only)  │ │
+│  │   Table     │ │  Backup /  │ │   Agent Session  │ │
+│  │  Designer   │ │  Restore   │ │  (bring your own)│ │
 │  └────────────┘ └────────────┘ └──────────────────┘ │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────────┐ │
 │  │   Admin     │ │ Resizable  │ │   Settings /     │ │
@@ -48,8 +48,8 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 ├─────────────────────────────────────────────────────┤
 │                   Backend (Rust)                      │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────────┐ │
-│  │ Connection  │ │   Query    │ │   AI Service     │ │
-│  │  Manager    │ │  Executor  │ │  (Copilot SDK)   │ │
+│  │ Connection  │ │   Query    │ │    MCP Server    │ │
+│  │  Manager    │ │  Executor  │ │  (tools+policy)  │ │
 │  └────────────┘ └────────────┘ └──────────────────┘ │
 │  ┌────────────┐ ┌────────────┐ ┌──────────────────┐ │
 │  │   Schema    │ │   Export   │ │  Admin Service   │ │
@@ -88,7 +88,7 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 │  │                      │                                    │
 │  │  • Query execution   │                                    │
 │  │  • SSH tunnels       │                                    │
-│  │  • AI API calls      │                                    │
+│  │  • MCP over loopback │                                    │
 │  │  • Export operations  │                                    │
 │  │  • Schema inspection  │                                    │
 │  └──────────────────────┘                                    │
@@ -97,13 +97,13 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 
 ### Key Architectural Principles
 
-| Principle                  | Description                                                                                                               |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| **Separation of Concerns** | All database I/O and OS integration lives in Rust; the frontend is purely presentational and state-management             |
-| **Async Everywhere**       | Every backend operation is non-blocking, powered by Tokio; the UI thread is never starved                                 |
-| **Stream by Default**      | Large result sets and exports are streamed, not buffered; memory usage stays constant regardless of data size             |
-| **Offline First**          | Core functionality (connect, query, browse) requires zero network beyond the MySQL target; AI features degrade gracefully |
-| **Security by Design**     | Credentials never leave the OS keychain; no secrets traverse IPC; Tauri's CSP and allowlist are strictly configured       |
+| Principle                  | Description                                                                                                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Separation of Concerns** | All database I/O and OS integration lives in Rust; the frontend is purely presentational and state-management                                                      |
+| **Async Everywhere**       | Every backend operation is non-blocking, powered by Tokio; the UI thread is never starved                                                                          |
+| **Stream by Default**      | Large result sets and exports are streamed, not buffered; memory usage stays constant regardless of data size                                                      |
+| **Offline First**          | Nothing requires a network beyond the MySQL target. The app never calls a model; an agent session is the user's own harness, which they may point at a local model |
+| **Security by Design**     | Credentials never leave the OS keychain; no secrets traverse IPC; Tauri's CSP and allowlist are strictly configured                                                |
 
 ---
 
@@ -142,7 +142,6 @@ SQLPilot is a cross-platform desktop application built on a **two-process archit
 | **uuid**               | Identifiers   | 1.x     | UUIDv4 generation for connection IDs, session IDs, query handles               |
 | **thiserror**          | Error Types   | 1.x     | Derive macro for ergonomic, typed error enums                                  |
 | **anyhow**             | Error Context | 1.x     | Contextual error wrapping for debugging, `.context("msg")` chains              |
-| **copilot-sdk**        | AI Features   | Latest  | GitHub Copilot integration for NL→SQL, query explanation, optimization         |
 | **chrono**             | Date/Time     | 0.4+    | Timezone-aware datetime handling for MySQL temporal types                      |
 
 ### Development & Build Tools
@@ -429,80 +428,22 @@ reason.
 
 ---
 
-### 3.4 AI Service (Rust)
+### 3.4 AI — see AI_INTEGRATION.md
 
-The AI Service integrates large language model capabilities into the application, with GitHub Copilot as the AI provider.
+There is no AI service in this codebase, and by ADR-011 there will not be one:
+SQLPilot does not call a model. It exposes its live connections, under its own
+policy, to whatever harness the user already runs — **bring your own harness**.
 
-#### Architecture
+This section used to describe a Copilot SDK session with a prompt builder, a
+provider abstraction, a rate limiter and a token budget. The `mas-ai` crate
+that implemented part of it has been removed; the rate limiter and the token
+budget were never built and are the harness's concern now.
 
-```
-┌──────────────────────────────────────────────────────┐
-│                    AI Service                         │
-│                                                       │
-│  ┌──────────────┐    ┌─────────────────────────────┐ │
-│  │PromptBuilder │    │     Provider Abstraction     │ │
-│  │              │    │                             │ │
-│  │ • Schema     │    │ ┌─────────┐  ┌───────────┐ │ │
-│  │ • History    │    │ │  SDK    │  │  (local)  │ │ │
-│  │ • System     │    │ └─────────┘  └───────────┘ │ │
-│  │   prompt     │    │                             │ │
-│  └──────────────┘    └─────────────────────────────┘ │
-│                                                       │
-│  ┌──────────────┐    ┌─────────────────────────────┐ │
-│  │ Rate Limiter │    │  Conversation Manager       │ │
-│  │              │    │  • Session history           │ │
-│  │ • Token      │    │  • Context window mgmt      │ │
-│  │   budget     │    │  • Message pruning           │ │
-│  │ • Request    │    │                             │ │
-│  │   throttle   │    └─────────────────────────────┘ │
-│  └──────────────┘                                    │
-└──────────────────────────────────────────────────────┘
-```
-
-#### Capabilities
-
-| Feature                      | Description                                                                                                                                                                                      |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **NL → SQL**                 | Converts natural language questions into MySQL queries. Schema context (table names, columns, types, FK relationships) is injected into the prompt so the model produces accurate, runnable SQL. |
-| **Query Explanation**        | Takes a SQL statement and produces a plain-English explanation of what it does, including potential performance implications.                                                                    |
-| **Query Optimization**       | Accepts a SQL statement and its `EXPLAIN` output, then suggests index additions, query rewrites, or schema changes.                                                                              |
-| **Documentation Generation** | Generates Markdown documentation for tables, views, and stored procedures based on schema metadata.                                                                                              |
-| **Error Diagnosis**          | When a query fails, the error message and surrounding schema context are sent to the model for a human-readable explanation and fix suggestions.                                                 |
-| **Chat Interface**           | Free-form conversation with database context awareness; supports follow-up questions and multi-turn dialogue.                                                                                    |
-
-#### Prompt Engineering
-
-```rust
-/// System prompt template for NL→SQL generation.
-const NL_TO_SQL_SYSTEM_PROMPT: &str = r#"
-You are a MySQL expert assistant embedded in SQLPilot.
-Generate valid MySQL queries based on the user's natural language request.
-
-## Context
-- MySQL version: {mysql_version}
-- Current database: {database}
-
-## Schema
-{schema_ddl}
-
-## Rules
-1. Use only tables and columns present in the schema above.
-2. Prefer explicit JOIN syntax over implicit joins.
-3. Include appropriate WHERE clauses to avoid full table scans.
-4. Use aliases for readability.
-5. Output ONLY the SQL query — no explanation unless asked.
-"#;
-```
-
-#### Fallback Strategy
-
-```
-1. Try GitHub Copilot SDK (primary)
-   ├── Success → return result
-   └── Failure (auth error, rate limit, network) →
-   └── Failure (not configured, model not loaded) →
-3. Return AIUnavailable error → frontend shows graceful fallback UI
-```
+The replacement is designed in [AI_INTEGRATION.md](AI_INTEGRATION.md): an MCP
+server over the live connections, the policy that grades every call, and an
+in-app session view. The one rule worth repeating here, because it constrains
+the rest of the architecture: **approval for a destructive action happens in
+SQLPilot's own window, whatever harness is driving.**
 
 ---
 
@@ -628,7 +569,6 @@ src/stores/
 ├── resultStore.ts        — Query results, pagination state, selected cells
 ├── favoritesStore.ts     — Saved queries, pinned favorites, folders
 ├── settingsStore.ts      — Query and formatter settings, update state
-├── aiStore.ts            — AI chat history, pending suggestions, provider status
 ├── historyStore.ts       — Query history (a view over history.db)
 ├── schemaStore.ts        — Databases, tables, views, routines, triggers,
 │                           events and columns, keyed by connection (§3.3)
@@ -845,53 +785,41 @@ and a `?` in a backup file is not a value. Those escape, and the escaping is
 `lib/sql-quote.ts` and `backup-generator.ts`, both of which double the quote
 so a value cannot end the string it is in.
 
-### 4.3 AI Query Generation Flow
+### 4.3 Agent session flow
+
+The inversion from ADR-011 in one diagram: the harness drives, SQLPilot answers
+and polices. The flow that matters is not "user asks, model replies" — it is
+what happens when the agent wants to change something.
 
 ```
-┌──────────┐
-│   User   │
-└────┬─────┘
-     │ Types: "Show top 10 customers by revenue last month"
-     ▼
-┌──────────────────┐
-│  AI Chat Panel    │
-└────────┬─────────┘
-         │ aiStore.generateSQL(prompt)
-         ▼
-┌──────────────────┐
-│  invoke(          │
-│  "ai_generate_sql"│  → { prompt, schemaContext }
-│  )                │
-└────────┬─────────┘
-         │
-         ▼
-┌──────────────────┐
-│  AI Service       │
-│                   │
-│  1. Load schema   │ ← SchemaInspector cache
-│     for current   │
-│     database      │
-│                   │
-│  2. Build prompt: │
-│     System prompt │
-│     + Schema DDL  │
-│     + User query  │
-│     + History     │
-│                   │
-│  3. Call Copilot  │ ──► GitHub Copilot API
-│     SDK           │ ◄── Streamed response
-└────────┬─────────┘
-         │ Generated SQL
-         ▼
-┌──────────────────┐
-│  AI Chat Panel    │  ← Displays SQL in code block
-│                   │
-│  [Insert into     │  ← Click to insert into active editor tab
-│   Editor]         │
-│  [Execute]        │  ← Click to execute directly
-│  [Explain]        │  ← Click to get explanation
-└──────────────────┘
+┌──────────┐        ┌──────────────────┐        ┌─────────────────────┐
+│   User   │───────►│  Their harness   │───────►│ SQLPilot MCP server │
+└──────────┘  asks  │ (own credentials)│  tool  │   tools + policy    │
+                    └──────────────────┘  call  └──────────┬──────────┘
+                                                            │
+                            ┌───────────────────────────────┤
+                            │                               │
+                    read or analyse                    write or DDL
+                            │                               │
+                            ▼                               ▼
+                  ┌──────────────────┐         ┌────────────────────────┐
+                  │ posture decides  │         │ 1. estimate_impact:    │
+                  │ what comes back: │         │    run in a txn, count │
+                  │ shape / samples  │         │    rows, ROLL BACK     │
+                  │ / rows, redacted │         │ 2. SQLPilot's OWN      │
+                  └────────┬─────────┘         │    confirmation, with  │
+                           │                   │    the statement, the  │
+                           │                   │    env badge, the count│
+                           │                   │ 3. run, in a txn       │
+                           │                   └───────────┬────────────┘
+                           ▼                               ▼
+                  ┌─────────────────────────────────────────────────┐
+                  │ history, tagged with the session and the harness │
+                  └─────────────────────────────────────────────────┘
 ```
+
+Step 2 is not the harness's permission prompt. Harnesses have `--yolo`-shaped
+flags; a guarantee that depends on the caller being polite is not one.
 
 ### 4.4 Connection Establishment Flow
 
@@ -1267,81 +1195,20 @@ async fn get_trigger_ddl(
 ) -> Result<String, String>;
 ```
 
-### 5.4 AI Commands
+### 5.4 AI Commands — none
 
-```rust
-/// NOT IMPLEMENTED. Planned; no such command is registered.
-/// Generate SQL from a natural language prompt.
-#[tauri::command]
-async fn ai_generate_sql(
-    prompt: String,
-    context: SchemaContext,
-    state: State<'_, AppState>,
-) -> Result<String, AppError>;
+There are none, and this is not an omission. ADR-011 made SQLPilot an MCP
+server rather than a model client: the commands that used to be here
+(`ai_chat`, `ai_get_status`, `ai_set_config`, `ai_cancel`,
+`ai_approve_permission`) are gone with the `mas-ai` crate, along with the
+`beta-ai` feature that gated them and the three more this section described
+that were never written at all.
 
-/// NOT IMPLEMENTED. Planned; no such command is registered.
-/// Explain a SQL query in plain English.
-#[tauri::command]
-async fn ai_explain_query(
-    sql: String,
-    state: State<'_, AppState>,
-) -> Result<String, AppError>;
-
-/// NOT IMPLEMENTED. Planned; no such command is registered.
-/// Suggest optimizations for a query given its EXPLAIN output.
-#[tauri::command]
-async fn ai_optimize_query(
-    sql: String,
-    explain: ExplainResult,
-    state: State<'_, AppState>,
-) -> Result<OptimizationSuggestion, AppError>;
-
-/// General-purpose AI chat with database context.
-#[tauri::command]
-async fn ai_chat(
-    message: String,
-    history: Vec<ChatMessage>,
-    context: Option<SchemaContext>,
-    state: State<'_, AppState>,
-) -> Result<ChatResponse, AppError>;
-
-/// NOT IMPLEMENTED. Planned; no such command is registered.
-/// Check AI service availability and provider info.
-#[tauri::command]
-async fn ai_status(
-    state: State<'_, AppState>,
-) -> Result<AIStatus, AppError>;
-```
-
-The AI commands are behind the `beta-ai` cargo feature and are not registered
-in a default build.
-
-```rust
-/// Whether AI is configured and reachable, for the panel's own state.
-#[tauri::command]
-async fn ai_get_status(state: State<'_, AppState>) -> Result<AiStatus, String>;
-
-/// Store the provider, model and key. The key goes to the OS keyring, not to
-/// the profile database.
-#[tauri::command]
-async fn ai_set_config(state: State<'_, AppState>, config: AiConfig) -> Result<(), String>;
-
-/// Stop an in-flight conversation.
-#[tauri::command]
-async fn ai_cancel(state: State<'_, AppState>, conversation_id: String) -> Result<(), String>;
-
-/// Answer a tool-use permission prompt the assistant raised.
-///
-/// The assistant cannot run anything against a database without one: the
-/// approval is per request, not a mode the user switches on.
-#[tauri::command]
-async fn ai_approve_permission(
-    state: State<'_, AppState>,
-    conversation_id: String,
-    request_id: String,
-    approved: bool,
-) -> Result<(), String>;
-```
+What replaces them is not a command surface but a **tool** surface, spoken to
+over MCP by the user's own harness, plus the small set of app-side commands
+that start the server and export its configuration. Those are designed in
+[AI_INTEGRATION.md](AI_INTEGRATION.md) and will be documented here as §5.12
+when they exist.
 
 ### 5.5 Export / Import Commands
 

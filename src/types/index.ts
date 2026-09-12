@@ -5,9 +5,6 @@ import { isNumericLiteral, isNumericSqlType } from "../lib/sql-types";
 // (src/lib/bindings.ts, regenerate with `make bindings`). Re-exported here so
 // existing imports keep working and the definitions cannot drift from Rust.
 export type {
-  AiConfig,
-  AiMode,
-  AiStatus,
   ColumnInfo,
   ColumnMeta,
   ConnectionEnvironment,
@@ -189,58 +186,3 @@ export type EditorTab =
     routineName: string;
     routineType: RoutineKind;
   });
-
-export type AiStreamEvent =
-  | { type: "text_delta"; conversation_id: string; content: string }
-  | { type: "intent"; conversation_id: string; intent: string }
-  | {
-    type: "tool_start";
-    conversation_id: string;
-    tool_name: string;
-    tool_call_id: string;
-    arguments?: Record<string, unknown>;
-  }
-  | {
-    type: "tool_complete";
-    conversation_id: string;
-    tool_name: string;
-    tool_call_id: string;
-    result: string;
-    success: boolean;
-  }
-  | { type: "permission_request"; conversation_id: string; tool_name: string; description: string; request_id: string }
-  | { type: "idle"; conversation_id: string }
-  | { type: "error"; conversation_id: string; message: string };
-
-export interface ToolExecution {
-  id: string;
-  name: string;
-  status: "running" | "done" | "error";
-  arguments?: Record<string, unknown>;
-  result?: string;
-}
-
-export type MessageSegment =
-  | { type: "text"; content: string }
-  | { type: "tool"; tool: ToolExecution }
-  | { type: "intent"; intent: string };
-
-export interface PendingPermission {
-  requestId: string;
-  toolName: string;
-  description: string;
-}
-
-export interface ChatMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
-  segments?: MessageSegment[];
-  toolCalls?: ToolExecution[];
-}
-
-export interface Conversation {
-  id: string;
-  messages: ChatMessage[];
-  title: string;
-  createdAt: string;
-}

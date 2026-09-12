@@ -306,7 +306,6 @@ sqlpilot/
 ├── src/                           # React frontend
 │   ├── components/                #   46 UI components
 │   │   ├── admin/                 #     AdminPanel, UserManagement, CreateUser, ChangePassword
-│   │   ├── ai/                    #     AIChatPanel, ChatMessage, ModeSelector, ToolCallBlock
 │   │   ├── backup/                #     BackupDialog, RestoreDialog
 │   │   ├── common/                #     ContextMenu, ConfirmDialog, ShortcutsDialog, SQLPreviewDialog
 │   │   ├── connection/            #     ConnectionDialog (General, SSL, SSH, Advanced tabs)
@@ -332,7 +331,6 @@ sqlpilot/
 │   ├── crates/
 │   │   ├── mas-core/              #   Connection manager, query executor, schema inspector
 │   │   ├── mas-sqlite/            #   SQLite wrapper for connection profile + history storage
-│   │   ├── mas-ai/                #   AI service (Copilot SDK integration)
 │   │   ├── mas-export/            #   CSV, JSON, SQL, Markdown exporters
 │   │   └── mas-admin/             #   Process list, server variables, kill process
 │   ├── Cargo.toml                 #   Workspace with shared dependencies

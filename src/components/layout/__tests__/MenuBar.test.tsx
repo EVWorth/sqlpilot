@@ -1,6 +1,5 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { useAiStore } from "../../../stores/aiStore";
 import { MenuBar } from "../MenuBar";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -13,17 +12,6 @@ describe("MenuBar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.addEventListener("menu-action", dispatchSpy as any);
-
-    useAiStore.setState({
-      status: { provider: "openai", available: false },
-      isStreaming: false,
-      conversations: [],
-      activeConversationId: null,
-      streamSegments: [],
-      mode: "ask",
-      pendingPermission: null,
-      aiEnabled: false,
-    } as any);
   });
 
   afterEach(() => {
@@ -126,21 +114,12 @@ describe("MenuBar", () => {
     expect(screen.queryByText("New Query Tab")).toBeNull();
   });
 
-  it("includes AI Assistant in Tools menu when AI is enabled", () => {
-    useAiStore.setState({
-      aiEnabled: true,
-    } as any);
-
+  it("has a Tools menu with the actions that exist", () => {
+    // The AI Assistant entry went with the embedded assistant (ADR-011).
     render(<MenuBar />);
 
     fireEvent.click(screen.getByText("Tools"));
-    expect(screen.getByText("AI Assistant")).toBeInTheDocument();
-  });
-
-  it("does not include AI Assistant when AI is disabled", () => {
-    render(<MenuBar />);
-
-    fireEvent.click(screen.getByText("Tools"));
+    expect(screen.getByText("Format SQL")).toBeInTheDocument();
     expect(screen.queryByText("AI Assistant")).toBeNull();
   });
 

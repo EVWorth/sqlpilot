@@ -86,10 +86,9 @@ fmt:
     cd src-tauri && cargo fmt --all
     npx dprint fmt
 
-# --features beta-ai so the AI commands are present in the output.
 [doc("Regenerate src/lib/bindings.ts from the Rust command definitions.")]
 bindings:
-    cd src-tauri && cargo test --features beta-ai --test export_bindings
+    cd src-tauri && cargo test --test export_bindings
 
 # ── Test databases ─────────────────────────────────────────────────────────
 #
