@@ -15,6 +15,29 @@ use mas_core::models::ConnectionProfile;
 use std::sync::Arc;
 use std::time::Duration;
 
+/// The server under test. MySQL by default; `MAS_TEST_PORT=13308` runs the
+/// same tests against MariaDB, which spells several admin statements
+/// differently.
+fn test_port() -> u16 {
+    std::env::var("MAS_TEST_PORT")
+        .ok()
+        .and_then(|p| p.parse().ok())
+        .unwrap_or(13306)
+}
+
+/// A connection URL for the server under test.
+///
+/// The tests that kill a session need the victim and the admin on the *same*
+/// server: hardcoding 13306 here while the admin connected to `test_port()`
+/// meant killing a thread id that belonged to the other one.
+fn url(user: &str, password: &str, database: Option<&str>) -> String {
+    format!(
+        "mysql://{user}:{password}@127.0.0.1:{}{}",
+        test_port(),
+        database.map(|d| format!("/{d}")).unwrap_or_default()
+    )
+}
+
 fn test_profile() -> ConnectionProfile {
     ConnectionProfile {
         id: uuid::Uuid::new_v4().to_string(),
@@ -22,7 +45,7 @@ fn test_profile() -> ConnectionProfile {
         group: None,
         color: None,
         host: "127.0.0.1".to_string(),
-        port: 13306,
+        port: test_port(),
         username: "test_user".to_string(),
         password: "test_password".to_string(),
         default_database: Some("test_db".to_string()),
@@ -56,7 +79,7 @@ async fn kill_process_terminates_a_real_connection() {
     use sqlx::Connection;
 
     let mut target_conn =
-        MySqlConnection::connect("mysql://test_user:test_password@127.0.0.1:13306/test_db")
+        MySqlConnection::connect(&url("test_user", "test_password", Some("test_db")))
             .await
             .expect("connect target");
 
@@ -132,10 +155,9 @@ async fn a_password_containing_a_backslash_round_trips() {
 
     let manager = Arc::new(ConnectionManager::new());
     // root, because creating users needs more than test_user has.
-    let mut admin =
-        MySqlConnection::connect("mysql://root:test_root_password@127.0.0.1:13306/test_db")
-            .await
-            .expect("connect as root");
+    let mut admin = MySqlConnection::connect(&url("root", "test_root_password", Some("test_db")))
+        .await
+        .expect("connect as root");
 
     let typed_password = r"pa\ss";
     // What quoteStringLiteral produces for that input: backslash doubled.
@@ -160,14 +182,12 @@ async fn a_password_containing_a_backslash_round_trips() {
     // No database in the URL: the account has no grants, and a "no access to
     // that schema" error (1044) would otherwise look like a pass when what is
     // being tested is authentication (1045).
-    let typed_ok = MySqlConnection::connect(&format!(
-        "mysql://bsprobe:{}@127.0.0.1:13306",
-        urlencoding_encode(typed_password)
-    ))
-    .await;
+    let typed_ok =
+        MySqlConnection::connect(&url("bsprobe", &urlencoding_encode(typed_password), None)).await;
 
-    // And must NOT accept the mangled form the old quoting would have stored.
-    let mangled_ok = MySqlConnection::connect("mysql://bsprobe:pass@127.0.0.1:13306").await;
+    // And must NOT accept the mangled form the old quoting would have stored:
+    // `pa\ss` with the backslash eaten.
+    let mangled_ok = MySqlConnection::connect(&url("bsprobe", "pass", None)).await;
 
     sqlx::raw_sql(sqlx::AssertSqlSafe("DROP USER 'bsprobe'@'%'".to_string()))
         .execute(&mut admin)
@@ -251,10 +271,9 @@ async fn kill_process_still_kills_a_foreign_connection() {
     let service = AdminService::new(manager.clone());
     let info = manager.connect(&test_profile()).await.expect("connect");
 
-    let mut victim =
-        MySqlConnection::connect("mysql://test_user:test_password@127.0.0.1:13306/test_db")
-            .await
-            .expect("open a separate connection");
+    let mut victim = MySqlConnection::connect(&url("test_user", "test_password", Some("test_db")))
+        .await
+        .expect("open a separate connection");
     let victim_id: (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
         .fetch_one(&mut victim)
         .await
@@ -288,10 +307,9 @@ async fn kill_query_stops_the_statement_but_keeps_the_session() {
     let service = AdminService::new(manager.clone());
     let admin = manager.connect(&test_profile()).await.expect("connect");
 
-    let mut victim =
-        MySqlConnection::connect("mysql://test_user:test_password@127.0.0.1:13306/test_db")
-            .await
-            .expect("open the session to interrupt");
+    let mut victim = MySqlConnection::connect(&url("test_user", "test_password", Some("test_db")))
+        .await
+        .expect("open the session to interrupt");
     let (victim_id,): (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
         .fetch_one(&mut victim)
         .await
