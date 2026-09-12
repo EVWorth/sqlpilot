@@ -1,5 +1,6 @@
-import { AlertTriangle, GitBranch, Square, Table2 } from "lucide-react";
+import { AlertTriangle, ChevronRight, GitBranch, Square, Table2 } from "lucide-react";
 import { useMemo, useState } from "react";
+import type { ExplainFormat } from "../../lib/bindings";
 import { useResultStore } from "../../stores/resultStore";
 import type { QueryResult, SqlValue } from "../../types";
 
@@ -566,6 +567,160 @@ function AnalyzeView({ result }: { result: QueryResult }) {
 }
 
 /**
+ * The optimiser's own cost model, as it sends it.
+ *
+ * `EXPLAIN FORMAT=JSON` answers with one cell holding a nested object:
+ * `query_cost`, `rows_examined_per_scan`, `filtered`, the chosen key and the
+ * ones it passed over. The tabular plan rounds all of that off, which is why
+ * this format is worth having at all (#424).
+ *
+ * Rendered as a collapsible tree rather than pretty-printed text, because the
+ * interesting numbers are three or four levels down inside a plan for a real
+ * query.
+ */
+function JsonPlanView({ result }: { result: QueryResult }) {
+  const parsed = useMemo(() => {
+    const cell = result.rows[0]?.[0];
+    if (cell === undefined || cell === null) return { error: "The server returned no plan." };
+    try {
+      return { value: JSON.parse(String(cell)) as unknown };
+    } catch {
+      // Not a failure worth hiding: show the text, which is still readable.
+      return { error: null, raw: String(cell) };
+    }
+  }, [result]);
+
+  if (parsed.error) {
+    return <div className="p-4 text-xs text-[var(--color-text-muted)]">{parsed.error}</div>;
+  }
+  if (parsed.raw !== undefined) {
+    return (
+      <div className="flex-1 overflow-auto p-4">
+        <pre className="font-mono text-xs leading-5 text-[var(--color-text-primary)]">
+          {parsed.raw}
+        </pre>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex-1 overflow-auto p-3">
+      <JsonNode value={parsed.value} name={null} depth={0} />
+    </div>
+  );
+}
+
+/** Keys worth picking out of a plan at a glance. */
+const COST_KEYS = new Set([
+  "query_cost",
+  "read_cost",
+  "eval_cost",
+  "prefix_cost",
+  "data_read_per_join",
+  "r_total_time_ms",
+]);
+
+const ROW_KEYS = new Set([
+  "rows_examined_per_scan",
+  "rows_produced_per_join",
+  "rows",
+  "r_rows",
+  "filtered",
+]);
+
+function JsonNode(
+  { value, name, depth }: { value: unknown; name: string | null; depth: number },
+) {
+  // Open the first few levels: the useful numbers sit inside query_block →
+  // table, and a plan that opens fully collapsed hides the reason to use it.
+  const [open, setOpen] = useState(depth < 3);
+
+  const isObject = value !== null && typeof value === "object";
+  const entries: [string, unknown][] = Array.isArray(value)
+    ? value.map((v, i) => [String(i), v])
+    : isObject
+    ? Object.entries(value as Record<string, unknown>)
+    : [];
+
+  if (!isObject) {
+    const text = typeof value === "string" ? value : JSON.stringify(value);
+    const highlight = name !== null && COST_KEYS.has(name)
+      ? "text-orange-300"
+      : name !== null && ROW_KEYS.has(name)
+      ? "text-blue-300"
+      : "text-[var(--color-text-primary)]";
+    return (
+      <div className="flex gap-1.5 py-px pl-4 font-mono text-[11px]">
+        {name !== null && <span className="text-[var(--color-text-muted)]">{name}:</span>}
+        <span className={highlight}>{text}</span>
+      </div>
+    );
+  }
+
+  const label = name ?? (Array.isArray(value) ? "plan" : "query plan");
+  return (
+    <div className="font-mono text-[11px]">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex items-center gap-1 py-px text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+      >
+        <ChevronRight
+          className={`h-3 w-3 shrink-0 transition-transform ${open ? "rotate-90" : ""}`}
+        />
+        <span>{label}</span>
+        <span className="text-[var(--color-text-muted)]">
+          {Array.isArray(value) ? `[${entries.length}]` : `{${entries.length}}`}
+        </span>
+      </button>
+      {open && (
+        <div className="ml-2 border-l border-[var(--color-border)] pl-2">
+          {entries.map(([key, child]) => <JsonNode key={key} value={child} name={key} depth={depth + 1} />)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The formats the panel can ask for.
+ *
+ * A select rather than three buttons: the panel already has a Table/Tree
+ * toggle for how to draw the tabular plan, and a second "Tree" beside it
+ * would be two different things wearing the same word.
+ */
+const FORMATS: { value: ExplainFormat; label: string }[] = [
+  { value: "classic", label: "Classic (tabular)" },
+  { value: "json", label: "JSON (cost model)" },
+  { value: "tree", label: "Iterator tree" },
+];
+
+function FormatPicker() {
+  const requested = useResultStore((s) => s.explainRequestedFormat);
+  const setExplainFormat = useResultStore((s) => s.setExplainFormat);
+  const isExecuting = useResultStore((s) => s.isExecuting);
+
+  return (
+    <label className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)]">
+      Format:
+      <select
+        aria-label="Plan format"
+        value={requested}
+        disabled={isExecuting}
+        onChange={(e) => void setExplainFormat(e.target.value as ExplainFormat)}
+        className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-1 py-0.5 text-[10px] text-[var(--color-text-secondary)] disabled:opacity-40"
+      >
+        {FORMATS.map((f) => (
+          <option key={f.value} value={f.value}>
+            {f.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
  * Shown when ANALYZE was asked for but the backend planned instead — the user
  * needs to know the timings are missing on purpose, not that ANALYZE failed.
  */
@@ -604,6 +759,7 @@ export function ExplainPanel() {
   const explainAnalyze = useResultStore((s) => s.explainAnalyze);
   const explainNotice = useResultStore((s) => s.explainNotice);
   const explainTabular = useResultStore((s) => s.explainTabular);
+  const explainFormat = useResultStore((s) => s.explainFormat);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const [viewMode, setViewMode] = useState<ViewMode>("table");
 
@@ -626,18 +782,40 @@ export function ExplainPanel() {
     );
   }
 
-  // MySQL's EXPLAIN ANALYZE answers with one column of TREE text, which the
-  // raw-text view is built for. MariaDB's ANALYZE answers with the same columns
-  // as EXPLAIN — joining those with newlines produced a wall of one word per
-  // line, so it belongs in the normal views (#422).
-  if (explainAnalyze && !explainTabular) {
+  // A JSON plan is one cell of nested object, whatever else is true of it.
+  if (explainFormat === "json") {
     return (
       <div className="flex h-full flex-col">
-        <div className="flex items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
+        <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
           <span className="text-[10px] font-medium text-[var(--color-text-secondary)]">
-            EXPLAIN ANALYZE
+            {explainAnalyze ? "ANALYZE" : "EXPLAIN"} FORMAT=JSON
           </span>
           {isExecuting && <CancelButton />}
+          <div className="ml-auto">
+            <FormatPicker />
+          </div>
+        </div>
+        {explainNotice && <DowngradeNotice notice={explainNotice} />}
+        <JsonPlanView result={explainResult} />
+      </div>
+    );
+  }
+
+  // MySQL's EXPLAIN ANALYZE and FORMAT=TREE answer with one column of text,
+  // which the raw-text view is built for. MariaDB's ANALYZE answers with the
+  // same columns as EXPLAIN — joining those with newlines produced a wall of
+  // one word per line, so it belongs in the normal views (#422).
+  if (explainFormat === "tree" || (explainAnalyze && !explainTabular)) {
+    return (
+      <div className="flex h-full flex-col">
+        <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
+          <span className="text-[10px] font-medium text-[var(--color-text-secondary)]">
+            {explainAnalyze ? "EXPLAIN ANALYZE" : "EXPLAIN FORMAT=TREE"}
+          </span>
+          {isExecuting && <CancelButton />}
+          <div className="ml-auto">
+            <FormatPicker />
+          </div>
         </div>
         {explainNotice && <DowngradeNotice notice={explainNotice} />}
         <AnalyzeView result={explainResult} />
@@ -675,8 +853,12 @@ export function ExplainPanel() {
           Tree
         </button>
 
+        <div className="ml-auto flex items-center gap-3">
+          <FormatPicker />
+        </div>
+
         {/* Legend for type badges */}
-        <div className="ml-auto flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+        <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
           <span>Access type:</span>
           {ACCESS_TYPES.map(({ type, color }) => (
             <span

@@ -10,7 +10,7 @@
 use chrono::Utc;
 use mas_core::connection::ConnectionManager;
 use mas_core::models::ConnectionProfile;
-use mas_core::query::{explain, AnalyzeRefusal, QueryExecutor};
+use mas_core::query::{explain, AnalyzeRefusal, ExplainFormat, FormatFallback, QueryExecutor};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -34,7 +34,14 @@ fn test_profile() -> ConnectionProfile {
         group: None,
         color: None,
         host: "127.0.0.1".to_string(),
-        port: 13306,
+        // MySQL by default; `MAS_TEST_PORT=13308` runs the same tests against
+        // MariaDB, whose EXPLAIN differs in shape and in which formats it has.
+        // The timeout test in this file needs #657's fix before that run is
+        // clean on MariaDB; the format tests below pass on both today.
+        port: std::env::var("MAS_TEST_PORT")
+            .ok()
+            .and_then(|p| p.parse().ok())
+            .unwrap_or(13306),
         username: "test_user".to_string(),
         password: "test_password".to_string(),
         default_database: Some("test_db".to_string()),
@@ -68,6 +75,7 @@ async fn analyzes_a_statement_that_still_has_its_semicolon() {
         "SELECT id, username FROM users LIMIT 1;".to_string(),
         Some("test_db".to_string()),
         true,
+        ExplainFormat::Classic,
     )
     .await
     .expect("EXPLAIN ANALYZE with a trailing semicolon should succeed");
@@ -95,6 +103,7 @@ async fn refuses_a_multi_statement_script() {
         "SELECT 1; SELECT 2;".to_string(),
         Some("test_db".to_string()),
         false,
+        ExplainFormat::Classic,
     )
     .await
     .expect_err("multi-statement EXPLAIN should be refused");
@@ -153,6 +162,7 @@ async fn planning_a_delete_does_not_delete() {
         "DELETE FROM explain_canary WHERE 1=1".to_string(),
         Some("test_db".to_string()),
         true,
+        ExplainFormat::Classic,
     )
     .await
     .expect("should fall back to a plain EXPLAIN rather than erroring");
@@ -216,6 +226,7 @@ async fn planning_a_cte_prefixed_delete_does_not_delete() {
             .to_string(),
         Some("test_db".to_string()),
         true,
+        ExplainFormat::Classic,
     )
     .await
     .expect("should downgrade to a plain EXPLAIN");
@@ -263,6 +274,7 @@ async fn a_cte_prefixed_read_is_still_analyzed() {
         "WITH recent AS (SELECT id FROM users) SELECT * FROM recent".to_string(),
         Some("test_db".to_string()),
         true,
+        ExplainFormat::Classic,
     )
     .await
     .unwrap();
@@ -294,6 +306,7 @@ async fn a_read_only_profile_refuses_to_analyze() {
         "SELECT 1".to_string(),
         Some("test_db".to_string()),
         true,
+        ExplainFormat::Classic,
     )
     .await
     .unwrap();
@@ -438,6 +451,7 @@ async fn a_plain_explain_returns_a_tabular_plan() {
         "SELECT * FROM users".to_string(),
         Some("test_db".to_string()),
         false,
+        ExplainFormat::Classic,
     )
     .await
     .unwrap();
@@ -488,6 +502,7 @@ async fn mariadb_analyze_comes_back_tabular_with_measured_columns() {
         "SELECT * FROM users LIMIT 1".to_string(),
         Some("test_db".to_string()),
         true,
+        ExplainFormat::Classic,
     )
     .await
     .unwrap();
@@ -527,6 +542,7 @@ async fn mariadb_planning_a_delete_does_not_delete() {
         "DELETE FROM users WHERE 1=1".to_string(),
         Some("test_db".to_string()),
         true,
+        ExplainFormat::Classic,
     )
     .await
     .unwrap();
@@ -678,4 +694,161 @@ async fn a_read_only_refusal_leaves_the_data_alone() {
         .unwrap();
     manager.disconnect(&reader.id).await.unwrap();
     manager.disconnect(&writer.id).await.unwrap();
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// FORMAT=JSON and FORMAT=TREE (#424)
+//
+// The formats each server offers, checked against the servers rather than
+// against the manual. Run with `MAS_TEST_PORT=13308` for MariaDB, where the
+// answers differ.
+// ─────────────────────────────────────────────────────────────────────────
+
+/// The one cell a JSON or TREE plan comes back in.
+fn only_cell(result: &mas_core::models::QueryResult) -> String {
+    match &result.rows[0][0] {
+        mas_core::models::SqlValue::String(v) => v.clone(),
+        other => panic!("expected text, got {other:?}"),
+    }
+}
+
+async fn plan_in(format: ExplainFormat, analyze: bool) -> mas_core::query::ExplainResponse {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+    explain(
+        &manager,
+        &executor,
+        info.id.clone(),
+        "SELECT id, username FROM users LIMIT 1".to_string(),
+        Some("test_db".to_string()),
+        analyze,
+        format,
+    )
+    .await
+    .expect("the server should accept the statement we build")
+}
+
+fn is_mariadb_under_test() -> bool {
+    std::env::var("MAS_TEST_PORT").as_deref() == Ok("13308")
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_json_plan_comes_back_as_the_optimisers_cost_model() {
+    let response = plan_in(ExplainFormat::Json, false).await;
+
+    assert_eq!(response.format, ExplainFormat::Json);
+    assert!(!response.tabular, "JSON is one cell, not a table");
+
+    let text = only_cell(&response.result);
+    let parsed: serde_json::Value = serde_json::from_str(&text).expect("the cell should be JSON");
+    assert!(
+        parsed.get("query_block").is_some(),
+        "no query_block in {text}"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_tree_plan_is_mysql_only_and_says_so_on_mariadb() {
+    let response = plan_in(ExplainFormat::Tree, false).await;
+
+    if is_mariadb_under_test() {
+        // Error 1791 if we sent it. The tabular plan is produced instead, and
+        // the caller is told why rather than shown an error where a plan
+        // should be.
+        assert_eq!(response.format, ExplainFormat::Classic);
+        assert_eq!(
+            response.format_fallback,
+            Some(FormatFallback::TreeNotSupported)
+        );
+        assert!(response.tabular);
+    } else {
+        assert_eq!(response.format, ExplainFormat::Tree);
+        assert!(!response.tabular);
+        assert!(
+            only_cell(&response.result).contains("->"),
+            "an iterator tree starts its lines with ->"
+        );
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_timed_json_plan_is_served_where_the_server_can_and_explained_where_it_cannot() {
+    let response = plan_in(ExplainFormat::Json, true).await;
+    let text = only_cell(&response.result);
+    let parsed: serde_json::Value = serde_json::from_str(&text).expect("JSON");
+
+    if is_mariadb_under_test() {
+        // MariaDB has ANALYZE FORMAT=JSON, which carries the real timings.
+        assert_eq!(response.format_fallback, Some(FormatFallback::None));
+        assert!(response.analyzed);
+        assert!(
+            parsed.get("query_optimization").is_some() || text.contains("r_total_time_ms"),
+            "no actual timings in {text}"
+        );
+    } else {
+        // MySQL before 8.3: error 1235 for the combination, so the plan comes
+        // back without the timings and the caller is told.
+        assert_eq!(
+            response.format_fallback,
+            Some(FormatFallback::AnalyzeJsonNotSupported)
+        );
+        assert!(parsed.get("query_block").is_some());
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn the_classic_plan_is_unchanged_by_any_of_this() {
+    // The default must still be what it was: a tabular plan with the columns
+    // the table and tree views are built on.
+    let response = plan_in(ExplainFormat::Classic, false).await;
+    assert_eq!(response.format, ExplainFormat::Classic);
+    assert!(response.tabular);
+    let names: Vec<&str> = response
+        .result
+        .columns
+        .iter()
+        .map(|c| c.name.as_str())
+        .collect();
+    assert!(names.contains(&"type"), "{names:?}");
+    assert!(names.contains(&"rows"), "{names:?}");
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn asking_for_a_format_does_not_lose_the_analyze_safety_check() {
+    // The refusal is about what the statement would do, and must not be
+    // affected by which shape of plan was asked for (#412).
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    for format in [
+        ExplainFormat::Classic,
+        ExplainFormat::Json,
+        ExplainFormat::Tree,
+    ] {
+        let response = explain(
+            &manager,
+            &executor,
+            info.id.clone(),
+            "DELETE FROM users WHERE id = -1".to_string(),
+            Some("test_db".to_string()),
+            true,
+            format,
+        )
+        .await
+        .expect("a write should be planned, not run");
+
+        assert_eq!(
+            response.refusal,
+            Some(AnalyzeRefusal::WouldMutate),
+            "{format:?}"
+        );
+        assert!(!response.analyzed, "{format:?}");
+    }
 }

@@ -23,7 +23,23 @@ export const commands = {
 	 *  measures: the decision to downgrade a write to a plain EXPLAIN has to sit
 	 *  behind the IPC boundary, not in the caller (#412).
 	 */
-	explainQuery: (connectionId: string, sql: string, database: string | null, analyze: boolean) => typedError<ExplainResponse_Serialize, string>(__TAURI_INVOKE("explain_query", { connectionId, sql, database, analyze })),
+	explainQuery: (connectionId: string, sql: string, database: string | null, analyze: boolean, format: 
+/**
+ *  The tabular plan: one row per table, with the access type and the row
+ *  estimate. What every version of both servers answers by default.
+ */
+"classic" | 
+/**
+ *  The optimiser's own cost model, as nested JSON. `query_cost`,
+ *  `rows_examined_per_scan`, `filtered` and the rest — the numbers the
+ *  tabular form rounds off.
+ */
+"json" | 
+/**
+ *  The iterator tree, which is the shape `EXPLAIN ANALYZE` reports in.
+ *  MySQL 8.0.16 and later; MariaDB does not have it.
+ */
+"tree" | null) => typedError<ExplainResponse_Serialize, string>(__TAURI_INVOKE("explain_query", { connectionId, sql, database, analyze, format })),
 	/**
 	 *  Stop whatever is running on this connection.
 	 * 
@@ -409,6 +425,31 @@ export type EventInfo = {
 	comment: string,
 };
 
+/**
+ *  Which shape of plan to ask the server for.
+ * 
+ *  MySQL and MariaDB do not offer the same set, and neither offers every
+ *  combination with ANALYZE — see `plan_statement`, which is where the
+ *  differences are resolved rather than in the caller.
+ */
+export type ExplainFormat = 
+/**
+ *  The tabular plan: one row per table, with the access type and the row
+ *  estimate. What every version of both servers answers by default.
+ */
+"classic" | 
+/**
+ *  The optimiser's own cost model, as nested JSON. `query_cost`,
+ *  `rows_examined_per_scan`, `filtered` and the rest — the numbers the
+ *  tabular form rounds off.
+ */
+"json" | 
+/**
+ *  The iterator tree, which is the shape `EXPLAIN ANALYZE` reports in.
+ *  MySQL 8.0.16 and later; MariaDB does not have it.
+ */
+"tree";
+
 export type ExplainResponse = ExplainResponse_Serialize | ExplainResponse_Deserialize;
 
 export type ExplainResponse_Deserialize = {
@@ -425,6 +466,13 @@ export type ExplainResponse_Deserialize = {
 	 *  than MySQL's single-column TREE text (#422).
 	 */
 	tabular: boolean,
+	/**
+	 *  The format the result is actually in, which is not always the one that
+	 *  was asked for.
+	 */
+	format: ExplainFormat,
+	/**  Set when the requested format could not be served (#424). */
+	format_fallback: FormatFallback | null,
 };
 
 export type ExplainResponse_Serialize = {
@@ -441,6 +489,13 @@ export type ExplainResponse_Serialize = {
 	 *  than MySQL's single-column TREE text (#422).
 	 */
 	tabular: boolean,
+	/**
+	 *  The format the result is actually in, which is not always the one that
+	 *  was asked for.
+	 */
+	format: ExplainFormat,
+	/**  Set when the requested format could not be served (#424). */
+	format_fallback: FormatFallback | null,
 };
 
 /**
@@ -468,6 +523,24 @@ export type ForeignKeyInfo = {
 	on_update: string,
 	on_delete: string,
 };
+
+/**  A format that could not be served, and what was done instead. */
+export type FormatFallback = 
+/**
+ *  MariaDB has no `FORMAT=TREE`; asking for one is error 1791. The
+ *  tabular plan was produced instead.
+ */
+"tree_not_supported" | 
+/**
+ *  MySQL cannot combine ANALYZE with JSON before 8.3 — error 1235. The
+ *  plan was produced in JSON without the actual timings.
+ */
+"analyze_json_not_supported" | 
+/**
+ *  MariaDB spells the JSON form of ANALYZE `ANALYZE FORMAT=JSON`, which
+ *  is what ran; nothing was lost.
+ */
+"none";
 
 export type HistoryEntry = {
 	id: string,

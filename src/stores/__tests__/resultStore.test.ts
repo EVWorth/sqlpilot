@@ -579,7 +579,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeExplain("conn-1", "SELECT 1");
 
-      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", false, undefined);
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", false, undefined, "classic");
       const state = useResultStore.getState();
       expect(state.explainResult).toEqual(response.result);
       expect(state.explainAnalyze).toBe(false);
@@ -592,7 +592,7 @@ describe("resultStore", () => {
       // job now, so the store must not pre-chew the SQL (#418).
       await useResultStore.getState().executeExplain("conn-1", "SELECT 1;", "mydb");
 
-      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1;", false, "mydb");
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1;", false, "mydb", "classic");
     });
 
     it("surfaces a backend rejection as an error", async () => {
@@ -619,7 +619,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
 
-      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined);
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined, "classic");
       const state = useResultStore.getState();
       expect(state.explainAnalyze).toBe(true);
       expect(state.explainNotice).toBeNull();
@@ -682,7 +682,7 @@ describe("resultStore", () => {
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
       await useResultStore.getState().confirmExecution();
 
-      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined);
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined, "classic");
       expect(useResultStore.getState().confirmDialog).toBeNull();
       expect(useResultStore.getState().explainAnalyze).toBe(true);
     });

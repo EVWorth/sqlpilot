@@ -26,6 +26,41 @@ pub enum AnalyzeRefusal {
     ReadOnlyConnection,
 }
 
+/// Which shape of plan to ask the server for.
+///
+/// MySQL and MariaDB do not offer the same set, and neither offers every
+/// combination with ANALYZE — see `plan_statement`, which is where the
+/// differences are resolved rather than in the caller.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum ExplainFormat {
+    /// The tabular plan: one row per table, with the access type and the row
+    /// estimate. What every version of both servers answers by default.
+    Classic,
+    /// The optimiser's own cost model, as nested JSON. `query_cost`,
+    /// `rows_examined_per_scan`, `filtered` and the rest — the numbers the
+    /// tabular form rounds off.
+    Json,
+    /// The iterator tree, which is the shape `EXPLAIN ANALYZE` reports in.
+    /// MySQL 8.0.16 and later; MariaDB does not have it.
+    Tree,
+}
+
+/// A format that could not be served, and what was done instead.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "snake_case")]
+pub enum FormatFallback {
+    /// MariaDB has no `FORMAT=TREE`; asking for one is error 1791. The
+    /// tabular plan was produced instead.
+    TreeNotSupported,
+    /// MySQL cannot combine ANALYZE with JSON before 8.3 — error 1235. The
+    /// plan was produced in JSON without the actual timings.
+    AnalyzeJsonNotSupported,
+    /// MariaDB spells the JSON form of ANALYZE `ANALYZE FORMAT=JSON`, which
+    /// is what ran; nothing was lost.
+    None,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
 pub struct ExplainResponse {
     pub result: QueryResult,
@@ -37,6 +72,99 @@ pub struct ExplainResponse {
     /// True when the plan came back in MariaDB's tabular ANALYZE shape rather
     /// than MySQL's single-column TREE text (#422).
     pub tabular: bool,
+    /// The format the result is actually in, which is not always the one that
+    /// was asked for.
+    pub format: ExplainFormat,
+    /// Set when the requested format could not be served (#424).
+    pub format_fallback: Option<FormatFallback>,
+}
+
+/// What to send, and what the caller ends up with.
+///
+/// The combinations neither server supports are resolved here rather than by
+/// letting the server reject the statement: an error saying "This version of
+/// MySQL doesn't yet support 'EXPLAIN ANALYZE with JSON format'" in place of a
+/// plan is a worse answer than the plan without the timings.
+fn plan_statement(
+    target: &str,
+    analyze: bool,
+    format: ExplainFormat,
+    is_mariadb: bool,
+) -> (String, ExplainFormat, bool, Option<FormatFallback>) {
+    match (format, analyze, is_mariadb) {
+        // Classic — what both servers answer by default. MariaDB spells the
+        // timed form `ANALYZE <stmt>` and answers tabular; MySQL spells it
+        // `EXPLAIN ANALYZE` and answers with TREE text.
+        (ExplainFormat::Classic, true, true) => (
+            format!("ANALYZE {target}"),
+            ExplainFormat::Classic,
+            true,
+            None,
+        ),
+        (ExplainFormat::Classic, true, false) => (
+            format!("EXPLAIN ANALYZE {target}"),
+            ExplainFormat::Tree,
+            true,
+            None,
+        ),
+        (ExplainFormat::Classic, false, _) => (
+            format!("EXPLAIN {target}"),
+            ExplainFormat::Classic,
+            false,
+            None,
+        ),
+
+        // JSON — both servers have it for a plan. For a timed run, MariaDB
+        // has `ANALYZE FORMAT=JSON`; MySQL does not before 8.3 (error 1235),
+        // so the plan comes back in JSON without the timings.
+        (ExplainFormat::Json, true, true) => (
+            format!("ANALYZE FORMAT=JSON {target}"),
+            ExplainFormat::Json,
+            true,
+            Some(FormatFallback::None),
+        ),
+        (ExplainFormat::Json, true, false) => (
+            format!("EXPLAIN FORMAT=JSON {target}"),
+            ExplainFormat::Json,
+            false,
+            Some(FormatFallback::AnalyzeJsonNotSupported),
+        ),
+        (ExplainFormat::Json, false, _) => (
+            format!("EXPLAIN FORMAT=JSON {target}"),
+            ExplainFormat::Json,
+            false,
+            None,
+        ),
+
+        // TREE — MySQL only. `EXPLAIN ANALYZE` is already tree-shaped, so the
+        // timed form needs no FORMAT clause.
+        (ExplainFormat::Tree, true, false) => (
+            format!("EXPLAIN ANALYZE {target}"),
+            ExplainFormat::Tree,
+            true,
+            None,
+        ),
+        (ExplainFormat::Tree, false, false) => (
+            format!("EXPLAIN FORMAT=TREE {target}"),
+            ExplainFormat::Tree,
+            false,
+            None,
+        ),
+        (ExplainFormat::Tree, analyze, true) => {
+            // Error 1791: "Unknown EXPLAIN/ANALYZE format name: 'TREE'".
+            let statement = if analyze {
+                format!("ANALYZE {target}")
+            } else {
+                format!("EXPLAIN {target}")
+            };
+            (
+                statement,
+                ExplainFormat::Classic,
+                analyze,
+                Some(FormatFallback::TreeNotSupported),
+            )
+        }
+    }
 }
 
 /// Statements whose execution has no side effects, and so are safe to ANALYZE.
@@ -87,6 +215,7 @@ pub async fn explain(
     sql: String,
     database: Option<String>,
     analyze: bool,
+    format: ExplainFormat,
 ) -> Result<ExplainResponse, CoreError> {
     let target = normalize_explain_target(&sql)?;
 
@@ -114,11 +243,8 @@ pub async fn explain(
         .map(|v| v.to_lowercase().contains("mariadb"))
         .unwrap_or(false);
 
-    let statement = match (will_analyze, is_mariadb) {
-        (true, true) => format!("ANALYZE {}", target),
-        (true, false) => format!("EXPLAIN ANALYZE {}", target),
-        (false, _) => format!("EXPLAIN {}", target),
-    };
+    let (statement, produced_format, _timed, format_fallback) =
+        plan_statement(&target, will_analyze, format, is_mariadb);
 
     // No row limit: appending LIMIT to an EXPLAIN would rewrite the very
     // statement being planned.
@@ -133,8 +259,8 @@ pub async fn explain(
     }
     let result = results.remove(0);
 
-    // MySQL's TREE output is one column; anything wider is tabular and should
-    // render in the table/tree views rather than as raw text.
+    // MySQL's TREE and JSON output is one column; anything wider is tabular
+    // and should render in the table/tree views rather than as raw text.
     let tabular = result.columns.len() > 1;
 
     Ok(ExplainResponse {
@@ -142,6 +268,8 @@ pub async fn explain(
         analyzed: will_analyze,
         refusal,
         tabular,
+        format: produced_format,
+        format_fallback,
     })
 }
 
@@ -258,5 +386,136 @@ mod tests {
             "DELETE FROM t WHERE id IN (SELECT id FROM u)"
         ));
         assert!(is_analyzable("SELECT * FROM t WHERE note = 'DELETE'"));
+    }
+
+    /// The statement each combination sends, checked against what the servers
+    /// actually accept. Every case here was run against MySQL 8.0.46 and
+    /// MariaDB 11.8 before being written down.
+    mod formats {
+        use super::*;
+
+        fn plan(
+            analyze: bool,
+            format: ExplainFormat,
+            mariadb: bool,
+        ) -> (String, ExplainFormat, Option<FormatFallback>) {
+            let (sql, produced, _, fallback) = plan_statement("SELECT 1", analyze, format, mariadb);
+            (sql, produced, fallback)
+        }
+
+        #[test]
+        fn the_default_is_what_both_servers_answered_before() {
+            assert_eq!(
+                plan(false, ExplainFormat::Classic, false).0,
+                "EXPLAIN SELECT 1"
+            );
+            assert_eq!(
+                plan(false, ExplainFormat::Classic, true).0,
+                "EXPLAIN SELECT 1"
+            );
+        }
+
+        #[test]
+        fn each_server_is_asked_to_analyze_the_way_it_spells_it() {
+            // MySQL: `EXPLAIN ANALYZE`, answering with TREE text.
+            let (sql, produced, _) = plan(true, ExplainFormat::Classic, false);
+            assert_eq!(sql, "EXPLAIN ANALYZE SELECT 1");
+            assert_eq!(produced, ExplainFormat::Tree);
+
+            // MariaDB: `ANALYZE`, answering in the same tabular shape as
+            // EXPLAIN (#422).
+            let (sql, produced, _) = plan(true, ExplainFormat::Classic, true);
+            assert_eq!(sql, "ANALYZE SELECT 1");
+            assert_eq!(produced, ExplainFormat::Classic);
+        }
+
+        #[test]
+        fn json_is_asked_for_the_same_way_on_both() {
+            assert_eq!(
+                plan(false, ExplainFormat::Json, false).0,
+                "EXPLAIN FORMAT=JSON SELECT 1"
+            );
+            assert_eq!(
+                plan(false, ExplainFormat::Json, true).0,
+                "EXPLAIN FORMAT=JSON SELECT 1"
+            );
+        }
+
+        #[test]
+        fn mariadb_can_time_a_json_plan_and_mysql_cannot() {
+            // MariaDB has `ANALYZE FORMAT=JSON`, which carries r_total_time_ms.
+            let (sql, produced, fallback) = plan(true, ExplainFormat::Json, true);
+            assert_eq!(sql, "ANALYZE FORMAT=JSON SELECT 1");
+            assert_eq!(produced, ExplainFormat::Json);
+            assert_eq!(fallback, Some(FormatFallback::None));
+
+            // MySQL before 8.3 answers `EXPLAIN ANALYZE FORMAT=JSON` with
+            // error 1235. A plan without timings beats an error instead of a
+            // plan, so that is what is sent — and said.
+            let (sql, produced, fallback) = plan(true, ExplainFormat::Json, false);
+            assert_eq!(sql, "EXPLAIN FORMAT=JSON SELECT 1");
+            assert_eq!(produced, ExplainFormat::Json);
+            assert_eq!(fallback, Some(FormatFallback::AnalyzeJsonNotSupported));
+        }
+
+        #[test]
+        fn tree_is_mysql_only_and_mariadb_falls_back_rather_than_erroring() {
+            let (sql, produced, fallback) = plan(false, ExplainFormat::Tree, false);
+            assert_eq!(sql, "EXPLAIN FORMAT=TREE SELECT 1");
+            assert_eq!(produced, ExplainFormat::Tree);
+            assert_eq!(fallback, None);
+
+            // MariaDB: error 1791, "Unknown EXPLAIN/ANALYZE format name".
+            let (sql, produced, fallback) = plan(false, ExplainFormat::Tree, true);
+            assert_eq!(sql, "EXPLAIN SELECT 1");
+            assert_eq!(produced, ExplainFormat::Classic);
+            assert_eq!(fallback, Some(FormatFallback::TreeNotSupported));
+        }
+
+        #[test]
+        fn a_timed_tree_needs_no_format_clause() {
+            // `EXPLAIN ANALYZE` is already tree-shaped on MySQL; adding
+            // FORMAT=TREE to it is a syntax error.
+            let (sql, _, _) = plan(true, ExplainFormat::Tree, false);
+            assert_eq!(sql, "EXPLAIN ANALYZE SELECT 1");
+            assert!(!sql.contains("FORMAT"));
+        }
+
+        #[test]
+        fn a_timed_tree_on_mariadb_becomes_a_timed_tabular_plan() {
+            let (sql, produced, fallback) = plan(true, ExplainFormat::Tree, true);
+            assert_eq!(sql, "ANALYZE SELECT 1");
+            assert_eq!(produced, ExplainFormat::Classic);
+            assert_eq!(fallback, Some(FormatFallback::TreeNotSupported));
+        }
+
+        #[test]
+        fn no_combination_sends_something_neither_server_accepts() {
+            // The whole point of resolving this here: every branch has to
+            // produce a statement one of them will run.
+            for &format in &[
+                ExplainFormat::Classic,
+                ExplainFormat::Json,
+                ExplainFormat::Tree,
+            ] {
+                for &analyze in &[true, false] {
+                    for &mariadb in &[true, false] {
+                        let (sql, _, _, _) = plan_statement("SELECT 1", analyze, format, mariadb);
+                        assert!(sql.ends_with("SELECT 1"), "{sql}");
+                        assert!(
+                            sql.starts_with("EXPLAIN ") || sql.starts_with("ANALYZE "),
+                            "{sql}"
+                        );
+                        // MariaDB never sees TREE, MySQL never sees a timed
+                        // JSON request.
+                        if mariadb {
+                            assert!(!sql.contains("TREE"), "{sql}");
+                        } else {
+                            assert!(!(sql.contains("ANALYZE") && sql.contains("JSON")), "{sql}");
+                        }
+                    }
+                }
+            }
+        }
     }
 }
