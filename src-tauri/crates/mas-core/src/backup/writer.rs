@@ -152,6 +152,7 @@ pub async fn run_backup(
 
     let mut state = Progress::new(tables.len() as u32, bytes.clone());
 
+    let mut snapshot_open = false;
     let result = dump(
         &mut out,
         &mut conn,
@@ -164,8 +165,19 @@ pub async fn run_backup(
         &mut state,
         &mut on_progress,
         &mut warnings,
+        &mut snapshot_open,
     )
     .await;
+
+    // End the snapshot transaction before the connection goes back to the
+    // pool. Leaving it open hands the next caller a session still reading the
+    // database as it was — which shows up later, somewhere else, as
+    // "Table definition has changed, please retry transaction".
+    if snapshot_open {
+        let _ = sqlx::raw_sql(AssertSqlSafe("COMMIT".to_string()))
+            .execute(&mut *conn)
+            .await;
+    }
 
     // Flush before deciding anything: a file left half-written by a failed
     // flush is worse than the error that caused it.
@@ -209,6 +221,7 @@ async fn dump(
     state: &mut Progress,
     on_progress: &mut impl FnMut(BackupProgress),
     warnings: &mut Vec<String>,
+    snapshot_open: &mut bool,
 ) -> Result<(), CoreError> {
     write_header(out, database, options).await?;
 
@@ -220,6 +233,7 @@ async fn dump(
         .await
         {
             Ok(_) => {
+                *snapshot_open = true;
                 out.write("-- Read from a single consistent snapshot.\n\n")
                     .await?
             }

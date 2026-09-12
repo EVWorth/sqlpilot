@@ -383,3 +383,114 @@ async fn a_read_only_connection_refuses_a_restore() {
     assert!(err.to_string().to_lowercase().contains("read-only"));
     manager.disconnect(&info.id).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn a_database_survives_a_round_trip_through_a_dump() {
+    // The test the audit asked for and nothing did: dump a database, restore
+    // it somewhere else, and compare. Every other test here checks one part
+    // of that; this is the one that would catch the parts nobody thought of.
+    use mas_core::backup::{run_backup, BackupOptions};
+
+    let h = harness().await;
+    let source = format!("{DB}_source");
+    let target = format!("{DB}_target");
+
+    for statement in [
+        format!("DROP DATABASE IF EXISTS `{source}`"),
+        format!("DROP DATABASE IF EXISTS `{target}`"),
+        format!("CREATE DATABASE `{source}`"),
+        format!("CREATE DATABASE `{target}`"),
+        format!(
+            "CREATE TABLE `{source}`.`things` (
+               id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+               label VARCHAR(64),
+               exact DECIMAL(20,8),
+               moment DATETIME(6),
+               blob_col VARBINARY(8),
+               PRIMARY KEY (id)
+             )"
+        ),
+        format!(
+            "INSERT INTO `{source}`.`things` (label, exact, moment, blob_col) VALUES
+               ('it''s here', 12345.67890123, '2026-09-03 11:22:33.123456', 0x00FF),
+               (NULL, -0.00000001, '1999-12-31 23:59:59.999999', 0x27),
+               ('café 日本', 0, '2000-01-01 00:00:00.000000', NULL)"
+        ),
+    ] {
+        sqlx::raw_sql(sqlx::AssertSqlSafe(statement.clone()))
+            .execute(&h.pool)
+            .await
+            .unwrap_or_else(|e| panic!("{statement}: {e}"));
+    }
+
+    let path = h.dir.path().join("roundtrip.sql");
+    run_backup(
+        h.manager.clone(),
+        &h.connection_id,
+        &source,
+        &["things".to_string()],
+        &BackupOptions::default(),
+        &path,
+        Arc::new(AtomicBool::new(false)),
+        |_| {},
+    )
+    .await
+    .unwrap();
+
+    let summary = run_restore(
+        h.manager.clone(),
+        &h.connection_id,
+        &target,
+        &path,
+        &RestoreOptions::default(),
+        Arc::new(AtomicBool::new(false)),
+        |_| {},
+    )
+    .await
+    .unwrap();
+    assert_eq!(summary.statements_failed, 0, "{:?}", summary.errors);
+
+    // Not a row count: a checksum over every column of every row, so a value
+    // that came back subtly different — a rounded DECIMAL, a DATETIME missing
+    // its microseconds — fails here rather than looking identical.
+    let digest = |db: &str| {
+        let sql = format!(
+            "SELECT MD5(GROUP_CONCAT(
+                 COALESCE(id,'~'), '|', COALESCE(label,'~'), '|',
+                 COALESCE(exact,'~'), '|', COALESCE(moment,'~'), '|',
+                 COALESCE(HEX(blob_col),'~')
+                 ORDER BY id SEPARATOR '#'))
+             FROM `{db}`.`things`"
+        );
+        sqlx::query_scalar::<_, Option<String>>(sqlx::AssertSqlSafe(sql)).fetch_one(&h.pool)
+    };
+    let before: Option<String> = digest(&source).await.unwrap();
+    let after: Option<String> = digest(&target).await.unwrap();
+    assert!(before.is_some());
+    assert_eq!(before, after, "the data changed on the way through");
+
+    // And the structure, which is what a restored backup is for.
+    let columns = |db: &str| {
+        sqlx::query_scalar::<_, String>(
+            "SELECT GROUP_CONCAT(CONCAT_WS(':', COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, EXTRA)
+                     ORDER BY ORDINAL_POSITION)
+             FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'things'",
+        )
+        .bind(db.to_string())
+        .fetch_one(&h.pool)
+    };
+    assert_eq!(
+        columns(&source).await.unwrap(),
+        columns(&target).await.unwrap()
+    );
+
+    for db in [&source, &target] {
+        let _ = sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "DROP DATABASE IF EXISTS `{db}`"
+        )))
+        .execute(&h.pool)
+        .await;
+    }
+    h.done().await;
+}

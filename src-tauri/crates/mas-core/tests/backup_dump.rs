@@ -378,3 +378,59 @@ async fn the_file_ends_with_the_marker_that_says_it_finished() {
     assert!(summary.bytes_written as usize >= sql.len());
     assert!(summary.warnings.is_empty(), "{:?}", summary.warnings);
 }
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+async fn the_snapshot_transaction_does_not_outlive_the_dump() {
+    // The dump reads inside START TRANSACTION WITH CONSISTENT SNAPSHOT. Left
+    // open, the connection goes back to the pool still reading the database
+    // as it was, and the next caller to get it sees a stale schema — which
+    // surfaces much later, somewhere else, as "Table definition has changed,
+    // please retry transaction".
+    let manager = Arc::new(ConnectionManager::new());
+    let info = manager.connect(&profile()).await.unwrap();
+    let pool = manager.get_pool(&info.id).unwrap();
+    seed(&pool).await;
+
+    let dir = tempfile::tempdir().unwrap();
+    run_backup(
+        manager.clone(),
+        &info.id,
+        DB,
+        &["awkward".to_string()],
+        &BackupOptions::default(),
+        &dir.path().join("dump.sql"),
+        Arc::new(AtomicBool::new(false)),
+        |_| {},
+    )
+    .await
+    .unwrap();
+
+    // Change the schema, then read it back on every pooled connection. A
+    // session still inside the snapshot answers with the old definition or
+    // refuses outright.
+    run(
+        &pool,
+        &[format!(
+            "ALTER TABLE `{DB}`.`awkward` ADD COLUMN added_later INT"
+        )],
+    )
+    .await;
+
+    for _ in 0..4 {
+        let columns: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = ? AND TABLE_NAME = 'awkward'",
+        )
+        .bind(DB)
+        .fetch_one(&pool)
+        .await
+        .expect("a connection was left inside the dump's transaction");
+        assert_eq!(
+            columns, 8,
+            "a pooled connection is still on the old snapshot"
+        );
+    }
+
+    manager.disconnect(&info.id).await.unwrap();
+}
