@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useTheme } from "../../hooks/useTheme";
-import { useAiStore } from "../../stores/aiStore";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDialogStore } from "../../stores/dialogStore";
@@ -15,7 +14,6 @@ import { useResultStore } from "../../stores/resultStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
-import { AIChatPanel } from "../ai/AIChatPanel";
 import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
 import { ConfirmDialog } from "../common/ConfirmDialog";
@@ -63,7 +61,6 @@ export function AppLayout() {
   const helpTab = useDialogStore((s) => s.helpTab);
   const openDialog = useDialogStore((s) => s.openDialog);
   const closeDialog = useDialogStore((s) => s.closeDialog);
-  const [aiPanelOpen, setAiPanelOpen] = useState(false);
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const selectedConnection = activeConnections.find((c) => c.id === selectedConnectionId);
@@ -72,16 +69,11 @@ export function AppLayout() {
   const answerGuard = useProductionGuardStore((s) => s.answer);
   const confirmExecution = useResultStore((s) => s.confirmExecution);
   const cancelExecution = useResultStore((s) => s.cancelExecution);
-  const aiEnabled = useAiStore((s) => s.aiEnabled);
 
   useTheme();
 
   const toggleSidebar = useCallback(
     () => setSidebarCollapsed((prev) => !prev),
-    [],
-  );
-  const toggleAiPanel = useCallback(
-    () => setAiPanelOpen((prev) => !prev),
     [],
   );
   const openShortcuts = useCallback(() => useDialogStore.getState().openHelp("shortcuts"), []);
@@ -107,11 +99,6 @@ export function AppLayout() {
   }, []);
 
   useKeyboardShortcuts(toggleSidebar, openShortcuts, openSaveFavorite, openHistoryPicker);
-
-  // Check AI availability on mount
-  useEffect(() => {
-    useAiStore.getState().checkStatus();
-  }, []);
 
   // Listen for connections going away and coming back, and keep the pool
   // numbers moving (#276, FR-1.2.3). One subscription for the app.
@@ -191,9 +178,6 @@ export function AppLayout() {
         case "format-sql":
           editorInstance?.getAction("format-sql")?.run();
           break;
-        case "ai-assistant":
-          if (useAiStore.getState().aiEnabled) setAiPanelOpen((prev) => !prev);
-          break;
         case "keyboard-shortcuts":
           useDialogStore.getState().openHelp("shortcuts");
           break;
@@ -256,9 +240,6 @@ export function AppLayout() {
           onShowImport={openImport}
           onShowBackup={openBackup}
           onShowRestore={openRestore}
-          onToggleAI={toggleAiPanel}
-          aiPanelOpen={aiPanelOpen}
-          aiEnabled={aiEnabled}
         />
       )}
       {isMac && (
@@ -266,9 +247,6 @@ export function AppLayout() {
           onShowImport={openImport}
           onShowBackup={openBackup}
           onShowRestore={openRestore}
-          onToggleAI={toggleAiPanel}
-          aiPanelOpen={aiPanelOpen}
-          aiEnabled={aiEnabled}
         />
       )}
       <ConnectionTabs />
@@ -283,25 +261,11 @@ export function AppLayout() {
             </>
           )}
           <Panel
-            defaultSize={sidebarCollapsed && !(aiPanelOpen && aiEnabled)
-              ? "100%"
-              : sidebarCollapsed
-              ? "75%"
-              : aiPanelOpen && aiEnabled
-              ? "55%"
-              : "80%"}
+            defaultSize={sidebarCollapsed ? "100%" : "80%"}
             minSize="30%"
           >
             <MainPanel />
           </Panel>
-          {aiEnabled && aiPanelOpen && (
-            <>
-              <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
-              <Panel defaultSize="25%" minSize="15%" maxSize="40%">
-                <AIChatPanel onClose={() => setAiPanelOpen(false)} />
-              </Panel>
-            </>
-          )}
         </Group>
       </div>
       <StatusBar />

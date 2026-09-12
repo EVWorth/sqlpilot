@@ -67,16 +67,6 @@ vi.mock("../../../stores/connectionStore", () => ({
   ),
 }));
 
-let aiMockSend = vi.fn();
-let aiMockEnabled = false;
-
-vi.mock("../../../stores/aiStore", () => ({
-  useAiStore: Object.assign(
-    vi.fn((s: (v: unknown) => unknown) => s({ aiEnabled: aiMockEnabled, sendMessage: aiMockSend })),
-    { getState: vi.fn(() => ({ aiEnabled: aiMockEnabled, sendMessage: aiMockSend })) },
-  ),
-}));
-
 vi.mock("../../../hooks/useContextMenu", () => ({
   useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu: vi.fn() })),
 }));
@@ -208,8 +198,6 @@ describe("ResultsGrid", () => {
     editorTabs = [];
     editorActiveTabId = null;
     connSelectedId = null;
-    aiMockEnabled = false;
-    aiMockSend = vi.fn();
     mockGridEditing.editMode = false;
     mockGridEditing.inserts = [];
     mockGridEditing.hasChanges = false;
@@ -332,31 +320,10 @@ describe("ResultsGrid", () => {
     expect(screen.queryByText("Fix with AI")).not.toBeInTheDocument();
   });
 
-  it("shows 'Fix with AI' button when AI is enabled and error exists", () => {
-    aiMockEnabled = true;
-    state.error = "Syntax error";
-    render(<ResultsGrid />);
-    expect(screen.getByText("Fix with AI")).toBeInTheDocument();
-  });
-
   it("renders table structure when data exists", () => {
     render(<ResultsGrid />);
     const gridContainer = document.querySelector(".flex.h-full.flex-col.min-h-0");
     expect(gridContainer).toBeTruthy();
-  });
-
-  it("clicking Fix with AI sends message", () => {
-    aiMockEnabled = true;
-    state.error = "Syntax error";
-    editorTabs = [{ id: "tab-0", content: "SELEC * FROM users", connectionId: "conn-1" }];
-    editorActiveTabId = "tab-0";
-
-    render(<ResultsGrid />);
-    fireEvent.click(screen.getByText("Fix with AI"));
-
-    expect(aiMockSend).toHaveBeenCalledWith(
-      expect.stringContaining("Fix this SQL query"),
-    );
   });
 
   it("EditToolbar shows editMode flag to EditToolbar component", () => {
@@ -373,7 +340,6 @@ describe("ResultsGrid", () => {
   });
 
   it("does not show Fix with AI when AI disabled and no editor content", () => {
-    aiMockEnabled = false;
     state.error = "Some error";
     render(<ResultsGrid />);
     expect(screen.queryByText("Fix with AI")).not.toBeInTheDocument();

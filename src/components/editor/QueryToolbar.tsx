@@ -2,7 +2,6 @@ import {
   ChevronDown,
   Database,
   ListTree,
-  MessageSquare,
   Play,
   RefreshCw,
   Replace,
@@ -11,12 +10,10 @@ import {
   Square,
   Star,
   Wand2,
-  Zap,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
 import { formatSql } from "../../lib/sql-format";
-import { useAiStore } from "../../stores/aiStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
@@ -279,52 +276,6 @@ export function QueryToolbar() {
         <Star className="h-3 w-3" />
         Save
       </button>
-
-      <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
-
-      {useAiStore((s) => s.aiEnabled) && (
-        <>
-          <button
-            onClick={() => {
-              const sql = getCurrentSql();
-              if (!sql.trim()) return;
-              const store = useAiStore.getState();
-              store.sendMessage(
-                `Explain this SQL query:\n\`\`\`sql\n${sql}\n\`\`\``,
-                selectedConnectionId ?? undefined,
-                activeTab?.database,
-              );
-            }}
-            disabled={!activeTab?.content?.trim()}
-            title="Explain Query with AI"
-            className={toolbarBtnClass}
-          >
-            <MessageSquare className="h-3 w-3" />
-            AI Explain
-          </button>
-
-          <button
-            onClick={() => {
-              const sql = getCurrentSql();
-              if (!sql.trim() || !selectedConnectionId) {
-                return;
-              }
-              const store = useAiStore.getState();
-              store.sendMessage(
-                `Optimize this SQL query for better performance:\n\`\`\`sql\n${sql}\n\`\`\``,
-                selectedConnectionId,
-                activeTab?.database,
-              );
-            }}
-            disabled={!activeTab?.content?.trim() || !selectedConnectionId}
-            title="Optimize Query with AI"
-            className={toolbarBtnClass}
-          >
-            <Zap className="h-3 w-3" />
-            AI Optimize
-          </button>
-        </>
-      )}
 
       <div className="flex-1" />
 

@@ -45,7 +45,6 @@ src-tauri/
     mas-core/             # pool, executor, schema, profile store
     mas-export/           # CSV/JSON/SQL/MD export
     mas-admin/            # processes, variables, kill
-    mas-ai/               # AI integration (chat, tools) — beta-ai feature-gated
     mas-sqlite/           # local SQLite storage (separate crate)
     sqlpilot/             # root crate (app shell)
   tauri.conf.json         # app config, CSP, bundle metadata

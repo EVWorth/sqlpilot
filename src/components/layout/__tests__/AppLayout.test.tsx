@@ -23,12 +23,10 @@ vi.mock("../TitleBar", () => ({
       onShowRestore,
       onToggleAI,
       aiPanelOpen,
-      aiEnabled,
     }: any) => (
       <div
         data-testid="title-bar"
         data-ai-panel-open={aiPanelOpen}
-        data-ai-enabled={aiEnabled}
         onClick={() => onToggleAI?.()}
       >
         TitleBar
@@ -112,9 +110,6 @@ vi.mock("../../backup/RestoreDialog", () => ({
     ),
   ),
 }));
-vi.mock("../../ai/AIChatPanel", () => ({
-  AIChatPanel: vi.fn(() => <div data-testid="ai-chat-panel">AIChatPanel</div>),
-}));
 
 vi.mock("react-resizable-panels", () => ({
   Group: vi.fn(({ children }: { children: React.ReactNode }) => <div data-testid="panel-group">{children}</div>),
@@ -196,21 +191,6 @@ vi.mock("../../../stores/editorStore", () => ({
   ),
 }));
 
-let aiState = {
-  aiEnabled: false,
-  checkStatus: vi.fn(),
-  sendMessage: vi.fn(),
-};
-
-vi.mock("../../../stores/aiStore", () => ({
-  useAiStore: Object.assign(
-    vi.fn((selector: (s: unknown) => unknown) => {
-      return selector(aiState);
-    }),
-    { getState: vi.fn(() => aiState) },
-  ),
-}));
-
 describe("AppLayout", () => {
   beforeEach(() => {
     // Dialog state is module-level now (#450), so it leaks between tests
@@ -237,11 +217,6 @@ describe("AppLayout", () => {
       addTab: vi.fn(() => "tab-1"),
       addAdminTab: vi.fn(),
       editorInstance: null,
-    };
-    aiState = {
-      aiEnabled: false,
-      checkStatus: vi.fn(),
-      sendMessage: vi.fn(),
     };
   });
 
@@ -365,15 +340,7 @@ describe("AppLayout", () => {
     expect(dialog.getAttribute("data-open")).toBe("true");
   });
 
-  it("passes aiEnabled to TitleBar", () => {
-    aiState.aiEnabled = true;
-    render(<AppLayout />);
-    const titleBar = screen.getByTestId("title-bar");
-    expect(titleBar.getAttribute("data-ai-enabled")).toBe("true");
-  });
-
   it("renders AIChatPanel when aiEnabled and aiPanelOpen are both true", () => {
-    aiState.aiEnabled = true;
     // Since we can't easily toggle internal state, we verify the panel is not rendered
     // when both conditions are not met
     render(<AppLayout />);
@@ -384,11 +351,6 @@ describe("AppLayout", () => {
   it("calls useKeyboardShortcuts on render", () => {
     render(<AppLayout />);
     expect(mockUseKeyboard).toHaveBeenCalled();
-  });
-
-  it("calls aiStore.checkStatus on mount", () => {
-    render(<AppLayout />);
-    expect(aiState.checkStatus).toHaveBeenCalled();
   });
 
   it("registers Tauri event listener on mount", () => {

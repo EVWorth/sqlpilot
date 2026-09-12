@@ -1,6 +1,4 @@
-import { AlertCircle, Loader2, Sparkles } from "lucide-react";
-import { useAiStore } from "../../stores/aiStore";
-import { useEditorStore } from "../../stores/editorStore";
+import { AlertCircle, Loader2 } from "lucide-react";
 import type { QueryResult } from "../../types";
 
 /**
@@ -28,8 +26,6 @@ export function GridPlaceholder({
   error,
   result,
 }: GridPlaceholderProps) {
-  const aiEnabled = useAiStore((s) => s.aiEnabled);
-
   if (isExecuting) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
@@ -40,18 +36,6 @@ export function GridPlaceholder({
   }
 
   if (error) {
-    const fixWithAi = () => {
-      if (!aiEnabled) return;
-      const editorTab = useEditorStore.getState().tabs.find(
-        (t) => t.id === useEditorStore.getState().activeTabId,
-      );
-      const sql = editorTab?.content ?? "";
-      if (!sql.trim()) return;
-      useAiStore.getState().sendMessage(
-        `Fix this SQL query that produced an error:\n\nQuery:\n\`\`\`sql\n${sql}\n\`\`\`\n\nError:\n${error}`,
-      );
-    };
-
     return (
       <div className="flex h-full items-center justify-center gap-2 p-4">
         <div className="max-w-lg rounded border border-red-800 bg-red-900/20 p-4">
@@ -60,15 +44,6 @@ export function GridPlaceholder({
             Query Error
           </div>
           <pre className="mt-2 whitespace-pre-wrap text-xs text-red-300">{error}</pre>
-          {aiEnabled && (
-            <button
-              onClick={fixWithAi}
-              className="mt-3 flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-500"
-            >
-              <Sparkles className="h-3 w-3" />
-              Fix with AI
-            </button>
-          )}
         </div>
       </div>
     );

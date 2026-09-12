@@ -57,24 +57,7 @@ vi.mock("../../../stores/schemaStore", () => ({
   ),
 }));
 
-let mockAiEnabled = true;
-const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 const mockSetQuerySettings = vi.fn();
-
-vi.mock("../../../stores/aiStore", () => ({
-  useAiStore: Object.assign(
-    vi.fn((selector?: (s: any) => any) => {
-      const state = {
-        aiEnabled: mockAiEnabled,
-        sendMessage: mockSendMessage,
-      };
-      return selector ? selector(state) : state;
-    }),
-    {
-      getState: vi.fn(() => ({ sendMessage: mockSendMessage })),
-    },
-  ),
-}));
 
 const mockSettingsState = {
   querySettings: {
@@ -180,7 +163,6 @@ describe("QueryToolbar", () => {
     mockCanExecute = true;
     mockIsExecuting = false;
     mockSchemaLoading = false;
-    mockAiEnabled = true;
     mockActiveTabContent = "SELECT * FROM users";
     connSelId = "conn-1";
     connActive = [
@@ -213,7 +195,6 @@ describe("QueryToolbar", () => {
     mockExecuteQuery.mockClear();
     mockExecuteExplain.mockClear();
     mockExecuteExplainAnalyze.mockClear();
-    mockSendMessage.mockClear();
     mockSetQuerySettings.mockClear();
   });
 
@@ -247,12 +228,6 @@ describe("QueryToolbar", () => {
   it("renders Save button", () => {
     render(<QueryToolbar />);
     expect(screen.getByText("Save")).toBeInTheDocument();
-  });
-
-  it("renders AI Explain and AI Optimize buttons when AI is enabled", () => {
-    render(<QueryToolbar />);
-    expect(screen.getByText("AI Explain")).toBeInTheDocument();
-    expect(screen.getByText("AI Optimize")).toBeInTheDocument();
   });
 
   it("renders connection info when connected", () => {
@@ -405,33 +380,11 @@ describe("QueryToolbar", () => {
     expect(svg).toBeTruthy();
   });
 
-  it("hides AI buttons when aiEnabled is false", () => {
-    mockAiEnabled = false;
+  it("has no AI buttons", () => {
+    // They went with the embedded assistant (ADR-011).
     render(<QueryToolbar />);
     expect(screen.queryByText("AI Explain")).not.toBeInTheDocument();
     expect(screen.queryByText("AI Optimize")).not.toBeInTheDocument();
-  });
-
-  it("calls sendMessage when AI Explain is clicked", () => {
-    render(<QueryToolbar />);
-    fireEvent.click(screen.getByText("AI Explain"));
-
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining("Explain this SQL query"),
-      "conn-1",
-      undefined,
-    );
-  });
-
-  it("calls sendMessage when AI Optimize is clicked", () => {
-    render(<QueryToolbar />);
-    fireEvent.click(screen.getByText("AI Optimize"));
-
-    expect(mockSendMessage).toHaveBeenCalledWith(
-      expect.stringContaining("Optimize this SQL query"),
-      "conn-1",
-      undefined,
-    );
   });
 
   it("does not call execute when no SQL content", () => {
@@ -461,14 +414,6 @@ describe("QueryToolbar", () => {
 
     render(<QueryToolbar />);
     expect(screen.queryByText("Test DB")).not.toBeInTheDocument();
-  });
-
-  it("disables AI Optimize when no connection selected", () => {
-    connSelId = null;
-    connActive = [];
-
-    render(<QueryToolbar />);
-    expect(screen.getByText("AI Optimize").closest("button")).toBeDisabled();
   });
 
   describe("save as favorite (#342)", () => {

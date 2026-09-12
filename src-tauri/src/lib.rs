@@ -107,97 +107,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
     // tauri-specta owns the command list, so the generated bindings and the
     // runtime handler are built from the same source and cannot disagree.
     //
-    // collect_commands! does not accept #[cfg] attributes the way
-    // generate_handler! does, so the beta-ai commands force two whole
-    // branches rather than a gate on individual entries. Keep them in sync;
-    // the command-contract test checks both against tauri-api.ts.
-    #[cfg(feature = "beta-ai")]
-    let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
-        // Serialize/Deserialize phases are kept deliberately. ConnectionProfile
-        // marks password, ssh password and passphrase #[serde(skip_serializing)]
-        // — the frontend sends them, the backend never sends them back. Phased
-        // types put that in the type system: ConnectionProfile_Deserialize has
-        // the credential fields, ConnectionProfile_Serialize does not, so code
-        // reading a profile cannot reach for a password that is never populated.
-        // (disable_serde_phases() also cannot represent skip_serializing_if.)
-        .commands(tauri_specta::collect_commands![
-            commands::save_connection_profile,
-            commands::list_connection_profiles,
-            commands::delete_connection_profile,
-            commands::test_connection,
-            commands::connect,
-            commands::disconnect,
-            commands::list_connections,
-            commands::execute_query,
-            commands::explain_query,
-            commands::cancel_query,
-            commands::connection_health,
-            commands::ping_connection,
-            commands::pool_stats,
-            commands::startup_problems,
-            commands::get_databases,
-            commands::get_tables,
-            commands::get_columns,
-            commands::get_indexes,
-            commands::get_foreign_keys,
-            commands::get_events,
-            commands::get_partitions,
-            commands::get_table_ddl,
-            commands::get_views,
-            commands::get_routines,
-            commands::get_triggers,
-            commands::get_view_ddl,
-            commands::get_routine_ddl,
-            commands::get_trigger_ddl,
-            commands::export_results,
-            commands::get_process_list,
-            commands::get_server_variables,
-            commands::kill_process,
-            commands::kill_query,
-            commands::get_own_thread_ids,
-            commands::read_file_contents,
-            commands::pick_file,
-            commands::write_file_contents,
-            commands::pick_save_file,
-            commands::backup::backup_database,
-            commands::backup::cancel_backup,
-            commands::backup::default_backup_options,
-            commands::backup::restore_database,
-            commands::backup::default_restore_options,
-            commands::backup::read_file_head,
-            commands::get_platform_info,
-            commands::history_add,
-            commands::history_list,
-            commands::history_remove,
-            commands::history_clear,
-            commands::history_count,
-            commands::history_prune,
-            commands::history_import,
-            commands::history_count_matching,
-            commands::history_facets,
-            commands::history_export,
-            commands::history_prune_older_than,
-            commands::keyring_available,
-            commands::sqlite::sqlite_open,
-            commands::sqlite::sqlite_close,
-            commands::sqlite::sqlite_list,
-            commands::sqlite::sqlite_execute,
-            commands::sqlite::sqlite_get_tables,
-            commands::sqlite::sqlite_get_columns,
-            commands::sqlite::sqlite_get_indexes,
-            commands::sqlite::sqlite_get_table_ddl,
-            commands::ai::ai_chat,
-            commands::ai::ai_get_status,
-            commands::ai::ai_set_config,
-            commands::ai::ai_cancel,
-            commands::ai::ai_approve_permission,
-        ])
-        .events(tauri_specta::collect_events![
-            commands::backup::BackupProgressEvent,
-            commands::backup::RestoreProgressEvent,
-            commands::ConnectionHealthEvent
-        ]);
-    #[cfg(not(feature = "beta-ai"))]
+    // This used to be two whole branches, because `collect_commands!` does not
+    // accept `#[cfg]` the way `generate_handler!` does and the AI commands sat
+    // behind a feature flag. ADR-011 removed that feature, and the duplication
+    // with it.
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
         // Serialize/Deserialize phases are kept deliberately. ConnectionProfile
         // marks password, ssh password and passphrase #[serde(skip_serializing)]
@@ -484,8 +397,6 @@ pub fn run() {
     let executor = QueryExecutor::new(manager.clone());
     let inspector = SchemaInspector::new(manager.clone());
     let admin = AdminService::new(manager.clone());
-    #[cfg(feature = "beta-ai")]
-    let ai = mas_ai::AiService::new(manager.clone());
 
     let sqlite_manager = Arc::new(mas_sqlite::connection::SqliteConnectionManager::new());
     let sqlite_executor = Arc::new(mas_sqlite::query::SqliteQueryExecutor::new(
@@ -541,8 +452,6 @@ pub fn run() {
             schema_inspector: inspector,
             history_store,
             admin_service: admin,
-            #[cfg(feature = "beta-ai")]
-            ai_service: Some(ai),
             sqlite_manager,
             sqlite_executor,
             sqlite_inspector,

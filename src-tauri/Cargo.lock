@@ -332,7 +332,7 @@ dependencies = [
  "rustc-hash 1.1.0",
  "shlex 1.3.0",
  "syn 2.0.119",
- "which 4.4.2",
+ "which",
 ]
 
 [[package]]
@@ -740,20 +740,6 @@ checksum = "4ddef33a339a91ea89fb53151bd0a4689cfce27055c291dfa69945475d22c747"
 dependencies = [
  "time",
  "version_check",
-]
-
-[[package]]
-name = "copilot-sdk"
-version = "0.1.17"
-source = "git+https://github.com/copilot-community-sdk/copilot-sdk-rust.git?rev=2946ba176297acc3cbbc97cf6d526152dad54b62#2946ba176297acc3cbbc97cf6d526152dad54b62"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "which 7.0.3",
 ]
 
 [[package]]
@@ -1300,12 +1286,6 @@ dependencies = [
  "log",
  "regex",
 ]
-
-[[package]]
-name = "env_home"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c7f84e12ccf0a7ddc17a6c41c93326024c42920d7ee630d04950e6926645c0fe"
 
 [[package]]
 name = "env_logger"
@@ -2848,23 +2828,6 @@ dependencies = [
  "specta",
  "specta-typescript",
  "sqlx",
- "thiserror 2.0.20",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "mas-ai"
-version = "0.1.0"
-dependencies = [
- "copilot-sdk",
- "mas-admin",
- "mas-core",
- "serde",
- "serde_json",
- "specta",
- "specta-typescript",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -4873,7 +4836,6 @@ dependencies = [
  "keyring-core",
  "linux-keyutils-keyring-store",
  "mas-admin",
- "mas-ai",
  "mas-core",
  "mas-export",
  "mas-sqlite",
@@ -6831,18 +6793,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "which"
-version = "7.0.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "24d643ce3fd3e5b54854602a080f34fb10ab75e0b813ee32d00ca2b44fa74762"
-dependencies = [
- "either",
- "env_home",
- "rustix 1.1.4",
- "winsafe",
-]
-
-[[package]]
 name = "whoami"
 version = "2.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7379,12 +7329,6 @@ dependencies = [
  "cfg-if",
  "windows-sys 0.59.0",
 ]
-
-[[package]]
-name = "winsafe"
-version = "0.0.19"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d135d17ab770252ad95e9a872d365cf3090e3be864a34ab46f48555993efc904"
 
 [[package]]
 name = "wit-bindgen"

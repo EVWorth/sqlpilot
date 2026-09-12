@@ -372,67 +372,6 @@ describe("api (Tauri available)", () => {
     expect(result).toBe("/tmp/saved.sql");
   });
 
-  // -- AI ------------------------------------------------------------------
-
-  it("aiChat calls invoke with all args", async () => {
-    invokeMock.mockResolvedValue("response text");
-    const result = await api.aiChat(
-      "hello",
-      "conv-1",
-      "chat",
-      "conn-1",
-      "mydb",
-    );
-    expect(invokeMock).toHaveBeenCalledWith("ai_chat", {
-      message: "hello",
-      conversationId: "conv-1",
-      mode: "chat",
-      connectionId: "conn-1",
-      database: "mydb",
-    });
-    expect(result).toBe("response text");
-  });
-
-  it("aiChat omits optional args", async () => {
-    await api.aiChat("hello", "conv-1", "chat");
-    expect(invokeMock).toHaveBeenCalledWith("ai_chat", {
-      message: "hello",
-      conversationId: "conv-1",
-      mode: "chat",
-      connectionId: null,
-      database: null,
-    });
-  });
-
-  it("aiGetStatus calls invoke with no args", async () => {
-    invokeMock.mockResolvedValue({ enabled: true });
-    const result = await api.aiGetStatus();
-    expect(invokeMock).toHaveBeenCalledWith("ai_get_status");
-    expect(result).toEqual({ enabled: true });
-  });
-
-  it("aiSetConfig calls invoke with config", async () => {
-    const config = { provider: "openai" as const, apiKey: "sk-test" };
-    await api.aiSetConfig(config);
-    expect(invokeMock).toHaveBeenCalledWith("ai_set_config", { config });
-  });
-
-  it("aiCancel calls invoke with conversationId", async () => {
-    await api.aiCancel("conv-1");
-    expect(invokeMock).toHaveBeenCalledWith("ai_cancel", {
-      conversationId: "conv-1",
-    });
-  });
-
-  it("aiApprovePermission calls invoke with correct args", async () => {
-    await api.aiApprovePermission("conv-1", "req-1", true);
-    expect(invokeMock).toHaveBeenCalledWith("ai_approve_permission", {
-      conversationId: "conv-1",
-      requestId: "req-1",
-      approved: true,
-    });
-  });
-
   // -- SQLite --------------------------------------------------------------
 
   it("sqliteOpen calls invoke with path", async () => {

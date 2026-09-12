@@ -58,10 +58,6 @@ vi.mock("../../../stores/editorStore", () => ({
   ),
 }));
 
-vi.mock("../../../stores/aiStore", () => ({
-  useAiStore: vi.fn(() => ({ aiEnabled: false })),
-}));
-
 vi.mock("../MenuBar", () => ({
   MenuBar: () => <div data-testid="menu-bar">MenuBar</div>,
 }));

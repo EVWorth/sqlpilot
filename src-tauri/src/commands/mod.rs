@@ -1,5 +1,3 @@
-#[cfg(feature = "beta-ai")]
-pub mod ai;
 pub mod backup;
 pub mod sqlite;
 
@@ -37,8 +35,6 @@ pub struct AppState {
     pub schema_inspector: SchemaInspector,
     pub history_store: HistoryStore,
     pub admin_service: AdminService,
-    #[cfg(feature = "beta-ai")]
-    pub ai_service: Option<mas_ai::AiService>,
     pub sqlite_manager: Arc<SqliteConnectionManager>,
     pub sqlite_executor: Arc<SqliteQueryExecutor>,
     pub sqlite_inspector: Arc<SqliteSchemaInspector>,

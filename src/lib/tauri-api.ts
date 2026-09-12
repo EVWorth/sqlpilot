@@ -1,5 +1,5 @@
 import { getVersion } from "@tauri-apps/api/app";
-import type { AiConfig, AiMode, ConnectionProfileInput, QueryResult } from "../types";
+import type { ConnectionProfileInput, QueryResult } from "../types";
 import type {
   BackupOptions,
   ExplainFormat,
@@ -315,22 +315,6 @@ export const api = {
   /** The first `maxBytes` of a file, for a preview, with its real size. */
   readFileHead: (path: string, maxBytes: number) =>
     unwrap("read_file_head", () => commands.readFileHead(path, maxBytes)),
-
-  // AI
-  aiChat: (message: string, conversationId: string, mode: AiMode, connectionId?: string, database?: string) =>
-    unwrap(
-      "ai_chat",
-      () => commands.aiChat(message, conversationId, mode, orNull(connectionId), orNull(database)),
-    ),
-
-  aiGetStatus: () => unwrap("ai_get_status", () => commands.aiGetStatus()),
-
-  aiSetConfig: (config: AiConfig) => unwrap("ai_set_config", () => commands.aiSetConfig(config)),
-
-  aiCancel: (conversationId: string) => unwrap("ai_cancel", () => commands.aiCancel(conversationId)),
-
-  aiApprovePermission: (conversationId: string, requestId: string, approved: boolean) =>
-    unwrap("ai_approve_permission", () => commands.aiApprovePermission(conversationId, requestId, approved)),
 
   // App metadata — not a Tauri command, so it stays hand-written
   getAppVersion: (): Promise<string> =>

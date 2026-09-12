@@ -24,26 +24,12 @@ vi.mock("../StatusBar", () => ({
 }));
 vi.mock("../Toolbar", () => ({
   Toolbar: vi.fn(
-    ({ onToggleAI, aiPanelOpen, aiEnabled }: Record<string, unknown>) => (
-      <div
-        data-testid="toolbar"
-        data-ai-panel-open={String(aiPanelOpen)}
-        data-ai-enabled={String(aiEnabled)}
-        onClick={() => (onToggleAI as () => void)?.()}
-      />
-    ),
+    (_props: Record<string, unknown>) => <div data-testid="toolbar" />,
   ),
 }));
 vi.mock("../TitleBar", () => ({
   TitleBar: vi.fn(
-    ({ onToggleAI, aiPanelOpen, aiEnabled }: Record<string, unknown>) => (
-      <div
-        data-testid="title-bar"
-        data-ai-panel-open={String(aiPanelOpen)}
-        data-ai-enabled={String(aiEnabled)}
-        onClick={() => (onToggleAI as () => void)?.()}
-      />
-    ),
+    (_props: Record<string, unknown>) => <div data-testid="title-bar" />,
   ),
 }));
 vi.mock("../ConnectionTabs", () => ({
@@ -106,9 +92,6 @@ vi.mock("../../backup/RestoreDialog", () => ({
     ),
   ),
 }));
-vi.mock("../../ai/AIChatPanel", () => ({
-  AIChatPanel: vi.fn(() => <div data-testid="ai-chat-panel" />),
-}));
 
 // ── Mock react-resizable-panels ──
 vi.mock("react-resizable-panels", () => ({
@@ -163,11 +146,6 @@ let editorState = {
   editorInstance: null as any,
 };
 
-let aiState = {
-  aiEnabled: false,
-  checkStatus: vi.fn(),
-};
-
 vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: Object.assign(
     vi.fn((selector: (s: unknown) => unknown) => selector(connectionState)),
@@ -181,12 +159,6 @@ vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
     vi.fn((selector: (s: unknown) => unknown) => selector(editorState)),
     { getState: vi.fn(() => editorState) },
-  ),
-}));
-vi.mock("../../../stores/aiStore", () => ({
-  useAiStore: Object.assign(
-    vi.fn((selector: (s: unknown) => unknown) => selector(aiState)),
-    { getState: vi.fn(() => aiState) },
   ),
 }));
 
@@ -218,10 +190,6 @@ describe("AppLayout (browser)", () => {
       addAdminTab: vi.fn(),
       editorInstance: null,
     };
-    aiState = {
-      aiEnabled: false,
-      checkStatus: vi.fn(),
-    };
   });
 
   // ─── Core layout sections ───
@@ -243,34 +211,6 @@ describe("AppLayout (browser)", () => {
   it("renders ConnectionTabs", async () => {
     await renderApp();
     expect(screen.getByTestId("connection-tabs")).toBeInTheDocument();
-  });
-
-  // ─── AI panel visibility ───
-  it("does not render AI panel when aiEnabled is false", async () => {
-    aiState.aiEnabled = false;
-    await renderApp();
-    expect(screen.queryByTestId("ai-chat-panel")).not.toBeInTheDocument();
-  });
-
-  it("renders AI panel when aiEnabled=true and aiPanelOpen=true", async () => {
-    aiState.aiEnabled = true;
-    await renderApp();
-    // aiPanelOpen defaults to false initially, so AI panel won't render
-    expect(screen.queryByTestId("ai-chat-panel")).not.toBeInTheDocument();
-    // Toggle AI panel via TitleBar click
-    const titleBar = screen.getByTestId("title-bar");
-    const user = userEvent.setup();
-    await user.click(titleBar);
-    await waitFor(() => {
-      expect(screen.getByTestId("ai-chat-panel")).toBeInTheDocument();
-    });
-  });
-
-  it("hides AI panel when aiEnabled is false even if toggled", async () => {
-    aiState.aiEnabled = false;
-    await renderApp();
-    // Toggling should not render AI panel when disabled
-    expect(screen.queryByTestId("ai-chat-panel")).not.toBeInTheDocument();
   });
 
   // ─── ImportDialog visibility ───
@@ -430,10 +370,6 @@ describe("AppLayout (browser)", () => {
   });
 
   // ─── AI status check on mount ───
-  it("calls aiStore.checkStatus on mount", async () => {
-    await renderApp();
-    expect(aiState.checkStatus).toHaveBeenCalled();
-  });
 
   // ─── Menu action: new-query ───
   it("handles new-query menu action", async () => {
@@ -720,26 +656,15 @@ describe("AppLayout (browser)", () => {
     expect(runSpy).toHaveBeenCalled();
   });
 
-  // ─── Menu action: ai-assistant ───
-  it("handles ai-assistant menu action and toggles AI panel when enabled", async () => {
-    aiState.aiEnabled = true;
-    await renderApp();
-    // aiPanelOpen starts false
-    await act(async () => {
-      window.dispatchEvent(new CustomEvent("menu-action", { detail: "ai-assistant" }));
-    });
-    await waitFor(() => {
-      expect(screen.getByTestId("ai-chat-panel")).toBeInTheDocument();
-    });
-  });
+  // ─── An unknown menu action ───
 
-  it("handles ai-assistant menu action when ai disabled (no-op)", async () => {
-    aiState.aiEnabled = false;
+  it("ignores a menu action it does not know", async () => {
+    // `ai-assistant` was one, until ADR-011 removed the embedded assistant.
     await renderApp();
     await act(async () => {
       window.dispatchEvent(new CustomEvent("menu-action", { detail: "ai-assistant" }));
     });
-    expect(screen.queryByTestId("ai-chat-panel")).not.toBeInTheDocument();
+    expect(screen.getByTestId("main-panel")).toBeInTheDocument();
   });
 
   // ─── import menu action when not connected (no-op) ───
@@ -785,12 +710,5 @@ describe("platform detection", () => {
     await renderApp();
     expect(screen.getByTestId("title-bar")).toBeInTheDocument();
     expect(screen.queryByTestId("toolbar")).not.toBeInTheDocument();
-  });
-
-  it("propagates aiEnabled to TitleBar", async () => {
-    aiState.aiEnabled = true;
-    await renderApp();
-    const titleBar = screen.getByTestId("title-bar");
-    expect(titleBar.getAttribute("data-ai-enabled")).toBe("true");
   });
 });

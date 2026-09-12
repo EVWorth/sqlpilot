@@ -49,10 +49,6 @@ vi.mock("../../../stores/themeStore", () => ({
   ),
 }));
 
-vi.mock("../../../stores/aiStore", () => ({
-  useAiStore: vi.fn(() => ({ aiEnabled: false })),
-}));
-
 import { Toolbar } from "../Toolbar";
 
 describe("Toolbar", () => {

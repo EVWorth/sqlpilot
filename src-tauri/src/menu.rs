@@ -88,23 +88,12 @@ pub fn build_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         )?)
         .build()?;
 
-    let tools_menu = SubmenuBuilder::new(app, "Tools")
-        .item(&MenuItem::with_id(
-            app,
-            "format-sql",
-            "Format SQL",
-            true,
-            Some("CmdOrCtrl+Shift+F"),
-        )?)
-        .separator();
-
-    #[cfg(feature = "beta-ai")]
-    let tools_menu = tools_menu.item(&MenuItem::with_id(
+    let tools_menu = SubmenuBuilder::new(app, "Tools").item(&MenuItem::with_id(
         app,
-        "ai-assistant",
-        "AI Assistant",
+        "format-sql",
+        "Format SQL",
         true,
-        None::<&str>,
+        Some("CmdOrCtrl+Shift+F"),
     )?);
 
     let tools_menu = tools_menu.build()?;

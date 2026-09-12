@@ -1,5 +1,5 @@
 ---
-description: Rust/Tauri implementer for SQLPilot. Tauri commands, IPC handlers, Cargo crates (mas-core, mas-export, mas-admin, mas-ai, mas-sqlite), Rust tests. Owns src-tauri/.
+description: Rust/Tauri implementer for SQLPilot. Tauri commands, IPC handlers, Cargo crates (mas-core, mas-export, mas-admin, mas-sqlite), Rust tests. Owns src-tauri/.
 mode: subagent
 permission:
   edit:
@@ -34,7 +34,6 @@ Implements backend features for SQLPilot. Owns everything under `src-tauri/`. To
 | `mas-core`        | Connection pool (`ConnectionManager`), query execution (`QueryExecutor`), schema inspection (`SchemaInspector`), local SQLite profile store (`ConnectionStore`) |
 | `mas-export`      | Stateless export functions: CSV, JSON, SQL INSERT, Markdown                                                                                                     |
 | `mas-admin`       | Server admin: process list, variables, kill                                                                                                                     |
-| `mas-ai`          | AI integration (chat, completions, tools) — gated by `beta-ai` feature flag                                                                                     |
 | `mas-sqlite`      | Local SQLite storage (separate crate, not under mas-core)                                                                                                       |
 | `sqlpilot` (root) | Tauri app shell: command registration, state init, logging setup                                                                                                |
 

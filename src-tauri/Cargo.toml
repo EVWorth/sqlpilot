@@ -1,5 +1,5 @@
 [workspace]
-members = [".", "crates/mas-admin", "crates/mas-ai", "crates/mas-core", "crates/mas-export", "crates/mas-sqlite"]
+members = [".", "crates/mas-admin", "crates/mas-core", "crates/mas-export", "crates/mas-sqlite"]
 resolver = "2"
 
 [workspace.dependencies]
@@ -42,7 +42,6 @@ tauri-build = { version = "2", features = [] }
 dirs = "6"
 keyring-core = "1"
 mas-admin = { path = "crates/mas-admin" }
-mas-ai = { path = "crates/mas-ai", optional = true }
 mas-core = { path = "crates/mas-core" }
 mas-export = { path = "crates/mas-export" }
 mas-sqlite = { path = "crates/mas-sqlite" }
@@ -77,7 +76,6 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 
 [features]
 default = []
-beta-ai = ["dep:mas-ai"]
 custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
