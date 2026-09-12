@@ -75,4 +75,62 @@ describe("getStatementAtCursor", () => {
     const leading = "\n\nSELECT 1";
     expect(getStatementAtCursor(leading, 3, 1)).toBe("SELECT 1");
   });
+
+  describe("semicolons that are not boundaries", () => {
+    it("does not split inside a string literal", () => {
+      // The old backwards scan returned `select 'a` here, which is either a
+      // syntax error or — worse — a fragment that still parses and runs.
+      const sql = "select 'a;b' from orders;";
+      expect(getStatementAtCursor(sql, 1, 1)).toBe(sql);
+      expect(getStatementAtCursor(sql, 1, 20)).toBe(sql);
+    });
+
+    it("does not split inside a quoted identifier", () => {
+      const sql = "select * from `odd;name`;";
+      expect(getStatementAtCursor(sql, 1, 1)).toBe(sql);
+    });
+
+    it("does not split inside a line comment", () => {
+      const sql = "select 1 -- why; not\nfrom dual;";
+      expect(getStatementAtCursor(sql, 1, 1)).toBe(sql);
+    });
+
+    it("does not split inside a block comment", () => {
+      const sql = "select 1 /* a; b */ from dual;";
+      expect(getStatementAtCursor(sql, 1, 1)).toBe(sql);
+    });
+
+    it("keeps a routine body with its own semicolons in one piece", () => {
+      const sql = [
+        "DELIMITER $$",
+        "CREATE PROCEDURE recalc()",
+        "BEGIN",
+        "  SET @a = 1;",
+        "  SET @b = 2;",
+        "END$$",
+        "DELIMITER ;",
+      ].join("\n");
+      // Cursor on the first SET: the statement is the whole procedure, not
+      // the one assignment.
+      const result = getStatementAtCursor(sql, 4, 3);
+      expect(result).toContain("CREATE PROCEDURE");
+      expect(result).toContain("SET @b = 2;");
+    });
+
+    it("picks the right one when an earlier statement contains a semicolon", () => {
+      const sql = "select ';' as x;\nselect 2;";
+      expect(getStatementAtCursor(sql, 2, 3)).toBe("select 2;");
+    });
+  });
+
+  it("returns the statement the cursor sits at the very end of", () => {
+    // Where the cursor is the moment you finish typing one.
+    const sql = "select 1;\nselect 2;";
+    expect(getStatementAtCursor(sql, 1, 10)).toBe("select 1;");
+  });
+
+  it("falls back to the statement before the cursor when it is between two", () => {
+    const sql = "select 1;\n\n\nselect 2;";
+    expect(getStatementAtCursor(sql, 3, 1)).toBe("select 1;");
+  });
 });

@@ -65,12 +65,55 @@ export function generateBatchInsert(
   return statements;
 }
 
+/** One statement, and where it sits in the text it came from. */
+export interface StatementRange {
+  /** The statement, trimmed — what `splitSqlStatements` returns. */
+  text: string;
+  /** Offset of the first character of `text` in the original SQL. */
+  start: number;
+  /** Offset one past its last character. */
+  end: number;
+}
+
 /**
  * Split a SQL file into individual statements.
  * Handles semicolons inside quoted strings and DELIMITER changes.
  */
 export function splitSqlStatements(sql: string): string[] {
-  const statements: string[] = [];
+  return splitSqlStatementRanges(sql).map((s) => s.text);
+}
+
+/** What the editor wants that a file importer does not. */
+export interface SplitOptions {
+  /**
+   * Treat a blank line as a statement boundary as well as the delimiter.
+   *
+   * For the editor, where a scratch buffer of unterminated SELECTs separated
+   * by blank lines is the ordinary way people work. Never for a file: a
+   * blank line inside a formatted statement is not a boundary there.
+   */
+  blankLineSeparates?: boolean;
+  /**
+   * Keep the delimiter on the end of each statement.
+   *
+   * The importer strips it — it is re-adding one per statement anyway. The
+   * editor keeps it, so what it sends is what is on screen.
+   */
+  keepTerminator?: boolean;
+}
+
+/**
+ * The same split, keeping each statement's position.
+ *
+ * The editor needs the positions to answer "which statement is the cursor
+ * in?" — it used to scan backwards for a semicolon, which is wrong the moment
+ * one appears inside a string or a comment (#298 F-backlog).
+ */
+export function splitSqlStatementRanges(
+  sql: string,
+  options: SplitOptions = {},
+): StatementRange[] {
+  const statements: StatementRange[] = [];
   let current = "";
   let delimiter = ";";
   let inSingleQuote = false;
@@ -187,11 +230,21 @@ export function splitSqlStatements(sql: string): string[] {
       }
     }
 
+    // A blank line ends a statement too, when the caller asked for it. Only
+    // outside quotes and comments, which is why it is here rather than in a
+    // pass of its own.
+    if (options.blankLineSeparates && ch === "\n" && i > 0 && sql[i - 1] === "\n") {
+      push(current, i);
+      current = "";
+      continue;
+    }
+
     // Check for delimiter
     if (sql.slice(i, i + delimiter.length) === delimiter) {
-      const trimmed = current.trim();
-      if (trimmed) {
-        statements.push(trimmed);
+      if (options.keepTerminator) {
+        push(current + delimiter, i + delimiter.length);
+      } else {
+        push(current, i);
       }
       current = "";
       i += delimiter.length - 1;
@@ -201,10 +254,26 @@ export function splitSqlStatements(sql: string): string[] {
     current += ch;
   }
 
-  const trimmed = current.trim();
-  if (trimmed) {
-    statements.push(trimmed);
-  }
+  push(current, sql.length);
 
   return statements;
+
+  /**
+   * Record what has accumulated, if it is anything.
+   *
+   * `current` is always the contiguous run of characters ending just before
+   * `endOffset`, so its position in the original text follows from its
+   * length — no separate bookkeeping to fall out of step.
+   */
+  function push(raw: string, endOffset: number): void {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    const rawStart = endOffset - raw.length;
+    const lead = raw.length - raw.trimStart().length;
+    statements.push({
+      text: trimmed,
+      start: rawStart + lead,
+      end: rawStart + lead + trimmed.length,
+    });
+  }
 }
