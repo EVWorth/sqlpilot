@@ -16,6 +16,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use mas_agent::acp::{AcpClient, McpServer};
+use mas_agent::claude::{self, ClaudeSession};
 use mas_agent::event::SessionEvent;
 use mas_agent::harness::{spawn_acp, Harness};
 use serde::{Deserialize, Serialize};
@@ -45,13 +46,57 @@ pub struct StartedSession {
     pub tools_available: bool,
 }
 
+/// The harness behind a session.
+///
+/// Two protocols, and everything above this point sees neither: the session
+/// commands take an id and a message, and the events come out the same shape
+/// whichever of these answered.
+enum Driver {
+    /// Copilot, over the Agent Client Protocol.
+    Acp {
+        client: Arc<AcpClient>,
+        /// The harness's own session id, for `session/prompt`.
+        remote: String,
+    },
+    /// Claude Code, over its own NDJSON stream.
+    Claude(Arc<ClaudeSession>),
+}
+
 struct Running {
-    client: Arc<AcpClient>,
-    /// The harness's own session id, for `session/prompt`.
-    remote: String,
+    driver: Driver,
     /// Held so the process is killed when the session is dropped.
     child: Child,
     workspace: PathBuf,
+}
+
+/// What starting a harness produced, before it is registered: the driver, the
+/// process, the agent's name and version for the header, whether it has
+/// SQLPilot's tools, and its event stream.
+type Parts = (
+    Driver,
+    Child,
+    String,
+    String,
+    bool,
+    tokio::sync::mpsc::UnboundedReceiver<SessionEvent>,
+);
+
+/// A driver taken out of the register, so the lock is not held across an await.
+enum DriverHandle {
+    Acp {
+        client: Arc<AcpClient>,
+        remote: String,
+    },
+    Claude(Arc<ClaudeSession>),
+}
+
+/// The message for a harness that would not start.
+fn not_started(harness: Harness, e: std::io::Error) -> String {
+    format!(
+        "Could not start {}: {e}. Install it with `{}`.",
+        harness.label(),
+        harness.install_hint()
+    )
 }
 
 #[derive(Default)]
@@ -84,31 +129,19 @@ impl AgentSessions {
             )
         })?;
 
-        let mut child = spawn_acp(harness, &workspace.to_string_lossy()).map_err(|e| {
-            format!(
-                "Could not start {}: {e}. Install it with `{}`.",
-                harness.label(),
-                harness.install_hint()
-            )
-        })?;
-        let stdout = child.stdout.take().ok_or("The agent has no output.")?;
-        let stdin = child.stdin.take().ok_or("The agent takes no input.")?;
-
-        let (client, mut events) = AcpClient::new(stdout, stdin);
-        let info = client.initialize().await?;
-
-        // No endpoint means no database tools. The session still works — an
-        // agent that can read the repository is useful — so this is reported
-        // rather than refused.
-        let servers = match &endpoint {
-            Some((url, token)) if info.http_mcp => vec![McpServer::sqlpilot(url, token)],
-            _ => Vec::new(),
+        let cwd = workspace.to_string_lossy().to_string();
+        let started = match harness {
+            Harness::Copilot => self.start_acp(harness, &cwd, endpoint).await,
+            Harness::ClaudeCode => self.start_claude(&cwd, endpoint).await,
         };
-        let tools_available = !servers.is_empty();
-
-        let remote = client
-            .new_session(&workspace.to_string_lossy(), &servers)
-            .await?;
+        let (driver, child, agent, version, tools_available, mut events) = match started {
+            Ok(parts) => parts,
+            Err(e) => {
+                // The directory was made for a session that never happened.
+                let _ = std::fs::remove_dir_all(&workspace);
+                return Err(e);
+            }
+        };
 
         // Forward events until the agent stops.
         let session_id = id.clone();
@@ -127,8 +160,7 @@ impl AgentSessions {
             .insert(
                 id.clone(),
                 Running {
-                    client,
-                    remote,
+                    driver,
                     child,
                     workspace,
                 },
@@ -136,10 +168,79 @@ impl AgentSessions {
 
         Ok(StartedSession {
             session: id,
-            agent: info.name,
-            version: info.version,
+            agent,
+            version,
             tools_available,
         })
+    }
+
+    /// Copilot: handshake, then a session with our server in it.
+    async fn start_acp(
+        &self,
+        harness: Harness,
+        cwd: &str,
+        endpoint: Option<(String, String)>,
+    ) -> Result<Parts, String> {
+        let mut child = spawn_acp(harness, cwd).map_err(|e| not_started(harness, e))?;
+        let stdout = child.stdout.take().ok_or("The agent has no output.")?;
+        let stdin = child.stdin.take().ok_or("The agent takes no input.")?;
+
+        let (client, events) = AcpClient::new(stdout, stdin);
+        let info = client.initialize().await?;
+
+        // No endpoint means no database tools. The session still works — an
+        // agent that can read its working directory is useful — so this is
+        // reported rather than refused.
+        let servers = match &endpoint {
+            Some((url, token)) if info.http_mcp => vec![McpServer::sqlpilot(url, token)],
+            _ => Vec::new(),
+        };
+        let tools_available = !servers.is_empty();
+        let remote = client.new_session(cwd, &servers).await?;
+
+        Ok((
+            Driver::Acp { client, remote },
+            child,
+            info.name,
+            info.version,
+            tools_available,
+            events,
+        ))
+    }
+
+    /// Claude Code: one process, configured entirely by its arguments.
+    ///
+    /// There is no handshake to read a version from, so the version is asked
+    /// for separately — a session header that says which agent is answering is
+    /// worth one extra process at startup.
+    async fn start_claude(
+        &self,
+        cwd: &str,
+        endpoint: Option<(String, String)>,
+    ) -> Result<Parts, String> {
+        let config = endpoint
+            .as_ref()
+            .map(|(url, token)| claude::mcp_config(url, token));
+        let tools_available = config.is_some();
+
+        let mut child = claude::spawn(cwd, config.as_deref())
+            .map_err(|e| not_started(Harness::ClaudeCode, e))?;
+        let stdout = child.stdout.take().ok_or("The agent has no output.")?;
+        let stdin = child.stdin.take().ok_or("The agent takes no input.")?;
+
+        let (session, events) = ClaudeSession::attach(stdout, stdin);
+        let version = mas_agent::harness::version_of(Harness::ClaudeCode)
+            .await
+            .unwrap_or_default();
+
+        Ok((
+            Driver::Claude(session),
+            child,
+            Harness::ClaudeCode.label().to_string(),
+            version,
+            tools_available,
+            events,
+        ))
     }
 
     /// Send a turn. Returns at once; the answer arrives as events.
@@ -152,22 +253,42 @@ impl AgentSessions {
         text: String,
         emit: impl Fn(AgentSessionEvent) + Send + Sync + 'static,
     ) -> Result<(), String> {
-        let (client, remote) = self.handle(session)?;
+        let driver = self.handle(session)?;
         let id = session.to_string();
         tokio::spawn(async move {
-            let event = match client.prompt(&remote, &text).await {
-                Ok(reason) => SessionEvent::TurnEnded { reason },
-                Err(message) => SessionEvent::Failed { message },
-            };
-            emit(AgentSessionEvent { session: id, event });
+            match driver {
+                DriverHandle::Acp { client, remote } => {
+                    // ACP's prompt call resolves when the turn ends, so the
+                    // ending is reported from here.
+                    let event = match client.prompt(&remote, &text).await {
+                        Ok(reason) => SessionEvent::TurnEnded { reason },
+                        Err(message) => SessionEvent::Failed { message },
+                    };
+                    emit(AgentSessionEvent { session: id, event });
+                }
+                DriverHandle::Claude(claude) => {
+                    // Claude's stream reports its own ending, so only a
+                    // failure to send is worth an event here.
+                    if let Err(message) = claude.prompt(&text).await {
+                        emit(AgentSessionEvent {
+                            session: id,
+                            event: SessionEvent::Failed { message },
+                        });
+                    }
+                }
+            }
         });
         Ok(())
     }
 
     pub async fn cancel(&self, session: &str) -> Result<(), String> {
-        let (client, remote) = self.handle(session)?;
-        client.cancel(&remote).await;
-        Ok(())
+        match self.handle(session)? {
+            DriverHandle::Acp { client, remote } => {
+                client.cancel(&remote).await;
+                Ok(())
+            }
+            DriverHandle::Claude(claude) => claude.cancel().await,
+        }
     }
 
     /// Answer a permission request. `None` means the user did not decide.
@@ -177,9 +298,16 @@ impl AgentSessions {
         request: &str,
         option: Option<String>,
     ) -> Result<(), String> {
-        let (client, _) = self.handle(session)?;
-        client.answer_permission(request, option.as_deref()).await;
-        Ok(())
+        match self.handle(session)? {
+            DriverHandle::Acp { client, .. } => {
+                client.answer_permission(request, option.as_deref()).await;
+                Ok(())
+            }
+            // Claude Code sessions answer their own prompts with "no" — the
+            // session has SQLPilot's tools allow-listed and nothing else — so
+            // there is never one of these waiting.
+            DriverHandle::Claude(_) => Ok(()),
+        }
     }
 
     /// End a session and clean up after it.
@@ -222,12 +350,20 @@ impl AgentSessions {
             .len()
     }
 
-    fn handle(&self, session: &str) -> Result<(Arc<AcpClient>, String), String> {
+    /// The driver for a session, taken out of the register so the lock is not
+    /// held across an await.
+    fn handle(&self, session: &str) -> Result<DriverHandle, String> {
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         let running = sessions
             .get(session)
             .ok_or_else(|| "That session is not running any more. Start a new one.".to_string())?;
-        Ok((running.client.clone(), running.remote.clone()))
+        Ok(match &running.driver {
+            Driver::Acp { client, remote } => DriverHandle::Acp {
+                client: client.clone(),
+                remote: remote.clone(),
+            },
+            Driver::Claude(claude) => DriverHandle::Claude(claude.clone()),
+        })
     }
 }
 

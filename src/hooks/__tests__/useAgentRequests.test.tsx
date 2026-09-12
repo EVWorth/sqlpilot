@@ -198,6 +198,32 @@ describe("useAgentRequests", () => {
     expect(useAgentStore.getState().proposal).toBeNull();
   });
 
+  it("shows an approval instead of answering it", async () => {
+    // The answer is the user's, and they have not given it yet.
+    render(<Mounted />);
+    await deliver({
+      id: "r1",
+      kind: "approve",
+      connection: "shop",
+      environment: "production",
+      database: "shop",
+      sql: "DELETE FROM orders",
+      rowsAffected: 4,
+      change: "write",
+      reason: "clearing the test data",
+    } as AgentRequest);
+
+    await waitFor(() => expect(useAgentStore.getState().approval).not.toBeNull());
+    expect(useAgentStore.getState().approval).toMatchObject({
+      id: "r1",
+      connection: "shop",
+      environment: "production",
+      rowsAffected: 4,
+      change: "write",
+    });
+    expect(apiMocks.answerAgentRequest).not.toHaveBeenCalled();
+  });
+
   it("leaves lastError to the backend", async () => {
     // It reads the history store, so it survives the tab being closed.
     render(<Mounted />);

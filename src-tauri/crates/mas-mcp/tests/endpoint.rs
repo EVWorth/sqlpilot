@@ -19,7 +19,7 @@ use mas_core::schema::inspector::{
 };
 use mas_mcp::endpoint;
 use mas_mcp::grants::{ConnectionFacts, Grant, Grants};
-use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, Workspace};
+use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, StagedWrite, Workspace};
 use serde_json::json;
 
 /// A workspace with one shared connection and nothing else.
@@ -116,6 +116,30 @@ impl Workspace for OneConnection {
         _: u32,
     ) -> Result<Vec<SchemaMatch>, CoreError> {
         Ok(vec![])
+    }
+
+    async fn stage_write(
+        &self,
+        _: &str,
+        _: Option<&str>,
+        _: &str,
+    ) -> Result<StagedWrite, CoreError> {
+        Ok(StagedWrite {
+            id: "staged-1".into(),
+            rows_affected: 1,
+        })
+    }
+
+    async fn commit_write(&self, _: &str) -> Result<u64, CoreError> {
+        Ok(1)
+    }
+
+    async fn rollback_write(&self, _: &str) -> Result<(), CoreError> {
+        Ok(())
+    }
+
+    async fn run_ddl(&self, _: &str, _: Option<&str>, _: &str) -> Result<(), CoreError> {
+        Ok(())
     }
 
     async fn history(&self, _: HistoryFilter) -> Result<Vec<HistoryEntry>, CoreError> {
@@ -326,6 +350,9 @@ async fn a_harness_can_list_the_tools() {
         "propose_edit",
         "open_draft",
         "query_history",
+        "run_write",
+        "run_ddl",
+        "estimate_impact",
     ] {
         assert!(body.contains(tool), "{tool} is missing from tools/list");
     }

@@ -92,6 +92,35 @@ pub struct ResultContext {
     pub note: Option<String>,
 }
 
+/// A change waiting for the user to say yes.
+///
+/// The keystone of the design, as data. Whatever a harness has been told it
+/// may do without asking, this is the question SQLPilot asks in its own
+/// window, and the answer is the user's.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(rename_all = "camelCase")]
+pub struct ApprovalRequest {
+    /// The connection's name, as the user knows it.
+    pub connection: String,
+    /// "development", "staging", "production" or "unknown". Shown, because
+    /// the same statement is a different decision on each.
+    pub environment: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub database: Option<String>,
+    pub sql: String,
+    /// What the statement actually changed, measured by running it inside a
+    /// transaction that has not been committed. Absent for a schema change,
+    /// which cannot be run first — the server commits before it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rows_affected: Option<u64>,
+    /// "write" or "schema". Decides the wording and which button is dangerous.
+    pub kind: String,
+    /// Why the agent says it wants this. Shown as the agent's claim, not as
+    /// the app's description of what will happen.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}
+
 /// What the user did with a proposed edit.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "camelCase")]
@@ -125,6 +154,13 @@ pub trait Surface: Send + Sync + 'static {
         sql: String,
         rationale: String,
     ) -> Result<EditOutcome, SurfaceError>;
+
+    /// Ask the user to approve a change, and wait.
+    ///
+    /// True means apply it. Anything else — false, a dismissal, a timeout —
+    /// means do not, and the caller rolls back. There is no default-yes path
+    /// through here, and no setting that skips it.
+    async fn approve(&self, request: ApprovalRequest) -> Result<bool, SurfaceError>;
 
     /// Open a new tab with this SQL in it. Never touches an existing one.
     async fn open_draft(

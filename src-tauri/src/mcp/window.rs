@@ -9,7 +9,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use mas_mcp::surface::{EditOutcome, EditorContext, RawResult, Surface, SurfaceError};
+use mas_mcp::surface::{
+    ApprovalRequest, EditOutcome, EditorContext, RawResult, Surface, SurfaceError,
+};
 use serde::Deserialize;
 
 use crate::mcp::bridge::{AgentAsk, WindowBridge, DECISION_TIMEOUT, READ_TIMEOUT};
@@ -38,6 +40,12 @@ impl WindowSurface {
             ))
         })
     }
+}
+
+/// The window's answer to an approval.
+#[derive(Debug, Deserialize)]
+struct ApprovalAnswer {
+    approved: bool,
 }
 
 /// The window's answer for `get_result_context`.
@@ -74,6 +82,33 @@ impl Surface for WindowSurface {
             truncated: a.truncated,
             connection: a.connection,
         }))
+    }
+
+    async fn approve(&self, request: ApprovalRequest) -> Result<bool, SurfaceError> {
+        // The same long deadline as a proposed edit: this is a person reading
+        // a statement and a row count and deciding, and hurrying them is how a
+        // confirmation becomes a reflex.
+        let answer: ApprovalAnswer = self
+            .ask(
+                AgentAsk::Approve {
+                    connection: request.connection,
+                    environment: request.environment,
+                    database: request.database,
+                    sql: request.sql,
+                    // Narrowed for the wire, where JavaScript would lose
+                    // precision anyway. A write affecting four billion rows is
+                    // reported as "more than the display can show" by the
+                    // dialog rather than as a wrong number.
+                    rows_affected: request
+                        .rows_affected
+                        .map(|rows| u32::try_from(rows).unwrap_or(u32::MAX)),
+                    change: request.kind,
+                    reason: request.reason,
+                },
+                DECISION_TIMEOUT,
+            )
+            .await?;
+        Ok(answer.approved)
     }
 
     async fn propose_edit(

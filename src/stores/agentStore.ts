@@ -29,6 +29,26 @@ export interface Proposal {
   rationale: string;
 }
 
+/**
+ * A change waiting for the user to say yes.
+ *
+ * Shaped like the `approve` event rather than like the Rust type, because the
+ * dialog renders it and the dialog is what has to be right.
+ */
+export interface PendingApproval {
+  /** The request id to answer with. */
+  id: string;
+  connection: string;
+  environment: string;
+  database?: string;
+  sql: string;
+  /** Measured, not estimated. Absent for a schema change. */
+  rowsAffected?: number;
+  /** "write" or "schema". */
+  change: string;
+  reason?: string;
+}
+
 interface AgentState {
   endpoint: AgentEndpoint | null;
   connections: AgentConnection[];
@@ -45,6 +65,14 @@ interface AgentState {
    * wait.
    */
   proposal: Proposal | null;
+  /**
+   * The change waiting to be approved.
+   *
+   * Separate from `proposal`: one is a suggestion about text in an editor, the
+   * other is a statement that has already run against a database and is
+   * waiting to be kept or thrown away.
+   */
+  approval: PendingApproval | null;
 
   refresh: () => Promise<void>;
   start: () => Promise<void>;
@@ -55,6 +83,8 @@ interface AgentState {
   loadSetup: (target: SetupTarget) => Promise<void>;
   showProposal: (proposal: Proposal) => void;
   clearProposal: () => void;
+  showApproval: (approval: PendingApproval) => void;
+  clearApproval: () => void;
   clearError: () => void;
 }
 
@@ -74,6 +104,7 @@ export const useAgentStore = create<AgentState>((set) => ({
   error: null,
   setup: null,
   proposal: null,
+  approval: null,
 
   refresh: async () => {
     set({ loading: true });
@@ -135,6 +166,10 @@ export const useAgentStore = create<AgentState>((set) => ({
   showProposal: (proposal) => set({ proposal }),
 
   clearProposal: () => set({ proposal: null }),
+
+  showApproval: (approval) => set({ approval }),
+
+  clearApproval: () => set({ approval: null }),
 
   clearError: () => set({ error: null }),
 }));

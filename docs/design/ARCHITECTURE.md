@@ -1735,6 +1735,31 @@ async fn stop_agent_session(
 ) -> Result<(), String>;
 ```
 
+### Approving a change
+
+The keystone, as a sequence. A write from an agent goes:
+
+1. `run_write` classifies the statement and asks the policy. A read-only
+   connection refuses here, before anything runs.
+2. The statement runs inside a transaction that is **not committed**, on a
+   connection held out of the pool (`mas_core::query::staged`). Nothing is
+   visible to any other session.
+3. The user is asked in SQLPilot's own window, with the **measured** row count
+   — not an estimate — the connection, its environment, and the agent's stated
+   reason.
+4. Their answer commits or rolls back. A dismissal, a timeout, or a window that
+   never answered all roll back: there is no path through this where silence
+   means yes.
+
+A staged write has a deadline (`DEFAULT_DEADLINE`, two minutes) after which it
+rolls itself back, because it holds row locks while it waits.
+
+`run_ddl` cannot use that shape: both MySQL and MariaDB commit the open
+transaction before a schema change, verified against 8.0.46 and MariaDB 11.8 in
+`staged_write.rs`. So DDL is approved _before_ it runs, with no row count —
+there is no honest number to show — and refused outright on production unless
+that connection has been unlocked.
+
 The `AgentRequest` event carries a discriminated union (`AgentAsk`), so adding
 a question the window must answer is a type error in the frontend rather than a
 silently unhandled event. Every request has a deadline: ten seconds for a

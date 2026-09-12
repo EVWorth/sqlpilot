@@ -18,12 +18,14 @@
 //! called, `mas-mcp` has already decided the call is permitted; a check
 //! repeated here would be a second rule to keep in step with the first.
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
 
 use mas_core::connection::{ConnectionManager, ConnectionStore};
 use mas_core::error::CoreError;
 use mas_core::history::{HistoryEntry, HistoryQuery, HistoryStore};
 use mas_core::models::query::QueryResult;
+use mas_core::query::staged::{StageError, StagedWrite as CoreStagedWrite, DEFAULT_DEADLINE};
 use mas_core::query::{ExplainFormat, ExplainResponse, QueryExecutor};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, ReferencingKey, RoutineInfo, SchemaMatch,
@@ -35,8 +37,20 @@ use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, Workspace};
 
 use crate::mcp::state::McpState;
 
+/// How long a staged write waits for an answer.
+///
+/// The dialog's own deadline is longer, so the wait that ends first is the one
+/// holding database locks rather than the one holding a window open.
+const STAGE_DEADLINE: std::time::Duration = DEFAULT_DEADLINE;
+
 pub struct AppWorkspace {
     connections: Arc<ConnectionManager>,
+    /// Writes that have run and are waiting for the user to answer.
+    ///
+    /// Held here rather than in the tool call, because the call that stages a
+    /// write and the call that commits it are two different awaits and the
+    /// transaction has to outlive the first.
+    staged: Arc<Mutex<HashMap<String, CoreStagedWrite>>>,
     history: Arc<HistoryStore>,
     /// The saved profiles, so a shared connection has a policy whether or not
     /// it is connected right now.
@@ -67,6 +81,24 @@ impl AppWorkspace {
             })
     }
 
+    /// Take a staged write out of the register, or say it is gone.
+    ///
+    /// Gone means answered already, or expired: either way there is nothing to
+    /// commit, and saying which is more useful than a missing-key error.
+    fn take_staged(&self, id: &str) -> Result<CoreStagedWrite, CoreError> {
+        self.staged
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id)
+            .ok_or_else(|| {
+                CoreError::Query(
+                    "That change is no longer waiting — it was already answered, or it timed out \
+                     and was rolled back. Nothing was applied. Try it again if you still want it."
+                        .to_string(),
+                )
+            })
+    }
+
     pub fn new(
         connections: Arc<ConnectionManager>,
         store: Arc<ConnectionStore>,
@@ -77,6 +109,7 @@ impl AppWorkspace {
     ) -> Self {
         Self {
             connections,
+            staged: Arc::new(Mutex::new(HashMap::new())),
             history,
             store,
             inspector,
@@ -292,6 +325,79 @@ impl Workspace for AppWorkspace {
             limit: Some(filter.limit),
             ..Default::default()
         })
+    }
+
+    async fn stage_write(
+        &self,
+        connection_id: &str,
+        database: Option<&str>,
+        sql: &str,
+    ) -> Result<mas_mcp::workspace::StagedWrite, CoreError> {
+        let connection_id = self.live(connection_id)?;
+        let pool = self.connections.get_pool(&connection_id)?;
+        let staged = CoreStagedWrite::begin(&pool, database, sql, STAGE_DEADLINE)
+            .await
+            .map_err(|e| match e {
+                StageError::Failed(e) => e,
+                other => CoreError::Query(other.to_string()),
+            })?;
+
+        let id = uuid::Uuid::new_v4().to_string();
+        let rows_affected = staged.rows_affected;
+        self.staged
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(id.clone(), staged);
+
+        // A staged write holds row locks. If nobody answers, it rolls itself
+        // back rather than blocking other sessions until the app closes.
+        let staged_writes = self.staged.clone();
+        let expiring = id.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(STAGE_DEADLINE).await;
+            let forgotten = staged_writes
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&expiring);
+            if let Some(write) = forgotten {
+                tracing::warn!("rolling back a staged write nobody answered");
+                let _ = write.rollback().await;
+            }
+        });
+
+        Ok(mas_mcp::workspace::StagedWrite { id, rows_affected })
+    }
+
+    async fn commit_write(&self, staged: &str) -> Result<u64, CoreError> {
+        let write = self.take_staged(staged)?;
+        write.commit().await
+    }
+
+    async fn rollback_write(&self, staged: &str) -> Result<(), CoreError> {
+        let write = self.take_staged(staged)?;
+        write.rollback().await
+    }
+
+    async fn run_ddl(
+        &self,
+        connection_id: &str,
+        database: Option<&str>,
+        sql: &str,
+    ) -> Result<(), CoreError> {
+        // Through the same executor as everything else: one set of timeouts,
+        // one cancel path, and the statement lands in history where the user
+        // can see what their agent did.
+        let connection_id = self.live(connection_id)?;
+        self.executor
+            .execute(
+                &connection_id,
+                sql,
+                database.map(str::to_string),
+                None,
+                None,
+            )
+            .await?;
+        Ok(())
     }
 
     async fn run(

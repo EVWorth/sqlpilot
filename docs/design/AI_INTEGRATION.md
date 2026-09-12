@@ -245,13 +245,13 @@ below is from the documentation as of 2026-09-12._
 
 The CLI has everything a host needs:
 
-| Need                    | Mechanism                                                                                                                                              |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Structured transcript   | `-p --output-format stream-json --verbose --include-partial-messages` — NDJSON of `system/init`, assistant/user messages, deltas, and a final `result` |
-| Wire in our server      | `--mcp-config <file-or-json>`, without touching the user's global config                                                                               |
-| **Approvals in our UI** | `--permission-prompt-tool`, an MCP tool that answers permission requests — so SQLPilot renders the prompt natively                                     |
-| Multi-turn              | `--resume <session_id>`, or `--input-format stream-json`                                                                                               |
-| Cancel a turn           | SIGINT ends the turn; SIGTERM leaves it unfinished (exit 143)                                                                                          |
+| Need                    | Mechanism                                                                                                                                                                                                                                                                              |
+| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Structured transcript   | `--print --output-format stream-json --verbose --include-partial-messages` — NDJSON: `system/init`, `stream_event` deltas, assistant/user messages, a final `result`                                                                                                                   |
+| Wire in our server      | `--mcp-config <json>` with `--strict-mcp-config`, so the session has our server and none of the user's own. Confirmed: the init line then lists ours alone                                                                                                                             |
+| **Approvals in our UI** | Not the harness's job. Our tools are allow-listed (`--allowedTools mcp__sqlpilot`) so they never prompt, and SQLPilot asks its own question about the ones that change data. `--permission-prompts none` refuses everything else, and the refusals are reported at the end of the turn |
+| Multi-turn              | `--input-format stream-json`: one process, many messages on stdin. Verified                                                                                                                                                                                                            |
+| Cancel a turn           | A `control_request` with subtype `interrupt` on stdin. A signal would end the process, and the session with it                                                                                                                                                                         |
 
 Two constraints worth writing down:
 
@@ -303,9 +303,17 @@ approvals do not care.
    token, with Settings → Agents to share connections and hand over the setup
    command. Writes and schema changes are refused with a sentence pointing at
    what does work.
-2. **In-app sessions**, Claude Code natively and Copilot in a terminal view,
-   with the app-aware tools — `propose_edit` is what makes this worth doing.
-3. **Writes**: dry-run, graded approval, transaction wrapping, undo.
+2. **In-app sessions.** ~~Copilot in a terminal view~~ — Copilot ships natively
+   over ACP (§7), with the app-aware tools and `propose_edit`. **Claude Code's
+   adapter is still to come**, over its own `stream-json` transport.
+3. ~~**Writes**: dry-run, graded approval, transaction wrapping, undo.~~
+   **Shipped**, and simpler than planned: the dry run and the write are the
+   same run. `run_write` executes inside a transaction, so the user is asked
+   with the _measured_ row count in front of them and their answer commits or
+   rolls back — which is the undo. `estimate_impact` is the same machinery
+   without the question. `run_ddl` cannot work that way, because both servers
+   commit the open transaction before a schema change (verified on 8.0.46 and
+   MariaDB 11.8), so it is approved before it runs and says so.
 4. **Background and multi-session.**
 
 Reads before writes, even in-app. A session that can only look is a useful
