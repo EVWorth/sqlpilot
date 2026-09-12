@@ -389,6 +389,7 @@ pub fn run() {
     // the window opens and the message explains why, which is the difference
     // between a bug report and a mystery.
     let (store, store_problem) = open_connection_store(&data_dir);
+    let store = Arc::new(store);
     if let Some(problem) = store_problem {
         startup_problems.push(problem);
     }

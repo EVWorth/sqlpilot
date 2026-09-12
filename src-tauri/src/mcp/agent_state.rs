@@ -59,6 +59,7 @@ impl AgentState {
         let token = endpoint::load_or_create_token(&self.data_dir)?;
         let workspace = Arc::new(AppWorkspace::new(
             app.connection_manager.clone(),
+            app.connection_store.clone(),
             app.schema_inspector.clone(),
             app.query_executor.clone(),
             self.state.clone(),

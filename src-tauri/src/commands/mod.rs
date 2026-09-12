@@ -31,7 +31,9 @@ use tauri::State;
 
 pub struct AppState {
     pub connection_manager: Arc<ConnectionManager>,
-    pub connection_store: ConnectionStore,
+    // Shared with the agent workspace, which needs the saved profiles to give
+    // a shared-but-not-connected connection a policy.
+    pub connection_store: Arc<ConnectionStore>,
     // Shared rather than owned: the agent endpoint runs queries through the
     // same executor the editor does, so a cancel from either side finds the
     // same in-flight statement, and both honour one set of timeouts and caps.

@@ -6,13 +6,21 @@
 //! mean two sets of timeouts, two row caps and two sets of bugs, and the
 //! agent's set would be the one nobody noticed was wrong.
 //!
+//! One thing is translated rather than forwarded: the connection id. An agent
+//! addresses a connection by its **profile** id, which is stable across
+//! restarts, because a harness config that names a connection has to keep
+//! meaning the same connection tomorrow. The manager and the executor work in
+//! per-session connection ids, so every method here resolves one to the other,
+//! and a profile that is not connected right now fails with a sentence saying
+//! exactly that rather than with "not found".
+//!
 //! No policy decisions happen in this file. By the time a method here is
 //! called, `mas-mcp` has already decided the call is permitted; a check
 //! repeated here would be a second rule to keep in step with the first.
 
 use std::sync::Arc;
 
-use mas_core::connection::ConnectionManager;
+use mas_core::connection::{ConnectionManager, ConnectionStore};
 use mas_core::error::CoreError;
 use mas_core::models::query::QueryResult;
 use mas_core::query::{ExplainFormat, ExplainResponse, QueryExecutor};
@@ -28,20 +36,45 @@ use crate::mcp::state::McpState;
 
 pub struct AppWorkspace {
     connections: Arc<ConnectionManager>,
+    /// The saved profiles, so a shared connection has a policy whether or not
+    /// it is connected right now.
+    store: Arc<ConnectionStore>,
     inspector: Arc<SchemaInspector>,
     executor: Arc<QueryExecutor>,
     state: McpState,
 }
 
 impl AppWorkspace {
+    /// The live connection for a profile, or why there is not one.
+    ///
+    /// "Shared but not connected" is an ordinary state — the user shares a
+    /// connection once and connects to it when they need it — so it gets its
+    /// own message rather than being reported as a missing connection, which
+    /// would send an agent looking for a typo that is not there.
+    fn live(&self, profile_id: &str) -> Result<String, CoreError> {
+        self.connections
+            .list_connections()
+            .into_iter()
+            .find(|info| info.profile_id == profile_id)
+            .map(|info| info.id)
+            .ok_or_else(|| {
+                CoreError::NotFound(format!(
+                    "The connection \"{profile_id}\" is shared with agents but is not connected \
+                     right now. Ask the user to connect it in SQLPilot."
+                ))
+            })
+    }
+
     pub fn new(
         connections: Arc<ConnectionManager>,
+        store: Arc<ConnectionStore>,
         inspector: Arc<SchemaInspector>,
         executor: Arc<QueryExecutor>,
         state: McpState,
     ) -> Self {
         Self {
             connections,
+            store,
             inspector,
             executor,
             state,
@@ -61,13 +94,15 @@ impl Workspace for AppWorkspace {
             .into_iter()
             .map(|info| LiveConnection {
                 read_only: self.connections.is_read_only(&info.id),
+                // The profile id, not the session id: a harness config naming
+                // this connection has to still mean it after a restart.
+                id: info.profile_id,
                 // Never silently "development": a profile with no environment
                 // is an unlabelled one, and the policy treats it as such.
                 environment: info
                     .environment
                     .map(|e| e.to_string())
                     .unwrap_or_else(|| "unknown".to_string()),
-                id: info.id,
                 name: info.name,
                 server_version: info.server_version,
                 default_database: info.database,
@@ -76,19 +111,21 @@ impl Workspace for AppWorkspace {
     }
 
     fn facts(&self, connection_id: &str) -> Option<ConnectionFacts> {
-        self.connections
-            .list_connections()
-            .into_iter()
-            .find(|info| info.id == connection_id)
-            .map(|info| ConnectionFacts {
-                read_only: self.connections.is_read_only(&info.id),
-                environment: info.environment.map(|e| e.to_string()),
-                id: info.id,
-                name: info.name,
-            })
+        // Answered from the saved profiles rather than from the live
+        // connections, so that a shared-but-not-connected profile still has a
+        // policy. The refusal for "not connected" then comes from the call
+        // that needs the server, and says so.
+        let profile = self.store.get_existing(connection_id).ok().flatten()?;
+        Some(ConnectionFacts {
+            id: profile.id,
+            name: profile.name,
+            environment: profile.environment.map(|e| e.to_string()),
+            read_only: profile.read_only,
+        })
     }
 
     async fn databases(&self, connection_id: &str) -> Result<Vec<DatabaseInfo>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector.get_databases(connection_id).await
     }
 
@@ -97,6 +134,7 @@ impl Workspace for AppWorkspace {
         connection_id: &str,
         database: &str,
     ) -> Result<Vec<TableInfo>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector.get_tables(connection_id, database).await
     }
 
@@ -106,6 +144,7 @@ impl Workspace for AppWorkspace {
         database: &str,
         table: &str,
     ) -> Result<Vec<ColumnInfo>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector
             .get_columns(connection_id, database, table)
             .await
@@ -117,6 +156,7 @@ impl Workspace for AppWorkspace {
         database: &str,
         table: &str,
     ) -> Result<Vec<IndexInfo>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector
             .get_indexes(connection_id, database, table)
             .await
@@ -128,6 +168,7 @@ impl Workspace for AppWorkspace {
         database: &str,
         table: &str,
     ) -> Result<Vec<ForeignKeyInfo>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector
             .get_foreign_keys(connection_id, database, table)
             .await
@@ -139,12 +180,14 @@ impl Workspace for AppWorkspace {
         database: &str,
         table: &str,
     ) -> Result<Vec<ReferencingKey>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector
             .get_referencing_keys(connection_id, database, table)
             .await
     }
 
     async fn views(&self, connection_id: &str, database: &str) -> Result<Vec<ViewInfo>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector.get_views(connection_id, database).await
     }
 
@@ -153,6 +196,7 @@ impl Workspace for AppWorkspace {
         connection_id: &str,
         database: &str,
     ) -> Result<Vec<RoutineInfo>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector.get_routines(connection_id, database).await
     }
 
@@ -161,6 +205,7 @@ impl Workspace for AppWorkspace {
         connection_id: &str,
         database: &str,
     ) -> Result<Vec<TriggerInfo>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector.get_triggers(connection_id, database).await
     }
 
@@ -171,6 +216,7 @@ impl Workspace for AppWorkspace {
         object: &str,
         kind: ObjectKind,
     ) -> Result<String, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         match kind {
             ObjectKind::Table => {
                 self.inspector
@@ -207,6 +253,7 @@ impl Workspace for AppWorkspace {
         fragment: &str,
         limit: u32,
     ) -> Result<Vec<SchemaMatch>, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         self.inspector
             .search_schema(connection_id, database, fragment, limit)
             .await
@@ -220,10 +267,11 @@ impl Workspace for AppWorkspace {
         analyze: bool,
         format: ExplainFormat,
     ) -> Result<ExplainResponse, CoreError> {
+        let connection_id = self.live(connection_id)?;
         mas_core::query::explain(
             &self.connections,
             &self.executor,
-            connection_id.to_string(),
+            connection_id,
             sql.to_string(),
             database.map(str::to_string),
             analyze,
@@ -239,6 +287,7 @@ impl Workspace for AppWorkspace {
         sql: &str,
         limit: Option<u32>,
     ) -> Result<QueryResult, CoreError> {
+        let connection_id = &self.live(connection_id)?;
         let results = self
             .executor
             .execute(
@@ -258,5 +307,75 @@ impl Workspace for AppWorkspace {
             .into_iter()
             .next()
             .ok_or_else(|| CoreError::Query("The statement produced no result at all.".to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mas_core::models::ConnectionProfile;
+
+    fn workspace() -> (AppWorkspace, Arc<ConnectionStore>) {
+        keyring_core::set_default_store(keyring_core::mock::Store::new().unwrap());
+        let store = Arc::new(ConnectionStore::in_memory().unwrap());
+        let manager = Arc::new(ConnectionManager::new());
+        let workspace = AppWorkspace::new(
+            manager.clone(),
+            store.clone(),
+            Arc::new(SchemaInspector::new(manager.clone())),
+            Arc::new(QueryExecutor::new(manager)),
+            McpState::default(),
+        );
+        (workspace, store)
+    }
+
+    fn profile(id: &str) -> ConnectionProfile {
+        ConnectionProfile {
+            id: id.to_string(),
+            name: "shop".to_string(),
+            read_only: true,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn a_saved_connection_has_a_policy_before_it_is_connected() {
+        // The grant is the user's standing decision. Making it evaporate until
+        // they happen to connect would mean the settings screen and the agent
+        // disagreed about what is shared.
+        let (workspace, store) = workspace();
+        store.save(&profile("p1")).unwrap();
+
+        let facts = workspace.facts("p1").expect("a saved profile has facts");
+        assert_eq!(facts.id, "p1", "addressed by profile id, not session id");
+        assert!(facts.read_only, "and its read-only flag comes with it");
+    }
+
+    #[test]
+    fn a_connection_that_was_never_saved_has_none() {
+        let (workspace, _) = workspace();
+        assert!(workspace.facts("nope").is_none());
+    }
+
+    #[tokio::test]
+    async fn asking_about_a_disconnected_connection_says_so() {
+        // Not "no such connection": the agent has the id because the user
+        // shared it, and "not found" would send it hunting for a typo.
+        let (workspace, store) = workspace();
+        store.save(&profile("p1")).unwrap();
+
+        let error = workspace.databases("p1").await.unwrap_err().to_string();
+        assert!(error.contains("not connected"), "{error}");
+        assert!(
+            error.contains("SQLPilot"),
+            "and says who can fix it: {error}"
+        );
+    }
+
+    #[test]
+    fn nothing_is_listed_when_nothing_is_connected() {
+        let (workspace, store) = workspace();
+        store.save(&profile("p1")).unwrap();
+        assert!(workspace.live_connections().is_empty());
     }
 }
