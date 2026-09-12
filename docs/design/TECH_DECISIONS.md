@@ -408,9 +408,15 @@ Candidates:
 
 ## ADR-007: GitHub Copilot SDK for AI Features
 
-**Status:** Accepted\
+**Status:** Superseded by [ADR-011](#adr-011-bring-your-own-harness-instead-of-an-embedded-provider)\
 **Date:** 2024-01\
 **Category:** AI Integration
+
+> Superseded 2026-09. The rationale below assumed SQLPilot holds the model
+> session. It does not: the harness does. What this ADR promised and never
+> built — a rate limiter and a token budget — is the harness's concern now,
+> and the provider router it describes is unnecessary when the provider is
+> whatever the user already runs.
 
 ### Context
 
@@ -859,3 +865,82 @@ sqlpilot (Tauri app)
   thiserror = "1"
   anyhow = "1"
   ```
+
+---
+
+## ADR-011: Bring your own harness, instead of an embedded provider
+
+**Status:** Accepted\
+**Date:** 2026-09\
+**Category:** AI Integration\
+**Supersedes:** ADR-007
+
+### Context
+
+ADR-007 put a Copilot SDK session inside the app. That shape requires SQLPilot
+to hold credentials, abstract over providers, meter usage, and own a system
+prompt that schema text is injected into. It also fixes the user's model choice
+to whatever we integrated.
+
+Meanwhile every harness worth supporting — Claude Code, Copilot, Codex, Gemini
+CLI, Cursor, Continue — speaks the Model Context Protocol, and the people who
+would use a SQL client's AI features already have one installed and
+authenticated.
+
+### Decision
+
+**SQLPilot is an MCP server over its own live connections, not a model client.
+The user brings their own harness.**
+
+The app exposes schema, analysis, query and editor tools to whatever agent the
+user runs, and enforces its own policy on every call. It never sees an API key,
+never calls a model, and never accounts for a token.
+
+### Rationale
+
+1. **The credential problem disappears.** Not mitigated — gone. There is no key
+   to store, rotate, leak or support. The user's harness is authenticated with
+   their own subscription under their own terms.
+
+2. **So does most of the security surface.** With no system prompt of ours,
+   there is no prompt to inject into. What remains is making our _tools_ safe,
+   which is testable in a way "did the model behave" is not.
+
+3. **The user picks the model.** Including a local one, which for anyone whose
+   data cannot leave the building is the difference between a usable feature
+   and a banned one.
+
+4. **The policy layer is the product.** An agent with a connection string has
+   no row cap, no query timeout, no production guard and no redaction. Going
+   through SQLPilot, it has all four — and that is worth more than another
+   chat window.
+
+5. **It works where the user already is.** The same server serves an editor
+   agent in VS Code, so SQLPilot becomes useful to people who do not have it
+   open.
+
+### Consequences
+
+- **The approval UI must be ours.** Harnesses have `--yolo`-shaped escape
+  hatches, so a destructive action blocks on SQLPilot's own confirmation
+  whatever is driving. See §2 of [AI_INTEGRATION.md](AI_INTEGRATION.md).
+- **One adapter per harness for the in-app view**, and they are not equal:
+  Claude Code exposes a structured stream and a permission-host hook; Copilot
+  CLI currently exposes neither. The tool surface must not depend on either.
+- **No inline completions.** Those need an in-process model call. Autocomplete
+  stays schema-driven, which is arguably the better trade for SQL anyway.
+- **We do not embed an agent SDK.** Anthropic's terms do not permit a
+  third-party product to offer claude.ai login through the Agent SDK; it
+  expects an API key. Spawning the user's own CLI is what keeps this BYOH.
+- **`mas-ai` and its 13 open issues are obsolete** rather than fixed: the
+  prefix-check tool guards, the pinned git rev, the missing rate limiter and
+  the prompt-injection surface all belong to a design that is being replaced.
+
+### Risks
+
+| Risk                                               | Likelihood | Impact                                           |
+| -------------------------------------------------- | ---------- | ------------------------------------------------ |
+| Harness CLIs change shape under us                 | High       | Low — the tool surface does not depend on them   |
+| A harness ships a mode that bypasses our approvals | Medium     | Low — approvals are ours, in our window          |
+| MCP itself changes                                 | Medium     | Medium — it is versioned and we track a revision |
+| User has no harness installed                      | Medium     | Low — say so plainly and link to one             |
