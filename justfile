@@ -52,6 +52,15 @@ test-rust:
 test-integration:
     cd src-tauri && cargo test -p mas-core -p mas-admin -p mas-mcp -- --ignored
 
+# The agent tests talk to a real harness, so they are not in test-integration:
+# they need the CLI installed and logged in, and they spend the user's own
+# quota. Everything they check is invisible from either side alone — whether a
+# model can understand the tools, whether the endpoint answers it, whether the
+# policy lets the right things through.
+[doc("End-to-end agent tests. Needs `just db-up`, and Copilot or Claude Code logged in.")]
+test-agents:
+    cd src-tauri && cargo test -p mas-agent -p sqlpilot --test live_copilot --test live_claude --test agent_end_to_end -- --ignored --test-threads=1
+
 # Frontend unit tests (Vitest).
 test-frontend:
     npx vitest run

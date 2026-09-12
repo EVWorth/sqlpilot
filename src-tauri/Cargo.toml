@@ -93,9 +93,12 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
 async-trait = "0.1.92"
+chrono.workspace = true
 keyring-core = "1"
 # The agent endpoint is tested over a real socket; nothing less would catch
 # a wiring mistake between the router, the token and the MCP service.
 reqwest = { version = "0.12", default-features = false, features = ["json"] }
+sqlx.workspace = true
 tempfile = "3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+uuid.workspace = true
