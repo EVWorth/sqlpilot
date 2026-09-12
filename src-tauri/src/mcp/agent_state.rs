@@ -10,9 +10,9 @@ use std::sync::{Arc, Mutex};
 
 use crate::commands::agents::AgentEndpoint;
 use crate::commands::AppState;
-use crate::mcp::endpoint::{self, Endpoint};
 use crate::mcp::state::McpState;
 use crate::mcp::workspace::AppWorkspace;
+use mas_mcp::endpoint::{self, Endpoint};
 
 pub struct AgentState {
     /// The grants, shared with the running server so a change takes effect at

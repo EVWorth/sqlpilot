@@ -1,5 +1,10 @@
 //! Where a harness connects.
 //!
+//! In this crate rather than in the app, because nothing here needs the app:
+//! it is a socket, a token and the tool surface. Keeping it out of the Tauri
+//! crate means the tests below run anywhere `cargo test` runs, rather than
+//! only where a GUI toolchain is installed.
+//!
 //! The server listens on loopback only. There is no configuration for that and
 //! no plan to add one: this is a door into the user's databases, and a door
 //! into the user's databases does not go on a network interface because
@@ -22,8 +27,8 @@ use rmcp::transport::streamable_http_server::session::local::LocalSessionManager
 use rmcp::transport::streamable_http_server::StreamableHttpServerConfig;
 use rmcp::transport::streamable_http_server::StreamableHttpService;
 
-use mas_mcp::server::SqlPilot;
-use mas_mcp::workspace::Workspace;
+use crate::server::SqlPilot;
+use crate::workspace::Workspace;
 
 /// The path under the MCP server's origin that speaks MCP.
 ///

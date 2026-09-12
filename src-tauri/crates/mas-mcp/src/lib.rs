@@ -11,6 +11,7 @@
 
 pub mod analysis;
 pub mod classify;
+pub mod endpoint;
 pub mod grants;
 pub mod policy;
 pub mod server;

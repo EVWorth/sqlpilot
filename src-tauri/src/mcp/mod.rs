@@ -7,7 +7,6 @@
 //! terms.
 
 pub mod agent_state;
-pub mod endpoint;
 pub mod state;
 pub mod workspace;
 

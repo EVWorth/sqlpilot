@@ -16,10 +16,10 @@ use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, ReferencingKey, RoutineInfo, SchemaMatch,
     TableInfo, TriggerInfo, ViewInfo,
 };
+use mas_mcp::endpoint;
 use mas_mcp::grants::{ConnectionFacts, Grant, Grants};
 use mas_mcp::workspace::{LiveConnection, ObjectKind, Workspace};
 use serde_json::json;
-use sqlpilot_lib::mcp::endpoint;
 
 /// A workspace with one shared connection and nothing else.
 struct OneConnection;
