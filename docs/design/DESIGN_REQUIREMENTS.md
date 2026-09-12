@@ -522,13 +522,13 @@ row rather than the section reading as done (#295).
 
 #### FR-7.3: Maintenance
 
-| ID       | Requirement         | Acceptance Criteria                                                                                                                                   |
-| -------- | ------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-7.3.1 | Database management | Create database (with charset/collation), drop database (with confirmation), alter database properties                                                |
-| FR-7.3.2 | Table maintenance   | OPTIMIZE, REPAIR, ANALYZE, CHECK TABLE operations; batch operations on multiple tables; scheduled maintenance                                         |
-| FR-7.3.3 | Backup              | MySQL dump integration: select databases/tables, set options (triggers, routines, events, single-transaction), choose output path; progress indicator |
-| FR-7.3.4 | Restore             | Import SQL dump files; progress indicator; error handling with option to continue or abort on error                                                   |
-| FR-7.3.5 | Flush operations    | Flush privileges, tables, hosts, logs, status; with confirmation and description of each operation                                                    |
+| ID       | Requirement         | Acceptance Criteria                                                                                                                                                                                                                    |
+| -------- | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-7.3.1 | Database management | Create database (with charset/collation), drop database (with confirmation), alter database properties                                                                                                                                 |
+| FR-7.3.2 | Table maintenance   | OPTIMIZE, REPAIR, ANALYZE, CHECK TABLE operations; batch operations on multiple tables; scheduled maintenance                                                                                                                          |
+| FR-7.3.3 | Backup              | Native streaming SQL dump — no external binary: select tables, structure and/or data, views/routines/triggers, single-transaction snapshot, choose output path; live progress with rows/sec and an estimate. Events are not dumped yet |
+| FR-7.3.4 | Restore             | Run a dump file, streamed and split by the backend on one session; progress by bytes; stop-or-continue on error; says explicitly whether the database was left partly changed                                                          |
+| FR-7.3.5 | Flush operations    | Flush privileges, tables, hosts, logs, status; with confirmation and description of each operation                                                                                                                                     |
 
 ---
 

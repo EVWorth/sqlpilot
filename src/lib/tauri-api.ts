@@ -1,6 +1,6 @@
 import { getVersion } from "@tauri-apps/api/app";
 import type { AiConfig, AiMode, ConnectionProfileInput, QueryResult } from "../types";
-import type { HistoryEntry, HistoryExportFormat, HistoryQuery } from "./bindings";
+import type { BackupOptions, HistoryEntry, HistoryExportFormat, HistoryQuery, RestoreOptions } from "./bindings";
 import { commands } from "./bindings";
 
 /**
@@ -242,6 +242,45 @@ export const api = {
 
   pickSaveFile: (title: string, defaultName: string, filters: [string, string[]][]) =>
     unwrap("pick_save_file", () => commands.pickSaveFile(title, defaultName, filters)),
+
+  // Backup. The dump is written by the backend as it reads, so this resolves
+  // when the file is complete rather than returning its contents (#358).
+  backupDatabase: (
+    backupId: string,
+    connectionId: string,
+    database: string,
+    tables: string[],
+    options: BackupOptions,
+    outputPath: string,
+  ) =>
+    unwrap(
+      "backup_database",
+      () => commands.backupDatabase(backupId, connectionId, database, tables, options, outputPath),
+    ),
+
+  cancelBackup: (backupId: string) => unwrap("cancel_backup", () => commands.cancelBackup(backupId)),
+
+  defaultBackupOptions: () => unwrap("default_backup_options", () => commands.defaultBackupOptions()),
+
+  // Restore, likewise: the file is read and run by the backend, on one
+  // session, so `USE` and the session settings apply to what runs (#359).
+  restoreDatabase: (
+    restoreId: string,
+    connectionId: string,
+    database: string,
+    inputPath: string,
+    options: RestoreOptions,
+  ) =>
+    unwrap(
+      "restore_database",
+      () => commands.restoreDatabase(restoreId, connectionId, database, inputPath, options),
+    ),
+
+  defaultRestoreOptions: () => unwrap("default_restore_options", () => commands.defaultRestoreOptions()),
+
+  /** The first `maxBytes` of a file, for a preview, with its real size. */
+  readFileHead: (path: string, maxBytes: number) =>
+    unwrap("read_file_head", () => commands.readFileHead(path, maxBytes)),
 
   // AI
   aiChat: (message: string, conversationId: string, mode: AiMode, connectionId?: string, database?: string) =>
