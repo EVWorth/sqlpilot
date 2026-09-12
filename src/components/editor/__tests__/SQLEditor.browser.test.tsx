@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const m = vi.hoisted(() => {
@@ -371,5 +371,45 @@ describe("SQLEditor (browser)", () => {
       expect(m.capturedEditor.current).not.toBeNull();
     });
     expect(typeof m.capturedEditor.current!.addAction).toBe("function");
+  });
+
+  describe("the debounced write to the store", () => {
+    it("writes what was typed, after the debounce", async () => {
+      render(<SQLEditor />);
+      fireEvent.change(screen.getByTestId("sql-editor-textarea"), {
+        target: { value: "SELECT 2" },
+      });
+      await waitFor(() => {
+        expect(m.mockUpdateTabContent).toHaveBeenCalledWith("tab-1", "SELECT 2");
+      });
+    });
+
+    it("flushes the pending write on unmount instead of dropping it", () => {
+      // Unmounting used to clear the timer without running it, so the last
+      // 150ms of typing was lost — a tab switch or a window close at the
+      // wrong moment silently threw away a line.
+      const view = render(<SQLEditor />);
+      fireEvent.change(screen.getByTestId("sql-editor-textarea"), {
+        target: { value: "SELECT 3" },
+      });
+      expect(m.mockUpdateTabContent).not.toHaveBeenCalled();
+
+      view.unmount();
+
+      expect(m.mockUpdateTabContent).toHaveBeenCalledWith("tab-1", "SELECT 3");
+    });
+
+    it("writes only the last keystroke of a burst", async () => {
+      render(<SQLEditor />);
+      const textarea = screen.getByTestId("sql-editor-textarea");
+      fireEvent.change(textarea, { target: { value: "S" } });
+      fireEvent.change(textarea, { target: { value: "SE" } });
+      fireEvent.change(textarea, { target: { value: "SEL" } });
+
+      await waitFor(() => {
+        expect(m.mockUpdateTabContent).toHaveBeenCalledWith("tab-1", "SEL");
+      });
+      expect(m.mockUpdateTabContent).toHaveBeenCalledTimes(1);
+    });
   });
 });

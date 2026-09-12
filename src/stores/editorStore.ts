@@ -88,61 +88,70 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   addDesignerTab: (connectionId, database, tableName) =>
     get().openTab("designer", { connectionId, database, tableName }),
 
+  /**
+   * Close one tab.
+   *
+   * Closing the last query tab leaves a fresh empty one rather than an editor
+   * with nothing in it. The replacement keeps the connection and database the
+   * closed tab was pointing at: someone who has picked a server and a database
+   * and then clears their scratch query has not asked to be disconnected.
+   */
   closeTab: (id) => {
     set((state) => {
-      const tabToClose = state.tabs.find((t) => t.id === id);
-      // If it's the last query tab, replace it with an empty one instead
-      if (tabToClose?.type === "query") {
-        const queryTabs = state.tabs.filter((t) => t.type === "query");
-        if (queryTabs.length <= 1) {
-          const newTab = {
-            id: crypto.randomUUID(),
-            title: `Query ${queryTabs.length + 1}`,
-            content: "",
-            type: "query" as const,
-            isDirty: false,
-          };
-          return {
-            tabs: state.tabs.map((t) => (t.id === id ? newTab : t)),
-            activeTabId: newTab.id,
-          };
-        }
+      const closing = state.tabs.find((t) => t.id === id);
+      if (!closing) return state;
+
+      if (closing.type === "query" && state.tabs.filter((t) => t.type === "query").length <= 1) {
+        tabCounter++;
+        const replacement = buildTab(`tab-${tabCounter}`, "query", {
+          connectionId: closing.connectionId,
+          database: closing.database,
+        });
+        return {
+          tabs: state.tabs.map((t) => (t.id === id ? replacement : t)),
+          activeTabId: replacement.id,
+        };
       }
-      const newTabs = state.tabs.filter((t) => t.id !== id);
-      const newActiveId = state.activeTabId === id
-        ? newTabs.length > 0
-          ? newTabs[newTabs.length - 1].id
-          : null
-        : state.activeTabId;
-      return { tabs: newTabs, activeTabId: newActiveId };
+
+      const remaining = state.tabs.filter((t) => t.id !== id);
+      return {
+        tabs: remaining,
+        activeTabId: state.activeTabId === id
+          ? remaining.length > 0 ? remaining[remaining.length - 1].id : null
+          : state.activeTabId,
+      };
     });
   },
 
+  /**
+   * Close every tab but this one.
+   *
+   * It used to keep every tab of a different type, so "Close Others" on a
+   * query tab left all the structure and admin tabs open (#298 F-backlog).
+   * The menu item says others, and every other client means all of them.
+   */
   closeOtherTabs: (id) => {
     set((state) => {
-      const tab = state.tabs.find((t) => t.id === id);
-      if (!tab) return state;
-      // Keep only this tab and non-query tabs (structure, admin, etc.)
-      const newTabs = state.tabs.filter(
-        (t) => t.id === id || t.type !== tab.type,
-      );
-      return { tabs: newTabs, activeTabId: id };
+      const keep = state.tabs.find((t) => t.id === id);
+      if (!keep) return state;
+      return { tabs: [keep], activeTabId: id };
     });
   },
 
+  /**
+   * Close the tabs after this one in the strip.
+   *
+   * Positional, like the menu item reads. The previous version filtered by
+   * type as well, which left tabs visibly to the right still open.
+   */
   closeTabsToRight: (id) => {
     set((state) => {
       const idx = state.tabs.findIndex((t) => t.id === id);
       if (idx === -1) return state;
-      const tab = state.tabs[idx];
-      // Close all tabs of same type to the right
-      const newTabs = state.tabs.filter(
-        (t, i) =>
-          i <= idx
-          || t.type !== tab.type
-          || t.type === "query" && state.tabs.filter((x) => x.type === "query").length <= 2,
-      );
-      return { tabs: newTabs, activeTabId: id };
+      const remaining = state.tabs.slice(0, idx + 1);
+      // Only move if the active tab is one of the ones that just went.
+      const activeSurvives = remaining.some((t) => t.id === state.activeTabId);
+      return { tabs: remaining, activeTabId: activeSurvives ? state.activeTabId : id };
     });
   },
 
