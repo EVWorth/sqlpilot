@@ -15,7 +15,7 @@ git checkout main && git pull
 
 # Bump the version
 just bump minor
-# confirm with `y`; or automate via the recipe in Makefile
+# confirm with `y`
 
 # Commit
 git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json

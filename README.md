@@ -255,9 +255,6 @@ that listing is the source of truth, so this table is only an orientation.
 | `just db-up`            | Start MySQL 8 (13306) + MariaDB 11 (13308)  |
 | `just bump minor`       | Bump the version across all manifests       |
 
-The `Makefile` forwards to `just` and is deprecated; it will be removed after
-one release cycle.
-
 ### Environment Variables
 
 ```bash
@@ -346,8 +343,8 @@ sqlpilot/
 │   ├── DESIGN_REQUIREMENTS.md     #   Requirements & competitive analysis
 │   ├── TESTING_STRATEGY.md        #   Test strategy & coverage
 │   └── TECH_DECISIONS.md          #   Architecture Decision Records
-├── docker-compose.test.yml        # MySQL 8 (13306), MySQL 5.7 (13307), MariaDB 11 (13308)
-├── Makefile                       # Dev commands
+├── docker-compose.test.yml        # MySQL 8 (13306), MariaDB 11 (13308)
+├── justfile                       # Dev commands
 └── package.json                   # Frontend dependencies
 ```
 

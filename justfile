@@ -144,8 +144,7 @@ ssl-certs:
 
 # ── Release ────────────────────────────────────────────────────────────────
 
-# LEVEL is major, minor or patch. Unlike the Makefile version this takes the
-# level as an argument rather than an environment variable.
+# LEVEL is major, minor or patch, given as an argument.
 [doc("Bump the version across package.json, tauri.conf.json and Cargo.toml.")]
 bump LEVEL="patch":
     #!/usr/bin/env bash
