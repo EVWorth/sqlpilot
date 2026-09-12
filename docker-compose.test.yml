@@ -23,6 +23,9 @@ services:
       retries: 30
       start_period: 30s
 
+  # Defined, never started: MySQL 5.7 reached end of life in October 2023 and
+  # nothing tests against it. Kept so that reinstating support is a matter of
+  # starting a container rather than writing one (see ADR-009).
   mysql-5_7:
     image: mysql:5.7
     container_name: mas-mysql-57
@@ -61,6 +64,8 @@ services:
       retries: 30
       start_period: 30s
 
+  # Defined, never started. SSL configuration is real code with no test — a
+  # known gap rather than a claim (ADR-009).
   mysql-ssl:
     image: mysql:8.0
     container_name: mas-mysql-ssl
@@ -89,20 +94,3 @@ services:
       timeout: 3s
       retries: 30
       start_period: 30s
-
-  ssh-server:
-    image: lscr.io/linuxserver/openssh-server:latest
-    container_name: mas-ssh-server
-    environment:
-      - PUID=1000
-      - PGID=1000
-      - PASSWORD_ACCESS=true
-      - USER_PASSWORD=test_ssh_password
-      - USER_NAME=test_ssh_user
-    ports:
-      - "12222:2222"
-    healthcheck:
-      test: ["CMD-SHELL", "ss -tlnp | grep 2222"]
-      interval: 5s
-      timeout: 3s
-      retries: 10

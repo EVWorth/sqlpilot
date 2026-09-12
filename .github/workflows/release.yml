@@ -96,8 +96,17 @@ jobs:
         run: |
           mysql -h 127.0.0.1 -P 13306 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
           mysql -h 127.0.0.1 -P 13308 -u root -ptest_root_password < tests/fixtures/sql/seed.sql
-      - name: Run database integration tests
-        run: cargo test -p mas-core -p mas-admin -- --ignored
+      # Twice: once against each server. Every integration file takes
+      # MAS_TEST_PORT, and running them against MariaDB is what found a
+      # connection lost after every query timeout (#658) and JSON columns
+      # arriving as binary. Neither showed on MySQL.
+      - name: Run database integration tests (MySQL 8)
+        run: cargo test -p mas-core -p mas-admin -- --ignored --test-threads=1
+        working-directory: src-tauri
+      - name: Run database integration tests (MariaDB 11)
+        env:
+          MAS_TEST_PORT: "13308"
+        run: cargo test -p mas-core -p mas-admin -- --ignored --test-threads=1
         working-directory: src-tauri
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked

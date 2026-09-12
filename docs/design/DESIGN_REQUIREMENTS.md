@@ -861,14 +861,14 @@ System font stack: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 
 ## Appendix B: Technical Constraints
 
-| Constraint                       | Rationale                                                                                |
-| -------------------------------- | ---------------------------------------------------------------------------------------- |
-| MySQL 5.7+ and 8.0+ support only | These are the actively maintained MySQL versions; older versions have EOL'd              |
-| No Oracle Cloud integration      | Focus on self-hosted and standard cloud MySQL instances; avoid Oracle ecosystem lock-in  |
-| Tauri 2.0 minimum                | Tauri 2.0 provides essential features (multi-window, tray, plugins) not available in 1.x |
-| Node.js 20+ for development      | LTS version with modern features needed by Vite and tooling                              |
-| Rust 1.75+ for backend           | Required for async features and dependency compatibility                                 |
-| pnpm as package manager          | Consistent, fast, disk-efficient dependency management                                   |
+| Constraint                  | Rationale                                                                                                                                                                               |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MySQL 8.0+ and MariaDB 11+  | What the integration suite runs against, on every release. MySQL 5.7 reached end of life in October 2023 and nothing tests it; it may work, and that is not the same as being supported |
+| No Oracle Cloud integration | Focus on self-hosted and standard cloud MySQL instances; avoid Oracle ecosystem lock-in                                                                                                 |
+| Tauri 2.0 minimum           | Tauri 2.0 provides essential features (multi-window, tray, plugins) not available in 1.x                                                                                                |
+| Node.js 20+ for development | LTS version with modern features needed by Vite and tooling                                                                                                                             |
+| Rust 1.95 for the backend   | Pinned in `rust-toolchain.toml`, so every machine and CI job builds with the same one                                                                                                   |
+| npm as package manager      | `package-lock.json` is what is committed and what CI installs from                                                                                                                      |
 
 ## Appendix C: Future Considerations
 

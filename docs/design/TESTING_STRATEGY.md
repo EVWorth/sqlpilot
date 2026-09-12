@@ -425,18 +425,23 @@ This table used to name thirteen tests, of which five existed.
 | `connection_health.rs`             | Five: a new connection starts healthy and can be pinged; a disconnected one stops being watched; a ping against a dead pool fails promptly rather than hanging; pool stats report what is open against what the profile allows; a pool size out of range is clamped rather than fatal | Integration |
 | `query_timeout.rs`                 | Six, including ten timeouts through a pool of two — a timed-out statement that keeps its connection exhausts the pool and stops the timeout working at all (#658)                                                                                                                     | Integration |
 
-**Named here before and still not written**, because the fixtures do not
-exist: `test_connect_mysql57` and `test_connect_with_ssl` need containers the
-compose file does not define, and `test_connect_with_ssh_tunnel` needs a
-feature that is not built (FR-1.2.1) — a profile using one is refused.
+**Named here before and still not written.** `test_connect_mysql57` is not
+coming: 5.7 reached end of life in October 2023 and is not supported.
+`test_connect_with_ssl` needs the SSL container started and certificates
+generated — a real gap. `test_connect_with_ssh_tunnel` needs a feature that is
+not built (FR-1.2.1), and a profile using one is refused.
 
 Every integration file takes `MAS_TEST_PORT`, so the whole suite runs against
-MariaDB on 13308 as well as MySQL on 13306. That is not decoration: running it
-there for the first time found a lost connection after every query timeout
-(#658) and JSON columns arriving as binary. Three tests skip themselves on
-MariaDB, each saying why — functional indexes, the `TABLE` statement and a
-CTE-prefixed DELETE are MySQL-only syntax, so there is nothing there to
-assert.
+MariaDB on 13308 as well as MySQL on 13306 — and the release workflow runs it
+both ways. That is not decoration: running it there for the first time found a
+lost connection after every query timeout (#658) and JSON columns arriving as
+binary. Three tests skip themselves on MariaDB, each saying why — functional
+indexes, the `TABLE` statement and a CTE-prefixed DELETE are MySQL-only
+syntax, so there is nothing there to assert.
+
+**Not tested, and worth naming rather than implying:** SSL configuration. The
+compose file defines an SSL-enabled server and nothing starts it, so
+`apply_ssl_config` has no test against a server that requires a certificate.
 
 ### `query_tests.rs`
 
