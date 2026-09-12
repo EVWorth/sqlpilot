@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
 import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary } from "../types";
+import { useConnectionHealthStore } from "./connectionHealthStore";
 import { useSchemaStore } from "./schemaStore";
 
 interface ConnectionState {
@@ -118,6 +119,9 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       // Keeping it means a reconnect shows what was true before, and means
       // the cache grows by one server per session (#288).
       useSchemaStore.getState().forget(connectionId);
+      // Same reasoning for the health record: it describes a connection that
+      // no longer exists, and a later id could otherwise inherit its state.
+      useConnectionHealthStore.getState().forget(connectionId);
       set((state) => ({
         activeConnections: state.activeConnections.filter(
           (c) => c.id !== connectionId,

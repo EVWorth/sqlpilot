@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { releaseUrl } from "../../lib/repo";
 import { api } from "../../lib/tauri-api";
+import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
@@ -128,6 +129,11 @@ export function StatusBar() {
   const envBadge = activeProfile?.environment
     ? ENV_BADGES[activeProfile.environment]
     : undefined;
+  // What the backend's health checker last said about this connection, and
+  // how much of its pool is in use.
+  const health = useConnectionHealthStore((s) => selectedConnectionId ? s.health[selectedConnectionId] : undefined);
+  const pool = useConnectionHealthStore((s) => selectedConnectionId ? s.pools[selectedConnectionId] : undefined);
+
   const activeResult = results[activeResultIndex];
   const selectedDatabase = activeTabDatabase ?? activeConn?.database;
   const warningsCount = activeResult?.warnings?.length ?? 0;
@@ -162,7 +168,13 @@ export function StatusBar() {
                 className="flex items-center gap-1.5 hover:text-[var(--color-text-primary)] transition-colors"
                 title="Click to copy connection string"
               >
-                <span className="h-1.5 w-1.5 rounded-full bg-green-400" />
+                <span
+                  data-testid="connection-health-dot"
+                  aria-label={health && !health.healthy ? "Connection lost" : "Connection healthy"}
+                  className={`h-1.5 w-1.5 rounded-full ${
+                    health && !health.healthy ? "animate-pulse bg-red-500" : "bg-green-400"
+                  }`}
+                />
                 <span className="text-[10px] text-[var(--color-text-secondary)]">
                   {activeConn.name} — {activeConn.host}:{activeConn.port}
                 </span>
@@ -183,6 +195,30 @@ export function StatusBar() {
               <span className="text-[10px] text-[var(--color-text-muted)]">
                 MySQL {activeConn.server_version}
               </span>
+              {health && !health.healthy && (
+                <span
+                  data-testid="connection-lost"
+                  title={health.error ?? undefined}
+                  className="flex items-center gap-1 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-medium text-red-400"
+                >
+                  <AlertTriangle className="h-2.5 w-2.5" />
+                  Lost — retrying ({health.consecutiveFailures})
+                </span>
+              )}
+              {pool && (
+                <span
+                  data-testid="pool-stats"
+                  title={`${pool.size - pool.idle} of ${pool.max} connections in use, ${pool.idle} idle. `
+                    + "A query waits when they are all busy."}
+                  className={`text-[10px] ${
+                    pool.size - pool.idle >= pool.max
+                      ? "text-amber-400"
+                      : "text-[var(--color-text-muted)]"
+                  }`}
+                >
+                  pool {pool.size - pool.idle}/{pool.max}
+                </span>
+              )}
               {keyringAvailable === false && (
                 <span
                   title="No OS credential store was available at startup, so connection passwords are kept only for this session."

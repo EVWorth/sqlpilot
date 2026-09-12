@@ -221,26 +221,35 @@ pub struct PoolConfig {
 
 #### Sub-Components
 
-| Component              | Responsibility                                                                                                                             |
-| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| **ConnectionPool**     | Wraps `sqlx::MySqlPool` with periodic health checks (`SELECT 1`), automatic reconnection, and configurable pool sizing                     |
-| **SSHTunnel**          | Manages `ssh2::Session` tunnels with local port forwarding; monitors tunnel liveness on a background Tokio task                            |
-| **ConnectionRegistry** | Thread-safe, in-memory `DashMap<String, ActiveConnection>` of all live connections indexed by connection ID                                |
-| **ConnectionStore**    | `rusqlite`-backed persistence of `ConnectionProfile` records; passwords stored separately in the OS keychain via `keyring`                 |
-| **HealthChecker**      | Background task per connection that runs `SELECT 1` on an interval, emits `connection_health` events, and triggers reconnection on failure |
+| Component              | Responsibility                                                                                                                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **ConnectionPool**     | Wraps `sqlx::MySqlPool`. Pool sizing comes from the profile and is clamped to 1–50 (FR-1.2.3); sqlx reopens a pooled connection by itself, so a server that comes back is usable without anything being torn down     |
+| **SSHTunnel**          | **NOT IMPLEMENTED.** A profile configured for a tunnel is refused rather than connected directly, which is what it used to do (#273)                                                                                  |
+| **ConnectionRegistry** | Thread-safe, in-memory `DashMap<String, ActiveConnection>` of all live connections indexed by connection ID                                                                                                           |
+| **ConnectionStore**    | `rusqlite`-backed persistence of `ConnectionProfile` records; passwords stored separately in the OS keychain via `keyring`                                                                                            |
+| **HealthChecker**      | Background task per connection: `SELECT 1` every 15s, backing off to the FR-1.2.4 schedule while a connection is down. Reports through `connection-health-event`; the task ends when the connection is removed (#276) |
 
-#### Reconnection Strategy
+#### Health checks and backoff
+
+A healthy connection is pinged every 15 seconds. From the first failed ping the
+gaps follow FR-1.2.4 — 1s, 2s, 4s, 8s, 16s, then 30s capped — until one
+succeeds, at which point the interval returns to normal.
 
 ```
-Attempt 1:  delay = 1s   + jitter(0–500ms)
-Attempt 2:  delay = 2s   + jitter(0–500ms)
-Attempt 3:  delay = 4s   + jitter(0–500ms)
-Attempt 4:  delay = 8s   + jitter(0–500ms)
-Attempt 5:  delay = 16s  + jitter(0–500ms)
-Attempt 6+: delay = 30s  + jitter(0–500ms)   ← capped
-
-After 10 consecutive failures → emit "connection_lost" event → surface reconnect dialog
+healthy      ──► SELECT 1 every 15s, reported only when the state changes
+first failure──► marked lost, reported on every attempt so the UI can count them
+retries      ──► 1s, 2s, 4s, 8s, 16s, 30s, 30s …
+recovery     ──► marked healthy, reported once
 ```
+
+There is no separate reconnect step and no attempt limit. Nothing is torn down
+when a connection is lost: sqlx opens a fresh pooled connection when one is
+next asked for, so a server that comes back is usable again without the user
+doing anything. The status bar shows the state and the number of attempts;
+`ping_connection` checks on demand.
+
+No jitter. It exists to stop a thousand clients retrying in lockstep; a
+desktop client with a handful of connections has no herd to disperse.
 
 #### Connection Lifecycle
 
@@ -263,10 +272,7 @@ save_profile() ──► ConnectionStore (rusqlite) + keyring
   ConnectionRegistry::insert(id, ActiveConnection)
        │
        ▼
-  Emit event: "connection_established"
-       │
-       ▼
-  Start HealthChecker background task
+  Start HealthChecker background task (ends when the connection is removed)
 ```
 
 ---
@@ -714,7 +720,8 @@ export const useEditorStore = create<EditorState>()(
 Stores communicate through Zustand subscriptions and Tauri event listeners, not direct imports:
 
 ```
-connectionStore ──(event: connection_established)──► schemaStore.loadSchema()
+connectionStore ──(connect resolves)───────────────► schemaStore.loadSchema()
+healthStore     ──(event: connection-health-event)─► status bar shows lost/retrying
 schemaStore     ──(invalidate + re-read)───────────► autocomplete reads the same store
 editorStore     ──(action: executeCurrentTab)───────► resultStore.setResults()
 settingsStore   ──(subscription: theme changed)────► document.body.className update
@@ -1572,19 +1579,21 @@ async fn table_maintenance(
 
 ### 5.10 Tauri Events (Backend → Frontend)
 
-Three events exist. The table below used to list nine, of which six described
-a streaming architecture that was never built (#284) and progress channels for
-an export and an import that are both done in the renderer (§5.5).
+Five events exist. The table below used to list nine, of which six described a
+streaming architecture that was never built (#284) and progress channels for an
+export and an import that are both done in the renderer (§5.5).
 
-| Event Name              | Payload                       | Description                                                             |
-| ----------------------- | ----------------------------- | ----------------------------------------------------------------------- |
-| `backup-progress-event` | `BackupProgressEvent`         | Where a running backup has got to: table, rows, bytes, rows/sec (§5.11) |
-| `ai:event`              | `AiStreamEvent`               | Streamed AI response, behind the `beta-ai` feature                      |
-| `menu-action`           | `String` (the menu item's id) | A native menu item was chosen                                           |
+| Event Name                | Payload                       | Description                                                                       |
+| ------------------------- | ----------------------------- | --------------------------------------------------------------------------------- |
+| `connection-health-event` | `ConnectionHealth`            | A connection stopped answering, or started again (§3.1). Every attempt while down |
+| `backup-progress-event`   | `BackupProgressEvent`         | Where a running backup has got to: table, rows, bytes, rows/sec (§5.11)           |
+| `restore-progress-event`  | `RestoreProgressEvent`        | Where a running restore or SQL import has got to: bytes read, statements run      |
+| `ai:event`                | `AiStreamEvent`               | Streamed AI response, behind the `beta-ai` feature                                |
+| `menu-action`             | `String` (the menu item's id) | A native menu item was chosen                                                     |
 
-`backup-progress-event` is generated by `tauri-specta` from the Rust type, so
-the listener's payload type and the emitted struct cannot drift. The other two
-are emitted by name with a hand-written type on the frontend.
+The first three are generated by `tauri-specta` from their Rust types, so the
+listener's payload type and the emitted struct cannot drift. The other two are
+emitted by name with a hand-written type on the frontend.
 
 ### 5.11 Backup Commands
 

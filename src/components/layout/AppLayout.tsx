@@ -5,6 +5,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useTheme } from "../../hooks/useTheme";
 import { useAiStore } from "../../stores/aiStore";
+import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDialogStore } from "../../stores/dialogStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -110,6 +111,21 @@ export function AppLayout() {
   // Check AI availability on mount
   useEffect(() => {
     useAiStore.getState().checkStatus();
+  }, []);
+
+  // Listen for connections going away and coming back, and keep the pool
+  // numbers moving (#276, FR-1.2.3). One subscription for the app.
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    let cancelled = false;
+    void useConnectionHealthStore.getState().start().then((teardown) => {
+      if (cancelled) teardown();
+      else stop = teardown;
+    });
+    return () => {
+      cancelled = true;
+      stop?.();
+    };
   }, []);
 
   // Handle menu actions from both native OS menu (macOS via Tauri event) and

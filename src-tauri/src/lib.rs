@@ -131,6 +131,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::execute_query,
             commands::explain_query,
             commands::cancel_query,
+            commands::connection_health,
+            commands::ping_connection,
+            commands::pool_stats,
             commands::get_databases,
             commands::get_tables,
             commands::get_columns,
@@ -190,7 +193,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
         .events(tauri_specta::collect_events![
             commands::backup::BackupProgressEvent,
-            commands::backup::RestoreProgressEvent
+            commands::backup::RestoreProgressEvent,
+            commands::ConnectionHealthEvent
         ]);
     #[cfg(not(feature = "beta-ai"))]
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -212,6 +216,9 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::execute_query,
             commands::explain_query,
             commands::cancel_query,
+            commands::connection_health,
+            commands::ping_connection,
+            commands::pool_stats,
             commands::get_databases,
             commands::get_tables,
             commands::get_columns,
@@ -266,7 +273,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         ])
         .events(tauri_specta::collect_events![
             commands::backup::BackupProgressEvent,
-            commands::backup::RestoreProgressEvent
+            commands::backup::RestoreProgressEvent,
+            commands::ConnectionHealthEvent
         ]);
     specta_builder
 }
@@ -345,12 +353,18 @@ pub fn run() {
     ));
 
     let specta_builder = specta_builder();
+    let health_manager = Arc::clone(&manager);
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
-        .setup(|app| {
+        .setup(move |app| {
+            // One forwarder for the whole app: the connection manager
+            // broadcasts health changes, this turns them into events the
+            // frontend can listen for (#276).
+            commands::forward_health_events(health_manager, app.handle().clone());
+
             #[cfg(target_os = "macos")]
             {
                 let menu = menu::build_menu(&app.handle())?;

@@ -307,4 +307,60 @@ describe("ConnectionDialog", () => {
       expect(screen.getByTestId("ssh-unsupported")).toBeInTheDocument();
     });
   });
+
+  describe("pool sizing (#279)", () => {
+    /**
+     * Open the dialog with the required fields filled, on the Advanced tab.
+     *
+     * Filling them first, because switching tabs unmounts the inputs — a
+     * handle taken before the switch points at nothing afterwards.
+     */
+    const openAdvanced = () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+      fireEvent.change(screen.getByLabelText("Host"), { target: { value: "127.0.0.1" } });
+      fireEvent.click(screen.getByText("Advanced"));
+      return {
+        min: screen.getByLabelText("Pool Min Connections"),
+        max: screen.getByLabelText("Pool Max Connections"),
+      };
+    };
+
+    const saveButton = () => screen.getByText("Save").closest("button");
+
+    it("says what the fields are for", () => {
+      const { max } = openAdvanced();
+      expect(max).toHaveValue(5);
+      expect(screen.getByText(/1–50/)).toBeInTheDocument();
+    });
+
+    it("refuses a maximum above the ceiling, and will not save", () => {
+      // Every pooled connection is a server thread.
+      const { max } = openAdvanced();
+      fireEvent.change(max, { target: { value: "500" } });
+
+      expect(screen.getByText(/50 is the most/)).toBeInTheDocument();
+      expect(max).toHaveAttribute("aria-invalid", "true");
+      expect(saveButton()).toBeDisabled();
+    });
+
+    it("refuses a minimum above the maximum", () => {
+      // sqlx refuses to build such a pool at all, so the connection would
+      // simply fail later with nothing pointing here.
+      const { min } = openAdvanced();
+      fireEvent.change(min, { target: { value: "20" } });
+
+      expect(screen.getByText(/Cannot be more than the maximum/)).toBeInTheDocument();
+      expect(saveButton()).toBeDisabled();
+    });
+
+    it("lets a corrected value save again", () => {
+      const { max } = openAdvanced();
+      fireEvent.change(max, { target: { value: "500" } });
+      fireEvent.change(max, { target: { value: "20" } });
+
+      expect(screen.queryByText(/50 is the most/)).toBeNull();
+      expect(saveButton()).not.toBeDisabled();
+    });
+  });
 });
