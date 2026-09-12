@@ -474,3 +474,122 @@ describe("ExplainPanel", () => {
     });
   });
 });
+
+describe("plan formats (#424)", () => {
+  const setExplainFormat = vi.fn();
+
+  /** A one-cell result, which is what FORMAT=JSON and FORMAT=TREE return. */
+  function singleCell(text: string): QueryResult {
+    return {
+      query_id: "explain-1",
+      statement_index: 0,
+      columns: [{ name: "EXPLAIN", data_type: "varchar", nullable: true, is_primary_key: false }],
+      rows: [[text]],
+      rows_affected: 0,
+      execution_time_ms: 1,
+      truncated: false,
+      truncation_reason: null,
+      sql: "",
+    } as unknown as QueryResult;
+  }
+
+  function show(state: Record<string, unknown>) {
+    useResultStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+      s({
+        explainAnalyze: false,
+        explainTabular: false,
+        explainNotice: null,
+        explainFormat: "classic",
+        explainRequestedFormat: "classic",
+        isExecuting: false,
+        setExplainFormat,
+        ...state,
+      })
+    );
+    render(<ExplainPanel />);
+  }
+
+  const jsonPlan = JSON.stringify({
+    query_block: {
+      select_id: 1,
+      cost_info: { query_cost: "3.45" },
+      table: {
+        table_name: "orders",
+        access_type: "ref",
+        rows_examined_per_scan: 120,
+        key: "idx_customer",
+      },
+    },
+  });
+
+  it("offers the three formats, on the tabular plan too", () => {
+    show({ explainResult: makeExplainResult([[...baseExplainRow]]) });
+    const picker = screen.getByLabelText("Plan format");
+    expect(picker).toHaveValue("classic");
+    expect(screen.getByRole("option", { name: /JSON/ })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /Iterator tree/ })).toBeInTheDocument();
+  });
+
+  it("re-plans when another format is chosen", () => {
+    show({ explainResult: makeExplainResult([[...baseExplainRow]]) });
+    fireEvent.change(screen.getByLabelText("Plan format"), { target: { value: "json" } });
+    expect(setExplainFormat).toHaveBeenCalledWith("json");
+  });
+
+  it("shows the cost model as a tree, not a wall of text", () => {
+    show({ explainResult: singleCell(jsonPlan), explainFormat: "json", explainRequestedFormat: "json" });
+
+    expect(screen.getByText("EXPLAIN FORMAT=JSON")).toBeInTheDocument();
+    // The numbers the tabular plan rounds off, which is the reason to ask for
+    // this format at all.
+    expect(screen.getByText("3.45")).toBeInTheDocument();
+    expect(screen.getByText("120")).toBeInTheDocument();
+    expect(screen.getByText("orders")).toBeInTheDocument();
+  });
+
+  it("collapses a section of the plan when its header is clicked", () => {
+    show({ explainResult: singleCell(jsonPlan), explainFormat: "json", explainRequestedFormat: "json" });
+
+    const header = screen.getByRole("button", { name: /query_block/ });
+    expect(header).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(header);
+    expect(header).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("orders")).toBeNull();
+  });
+
+  it("shows the text when the server sends something that is not JSON", () => {
+    // Better than an empty panel: whatever came back is still readable.
+    show({
+      explainResult: singleCell("not json at all"),
+      explainFormat: "json",
+      explainRequestedFormat: "json",
+    });
+    expect(screen.getByText("not json at all")).toBeInTheDocument();
+  });
+
+  it("renders an iterator tree as text", () => {
+    show({
+      explainResult: singleCell("-> Table scan on orders  (cost=1.2 rows=100)"),
+      explainFormat: "tree",
+      explainRequestedFormat: "tree",
+    });
+    expect(screen.getByText("EXPLAIN FORMAT=TREE")).toBeInTheDocument();
+    expect(screen.getByText(/Table scan on orders/)).toBeInTheDocument();
+  });
+
+  it("says why a format was not served", () => {
+    // MariaDB has no tree format; the panel shows the tabular plan and says so
+    // rather than an error where a plan should be.
+    show({
+      explainResult: makeExplainResult([[...baseExplainRow]]),
+      explainRequestedFormat: "tree",
+      explainNotice: "MariaDB has no tree format — showing the tabular plan instead.",
+    });
+    expect(screen.getByText(/MariaDB has no tree format/)).toBeInTheDocument();
+  });
+
+  it("cannot be changed while a plan is running", () => {
+    show({ explainResult: makeExplainResult([[...baseExplainRow]]), isExecuting: true });
+    expect(screen.getByLabelText("Plan format")).toBeDisabled();
+  });
+});

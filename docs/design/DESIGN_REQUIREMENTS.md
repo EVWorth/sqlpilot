@@ -619,12 +619,12 @@ row rather than the section reading as done (#295).
 
 #### FR-10.2: Query Analysis
 
-| ID        | Requirement            | Acceptance Criteria                                                                                                     |
-| --------- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| FR-10.2.1 | Slow query log viewer  | Parse and display slow query log entries; sort by time, rows examined, rows sent                                        |
-| FR-10.2.2 | Visual EXPLAIN         | Render EXPLAIN output as a visual tree with cost percentages, row estimates, and access types color-coded by efficiency |
-| FR-10.2.3 | Index usage statistics | Show index usage counts from performance_schema; identify unused indexes; suggest removals                              |
-| FR-10.2.4 | Table statistics       | Table sizes, row counts, auto-increment values, fragmentation levels; growth tracking over time                         |
+| ID        | Requirement            | Acceptance Criteria                                                                                                                                                                                                      |
+| --------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| FR-10.2.1 | Slow query log viewer  | Parse and display slow query log entries; sort by time, rows examined, rows sent                                                                                                                                         |
+| FR-10.2.2 | Visual EXPLAIN         | Render EXPLAIN output as a visual tree with cost percentages, row estimates, and access types color-coded by efficiency; a format picker for the tabular plan, the optimiser's JSON cost model and MySQL's iterator tree |
+| FR-10.2.3 | Index usage statistics | Show index usage counts from performance_schema; identify unused indexes; suggest removals                                                                                                                               |
+| FR-10.2.4 | Table statistics       | Table sizes, row counts, auto-increment values, fragmentation levels; growth tracking over time                                                                                                                          |
 
 #### FR-10.3: Recommendations
 

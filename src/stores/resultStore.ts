@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ExplainFormat } from "../lib/bindings";
 import { connectionKind, dataSourceFor } from "../lib/datasource";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
@@ -33,6 +34,19 @@ const REFUSAL_COPY: Record<string, string> = {
 };
 
 /**
+ * Why the plan is not in the format that was asked for.
+ *
+ * The two servers do not offer the same set, and neither offers every
+ * combination with ANALYZE. Saying which one happened beats an error where a
+ * plan should be (#424).
+ */
+const FALLBACK_COPY: Record<string, string> = {
+  tree_not_supported: "MariaDB has no tree format — showing the tabular plan instead.",
+  analyze_json_not_supported:
+    "This MySQL cannot time a JSON plan — showing the plan in JSON, without the actual timings.",
+};
+
+/**
  * Which page of a truncated result is on screen.
  *
  * FR-3.1.8. The row limit is a hard stop, not a window: a user whose query
@@ -62,6 +76,15 @@ interface ResultState {
   page: PageState | null;
 
   explainResult: QueryResult | null;
+  /** The shape the plan came back in, which decides how it is rendered. */
+  explainFormat: ExplainFormat;
+  /** What the user asked for, kept so the toolbar stays on their choice. */
+  explainRequestedFormat: ExplainFormat;
+  /**
+   * What was planned last, so the panel can ask for another format without
+   * the editor having to hand it the statement again.
+   */
+  explainRequest: { connectionId: string; sql: string; database?: string; analyze: boolean } | null;
   explainAnalyze: boolean;
   /**
    * True when the plan came back in tabular shape. MariaDB's ANALYZE answers
@@ -76,13 +99,25 @@ interface ResultState {
   confirmDialog: ConfirmDialogState | null;
 
   executeQuery: (connectionId: string, sql: string, database?: string) => Promise<void>;
-  executeExplain: (connectionId: string, sql: string, database?: string) => Promise<void>;
-  executeExplainAnalyze: (connectionId: string, sql: string, database?: string) => Promise<void>;
+  executeExplain: (
+    connectionId: string,
+    sql: string,
+    database?: string,
+    format?: ExplainFormat,
+  ) => Promise<void>;
+  executeExplainAnalyze: (
+    connectionId: string,
+    sql: string,
+    database?: string,
+    format?: ExplainFormat,
+  ) => Promise<void>;
   cancelActiveQuery: () => Promise<void>;
   setActiveResult: (index: number) => void;
   /** Fetch another page of the statement currently on screen. */
   goToPage: (index: number) => Promise<void>;
   setShowExplain: (show: boolean) => void;
+  /** Re-plan the last statement in another format. */
+  setExplainFormat: (format: ExplainFormat) => Promise<void>;
   clearResults: () => void;
   clearError: () => void;
   confirmExecution: () => void;
@@ -115,6 +150,9 @@ export const useResultStore = create<ResultState>((set, get) => ({
   page: null,
 
   explainResult: null,
+  explainFormat: "classic",
+  explainRequestedFormat: "classic",
+  explainRequest: null,
   explainAnalyze: false,
   explainTabular: false,
   explainNotice: null,
@@ -136,7 +174,14 @@ export const useResultStore = create<ResultState>((set, get) => ({
     if (!dialog) return;
     set({ confirmDialog: null });
     if (dialog.kind === "explain-analyze") {
-      await doExplain(dialog.connectionId, dialog.sql, true, set, dialog.database);
+      await doExplain(
+        dialog.connectionId,
+        dialog.sql,
+        true,
+        set,
+        dialog.database,
+        get().explainRequestedFormat,
+      );
       return;
     }
     await doExecuteQuery(dialog.connectionId, dialog.sql, set, dialog.database);
@@ -179,6 +224,22 @@ export const useResultStore = create<ResultState>((set, get) => ({
     });
   },
   setShowExplain: (show) => set({ showExplain: show }),
+
+  setExplainFormat: async (format) => {
+    const request = get().explainRequest;
+    if (!request) {
+      set({ explainRequestedFormat: format });
+      return;
+    }
+    await doExplain(
+      request.connectionId,
+      request.sql,
+      request.analyze,
+      set,
+      request.database,
+      format,
+    );
+  },
   clearResults: () =>
     set({
       results: [],
@@ -191,11 +252,11 @@ export const useResultStore = create<ResultState>((set, get) => ({
     }),
   clearError: () => set({ error: null }),
 
-  executeExplain: async (connectionId, sql, database) => {
-    await doExplain(connectionId, sql, false, set, database);
+  executeExplain: async (connectionId, sql, database, format) => {
+    await doExplain(connectionId, sql, false, set, database, format);
   },
 
-  executeExplainAnalyze: async (connectionId, sql, database) => {
+  executeExplainAnalyze: async (connectionId, sql, database, format) => {
     // ANALYZE really runs the statement. The backend downgrades writes on its
     // own; production gets a prompt even for a read, because the cost is real.
     if (isProductionConnection(connectionId)) {
@@ -204,7 +265,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       });
       return;
     }
-    await doExplain(connectionId, sql, true, set, database);
+    await doExplain(connectionId, sql, true, set, database, format);
   },
 }));
 
@@ -214,6 +275,7 @@ async function doExplain(
   analyze: boolean,
   set: (partial: Partial<ResultState>) => void,
   database?: string,
+  format: ExplainFormat = "classic",
 ) {
   // The explain command is MySQL-only. Saying so beats letting the backend
   // answer "connection not found", which describes an internal detail rather
@@ -228,18 +290,32 @@ async function doExplain(
   activeExecution = { generation: myGeneration, connectionId };
 
   try {
-    set({ isExecuting: true, error: null, explainNotice: null });
+    set({
+      isExecuting: true,
+      error: null,
+      explainNotice: null,
+      explainRequestedFormat: format,
+      explainRequest: { connectionId, sql, database, analyze },
+    });
 
     // Statement normalization (trailing `;`, multi-statement) and the
     // ANALYZE-safety decision both happen backend-side (#412, #418).
-    const response = await api.explainQuery(connectionId, sql, analyze, database);
+    const response = await api.explainQuery(connectionId, sql, analyze, database, format);
     if (cancelGeneration !== myGeneration) return;
 
     set({
       explainResult: response.result,
       explainAnalyze: response.analyzed,
       explainTabular: response.tabular,
-      explainNotice: response.refusal ? REFUSAL_COPY[response.refusal] ?? null : null,
+      explainFormat: response.format,
+      // A refusal is about safety and a fallback is about what the server can
+      // do; both end up as one line above the plan, and a refusal is the more
+      // important of the two when they coincide.
+      explainNotice: response.refusal
+        ? REFUSAL_COPY[response.refusal] ?? null
+        : response.format_fallback
+        ? FALLBACK_COPY[response.format_fallback] ?? null
+        : null,
       showExplain: true,
       isExecuting: false,
     });

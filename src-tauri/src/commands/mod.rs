@@ -11,7 +11,7 @@ use mas_core::history::{
 use mas_core::models::{
     ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, TestConnectionResult,
 };
-use mas_core::query::{ExplainResponse, QueryExecutor};
+use mas_core::query::{ExplainFormat, ExplainResponse, QueryExecutor};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, EventInfo, ForeignKeyInfo, IndexInfo, PartitionInfo, RoutineInfo,
     TableInfo, TriggerInfo, ViewInfo,
@@ -277,6 +277,9 @@ pub async fn explain_query(
     sql: String,
     database: Option<String>,
     analyze: bool,
+    // Absent means the tabular plan, so a caller that does not care about
+    // the format keeps working.
+    format: Option<ExplainFormat>,
 ) -> Result<ExplainResponse, String> {
     mas_core::query::explain(
         &state.connection_manager,
@@ -285,6 +288,7 @@ pub async fn explain_query(
         sql,
         database,
         analyze,
+        format.unwrap_or(ExplainFormat::Classic),
     )
     .await
     .map_err(|e| {

@@ -1043,14 +1043,24 @@ async fn cancel_query(
     state: State<'_, AppState>,
 ) -> Result<(), AppError>;
 
-/// Run EXPLAIN on a query and return the execution plan.
+/// Plan a statement and return the plan.
+///
+/// `analyze` runs it — the decision to downgrade a write to a plain EXPLAIN
+/// is made behind this boundary, not by the caller (#412). `format` picks the
+/// shape: the tabular plan, the optimiser's JSON cost model, or MySQL's
+/// iterator tree. The combinations a server does not have are resolved here
+/// too: MariaDB has no FORMAT=TREE, and MySQL before 8.3 cannot combine
+/// ANALYZE with JSON. Both come back as a plan plus a `format_fallback`
+/// saying what was done instead, rather than as an error (#424).
 #[tauri::command]
 async fn explain_query(
     connection_id: String,
     sql: String,
-    analyze: Option<bool>,
+    database: Option<String>,
+    analyze: bool,
+    format: Option<ExplainFormat>,
     state: State<'_, AppState>,
-) -> Result<ExplainResult, AppError>;
+) -> Result<ExplainResponse, String>;
 
 /// NOT IMPLEMENTED, and not planned. Formatting is the frontend's, via the
 /// `sql-formatter` npm package driven by `FormatterSettings` — a round trip to
