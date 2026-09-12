@@ -1,10 +1,19 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { useConnectionStoreFn, generateBackupFn, apiMocks } = vi.hoisted(() => {
+const summary = {
+  bytesWritten: 2048,
+  rowsExported: 1500,
+  tables: 2,
+  elapsedMs: 3000,
+  cancelled: false,
+  warnings: [] as string[],
+};
+
+const { useConnectionStoreFn, listenFn, apiMocks } = vi.hoisted(() => {
   return {
     useConnectionStoreFn: vi.fn(),
-    generateBackupFn: vi.fn().mockResolvedValue("-- SQL Dump\n"),
+    listenFn: vi.fn(),
     apiMocks: {
       getDatabases: vi.fn().mockResolvedValue([{ name: "testdb" }, { name: "proddb" }]),
       getTables: vi.fn().mockResolvedValue([
@@ -13,6 +22,8 @@ const { useConnectionStoreFn, generateBackupFn, apiMocks } = vi.hoisted(() => {
       ]),
       pickSaveFile: vi.fn().mockResolvedValue("/tmp/backup.sql"),
       writeFileContents: vi.fn().mockResolvedValue(undefined),
+      backupDatabase: vi.fn(),
+      cancelBackup: vi.fn().mockResolvedValue(true),
     },
   };
 });
@@ -21,21 +32,9 @@ vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: useConnectionStoreFn,
 }));
 
-vi.mock("../../../lib/backup-generator", () => ({
-  generateBackup: generateBackupFn,
-  defaultBackupOptions: {
-    dropTableIfExists: true,
-    includeCreateDatabase: false,
-    addTableLocks: false,
-    includeAutoIncrement: true,
-    includeViews: true,
-    includeRoutines: true,
-    includeTriggers: true,
-    includeStructure: true,
-    includeData: true,
-    multiRowInserts: true,
-    insertBatchSize: 100,
-  },
+vi.mock("../../../lib/bindings", async (importOriginal) => ({
+  ...(await importOriginal<object>()),
+  events: { backupProgressEvent: { listen: listenFn } },
 }));
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -66,12 +65,14 @@ describe("BackupDialog", () => {
     useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) => s(defaultConnState));
     apiMocks.pickSaveFile.mockResolvedValue("/tmp/backup.sql");
     apiMocks.writeFileContents.mockResolvedValue(undefined);
+    apiMocks.backupDatabase.mockResolvedValue({ ...summary });
+    apiMocks.cancelBackup.mockResolvedValue(true);
+    listenFn.mockResolvedValue(() => {});
     apiMocks.getDatabases.mockResolvedValue([{ name: "testdb" }, { name: "proddb" }]);
     apiMocks.getTables.mockResolvedValue([
       { name: "users", table_type: "BASE TABLE", row_count: 1000 },
       { name: "orders", table_type: "BASE TABLE", row_count: 500 },
     ]);
-    generateBackupFn.mockResolvedValue("-- SQL Dump\n");
   });
 
   describe("visibility", () => {
@@ -400,12 +401,12 @@ describe("BackupDialog", () => {
       });
 
       await waitFor(() => {
-        expect(generateBackupFn).toHaveBeenCalled();
+        expect(apiMocks.backupDatabase).toHaveBeenCalled();
       });
     });
 
     it("shows error message when backup fails", async () => {
-      generateBackupFn.mockRejectedValueOnce(new Error("Connection lost"));
+      apiMocks.backupDatabase.mockRejectedValueOnce(new Error("Connection lost"));
 
       render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
       await waitFor(() => screen.getByText("testdb"));
@@ -450,14 +451,14 @@ describe("BackupDialog", () => {
       });
 
       await waitFor(() => {
-        expect(screen.getByText(/Backup completed/)).toBeInTheDocument();
+        expect(screen.getByText(/Backup complete/)).toBeInTheDocument();
       });
     });
 
     it("shows Cancel button during backup", async () => {
-      // Make generateBackup hang by returning a never-resolving promise
-      let resolveBackup: (value: string) => void;
-      generateBackupFn.mockImplementationOnce(
+      // Make the backup hang by returning a never-resolving promise.
+      let resolveBackup: (value: unknown) => void;
+      apiMocks.backupDatabase.mockImplementationOnce(
         () =>
           new Promise((resolve) => {
             resolveBackup = resolve;
@@ -487,12 +488,12 @@ describe("BackupDialog", () => {
       });
 
       // Now resolve to clean up
-      resolveBackup!("-- SQL\n");
+      resolveBackup!({ ...summary });
     });
 
     it("cancels backup when Cancel is clicked", async () => {
-      let resolveBackup: (value: string) => void;
-      generateBackupFn.mockImplementationOnce(
+      let resolveBackup: (value: unknown) => void;
+      apiMocks.backupDatabase.mockImplementationOnce(
         () =>
           new Promise((resolve) => {
             resolveBackup = resolve;
@@ -521,7 +522,7 @@ describe("BackupDialog", () => {
       fireEvent.click(screen.getByText("Cancel"));
 
       // Now resolve
-      resolveBackup!("-- SQL\n");
+      resolveBackup!({ ...summary });
     });
 
     it("shows no tables selected error when backup called with none selected", async () => {

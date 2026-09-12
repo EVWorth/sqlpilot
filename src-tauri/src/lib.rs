@@ -155,6 +155,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::pick_file,
             commands::write_file_contents,
             commands::pick_save_file,
+            commands::backup::backup_database,
+            commands::backup::cancel_backup,
+            commands::backup::default_backup_options,
+            commands::backup::restore_database,
+            commands::backup::default_restore_options,
+            commands::backup::read_file_head,
             commands::get_platform_info,
             commands::history_add,
             commands::history_list,
@@ -181,6 +187,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::ai::ai_set_config,
             commands::ai::ai_cancel,
             commands::ai::ai_approve_permission,
+        ])
+        .events(tauri_specta::collect_events![
+            commands::backup::BackupProgressEvent,
+            commands::backup::RestoreProgressEvent
         ]);
     #[cfg(not(feature = "beta-ai"))]
     let specta_builder = tauri_specta::Builder::<tauri::Wry>::new()
@@ -226,6 +236,12 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::pick_file,
             commands::write_file_contents,
             commands::pick_save_file,
+            commands::backup::backup_database,
+            commands::backup::cancel_backup,
+            commands::backup::default_backup_options,
+            commands::backup::restore_database,
+            commands::backup::default_restore_options,
+            commands::backup::read_file_head,
             commands::get_platform_info,
             commands::history_add,
             commands::history_list,
@@ -247,6 +263,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::sqlite::sqlite_get_columns,
             commands::sqlite::sqlite_get_indexes,
             commands::sqlite::sqlite_get_table_ddl,
+        ])
+        .events(tauri_specta::collect_events![
+            commands::backup::BackupProgressEvent,
+            commands::backup::RestoreProgressEvent
         ]);
     specta_builder
 }

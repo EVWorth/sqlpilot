@@ -1,7 +1,7 @@
 import { AlertCircle, CheckCircle2, FileText, FolderOpen, HardDriveUpload, Loader2, X } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
-import { runStatement } from "../../lib/run-statement";
-import { splitSqlStatements } from "../../lib/sql-import";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { formatBytes, formatElapsed } from "../../lib/backup-progress";
+import { events, type RestoreOptions, type RestoreProgress, type RestoreSummary } from "../../lib/bindings";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { confirmDestructive } from "../../stores/productionGuardStore";
@@ -14,14 +14,8 @@ interface RestoreDialogProps {
   preSelectedDatabase?: string;
 }
 
-interface RestoreProgress {
-  current: number;
-  total: number;
-  successCount: number;
-  errorCount: number;
-  errors: string[];
-  done: boolean;
-}
+/** How much of a dump is read to show a preview of it. */
+const PREVIEW_BYTES = 64 * 1024;
 
 export function RestoreDialog({
   isOpen,
@@ -41,13 +35,20 @@ export function RestoreDialog({
   const [database, setDatabase] = useState(preSelectedDatabase ?? "");
 
   const [filePath, setFilePath] = useState<string | null>(null);
-  const [fileSize, setFileSize] = useState<string | null>(null);
-  const [statementCount, setStatementCount] = useState(0);
+  const [fileBytes, setFileBytes] = useState<number | null>(null);
   const [preview, setPreview] = useState<string[]>([]);
 
-  const [stopOnError, setStopOnError] = useState(true);
+  const [options, setOptions] = useState<RestoreOptions>({
+    stopOnError: true,
+    disableForeignKeyChecks: true,
+    wrapInTransaction: true,
+  });
   const [restoring, setRestoring] = useState(false);
   const [progress, setProgress] = useState<RestoreProgress | null>(null);
+  const [summary, setSummary] = useState<RestoreSummary | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const restoreIdRef = useRef<string | null>(null);
 
   // Load databases when connection changes
   useEffect(() => {
@@ -72,10 +73,11 @@ export function RestoreDialog({
       );
       setDatabase(preSelectedDatabase ?? "");
       setFilePath(null);
-      setFileSize(null);
-      setStatementCount(0);
+      setFileBytes(null);
       setPreview([]);
       setProgress(null);
+      setSummary(null);
+      setError(null);
       setRestoring(false);
     }
   }, [
@@ -93,129 +95,68 @@ export function RestoreDialog({
     if (!path) return;
 
     setFilePath(path);
+    setSummary(null);
+    setError(null);
 
     try {
-      const content = await api.readFileContents(path);
-      const sizeKB = (content.length / 1024).toFixed(1);
-      const sizeMB = (content.length / (1024 * 1024)).toFixed(1);
-      setFileSize(
-        content.length > 1024 * 1024 ? `${sizeMB} MB` : `${sizeKB} KB`,
-      );
-
-      const lines = content.split("\n").slice(0, 30);
-      setPreview(lines);
-
-      // Estimate statement count (count semicolons outside comments)
-      const stmts = splitSqlStatements(content);
-      setStatementCount(stmts.length);
+      // Only the head of it. Reading a multi-gigabyte dump into the renderer
+      // to draw thirty lines of preview is what the streaming restore exists
+      // to avoid (#358).
+      const head = await api.readFileHead(path, PREVIEW_BYTES);
+      setFileBytes(head.totalBytes);
+      setPreview(head.text.split("\n").slice(0, 30));
     } catch (e) {
-      console.error("Failed to read file:", e);
+      setError(String(e));
+      setFileBytes(null);
+      setPreview([]);
     }
   }, []);
 
   const handleRestore = useCallback(async () => {
     if (!connectionId || !database || !filePath) return;
 
+    // Once for the restore, not per statement (#588). A dump is the most
+    // destructive thing this app runs — it typically drops and recreates
+    // every table it touches — and it was the one path with no gate at all.
+    if (
+      !(await confirmDestructive({
+        connectionId,
+        sql: [],
+        action: `Restore ${filePath.split(/[\\/]/).pop()} into \`${database}\`?`,
+        detail: "A dump usually drops and recreates the objects it restores.",
+      }))
+    ) {
+      return;
+    }
+
+    const id = crypto.randomUUID();
+    restoreIdRef.current = id;
     setRestoring(true);
-    setProgress({
-      current: 0,
-      total: statementCount,
-      successCount: 0,
-      errorCount: 0,
-      errors: [],
-      done: false,
+    setProgress(null);
+    setSummary(null);
+    setError(null);
+
+    const unlisten = await events.restoreProgressEvent.listen((e) => {
+      if (e.payload.restoreId === id) setProgress(e.payload.progress);
     });
 
     try {
-      const content = await api.readFileContents(filePath);
-      const statements = splitSqlStatements(content);
-
-      // Once for the restore, not per statement (#588). A dump is the most
-      // destructive thing this app runs — it typically drops and recreates
-      // every table it touches — and it was the one path with no gate at all.
-      if (
-        !(await confirmDestructive({
-          connectionId,
-          sql: statements,
-          action: `Restore ${statements.length} statement(s) into \`${database}\`?`,
-          detail: "A dump usually drops and recreates the objects it restores.",
-        }))
-      ) {
-        setRestoring(false);
-        return;
-      }
-
-      // Use the database
-      // Session setup rather than part of the restore, so it is tagged
-      // internal and stays out of the default view (#586).
-      await runStatement({
-        connectionId,
-        sql: `USE \`${database.replace(/`/g, "``")}\``,
-        origin: "internal",
-      });
-      let successCount = 0;
-      let errorCount = 0;
-      const errors: string[] = [];
-
-      for (let i = 0; i < statements.length; i++) {
-        const stmt = statements[i].trim();
-        if (!stmt) continue;
-
-        // Skip DELIMITER commands (handled by our splitter)
-        if (stmt.toUpperCase().startsWith("DELIMITER")) continue;
-
-        try {
-          await runStatement({ connectionId, sql: stmt, database, origin: "restore" });
-          successCount++;
-        } catch (e) {
-          errorCount++;
-          const errMsg = `Statement ${i + 1}: ${String(e).slice(0, 200)}`;
-          errors.push(errMsg);
-
-          if (stopOnError) {
-            setProgress({
-              current: i + 1,
-              total: statements.length,
-              successCount,
-              errorCount,
-              errors,
-              done: true,
-            });
-            setRestoring(false);
-            return;
-          }
-        }
-
-        if (i % 10 === 0 || i === statements.length - 1) {
-          setProgress({
-            current: i + 1,
-            total: statements.length,
-            successCount,
-            errorCount,
-            errors,
-            done: false,
-          });
-        }
-      }
-
-      setProgress({
-        current: statements.length,
-        total: statements.length,
-        successCount,
-        errorCount,
-        errors,
-        done: true,
-      });
+      setSummary(await api.restoreDatabase(id, connectionId, database, filePath, options));
     } catch (e) {
-      setProgress((prev) =>
-        prev
-          ? { ...prev, errors: [...prev.errors, String(e)], done: true }
-          : null
-      );
+      setError(String(e));
     } finally {
+      unlisten();
+      restoreIdRef.current = null;
       setRestoring(false);
     }
-  }, [connectionId, database, filePath, statementCount, stopOnError]);
+  }, [connectionId, database, filePath, options]);
+
+  const handleCancel = useCallback(() => {
+    const id = restoreIdRef.current;
+    // Stops at the next statement and rolls back whatever has not already
+    // been committed. Anything the file had already committed stays.
+    if (id) void api.cancelBackup(id).catch(() => {});
+  }, []);
 
   if (!isOpen) return null;
 
@@ -224,9 +165,10 @@ export function RestoreDialog({
   const labelClasses = "block text-xs font-medium text-[var(--color-text-secondary)] mb-1";
   const checkboxLabelClasses = "flex items-center gap-2 text-xs text-[var(--color-text-secondary)] cursor-pointer";
 
-  const isDone = progress?.done ?? false;
-  const progressPct = progress && progress.total > 0
-    ? (progress.current / progress.total) * 100
+  // By bytes of the file rather than by statement: the statement count is
+  // not known until the file has been read, which is the thing being done.
+  const progressPct = progress && progress.totalBytes > 0
+    ? Math.min(100, (progress.bytesRead / progress.totalBytes) * 100)
     : 0;
 
   return (
@@ -278,10 +220,7 @@ export function RestoreDialog({
               <div className="flex items-center gap-2 mb-2">
                 <FileText className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
                 <span className="text-xs text-[var(--color-text-secondary)]">
-                  File size: {fileSize}
-                </span>
-                <span className="text-xs text-[var(--color-text-muted)]">
-                  • ~{statementCount.toLocaleString()} statements
+                  File size: {fileBytes === null ? "unknown" : formatBytes(fileBytes)}
                 </span>
               </div>
               {preview.length > 0 && (
@@ -334,28 +273,56 @@ export function RestoreDialog({
           {/* Options */}
           <div>
             <label className={labelClasses}>Options</label>
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={stopOnError}
-                onChange={(e) => setStopOnError(e.target.checked)}
-                disabled={restoring}
-                className="accent-brand-500"
-              />
-              Stop on error
-            </label>
+            <div className="space-y-1.5">
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="checkbox"
+                  checked={options.stopOnError}
+                  onChange={(e) => setOptions((o) => ({ ...o, stopOnError: e.target.checked }))}
+                  disabled={restoring}
+                  className="accent-brand-500"
+                />
+                Stop on error
+              </label>
+              <label
+                className={checkboxLabelClasses}
+                title="A file whose tables are in the wrong order restores anyway. Turned back on when the restore ends."
+              >
+                <input
+                  type="checkbox"
+                  checked={options.disableForeignKeyChecks}
+                  onChange={(e) => setOptions((o) => ({ ...o, disableForeignKeyChecks: e.target.checked }))}
+                  disabled={restoring}
+                  className="accent-brand-500"
+                />
+                Ignore foreign-key order
+              </label>
+              <label
+                className={checkboxLabelClasses}
+                title="Makes a data-only file all-or-nothing. It cannot make a file containing CREATE or DROP atomic: MySQL commits before every DDL statement."
+              >
+                <input
+                  type="checkbox"
+                  checked={options.wrapInTransaction}
+                  onChange={(e) => setOptions((o) => ({ ...o, wrapInTransaction: e.target.checked }))}
+                  disabled={restoring}
+                  className="accent-brand-500"
+                />
+                Run in a transaction
+              </label>
+            </div>
           </div>
 
           {/* Progress */}
-          {progress && (
-            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
+          {progress && !summary && (
+            <div
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
+              role="status"
+              aria-live="polite"
+            >
               <div className="mb-2 flex items-center justify-between text-xs text-[var(--color-text-secondary)]">
-                <span>
-                  {isDone ? "Completed" : "Restoring..."}
-                </span>
-                <span>
-                  {progress.current} / {progress.total}
-                </span>
+                <span>Restoring…</span>
+                <span>{Math.round(progressPct)}%</span>
               </div>
               <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
                 <div
@@ -363,41 +330,79 @@ export function RestoreDialog({
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
-              <div className="flex gap-4 text-[11px]">
-                <span className="text-green-400">
-                  ✓ {progress.successCount} succeeded
-                </span>
-                {progress.errorCount > 0 && (
-                  <span className="text-red-400">
-                    ✗ {progress.errorCount} failed
-                  </span>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                <span className="text-green-400">✓ {progress.statementsRun} statements</span>
+                {progress.statementsFailed > 0 && (
+                  <span className="text-red-400">✗ {progress.statementsFailed} failed</span>
                 )}
+                <span className="text-[var(--color-text-muted)]">
+                  {formatBytes(progress.bytesRead)} of {formatBytes(progress.totalBytes)}
+                </span>
+                <span className="text-[var(--color-text-muted)]">
+                  {formatElapsed(progress.elapsedMs)} elapsed
+                </span>
               </div>
-              {progress.errors.length > 0 && (
-                <div className="mt-2 max-h-24 overflow-auto rounded bg-red-500/10 p-2 text-[10px] text-red-400 font-mono">
-                  {progress.errors.slice(-5).map((err, i) => <div key={i}>{err}</div>)}
+            </div>
+          )}
+
+          {
+            /* What happened. The old dialog said "completed" or "completed
+              with N errors" and never said whether the database had been
+              changed, which is the thing a user has to know. */
+          }
+          {summary && (
+            <div
+              className={summary.statementsFailed === 0
+                ? "rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400"
+                : "rounded border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400"}
+            >
+              <div className="flex items-center gap-2">
+                {summary.statementsFailed === 0
+                  ? <CheckCircle2 className="h-4 w-4" />
+                  : <AlertCircle className="h-4 w-4" />}
+                {summary.cancelled
+                  ? "Restore cancelled"
+                  : summary.statementsFailed === 0
+                  ? `Restore complete — ${summary.statementsRun.toLocaleString()} statements in ${
+                    formatElapsed(summary.elapsedMs)
+                  }.`
+                  : `Stopped after ${summary.statementsFailed} error(s); ${summary.statementsRun} statements had run.`}
+              </div>
+              {(summary.cancelled || summary.statementsFailed > 0) && (
+                <div className="mt-1 ml-6 text-[11px]">
+                  {summary.partiallyApplied
+                    ? summary.rolledBack
+                      ? "Rolled back, but part of the file had already been applied: MySQL commits before every CREATE, DROP or ALTER, so the structural changes stand."
+                      : "The database has been partly changed. Check it before running the file again."
+                    : "Rolled back — the database is as it was."}
+                </div>
+              )}
+              {summary.errors.length > 0 && (
+                <div className="mt-2 max-h-24 overflow-auto rounded bg-red-500/10 p-2 font-mono text-[10px] text-red-400">
+                  {summary.errors.slice(0, 10).map((err) => <div key={err}>{err}</div>)}
                 </div>
               )}
             </div>
           )}
 
-          {/* Done */}
-          {isDone && progress && progress.errorCount === 0 && (
-            <div className="flex items-center gap-2 rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
-              <CheckCircle2 className="h-4 w-4" />
-              Restore completed successfully! ({progress.successCount} statements executed)
-            </div>
-          )}
-          {isDone && progress && progress.errorCount > 0 && (
-            <div className="flex items-center gap-2 rounded border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400">
+          {error && (
+            <div className="flex items-center gap-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
               <AlertCircle className="h-4 w-4" />
-              Restore completed with {progress.errorCount} error(s)
+              {error}
             </div>
           )}
         </div>
 
         {/* Footer */}
         <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
+          {restoring && (
+            <button
+              onClick={handleCancel}
+              className="rounded border border-red-500/30 bg-red-500/10 px-4 py-1.5 text-xs text-red-400 hover:bg-red-500/20"
+            >
+              Cancel
+            </button>
+          )}
           <button
             onClick={onClose}
             className="rounded border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"

@@ -1,5 +1,6 @@
 #[cfg(feature = "beta-ai")]
 pub mod ai;
+pub mod backup;
 pub mod sqlite;
 
 use mas_admin::AdminService;

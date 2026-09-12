@@ -1,11 +1,13 @@
 import { AlertCircle, CheckCircle2, FolderOpen, HardDriveDownload, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  type BackupOptions,
-  type BackupProgress,
   defaultBackupOptions,
-  generateBackup,
-} from "../../lib/backup-generator";
+  formatBytes,
+  formatElapsed,
+  formatRate,
+  formatRemaining,
+} from "../../lib/backup-progress";
+import { type BackupOptions, type BackupProgress, type BackupSummary, events } from "../../lib/bindings";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type { DatabaseInfo, TableInfo } from "../../types";
@@ -48,7 +50,10 @@ export function BackupDialog({
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
 
-  const cancelRef = useRef({ current: false });
+  const [warnings, setWarnings] = useState<string[]>([]);
+  const [summary, setSummary] = useState<BackupSummary | null>(null);
+
+  const backupIdRef = useRef<string | null>(null);
 
   // Load databases when connection changes
   useEffect(() => {
@@ -96,7 +101,8 @@ export function BackupDialog({
       setBacking(false);
       setProgress(null);
       setFilePath(null);
-      cancelRef.current = { current: false };
+      setWarnings([]);
+      setSummary(null);
     }
   }, [
     isOpen,
@@ -142,31 +148,41 @@ export function BackupDialog({
       includeData: content !== "structure_only",
     };
 
+    // The id the progress events carry, so two open dialogs do not draw each
+    // other's rows.
+    const id = crypto.randomUUID();
+    backupIdRef.current = id;
+
     setBacking(true);
     setError(null);
     setDone(false);
-    cancelRef.current = { current: false };
+    setProgress(null);
+    setWarnings([]);
+
+    const unlisten = await events.backupProgressEvent.listen((e) => {
+      if (e.payload.backupId === id) setProgress(e.payload.progress);
+    });
 
     try {
-      const sql = await generateBackup(
+      const summary = await api.backupDatabase(
+        id,
         connectionId,
         database,
         tableList,
         resolvedOptions,
-        setProgress,
-        cancelRef.current,
+        filePath,
       );
-
-      if (cancelRef.current.current) {
-        setBacking(false);
-        return;
+      setWarnings(summary.warnings);
+      // A cancelled backup leaves no file, so it is not a completed one.
+      if (!summary.cancelled) {
+        setSummary(summary);
+        setDone(true);
       }
-
-      await api.writeFileContents(filePath, sql);
-      setDone(true);
     } catch (e) {
       setError(String(e));
     } finally {
+      unlisten();
+      backupIdRef.current = null;
       setBacking(false);
     }
   }, [
@@ -181,7 +197,10 @@ export function BackupDialog({
   ]);
 
   const handleCancel = useCallback(() => {
-    cancelRef.current.current = true;
+    const id = backupIdRef.current;
+    // The dump stops at the next row and removes the partial file, so there
+    // is nothing left that could be mistaken for a backup.
+    if (id) void api.cancelBackup(id).catch(() => {});
   }, []);
 
   if (!isOpen) return null;
@@ -363,6 +382,23 @@ export function BackupDialog({
                 />
                 Include CREATE DATABASE
               </label>
+              <label
+                className={checkboxLabelClasses}
+                title="Read every table inside one transaction, so the file is the database as it was at one instant. InnoDB only."
+              >
+                <input
+                  type="checkbox"
+                  checked={options.consistentSnapshot}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      consistentSnapshot: e.target.checked,
+                    }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                Consistent snapshot
+              </label>
               <label className={checkboxLabelClasses}>
                 <input
                   type="checkbox"
@@ -507,7 +543,11 @@ export function BackupDialog({
 
           {/* Progress */}
           {backing && progress && (
-            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
+            <div
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
+              role="status"
+              aria-live="polite"
+            >
               <div className="mb-2 flex items-center justify-between text-xs text-[var(--color-text-secondary)]">
                 <span>{progress.phase}</span>
                 {progress.totalTables > 0 && (
@@ -526,22 +566,46 @@ export function BackupDialog({
                   />
                 </div>
               )}
-              <div className="text-[11px] text-[var(--color-text-muted)]">
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--color-text-muted)]">
                 {progress.tableName && <span>Table: {progress.tableName}</span>}
-                {progress.rowsExported > 0 && (
-                  <span className="ml-3">
-                    {progress.rowsExported.toLocaleString()} rows exported
-                  </span>
-                )}
+                {progress.rowsExported > 0 && <span>{progress.rowsExported.toLocaleString()} rows</span>}
+                {/* What tells a slow dump from a stuck one. */}
+                {formatRate(progress.rowsPerSecond) && <span>{formatRate(progress.rowsPerSecond)}</span>}
+                {formatRemaining(progress) && <span>~{formatRemaining(progress)} left in this table</span>}
+                {progress.bytesWritten > 0 && <span>{formatBytes(progress.bytesWritten)}</span>}
+                <span>{formatElapsed(progress.elapsedMs)} elapsed</span>
               </div>
             </div>
           )}
 
           {/* Done message */}
-          {done && (
-            <div className="flex items-center gap-2 rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
-              <CheckCircle2 className="h-4 w-4" />
-              Backup completed successfully!
+          {done && summary && (
+            <div className="rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                Backup complete — {summary.rowsExported.toLocaleString()} rows from {summary.tables.toLocaleString()}
+                {" "}
+                {summary.tables === 1 ? "table" : "tables"}, {formatBytes(summary.bytesWritten)} in{" "}
+                {formatElapsed(summary.elapsedMs)}.
+              </div>
+            </div>
+          )}
+
+          {
+            /* Whatever the dump could not read. The file says so too, but
+              nobody should have to open it to find out something is missing. */
+          }
+          {warnings.length > 0 && (
+            <div className="rounded border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-400">
+              <div className="mb-1 flex items-center gap-2 font-medium">
+                <AlertCircle className="h-4 w-4" />
+                {warnings.length === 1
+                  ? "One thing was left out"
+                  : `${warnings.length} things were left out`}
+              </div>
+              <ul className="ml-6 list-disc space-y-0.5">
+                {warnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
             </div>
           )}
 
