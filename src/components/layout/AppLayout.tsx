@@ -20,6 +20,7 @@ import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
 import { HistoryQuickOpen } from "../history/HistoryQuickOpen";
 import { ImportDialog } from "../import/ImportDialog";
+import { AgentSettingsDialog } from "../settings/AgentSettingsDialog";
 import { ThemeSettingsDialog } from "../settings/ThemeSettingsDialog";
 import { ConnectionTabs } from "./ConnectionTabs";
 import { MainPanel } from "./MainPanel";
@@ -187,6 +188,9 @@ export function AppLayout() {
         case "appearance":
           useDialogStore.getState().openDialog("appearance");
           break;
+        case "agents":
+          useDialogStore.getState().openDialog("agents");
+          break;
         case "cycle-theme":
           // Reaches here from the inline MenuBar (Windows/Linux) and from the
           // native Help menu on macOS, which is the surface #453 was about.
@@ -296,6 +300,10 @@ export function AppLayout() {
       />
       <ThemeSettingsDialog
         isOpen={openDialogName === "appearance"}
+        onClose={closeDialog}
+      />
+      <AgentSettingsDialog
+        isOpen={openDialogName === "agents"}
         onClose={closeDialog}
       />
       <HistoryQuickOpen

@@ -1,3 +1,4 @@
+pub mod agents;
 pub mod backup;
 pub mod sqlite;
 
@@ -30,9 +31,14 @@ use tauri::State;
 
 pub struct AppState {
     pub connection_manager: Arc<ConnectionManager>,
-    pub connection_store: ConnectionStore,
-    pub query_executor: QueryExecutor,
-    pub schema_inspector: SchemaInspector,
+    // Shared with the agent workspace, which needs the saved profiles to give
+    // a shared-but-not-connected connection a policy.
+    pub connection_store: Arc<ConnectionStore>,
+    // Shared rather than owned: the agent endpoint runs queries through the
+    // same executor the editor does, so a cancel from either side finds the
+    // same in-flight statement, and both honour one set of timeouts and caps.
+    pub query_executor: Arc<QueryExecutor>,
+    pub schema_inspector: Arc<SchemaInspector>,
     pub history_store: HistoryStore,
     pub admin_service: AdminService,
     pub sqlite_manager: Arc<SqliteConnectionManager>,

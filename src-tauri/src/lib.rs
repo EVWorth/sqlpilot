@@ -1,4 +1,5 @@
 mod commands;
+pub mod mcp;
 #[cfg(target_os = "macos")]
 mod menu;
 
@@ -185,6 +186,15 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::sqlite::sqlite_get_columns,
             commands::sqlite::sqlite_get_indexes,
             commands::sqlite::sqlite_get_table_ddl,
+            commands::agents::list_agent_connections,
+            commands::agents::share_connection_with_agents,
+            commands::agents::revoke_agent_connection,
+            commands::agents::unlock_agent_ddl,
+            commands::agents::agent_endpoint_status,
+            commands::agents::start_agent_endpoint,
+            commands::agents::stop_agent_endpoint,
+            commands::agents::rotate_agent_token,
+            commands::agents::agent_harness_setup,
         ])
         .events(tauri_specta::collect_events![
             commands::backup::BackupProgressEvent,
@@ -379,6 +389,7 @@ pub fn run() {
     // the window opens and the message explains why, which is the difference
     // between a bug report and a mystery.
     let (store, store_problem) = open_connection_store(&data_dir);
+    let store = Arc::new(store);
     if let Some(problem) = store_problem {
         startup_problems.push(problem);
     }
@@ -394,8 +405,8 @@ pub fn run() {
     }
 
     let manager = Arc::new(ConnectionManager::new());
-    let executor = QueryExecutor::new(manager.clone());
-    let inspector = SchemaInspector::new(manager.clone());
+    let executor = Arc::new(QueryExecutor::new(manager.clone()));
+    let inspector = Arc::new(SchemaInspector::new(manager.clone()));
     let admin = AdminService::new(manager.clone());
 
     let sqlite_manager = Arc::new(mas_sqlite::connection::SqliteConnectionManager::new());
@@ -444,6 +455,10 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let _ = (app, event);
         })
+        .manage(mcp::AgentState::new(
+            data_dir.clone(),
+            mcp::McpState::new(commands::agents::load_grants(&store)),
+        ))
         .manage(commands::StartupReport(startup_problems))
         .manage(AppState {
             connection_manager: manager,

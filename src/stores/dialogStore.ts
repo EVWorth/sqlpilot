@@ -19,7 +19,7 @@ export interface DialogTarget {
   database?: string;
 }
 
-export type AppDialog = "import" | "backup" | "restore" | "help" | "appearance";
+export type AppDialog = "import" | "backup" | "restore" | "help" | "appearance" | "agents";
 
 interface DialogState {
   /** The dialog currently open, or null. Only one at a time. */

@@ -75,6 +75,28 @@ pub struct ForeignKeyInfo {
     pub on_delete: String,
 }
 
+/// A foreign key pointing at a table, named from the far end.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct ReferencingKey {
+    /// The table that declares the constraint.
+    pub table: String,
+    pub name: String,
+    pub columns: Vec<String>,
+    /// The columns of the referenced table that are pointed at.
+    pub referenced_columns: Vec<String>,
+    pub on_update: String,
+    pub on_delete: String,
+}
+
+/// A column whose name, or whose table's name, matched a search.
+#[derive(Debug, Clone, Serialize, specta::Type)]
+pub struct SchemaMatch {
+    pub table: String,
+    pub column: String,
+    pub column_type: String,
+    pub comment: String,
+}
+
 #[derive(Debug, Clone, Serialize, specta::Type)]
 pub struct ViewInfo {
     pub name: String,
@@ -334,6 +356,132 @@ impl SchemaInspector {
 
         tracing::debug!(count = keys.len(), "Foreign keys fetched");
         Ok(keys)
+    }
+
+    /// Foreign keys that point *at* this table, from wherever they are declared.
+    ///
+    /// The direction a schema dump does not have. `get_foreign_keys` answers
+    /// "what does this table depend on"; this answers "what depends on it",
+    /// which is the question behind "is this row safe to delete" and "can this
+    /// column change type".
+    ///
+    /// Scoped to one schema: a cross-schema foreign key is legal but rare, and
+    /// searching every schema on the server turns a cheap lookup into a scan
+    /// of the whole instance.
+    pub async fn get_referencing_keys(
+        &self,
+        connection_id: &str,
+        database: &str,
+        table: &str,
+    ) -> Result<Vec<ReferencingKey>, CoreError> {
+        tracing::debug!(database = %database, table = %table, "Fetching referencing keys");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        let rows = sqlx::query(
+            "SELECT CAST(k.TABLE_NAME AS CHAR) AS TABLE_NAME,
+                    CAST(k.CONSTRAINT_NAME AS CHAR) AS CONSTRAINT_NAME,
+                    CAST(k.COLUMN_NAME AS CHAR) AS COLUMN_NAME,
+                    CAST(k.REFERENCED_COLUMN_NAME AS CHAR) AS REFERENCED_COLUMN_NAME,
+                    CAST(r.UPDATE_RULE AS CHAR) AS UPDATE_RULE,
+                    CAST(r.DELETE_RULE AS CHAR) AS DELETE_RULE
+             FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
+             JOIN INFORMATION_SCHEMA.REFERENTIAL_CONSTRAINTS r
+               ON r.CONSTRAINT_SCHEMA = k.CONSTRAINT_SCHEMA
+              AND r.CONSTRAINT_NAME = k.CONSTRAINT_NAME
+              AND r.TABLE_NAME = k.TABLE_NAME
+             WHERE k.REFERENCED_TABLE_SCHEMA = ? AND k.REFERENCED_TABLE_NAME = ?
+             ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION",
+        )
+        .bind(database)
+        .bind(table)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        // Grouped in first-seen order, as in get_foreign_keys, so a composite
+        // key's columns stay in key order.
+        let mut keys: Vec<ReferencingKey> = Vec::new();
+        for row in &rows {
+            let table_name: String = row.get("TABLE_NAME");
+            let name: String = row.get("CONSTRAINT_NAME");
+            let column: String = row.get("COLUMN_NAME");
+            let ref_column: String = row.get("REFERENCED_COLUMN_NAME");
+
+            match keys.last_mut() {
+                Some(existing) if existing.name == name && existing.table == table_name => {
+                    existing.columns.push(column);
+                    existing.referenced_columns.push(ref_column);
+                }
+                _ => keys.push(ReferencingKey {
+                    table: table_name,
+                    name,
+                    columns: vec![column],
+                    referenced_columns: vec![ref_column],
+                    on_update: row.get("UPDATE_RULE"),
+                    on_delete: row.get("DELETE_RULE"),
+                }),
+            }
+        }
+
+        tracing::debug!(count = keys.len(), "Referencing keys fetched");
+        Ok(keys)
+    }
+
+    /// Tables and columns whose name contains a fragment.
+    ///
+    /// One query against INFORMATION_SCHEMA rather than a walk of every
+    /// table, because the databases where this matters are the ones with five
+    /// hundred tables in them — the same ones where listing everything is
+    /// useless.
+    ///
+    /// `limit` is applied in the database. A caller that gets exactly `limit`
+    /// matches should assume there are more.
+    pub async fn search_schema(
+        &self,
+        connection_id: &str,
+        database: &str,
+        fragment: &str,
+        limit: u32,
+    ) -> Result<Vec<SchemaMatch>, CoreError> {
+        tracing::debug!(database = %database, "Searching schema");
+        let pool = self.connection_manager.get_pool(connection_id)?;
+        // Escaped so a fragment containing % or _ searches for those
+        // characters rather than becoming a wildcard: someone looking for
+        // "created_at" means that column, not "createdXat".
+        let pattern = format!(
+            "%{}%",
+            fragment
+                .replace('\\', "\\\\")
+                .replace('%', "\\%")
+                .replace('_', "\\_")
+        );
+        let rows = sqlx::query(
+            "SELECT CAST(TABLE_NAME AS CHAR) AS TABLE_NAME,
+                    CAST(COLUMN_NAME AS CHAR) AS COLUMN_NAME,
+                    CAST(COLUMN_TYPE AS CHAR) AS COLUMN_TYPE,
+                    CAST(COLUMN_COMMENT AS CHAR) AS COLUMN_COMMENT
+             FROM INFORMATION_SCHEMA.COLUMNS
+             WHERE TABLE_SCHEMA = ?
+               AND (TABLE_NAME LIKE ? OR COLUMN_NAME LIKE ?)
+             ORDER BY TABLE_NAME, ORDINAL_POSITION
+             LIMIT ?",
+        )
+        .bind(database)
+        .bind(&pattern)
+        .bind(&pattern)
+        .bind(limit)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| CoreError::Schema(e.to_string()))?;
+
+        Ok(rows
+            .iter()
+            .map(|row| SchemaMatch {
+                table: row.get("TABLE_NAME"),
+                column: row.get("COLUMN_NAME"),
+                column_type: row.get("COLUMN_TYPE"),
+                comment: row.get("COLUMN_COMMENT"),
+            })
+            .collect())
     }
 
     pub async fn get_indexes(

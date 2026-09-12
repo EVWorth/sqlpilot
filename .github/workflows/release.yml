@@ -101,17 +101,17 @@ jobs:
       # connection lost after every query timeout (#658) and JSON columns
       # arriving as binary. Neither showed on MySQL.
       - name: Run database integration tests (MySQL 8)
-        run: cargo test -p mas-core -p mas-admin -- --ignored --test-threads=1
+        run: cargo test -p mas-core -p mas-admin -p mas-mcp -- --ignored --test-threads=1
         working-directory: src-tauri
       - name: Run database integration tests (MariaDB 11)
         env:
           MAS_TEST_PORT: "13308"
-        run: cargo test -p mas-core -p mas-admin -- --ignored --test-threads=1
+        run: cargo test -p mas-core -p mas-admin -p mas-mcp -- --ignored --test-threads=1
         working-directory: src-tauri
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
       - name: Run full suite with coverage
-        run: cargo tarpaulin -p mas-core -p mas-export -p mas-admin --out Lcov --output-dir coverage/ -- --include-ignored
+        run: cargo tarpaulin -p mas-core -p mas-export -p mas-admin -p mas-mcp --out Lcov --output-dir coverage/ -- --include-ignored
         working-directory: src-tauri
       - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

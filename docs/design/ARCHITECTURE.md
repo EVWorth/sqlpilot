@@ -1205,10 +1205,9 @@ server rather than a model client: the commands that used to be here
 that were never written at all.
 
 What replaces them is not a command surface but a **tool** surface, spoken to
-over MCP by the user's own harness, plus the small set of app-side commands
-that start the server and export its configuration. Those are designed in
-[AI_INTEGRATION.md](AI_INTEGRATION.md) and will be documented here as §5.12
-when they exist.
+over MCP by the user's own harness. It is designed in
+[AI_INTEGRATION.md](AI_INTEGRATION.md), and the app-side commands that decide
+what it may reach are §5.12 below.
 
 ### 5.5 Export / Import Commands
 
@@ -1568,6 +1567,93 @@ file and in `BackupSummary::warnings`.
 
 **Cancelling removes the file.** A partial dump that looks like a dump is how
 someone restores half a database a month later.
+
+### 5.12 Agent Commands
+
+These do not answer agents. They decide what agents can reach, and where they
+connect — the tool calls themselves never come through Tauri at all, they
+arrive over HTTP at the endpoint in `src/mcp/endpoint.rs` and are answered by
+`mas-mcp`.
+
+The split matters. A tool call is graded per call by the policy; these commands
+set what is on the table in the first place, which is a decision the user makes
+deliberately and rarely. Nothing is shared until one of them says so.
+
+```rust
+/// Every saved connection, with whether and how it is shared.
+#[tauri::command]
+async fn list_agent_connections(
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
+) -> Result<Vec<AgentConnection>, String>;
+
+/// Share a connection with agents, or change the terms.
+///
+/// The posture decides how much real data may leave the database:
+/// schema-only, samples, or full. An empty `databases` list means every
+/// database, because a grant that shares nothing is a confusing spelling of
+/// revoke.
+#[tauri::command]
+async fn share_connection_with_agents(
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
+    connection_id: String,
+    posture: DataPosture,
+    databases: Option<Vec<String>>,
+) -> Result<(), String>;
+
+/// Stop sharing. Takes effect at the agent's next tool call.
+#[tauri::command]
+async fn revoke_agent_connection(
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
+    connection_id: String,
+) -> Result<(), String>;
+
+/// Permit schema changes on a production connection, for this session only.
+/// Never persisted: it lapses when the app closes.
+#[tauri::command]
+async fn unlock_agent_ddl(
+    agents: State<'_, AgentState>,
+    connection_id: String,
+    unlocked: bool,
+) -> Result<(), String>;
+
+/// Where a harness connects, if the endpoint is running.
+#[tauri::command]
+async fn agent_endpoint_status(agents: State<'_, AgentState>) -> Result<AgentEndpoint, String>;
+
+#[tauri::command]
+async fn start_agent_endpoint(
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
+) -> Result<AgentEndpoint, String>;
+
+#[tauri::command]
+async fn stop_agent_endpoint(agents: State<'_, AgentState>) -> Result<AgentEndpoint, String>;
+
+/// Issue a new bearer token. Every configured harness stops working until it
+/// is given the new one — that is the point of the button. A running endpoint
+/// restarts on the new token rather than being left stopped.
+#[tauri::command]
+async fn rotate_agent_token(
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
+) -> Result<AgentEndpoint, String>;
+
+/// The command to run, or the JSON to paste, for a given harness.
+#[tauri::command]
+async fn agent_harness_setup(
+    agents: State<'_, AgentState>,
+    harness: Harness,
+) -> Result<String, String>;
+```
+
+Grants are stored in the connection store (schema v6, `agent_grants`) and
+deleted with the connection they belong to, so a grant can never outlive the
+profile it names. The bearer token is a 0600 file in the data directory rather
+than a keyring entry: the user has to be able to read it to paste it into their
+own harness.
 
 ## 6. Security Architecture
 

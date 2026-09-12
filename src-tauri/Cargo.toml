@@ -1,5 +1,12 @@
 [workspace]
-members = [".", "crates/mas-admin", "crates/mas-core", "crates/mas-export", "crates/mas-sqlite"]
+members = [
+  ".",
+  "crates/mas-admin",
+  "crates/mas-core",
+  "crates/mas-export",
+  "crates/mas-mcp",
+  "crates/mas-sqlite",
+]
 resolver = "2"
 
 [workspace.dependencies]
@@ -39,13 +46,17 @@ description = "AI-powered MySQL GUI management tool"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+async-trait = "0.1.92"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 dirs = "6"
 keyring-core = "1"
 mas-admin = { path = "crates/mas-admin" }
 mas-core = { path = "crates/mas-core" }
 mas-export = { path = "crates/mas-export" }
+mas-mcp = { version = "0.1.0", path = "crates/mas-mcp" }
 mas-sqlite = { path = "crates/mas-sqlite" }
 rfd = "0.17"
+rmcp = { version = "=3.2.0", features = ["server", "transport-streamable-http-server"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true }
@@ -79,4 +90,10 @@ default = []
 custom-protocol = ["tauri/custom-protocol"]
 
 [dev-dependencies]
+async-trait = "0.1.92"
+keyring-core = "1"
+# The agent endpoint is tested over a real socket; nothing less would catch
+# a wiring mistake between the router, the token and the MCP service.
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
 tempfile = "3"
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }

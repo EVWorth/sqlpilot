@@ -176,6 +176,35 @@ export const commands = {
 	sqliteGetColumns: (connectionId: string, table: string) => typedError<SqliteColumnInfo[], string>(__TAURI_INVOKE("sqlite_get_columns", { connectionId, table })),
 	sqliteGetIndexes: (connectionId: string, table: string) => typedError<SqliteIndexInfo[], string>(__TAURI_INVOKE("sqlite_get_indexes", { connectionId, table })),
 	sqliteGetTableDdl: (connectionId: string, table: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_get_table_ddl", { connectionId, table })),
+	/**  Every connection, with its sharing state. */
+	listAgentConnections: () => typedError<AgentConnection_Serialize[], string>(__TAURI_INVOKE("list_agent_connections")),
+	/**  Share a connection with agents, or change the terms it is shared on. */
+	shareConnectionWithAgents: (connectionId: string, posture: DataPosture, databases: string[] | null) => typedError<null, string>(__TAURI_INVOKE("share_connection_with_agents", { connectionId, posture, databases })),
+	/**  Stop sharing a connection. Takes effect at the agent's next tool call. */
+	revokeAgentConnection: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("revoke_agent_connection", { connectionId })),
+	/**
+	 *  Allow, or stop allowing, schema changes on a production connection.
+	 * 
+	 *  Deliberately not persisted: it lapses when the app closes. Someone who
+	 *  unlocked production to let an agent add an index this afternoon should not
+	 *  find it still unlocked next week.
+	 */
+	unlockAgentDdl: (connectionId: string, unlocked: boolean) => typedError<null, string>(__TAURI_INVOKE("unlock_agent_ddl", { connectionId, unlocked })),
+	/**  Where a harness connects, if the endpoint is running. */
+	agentEndpointStatus: () => typedError<AgentEndpoint_Serialize, string>(__TAURI_INVOKE("agent_endpoint_status")),
+	/**  Start listening for harnesses. */
+	startAgentEndpoint: () => typedError<AgentEndpoint_Serialize, string>(__TAURI_INVOKE("start_agent_endpoint")),
+	/**  Stop listening. Harnesses lose the connection at once. */
+	stopAgentEndpoint: () => typedError<AgentEndpoint_Serialize, string>(__TAURI_INVOKE("stop_agent_endpoint")),
+	/**
+	 *  Issue a new token, invalidating the old one.
+	 * 
+	 *  Every configured harness stops working until it is given the new token.
+	 *  That is the point of the button.
+	 */
+	rotateAgentToken: () => typedError<AgentEndpoint_Serialize, string>(__TAURI_INVOKE("rotate_agent_token")),
+	/**  What to paste, or run, to point a harness at this app. */
+	agentHarnessSetup: (harness: Harness) => typedError<string, string>(__TAURI_INVOKE("agent_harness_setup", { harness })),
 };
 
 /** Events */
@@ -186,6 +215,93 @@ export const events = {
 };
 
 /* Types */
+/**
+ *  A connection as the settings screen shows it: what it is, and how it is
+ *  shared, if it is.
+ */
+export type AgentConnection = AgentConnection_Serialize | AgentConnection_Deserialize;
+
+/**
+ *  A connection as the settings screen shows it: what it is, and how it is
+ *  shared, if it is.
+ */
+export type AgentConnection_Deserialize = {
+	connectionId: string,
+	name: string,
+	/**  "development", "staging", "production", or "unknown". */
+	environment: string,
+	readOnly: boolean,
+	/**
+	 *  Whether the connection is live right now. A grant on a connection that
+	 *  is not connected is not an error — it takes effect when it connects —
+	 *  but the screen should say so rather than implying an agent can use it.
+	 */
+	connected: boolean,
+	/**  None when the connection is not shared. */
+	posture: DataPosture | null,
+	/**  The databases it is shared for, when it is not all of them. */
+	databases: string[] | null,
+	/**
+	 *  Whether this session may make schema changes on a production
+	 *  connection. Never persisted; see `mas_mcp::grants`.
+	 */
+	ddlUnlocked: boolean,
+};
+
+/**
+ *  A connection as the settings screen shows it: what it is, and how it is
+ *  shared, if it is.
+ */
+export type AgentConnection_Serialize = {
+	connectionId: string,
+	name: string,
+	/**  "development", "staging", "production", or "unknown". */
+	environment: string,
+	readOnly: boolean,
+	/**
+	 *  Whether the connection is live right now. A grant on a connection that
+	 *  is not connected is not an error — it takes effect when it connects —
+	 *  but the screen should say so rather than implying an agent can use it.
+	 */
+	connected: boolean,
+	/**  None when the connection is not shared. */
+	posture?: DataPosture | null,
+	/**  The databases it is shared for, when it is not all of them. */
+	databases?: string[] | null,
+	/**
+	 *  Whether this session may make schema changes on a production
+	 *  connection. Never persisted; see `mas_mcp::grants`.
+	 */
+	ddlUnlocked: boolean,
+};
+
+/**  Where a harness connects, if anywhere. */
+export type AgentEndpoint = AgentEndpoint_Serialize | AgentEndpoint_Deserialize;
+
+/**  Where a harness connects, if anywhere. */
+export type AgentEndpoint_Deserialize = {
+	running: boolean,
+	/**  The URL to configure a harness with. Present whenever it is running. */
+	url: string | null,
+	/**
+	 *  The bearer token. Shown in the app because the user has to paste it
+	 *  into their own harness; it is not a secret from them.
+	 */
+	token: string | null,
+};
+
+/**  Where a harness connects, if anywhere. */
+export type AgentEndpoint_Serialize = {
+	running: boolean,
+	/**  The URL to configure a harness with. Present whenever it is running. */
+	url?: string | null,
+	/**
+	 *  The bearer token. Shown in the app because the user has to paste it
+	 *  into their own harness; it is not a secret from them.
+	 */
+	token?: string | null,
+};
+
 /**  Why a requested ANALYZE was not performed. */
 export type AnalyzeRefusal = 
 /**  The statement writes. Running it to time it would apply the write. */
@@ -431,6 +547,27 @@ export type ConnectionProfile_Serialize = {
 	updated_at: string,
 };
 
+/**
+ *  How much of a database's contents may reach an agent.
+ * 
+ *  The posture is a property of the connection profile, not of the session:
+ *  a user decides once that their production database is schema-only, and
+ *  every session that attaches inherits it.
+ */
+export type DataPosture = 
+/**
+ *  Names, types, relationships and aggregates. No row values.
+ * 
+ *  The default on production. An agent can still do most of its job —
+ *  write a query, read a plan, profile a column — because the analysis
+ *  tools compute in the database and return numbers.
+ */
+"schema-only" | 
+/**  A bounded number of rows, redacted, for the shape of the data. */
+"samples" | 
+/**  Rows up to the connection's own row cap, redacted. */
+"full";
+
 export type DatabaseInfo = {
 	name: string,
 	default_charset: string,
@@ -577,6 +714,15 @@ export type FormatFallback =
  *  is what ran; nothing was lost.
  */
 "none";
+
+/**  The harnesses SQLPilot knows how to write a configuration for. */
+export type Harness = "claude-code" | "copilot" | 
+/**
+ *  Anything else that speaks MCP over HTTP. Shown as the raw values, so
+ *  there is always an answer for a harness this list has not caught up
+ *  with.
+ */
+"other";
 
 export type HistoryEntry = {
 	id: string,

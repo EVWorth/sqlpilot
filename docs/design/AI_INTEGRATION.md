@@ -279,8 +279,12 @@ permission-host callback** — only `--allow-all` / `--yolo`. So:
 
 ## 8. What ships in what order
 
-1. **MCP server + policy engine + config export.** Useful on day one from a
-   terminal or from VS Code. Independent of every harness detail.
+1. ~~**MCP server + policy engine + config export.**~~ **Shipped.** The
+   `mas-mcp` crate: the policy, the statement classifier, grants, twelve tools
+   (shape, analysis, and `run_select`), and a loopback endpoint behind a bearer
+   token, with Settings → Agents to share connections and hand over the setup
+   command. Writes and schema changes are refused with a sentence pointing at
+   what does work.
 2. **In-app sessions**, Claude Code natively and Copilot in a terminal view,
    with the app-aware tools — `propose_edit` is what makes this worth doing.
 3. **Writes**: dry-run, graded approval, transaction wrapping, undo.
@@ -293,12 +297,19 @@ product and a much smaller blast radius.
 
 ## 9. Open questions
 
-1. **Transport.** Loopback HTTP with a bearer token is the plan. Where is the
-   token stored, how is it rotated, and what happens when two SQLPilot windows
-   are open?
-2. **Identity of a "connection" across restarts.** Connection ids are per
-   session today; a harness config naming one will go stale. Do we address
-   connections by profile id instead?
+1. **Transport.** Settled in part: loopback HTTP, bearer token in a 0600 file
+   in the data directory, rotation from Settings → Agents which restarts the
+   endpoint so the old token stops working immediately. **Still open:** two
+   SQLPilot windows. The second loses the preferred port and takes an
+   ephemeral one, so both serve and a harness config points at whichever
+   started first.
+2. ~~**Identity of a "connection" across restarts.**~~ **Settled: profile id.**
+   An agent addresses a connection by the id of the saved profile, which
+   survives restarts, and the app translates to the per-session connection id
+   at the workspace boundary. A shared profile that is not connected right now
+   has a policy and a refusal that says "not connected" rather than "not
+   found" — the agent has the id because the user shared it, so "no such
+   connection" would send it hunting for a typo.
 3. **What the agent is told about policy.** Tool descriptions are read by the
    model; a refusal should teach it what to do instead ("this connection is
    schema-only; use `profile_column`") rather than just failing.

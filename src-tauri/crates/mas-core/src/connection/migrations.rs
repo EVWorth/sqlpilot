@@ -15,7 +15,8 @@ pub struct Migration {
 /// ones. `PRAGMA user_version` is the cursor.
 ///
 /// Initial schema (v1) is the original `connection_profiles` shape.
-/// Migrations v2..v5 add columns that were introduced post-launch.
+/// Migrations v2..v5 add columns that were introduced post-launch; v6 adds
+/// the agent grants table.
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
         v: 1,
@@ -59,12 +60,26 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "add_charset_column",
         up: "ALTER TABLE connection_profiles ADD COLUMN charset TEXT",
     },
+    Migration {
+        v: 6,
+        name: "create_agent_grants",
+        // Which connections the user has shared with an agent harness, and on
+        // what terms. Separate from the profile because a grant is a statement
+        // about agents, not about the connection, and deleting a profile
+        // should take its grant with it — hence the cascade.
+        up: "CREATE TABLE IF NOT EXISTS agent_grants (
+            connection_id TEXT PRIMARY KEY
+                REFERENCES connection_profiles(id) ON DELETE CASCADE,
+            posture TEXT NOT NULL,
+            databases TEXT
+        )",
+    },
 ];
 
 /// The latest schema version. Bump this when adding a new entry to
 /// `MIGRATIONS` (the constant itself enforces ordering, but having
 /// a single named source of truth is helpful for docs and tests).
-pub const SCHEMA_VERSION: i64 = 5;
+pub const SCHEMA_VERSION: i64 = 6;
 
 /// `PRAGMA user_version` reads 0 on a fresh DB (sqlite's default).
 /// Migrations start firing at version 1.
