@@ -141,10 +141,15 @@ jobs:
 
       # actionlint checks syntax, expressions and shell, but not whether a
       # pinned SHA resolves upstream — which is the thing that actually broke.
+      # It also checks that the version comment beside each pin is true: it is
+      # the only thing a human reads when reviewing a bump (#563).
       - name: Check action pins
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: scripts/check-action-pins.sh
+
+      - name: Test the action-pin checker
+        run: scripts/test-check-action-pins.sh
 
       # The update manifest is the one release artifact nothing downstream
       # validates: a wrong entry does not fail the build, it fails on a
@@ -226,7 +231,7 @@ jobs:
       - name: Read pinned Rust version
         id: rust-toolchain-file
         run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.0.0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: ${{ steps.rust-toolchain-file.outputs.channel }}
       - name: Install jq
@@ -287,7 +292,7 @@ jobs:
       - name: Read pinned Rust version
         id: rust-toolchain-file
         run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.0.0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: ${{ steps.rust-toolchain-file.outputs.channel }}
           components: rustfmt, clippy
@@ -328,7 +333,7 @@ jobs:
       - name: Read pinned Rust version
         id: rust-toolchain-file
         run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # v1.0.0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
           toolchain: ${{ steps.rust-toolchain-file.outputs.channel }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
