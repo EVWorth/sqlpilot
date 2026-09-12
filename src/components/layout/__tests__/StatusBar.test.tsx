@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { act, Profiler } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../../lib/tauri-api";
+import { useConnectionHealthStore } from "../../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
 import { useResultStore } from "../../../stores/resultStore";
@@ -25,6 +26,7 @@ describe("StatusBar", () => {
     vi.clearAllMocks();
     useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
     useStorageErrorStore.setState({ errors: {} });
+    useConnectionHealthStore.setState({ health: {}, pools: {} });
 
     useConnectionStore.setState({
       activeConnections: [
@@ -665,5 +667,103 @@ describe("keyring availability (#278)", () => {
 
       expect(renders.count).toBeGreaterThan(0);
     });
+  });
+});
+
+describe("StatusBar connection health (#276, FR-1.2.3)", () => {
+  const lost = {
+    connectionId: "conn-1",
+    healthy: false,
+    latencyMs: null,
+    error: "Connection refused (os error 111)",
+    consecutiveFailures: 3,
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
+    useStorageErrorStore.setState({ errors: {} });
+    useConnectionHealthStore.setState({ health: {}, pools: {} });
+    useConnectionStore.setState({
+      activeConnections: [
+        {
+          id: "conn-1",
+          profile_id: "prof-1",
+          name: "Production DB",
+          host: "db.example.com",
+          port: 3306,
+          database: "analytics",
+          server_version: "8.0.33",
+          connected_at: "2024-01-01T00:00:00Z",
+        },
+      ],
+      selectedConnectionId: "conn-1",
+      error: null,
+      profiles: [],
+      loading: false,
+    } as any);
+    useResultStore.setState({ isExecuting: false, results: [], activeResultIndex: 0, error: null } as any);
+  });
+
+  it("says nothing while the connection is answering", () => {
+    render(<StatusBar />);
+    expect(screen.queryByTestId("connection-lost")).toBeNull();
+    expect(screen.getByTestId("connection-health-dot")).toHaveAttribute(
+      "aria-label",
+      "Connection healthy",
+    );
+  });
+
+  it("says the connection is lost, and how many tries it has made", () => {
+    // The tab used to look normal until the next query failed with
+    // "Connection not found", which says neither what happened nor when.
+    useConnectionHealthStore.setState({ health: { "conn-1": lost } });
+    render(<StatusBar />);
+
+    expect(screen.getByTestId("connection-lost").textContent).toContain("retrying (3)");
+    expect(screen.getByTestId("connection-health-dot")).toHaveAttribute(
+      "aria-label",
+      "Connection lost",
+    );
+  });
+
+  it("carries the server's own words in the title, not a paraphrase", () => {
+    useConnectionHealthStore.setState({ health: { "conn-1": lost } });
+    render(<StatusBar />);
+    expect(screen.getByTestId("connection-lost")).toHaveAttribute(
+      "title",
+      "Connection refused (os error 111)",
+    );
+  });
+
+  it("shows another connection's trouble on its own status bar, not this one's", () => {
+    useConnectionHealthStore.setState({
+      health: { "conn-2": { ...lost, connectionId: "conn-2" } },
+    });
+    render(<StatusBar />);
+    expect(screen.queryByTestId("connection-lost")).toBeNull();
+  });
+
+  it("shows how much of the pool is in use", () => {
+    useConnectionHealthStore.setState({
+      pools: { "conn-1": { connectionId: "conn-1", size: 4, idle: 1, max: 5 } },
+    });
+    render(<StatusBar />);
+    // Three of five busy: FR-1.2.3's "pool statistics visible in status bar".
+    expect(screen.getByTestId("pool-stats").textContent).toContain("3/5");
+  });
+
+  it("marks a pool that has nothing left to give", () => {
+    // The state where the next query waits rather than runs.
+    useConnectionHealthStore.setState({
+      pools: { "conn-1": { connectionId: "conn-1", size: 5, idle: 0, max: 5 } },
+    });
+    render(<StatusBar />);
+    expect(screen.getByTestId("pool-stats").className).toContain("amber");
+  });
+
+  it("shows no pool figure before the first reading", () => {
+    render(<StatusBar />);
+    expect(screen.queryByTestId("pool-stats")).toBeNull();
   });
 });

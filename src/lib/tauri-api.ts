@@ -157,6 +157,16 @@ export const api = {
   // EXPLAIN goes through its own command rather than executeQuery: ANALYZE runs
   // the statement it measures, so the decision to downgrade a write to a plain
   // EXPLAIN lives behind the IPC boundary.
+  /** What the health checker last saw for a connection (#276). */
+  connectionHealth: (connectionId: string) =>
+    unwrap("connection_health", () => commands.connectionHealth(connectionId)),
+
+  /** Check a connection now rather than waiting for the next scheduled ping. */
+  pingConnection: (connectionId: string) => unwrap("ping_connection", () => commands.pingConnection(connectionId)),
+
+  /** How full each live pool is (FR-1.2.3). */
+  poolStats: () => unwrap("pool_stats", () => commands.poolStats()),
+
   explainQuery: (
     connectionId: string,
     sql: string,

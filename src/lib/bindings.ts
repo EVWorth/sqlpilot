@@ -47,6 +47,28 @@ export const commands = {
 	 *  leave the statement running to completion (#420).
 	 */
 	cancelQuery: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("cancel_query", { connectionId })),
+	/**
+	 *  What the health checker last saw for a connection.
+	 * 
+	 *  The checker reports changes as `connection-health-event`; this is for a
+	 *  caller that wants the state now — on mount, or after the window has been
+	 *  hidden and the events missed.
+	 */
+	connectionHealth: (connectionId: string) => typedError<{
+	connectionId: string,
+	/**  False from the first failed ping until one succeeds again. */
+	healthy: boolean,
+	/**  How long the last successful ping took. */
+	latencyMs: number | null,
+	/**  Why the last ping failed, when it did. */
+	error: string | null,
+	/**  How many pings have failed in a row. Zero while healthy. */
+	consecutiveFailures: number,
+} | null, string>(__TAURI_INVOKE("connection_health", { connectionId })),
+	/**  Check a connection now rather than waiting for the next scheduled ping. */
+	pingConnection: (connectionId: string) => typedError<ConnectionHealth, string>(__TAURI_INVOKE("ping_connection", { connectionId })),
+	/**  How full each live pool is, for the status bar (FR-1.2.3). */
+	poolStats: () => typedError<PoolStats[], string>(__TAURI_INVOKE("pool_stats")),
 	getDatabases: (connectionId: string) => typedError<DatabaseInfo[], string>(__TAURI_INVOKE("get_databases", { connectionId })),
 	getTables: (connectionId: string, database: string) => typedError<TableInfo[], string>(__TAURI_INVOKE("get_tables", { connectionId, database })),
 	getColumns: (connectionId: string, database: string, table: string) => typedError<ColumnInfo[], string>(__TAURI_INVOKE("get_columns", { connectionId, database, table })),
@@ -156,6 +178,7 @@ export const commands = {
 /** Events */
 export const events = {
 	backupProgressEvent: makeEvent<BackupProgressEvent>("backup-progress-event"),
+	connectionHealthEvent: makeEvent<ConnectionHealthEvent>("connection-health-event"),
 	restoreProgressEvent: makeEvent<RestoreProgressEvent>("restore-progress-event"),
 };
 
@@ -288,6 +311,28 @@ export type ColumnMeta = {
 };
 
 export type ConnectionEnvironment = "development" | "staging" | "production";
+
+/**  What is known about a connection right now. */
+export type ConnectionHealth = {
+	connectionId: string,
+	/**  False from the first failed ping until one succeeds again. */
+	healthy: boolean,
+	/**  How long the last successful ping took. */
+	latencyMs: number | null,
+	/**  Why the last ping failed, when it did. */
+	error: string | null,
+	/**  How many pings have failed in a row. Zero while healthy. */
+	consecutiveFailures: number,
+};
+
+/**
+ *  A connection has gone away, or come back.
+ * 
+ *  Emitted on every check while a connection is down — so the UI can count
+ *  the attempts — and on each change while it is up, since a heartbeat every
+ *  fifteen seconds is not news (#276).
+ */
+export type ConnectionHealthEvent = ConnectionHealth;
 
 export type ConnectionInfo = {
 	id: string,
@@ -690,6 +735,17 @@ export type PlatformInfo = {
 	 *  update command (#571).
 	 */
 	arch: string,
+};
+
+/**  How much of a pool is in use, for the status bar (FR-1.2.3). */
+export type PoolStats = {
+	connectionId: string,
+	/**  Connections the pool holds, open or idle. */
+	size: number,
+	/**  Of those, how many are not in use. */
+	idle: number,
+	/**  What the profile allows. */
+	max: number,
 };
 
 /**

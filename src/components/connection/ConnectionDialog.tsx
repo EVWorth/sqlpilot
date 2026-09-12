@@ -1,5 +1,6 @@
 import { AlertCircle, CheckCircle2, Database, Loader2, Settings, Shield, Terminal, X, XCircle } from "lucide-react";
 import { useEffect, useState } from "react";
+import { POOL_MAX_LIMIT, validatePoolSizing } from "../../lib/connection-validation";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type {
@@ -231,6 +232,10 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
   };
 
   const sslMode = form.ssl_config?.mode ?? "Disabled";
+  // Checked as they are typed, so the answer is beside the field rather than
+  // a connection that fails later or a number quietly changed on the way in.
+  const poolProblems = validatePoolSizing(form.pool_min, form.pool_max);
+  const hasPoolProblem = Object.keys(poolProblems).length > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
@@ -554,14 +559,18 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
                 <Field
                   label="Pool Min Connections"
                   value={String(form.pool_min)}
-                  onChange={(v) => handleChange("pool_min", parseInt(v) || 1)}
+                  onChange={(v) => handleChange("pool_min", parseInt(v) || 0)}
                   type="number"
+                  problem={poolProblems.min}
+                  hint="Opened up front. 0 opens them as they are needed."
                 />
                 <Field
                   label="Pool Max Connections"
                   value={String(form.pool_max)}
-                  onChange={(v) => handleChange("pool_max", parseInt(v) || 5)}
+                  onChange={(v) => handleChange("pool_max", parseInt(v) || 1)}
                   type="number"
+                  problem={poolProblems.max}
+                  hint={`How many queries can run at once. 1–${POOL_MAX_LIMIT}.`}
                 />
               </div>
               <label className="flex cursor-pointer items-center gap-2">
@@ -641,7 +650,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile }: Props) {
             </button>
             <button
               onClick={handleSave}
-              disabled={saving || !form.name || !form.host}
+              disabled={saving || !form.name || !form.host || hasPoolProblem}
               className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50"
             >
               {saving ? "Saving..." : "Save"}
@@ -659,25 +668,45 @@ function Field({
   onChange,
   type = "text",
   placeholder,
+  problem,
+  hint,
 }: {
   label: string;
   value: string;
   onChange: (v: string) => void;
   type?: string;
   placeholder?: string;
+  /** Why this value cannot be saved, if it cannot. */
+  problem?: string;
+  /** What the field is for, when the label is not enough. */
+  hint?: string;
 }) {
+  const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div>
-      <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+      <label
+        htmlFor={id}
+        className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]"
+      >
         {label}
       </label>
       <input
+        id={id}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
-        className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-brand-500"
+        aria-invalid={problem !== undefined}
+        aria-describedby={problem ? `${id}-problem` : hint ? `${id}-hint` : undefined}
+        className={`w-full rounded border bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-brand-500 ${
+          problem ? "border-red-500/60" : "border-[var(--color-border)]"
+        }`}
       />
+      {problem
+        ? <p id={`${id}-problem`} className="mt-0.5 text-[10px] text-red-400">{problem}</p>
+        : hint
+        ? <p id={`${id}-hint`} className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">{hint}</p>
+        : null}
     </div>
   );
 }

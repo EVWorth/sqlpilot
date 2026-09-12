@@ -408,21 +408,21 @@ The `test_db_large` database is populated by a separate setup script (`tests/fix
 
 ### `connection_tests.rs`
 
-| Test Name                          | Description                                                  | Type        |
-| ---------------------------------- | ------------------------------------------------------------ | ----------- |
-| `test_create_connection_profile`   | Create a profile struct, serialize to JSON, deserialize back | Unit        |
-| `test_connect_mysql8`              | Connect to MySQL 8.0 container on port 13306                 | Integration |
-| `test_connect_mysql57`             | Connect to MySQL 5.7 container on port 13307                 | Integration |
-| `test_connect_mariadb`             | Connect to MariaDB 11 container on port 13308                | Integration |
-| `test_connect_with_ssl`            | Connect to SSL-enabled MySQL on port 13309                   | Integration |
-| `test_connect_with_ssh_tunnel`     | Connect through SSH tunnel container on port 12222           | Integration |
-| `test_connect_invalid_credentials` | Expect `AccessDenied` error with wrong password              | Integration |
-| `test_connect_invalid_host`        | Expect `ConnectionRefused` or timeout with nonexistent host  | Integration |
-| `test_connect_timeout`             | Expect timeout error when connecting to unresponsive port    | Integration |
-| `test_connection_pool_sizing`      | Verify pool respects `min_connections` and `max_connections` | Integration |
-| `test_auto_reconnect`              | Kill connection server-side, verify next query reconnects    | Integration |
-| `test_disconnect_cleanup`          | Disconnect and verify pool is drained, resources freed       | Integration |
-| `test_concurrent_connections`      | Open 10 connections simultaneously, all succeed              | Integration |
+| Test Name                          | Description                                                                                                                                                                                                                                                                                 | Type        |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| `test_create_connection_profile`   | Create a profile struct, serialize to JSON, deserialize back                                                                                                                                                                                                                                | Unit        |
+| `test_connect_mysql8`              | Connect to MySQL 8.0 container on port 13306                                                                                                                                                                                                                                                | Integration |
+| `test_connect_mysql57`             | Connect to MySQL 5.7 container on port 13307                                                                                                                                                                                                                                                | Integration |
+| `test_connect_mariadb`             | Connect to MariaDB 11 container on port 13308                                                                                                                                                                                                                                               | Integration |
+| `test_connect_with_ssl`            | Connect to SSL-enabled MySQL on port 13309                                                                                                                                                                                                                                                  | Integration |
+| `test_connect_with_ssh_tunnel`     | Connect through SSH tunnel container on port 12222                                                                                                                                                                                                                                          | Integration |
+| `test_connect_invalid_credentials` | Expect `AccessDenied` error with wrong password                                                                                                                                                                                                                                             | Integration |
+| `test_connect_invalid_host`        | Expect `ConnectionRefused` or timeout with nonexistent host                                                                                                                                                                                                                                 | Integration |
+| `test_connect_timeout`             | Expect timeout error when connecting to unresponsive port                                                                                                                                                                                                                                   | Integration |
+| `test_connection_pool_sizing`      | Verify pool respects `min_connections` and `max_connections`                                                                                                                                                                                                                                | Integration |
+| `connection_health.rs`             | Five tests: a new connection starts healthy and can be pinged; a disconnected one stops being watched; a ping against a dead pool fails promptly rather than hanging; pool stats report what is open against what the profile allows; a pool size out of range is clamped rather than fatal | Integration |
+| `test_disconnect_cleanup`          | Disconnect and verify pool is drained, resources freed                                                                                                                                                                                                                                      | Integration |
+| `test_concurrent_connections`      | Open 10 connections simultaneously, all succeed                                                                                                                                                                                                                                             | Integration |
 
 ### `query_tests.rs`
 

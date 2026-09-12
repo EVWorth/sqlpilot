@@ -19,6 +19,13 @@ pub struct ActiveConnection {
     pub acquire_timeout_secs: u64,
     /// Who the server sees this connection as, for the audit line on a write.
     pub actor: String,
+    /// What the health checker last saw, and the handle that stops it.
+    ///
+    /// The sender half of `stop` lives here; dropping the `ActiveConnection`
+    /// — which is what disconnecting does — ends the task, so there is no
+    /// second registry to keep in step.
+    pub health: Arc<std::sync::RwLock<super::health::ConnectionHealth>>,
+    _stop_health: tokio::sync::oneshot::Sender<()>,
     /// Server thread ids this pool has opened.
     ///
     /// Recorded so the process list can tell the application's own sessions
@@ -30,6 +37,41 @@ pub struct ActiveConnection {
 
 pub struct ConnectionManager {
     connections: Arc<DashMap<String, ActiveConnection>>,
+    /// Health changes, for whoever wants to hear about them. A broadcast
+    /// rather than a callback so the core stays free of the app's event
+    /// plumbing, and so a test can subscribe as easily as the UI does.
+    health_events: tokio::sync::broadcast::Sender<super::health::ConnectionHealth>,
+}
+
+/// How much of a pool is in use, for the status bar (FR-1.2.3).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
+#[serde(rename_all = "camelCase")]
+pub struct PoolStats {
+    pub connection_id: String,
+    /// Connections the pool holds, open or idle.
+    pub size: u32,
+    /// Of those, how many are not in use.
+    pub idle: u32,
+    /// What the profile allows.
+    pub max: u32,
+}
+
+/// The smallest and largest pool a profile may open.
+///
+/// FR-1.2.3: "configurable pool size (default: 5, max: 50)". The ceiling is
+/// not arbitrary — every pooled connection is a server thread, and fifty per
+/// profile across a handful of profiles is already more than most servers'
+/// `max_connections` allows for one client.
+pub const POOL_MAX_LIMIT: u32 = 50;
+
+/// Bring a stored pool size into range.
+///
+/// A max of zero makes sqlx panic, and a min above the max makes it refuse to
+/// build the pool at all — neither is something a user should meet because a
+/// number in a form was wrong.
+pub fn clamped_pool_sizing(min: u32, max: u32) -> (u32, u32) {
+    let max = max.clamp(1, POOL_MAX_LIMIT);
+    (min.min(max), max)
 }
 
 /// Refuse a profile whose traffic the user expects to be tunnelled.
@@ -69,9 +111,40 @@ fn refuse_unimplemented_ssh(profile: &ConnectionProfile) -> Result<(), CoreError
 
 impl ConnectionManager {
     pub fn new() -> Self {
+        // Capacity is generous: a slow subscriber lagging past it loses the
+        // oldest events, which for a heartbeat is the right thing to lose.
+        let (health_events, _) = tokio::sync::broadcast::channel(64);
         Self {
             connections: Arc::new(DashMap::new()),
+            health_events,
         }
+    }
+
+    /// Listen for connections going away and coming back.
+    pub fn subscribe_health(
+        &self,
+    ) -> tokio::sync::broadcast::Receiver<super::health::ConnectionHealth> {
+        self.health_events.subscribe()
+    }
+
+    /// What the checker last saw for a connection.
+    pub fn health_of(&self, connection_id: &str) -> Option<super::health::ConnectionHealth> {
+        self.connections
+            .get(connection_id)
+            .and_then(|conn| conn.health.read().ok().map(|h| h.clone()))
+    }
+
+    /// How full each live pool is.
+    pub fn pool_stats(&self) -> Vec<PoolStats> {
+        self.connections
+            .iter()
+            .map(|entry| PoolStats {
+                connection_id: entry.key().clone(),
+                size: entry.pool.size(),
+                idle: entry.pool.num_idle() as u32,
+                max: entry.pool_max,
+            })
+            .collect()
     }
 
     #[tracing::instrument(skip(self, profile), fields(host = %profile.host, port = %profile.port, user = %profile.username))]
@@ -112,9 +185,25 @@ impl ConnectionManager {
         let charset_for_after_connect = charset.clone();
         let own_threads: Arc<dashmap::DashSet<u64>> = Arc::new(dashmap::DashSet::new());
         let own_threads_for_after_connect = Arc::clone(&own_threads);
+        // FR-1.2.3 sets the range; a profile can hold anything, including a
+        // zero max (which sqlx panics on) or a min above the max (which it
+        // refuses). Clamping here means a stored profile from an older build,
+        // or one edited by hand, still connects.
+        let (pool_min, pool_max) = clamped_pool_sizing(profile.pool_min, profile.pool_max);
+        if pool_min != profile.pool_min || pool_max != profile.pool_max {
+            tracing::warn!(
+                profile = %profile.name,
+                stored_min = profile.pool_min,
+                stored_max = profile.pool_max,
+                used_min = pool_min,
+                used_max = pool_max,
+                "Pool sizing was out of range and has been clamped"
+            );
+        }
+
         let pool = MySqlPoolOptions::new()
-            .min_connections(profile.pool_min)
-            .max_connections(profile.pool_max)
+            .min_connections(pool_min)
+            .max_connections(pool_max)
             .acquire_timeout(std::time::Duration::from_secs(
                 profile.connect_timeout_secs.unwrap_or(10) as u64,
             ))
@@ -143,7 +232,7 @@ impl ConnectionManager {
                 super::describe_pool_error(
                     &e,
                     &profile.name,
-                    profile.pool_max,
+                    pool_max,
                     profile.connect_timeout_secs.unwrap_or(10) as u64,
                 )
                 .unwrap_or_else(|| CoreError::Connection(format!("Failed to connect: {}", e)))
@@ -191,14 +280,34 @@ impl ConnectionManager {
             environment: profile.environment.clone(),
         };
 
+        // Watching starts as soon as the connection exists, and stops when it
+        // is removed: the stop sender is owned by the entry below.
+        let (stop_health, stop_rx) = tokio::sync::oneshot::channel();
+        let health = Arc::new(std::sync::RwLock::new(super::health::ConnectionHealth {
+            connection_id: conn_id.clone(),
+            healthy: true,
+            latency_ms: None,
+            error: None,
+            consecutive_failures: 0,
+        }));
+        super::health::watch(
+            conn_id.clone(),
+            pool.clone(),
+            self.health_events.clone(),
+            Arc::clone(&health),
+            stop_rx,
+        );
+
         self.connections.insert(
             conn_id,
             ActiveConnection {
                 info: info.clone(),
                 pool,
+                health,
+                _stop_health: stop_health,
                 query_timeout_secs: profile.query_timeout_secs,
                 read_only: profile.read_only,
-                pool_max: profile.pool_max,
+                pool_max,
                 acquire_timeout_secs: profile.connect_timeout_secs.unwrap_or(10) as u64,
                 actor: format!("{}@{}:{}", profile.username, profile.host, profile.port),
                 own_threads: Arc::clone(&own_threads),
@@ -493,5 +602,37 @@ mod ssh_refusal_tests {
         // cleared; that is not a request to tunnel anywhere.
         assert!(refuse_unimplemented_ssh(&with_ssh("")).is_ok());
         assert!(refuse_unimplemented_ssh(&with_ssh("   ")).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod pool_sizing_tests {
+    use super::*;
+
+    #[test]
+    fn the_ordinary_case_is_left_alone() {
+        assert_eq!(clamped_pool_sizing(1, 5), (1, 5));
+        assert_eq!(clamped_pool_sizing(2, 50), (2, 50));
+    }
+
+    #[test]
+    fn a_max_of_zero_becomes_one() {
+        // sqlx panics on a zero-max pool, and a profile can hold one. A min of
+        // zero is left alone: it is valid, and means the pool opens a
+        // connection when one is first asked for.
+        assert_eq!(clamped_pool_sizing(0, 0), (0, 1));
+        assert_eq!(clamped_pool_sizing(3, 0), (1, 1));
+    }
+
+    #[test]
+    fn a_max_above_the_ceiling_is_brought_down() {
+        // Every pooled connection is a server thread; FR-1.2.3 caps it at 50.
+        assert_eq!(clamped_pool_sizing(1, 5000), (1, POOL_MAX_LIMIT));
+    }
+
+    #[test]
+    fn a_min_above_the_max_is_brought_down_to_it() {
+        // sqlx refuses to build the pool otherwise.
+        assert_eq!(clamped_pool_sizing(20, 5), (5, 5));
     }
 }

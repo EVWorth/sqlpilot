@@ -1,7 +1,9 @@
+pub mod health;
 pub mod manager;
 pub mod migrations;
 pub mod store;
 
+pub use health::ConnectionHealth;
 pub use manager::ConnectionManager;
 pub use store::ConnectionStore;
 

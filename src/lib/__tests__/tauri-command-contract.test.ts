@@ -24,8 +24,19 @@ function generatedCommands(): Set<string> {
   const src = readFileSync(resolve(repoRoot, "src/lib/bindings.ts"), "utf8");
   const start = src.indexOf("export const commands = {");
   expect(start, "commands object not found in generated bindings").toBeGreaterThan(-1);
-  const block = src.slice(start, src.indexOf("\n}", start));
-  return new Set([...block.matchAll(/^\t([a-zA-Z0-9]+):/gm)].map((m) => m[1]));
+  // The object ends at a closing brace in column 0. Not the *first* `\n}` in
+  // the block: a command returning an inline object type — which is what
+  // specta generates for an `Option<Struct>` — writes one of those in the
+  // middle, and slicing there silently dropped every command after it.
+  const end = src.slice(start).search(/\n\}\s*$/m);
+  expect(end, "the commands object has no closing brace").toBeGreaterThan(0);
+  const block = src.slice(start, start + end);
+  // A command is a property whose value is an arrow function; the inline
+  // object type's own fields are properties too, so they are excluded by
+  // requiring the arrow.
+  return new Set(
+    [...block.matchAll(/^\t([a-zA-Z0-9]+): \(/gm)].map((m) => m[1]),
+  );
 }
 
 /** Commands actually reached from the api wrapper. */

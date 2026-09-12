@@ -4,7 +4,8 @@ pub mod backup;
 pub mod sqlite;
 
 use mas_admin::AdminService;
-use mas_core::connection::{ConnectionManager, ConnectionStore};
+use mas_core::connection::manager::PoolStats;
+use mas_core::connection::{ConnectionHealth, ConnectionManager, ConnectionStore};
 use mas_core::history::{
     render_export, HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistoryStore,
 };
@@ -261,6 +262,86 @@ pub async fn execute_query(
         "Query executed"
     );
     Ok(results)
+}
+
+/// A connection has gone away, or come back.
+///
+/// Emitted on every check while a connection is down — so the UI can count
+/// the attempts — and on each change while it is up, since a heartbeat every
+/// fifteen seconds is not news (#276).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type, tauri_specta::Event)]
+pub struct ConnectionHealthEvent(pub ConnectionHealth);
+
+/// Forward health changes from the core to the frontend.
+///
+/// Spawned once at startup: the manager broadcasts, this turns each message
+/// into a Tauri event. Keeping the core free of `AppHandle` is what lets the
+/// health checker be tested without a window.
+pub fn forward_health_events(manager: std::sync::Arc<ConnectionManager>, app: tauri::AppHandle) {
+    use tauri_specta::Event as _;
+    let mut events = manager.subscribe_health();
+    tauri::async_runtime::spawn(async move {
+        loop {
+            match events.recv().await {
+                Ok(health) => {
+                    if let Err(e) = ConnectionHealthEvent(health).emit(&app) {
+                        tracing::warn!(error = %e, "Could not emit a connection health event");
+                    }
+                }
+                // Lagged: the UI missed some heartbeats, which the next one
+                // makes good. Closed: the manager is gone, so is the app.
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                    tracing::debug!(missed = n, "Health event subscriber lagged");
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    });
+}
+
+/// What the health checker last saw for a connection.
+///
+/// The checker reports changes as `connection-health-event`; this is for a
+/// caller that wants the state now — on mount, or after the window has been
+/// hidden and the events missed.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn connection_health(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<Option<ConnectionHealth>, String> {
+    Ok(state.connection_manager.health_of(&connection_id))
+}
+
+/// Check a connection now rather than waiting for the next scheduled ping.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn ping_connection(
+    state: State<'_, AppState>,
+    connection_id: String,
+) -> Result<ConnectionHealth, String> {
+    let pool = state
+        .connection_manager
+        .get_pool(&connection_id)
+        .map_err(|e| e.to_string())?;
+    let result = mas_core::connection::health::ping(&pool).await;
+    Ok(ConnectionHealth {
+        connection_id,
+        healthy: result.is_ok(),
+        latency_ms: result.as_ref().ok().copied(),
+        error: result.err(),
+        consecutive_failures: 0,
+    })
+}
+
+/// How full each live pool is, for the status bar (FR-1.2.3).
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn pool_stats(state: State<'_, AppState>) -> Result<Vec<PoolStats>, String> {
+    Ok(state.connection_manager.pool_stats())
 }
 
 /// Plan a single statement.
