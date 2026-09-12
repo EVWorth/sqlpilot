@@ -49,6 +49,29 @@ describe("editorStore", () => {
       expect(useEditorStore.getState().tabs[0].content).toBe("");
     });
 
+    it("keeps the connection when replacing the last query tab", () => {
+      // Clearing a scratch query is not a request to be disconnected.
+      const id = useEditorStore.getState().addTab("conn-1", "shop");
+      useEditorStore.getState().closeTab(id);
+      const [tab] = useEditorStore.getState().tabs;
+      expect(tab.connectionId).toBe("conn-1");
+      expect(tab.database).toBe("shop");
+    });
+
+    it("gives the replacement an id the session can restore", () => {
+      // A UUID here broke the tab-N counter the restore path parses, so the
+      // next session could hand out an id already in use.
+      const id = useEditorStore.getState().addTab("conn-1");
+      useEditorStore.getState().closeTab(id);
+      expect(useEditorStore.getState().tabs[0].id).toMatch(/^tab-\d+$/);
+    });
+
+    it("does nothing for a tab that is not open", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().closeTab("no-such-tab");
+      expect(useEditorStore.getState().tabs.map((t) => t.id)).toContain(id);
+    });
+
     it("should allow closing non-query tabs", () => {
       const id = useEditorStore.getState().addAdminTab("conn-1");
       expect(useEditorStore.getState().tabs).toHaveLength(1);
@@ -81,9 +104,9 @@ describe("editorStore", () => {
 
   describe("closeOtherTabs", () => {
     it("should close all tabs except the specified one", () => {
-      const id1 = useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
+      useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
       const id2 = useEditorStore.getState().addStructureTab("conn-1", "db", "t2");
-      const id3 = useEditorStore.getState().addStructureTab("conn-1", "db", "t3");
+      useEditorStore.getState().addStructureTab("conn-1", "db", "t3");
       expect(useEditorStore.getState().tabs).toHaveLength(3);
 
       useEditorStore.getState().closeOtherTabs(id2);
@@ -93,33 +116,68 @@ describe("editorStore", () => {
       expect(useEditorStore.getState().activeTabId).toBe(id2);
     });
 
-    it("should keep non-query tabs of different types", () => {
+    it("closes tabs of every other kind too", () => {
+      // It used to keep anything of a different type, so "Close Others" on a
+      // query tab left the structure and admin tabs open.
       const qId = useEditorStore.getState().addTab("conn-1");
-      const sId = useEditorStore.getState().addStructureTab("conn-1", "db", "tbl");
-      const qId2 = useEditorStore.getState().addTab("conn-1");
+      useEditorStore.getState().addStructureTab("conn-1", "db", "tbl");
+      useEditorStore.getState().addAdminTab("conn-1");
+      useEditorStore.getState().addTab("conn-1");
 
       useEditorStore.getState().closeOtherTabs(qId);
 
-      const remaining = useEditorStore.getState().tabs;
-      // Only the specified query tab and the structure tab should remain
-      expect(remaining.length).toBeGreaterThanOrEqual(2);
+      expect(useEditorStore.getState().tabs.map((t) => t.id)).toEqual([qId]);
+    });
+
+    it("does nothing for a tab that is not open", () => {
+      useEditorStore.getState().addTab("conn-1");
+      const before = useEditorStore.getState().tabs;
+      useEditorStore.getState().closeOtherTabs("no-such-tab");
+      expect(useEditorStore.getState().tabs).toBe(before);
     });
   });
 
   describe("closeTabsToRight", () => {
-    it("should close tabs to the right of the specified tab", () => {
-      useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
-      useEditorStore.getState().addStructureTab("conn-1", "db", "t2");
+    it("closes everything after it in the strip, whatever kind", () => {
+      const t1 = useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
+      const t2 = useEditorStore.getState().addStructureTab("conn-1", "db", "t2");
+      useEditorStore.getState().addTab("conn-1");
       useEditorStore.getState().addStructureTab("conn-1", "db", "t3");
-      const tabs = useEditorStore.getState().tabs;
-      const middleId = tabs[1].id;
 
-      useEditorStore.getState().closeTabsToRight(middleId);
+      useEditorStore.getState().closeTabsToRight(t2);
 
-      const remaining = useEditorStore.getState().tabs;
-      expect(remaining.length).toBeLessThanOrEqual(3);
-      // The active tab should be the one we specified
-      expect(useEditorStore.getState().activeTabId).toBe(middleId);
+      expect(useEditorStore.getState().tabs.map((t) => t.id)).toEqual([t1, t2]);
+    });
+
+    it("keeps tabs to the left", () => {
+      const t1 = useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
+      const t2 = useEditorStore.getState().addStructureTab("conn-1", "db", "t2");
+      useEditorStore.getState().closeTabsToRight(t2);
+      expect(useEditorStore.getState().tabs.map((t) => t.id)).toEqual([t1, t2]);
+    });
+
+    it("leaves the active tab alone when it survives", () => {
+      const t1 = useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
+      const t2 = useEditorStore.getState().addStructureTab("conn-1", "db", "t2");
+      useEditorStore.getState().addStructureTab("conn-1", "db", "t3");
+      useEditorStore.getState().setActiveTab(t1);
+
+      useEditorStore.getState().closeTabsToRight(t2);
+
+      // Right-clicking a tab to the right of the active one should not steal
+      // focus from what you are looking at.
+      expect(useEditorStore.getState().activeTabId).toBe(t1);
+    });
+
+    it("moves to the anchor when the active tab was closed", () => {
+      useEditorStore.getState().addStructureTab("conn-1", "db", "t1");
+      const t2 = useEditorStore.getState().addStructureTab("conn-1", "db", "t2");
+      const t3 = useEditorStore.getState().addStructureTab("conn-1", "db", "t3");
+      useEditorStore.getState().setActiveTab(t3);
+
+      useEditorStore.getState().closeTabsToRight(t2);
+
+      expect(useEditorStore.getState().activeTabId).toBe(t2);
     });
   });
 

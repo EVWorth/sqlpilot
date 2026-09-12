@@ -23,24 +23,41 @@ export function SQLEditor() {
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const effectiveTheme = useThemeStore((s) => s.effectiveTheme);
 
-  // Debounce store updates on keystroke to avoid excessive re-renders
+  // Debounce store updates on keystroke to avoid excessive re-renders.
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const pendingRef = useRef<string>("");
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
+  const pendingRef = useRef<{ tabId: string; content: string } | null>(null);
+
+  /** Write whatever the last keystroke left waiting, now. */
+  const flushPending = useCallback(() => {
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+      debounceRef.current = null;
+    }
+    const pending = pendingRef.current;
+    pendingRef.current = null;
+    if (pending) updateTabContent(pending.tabId, pending.content);
+  }, [updateTabContent]);
+
+  // Unmounting used to drop the timer without running it, so the last 150ms
+  // of typing was lost — switching tabs or closing the window at the wrong
+  // moment silently threw away a line (#298 F-backlog). Flush instead.
+  useEffect(() => flushPending, [flushPending]);
 
   const debouncedUpdateTabContent = useCallback(
     (tabId: string, content: string) => {
-      pendingRef.current = content;
+      // A pending write is for the tab it was typed in. Switching tabs before
+      // the timer fires has to land it there, not on the new one.
+      if (pendingRef.current && pendingRef.current.tabId !== tabId) flushPending();
+      pendingRef.current = { tabId, content };
       if (debounceRef.current) clearTimeout(debounceRef.current);
       debounceRef.current = setTimeout(() => {
-        updateTabContent(tabId, pendingRef.current);
+        debounceRef.current = null;
+        const pending = pendingRef.current;
+        pendingRef.current = null;
+        if (pending) updateTabContent(pending.tabId, pending.content);
       }, 150);
     },
-    [updateTabContent],
+    [updateTabContent, flushPending],
   );
 
   const monaco = useMonaco();
