@@ -7,6 +7,8 @@ vi.mock("../../../lib/tauri-api", () => ({
   api: {
     pickFile: vi.fn(),
     readFileContents: vi.fn(),
+    readFileHead: vi.fn(),
+    restoreDatabase: vi.fn(),
     executeQuery: vi.fn(),
     getTables: vi.fn(),
     getColumns: vi.fn(),
@@ -48,6 +50,26 @@ const defaultProps = {
 describe("ImportDialog (browser)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // SQL mode reads only the head of the file: the dump is run by the
+    // backend straight from disk (#366).
+    // These tests set the file's content through `readFileContents`; SQL mode
+    // now reads only the head of it, because the dump is run by the backend
+    // straight from disk (#366). Answer with whatever they set.
+    vi.mocked(api.restoreDatabase).mockResolvedValue({
+      statementsRun: 2,
+      statementsFailed: 0,
+      bytesRead: 100,
+      elapsedMs: 5,
+      cancelled: false,
+      rolledBack: false,
+      partiallyApplied: false,
+      errors: [],
+    });
+    vi.mocked(api.readFileHead).mockImplementation(async (path: string) => ({
+      text: await api.readFileContents(path).catch(() => ""),
+      totalBytes: 100,
+      truncated: false,
+    }));
   });
 
   // ─── Open/close states ───
@@ -172,7 +194,7 @@ describe("ImportDialog (browser)", () => {
     render(<ImportDialog {...defaultProps} />);
     await user.click(screen.getByText("Select file..."));
     await waitFor(() => {
-      expect(screen.getByText("3 statements detected")).toBeInTheDocument();
+      expect(screen.getByText(/3 statements detected/)).toBeInTheDocument();
     });
   });
 
@@ -185,7 +207,7 @@ describe("ImportDialog (browser)", () => {
     render(<ImportDialog {...defaultProps} />);
     await user.click(screen.getByText("Select file..."));
     await waitFor(() => {
-      expect(screen.getByText("1 statement detected")).toBeInTheDocument();
+      expect(screen.getByText(/1 statement detected/)).toBeInTheDocument();
     });
   });
 
@@ -215,7 +237,6 @@ describe("ImportDialog (browser)", () => {
     vi.mocked(api.pickFile).mockResolvedValue("/tmp/dump.sql");
     vi.mocked(api.readFileContents).mockResolvedValue("stmt1;\nstmt2;");
     vi.mocked(splitSqlStatements).mockReturnValue(["stmt1", "stmt2"]);
-    vi.mocked(api.executeQuery).mockResolvedValue([]);
 
     const user = userEvent.setup();
     render(<ImportDialog {...defaultProps} />);
@@ -224,7 +245,15 @@ describe("ImportDialog (browser)", () => {
     await user.click(screen.getByText("Execute SQL"));
 
     await waitFor(() => {
-      expect(api.executeQuery).toHaveBeenCalledTimes(2);
+      // One call with the path: the backend reads and splits the file, on one
+      // connection, rather than the renderer sending a statement at a time.
+      expect(api.restoreDatabase).toHaveBeenCalledWith(
+        expect.any(String),
+        "conn-1",
+        "testdb",
+        "/tmp/dump.sql",
+        expect.objectContaining({ stopOnError: true }),
+      );
     });
   });
 
@@ -232,7 +261,6 @@ describe("ImportDialog (browser)", () => {
     vi.mocked(api.pickFile).mockResolvedValue("/tmp/dump.sql");
     vi.mocked(api.readFileContents).mockResolvedValue("stmt1;\nstmt2;");
     vi.mocked(splitSqlStatements).mockReturnValue(["stmt1", "stmt2"]);
-    vi.mocked(api.executeQuery).mockResolvedValue([]);
 
     const user = userEvent.setup();
     render(<ImportDialog {...defaultProps} />);
@@ -249,9 +277,16 @@ describe("ImportDialog (browser)", () => {
     vi.mocked(api.pickFile).mockResolvedValue("/tmp/bad.sql");
     vi.mocked(api.readFileContents).mockResolvedValue("BAD;\nALSO BAD;");
     vi.mocked(splitSqlStatements).mockReturnValue(["BAD", "ALSO BAD"]);
-    vi.mocked(api.executeQuery)
-      .mockRejectedValueOnce("Syntax error")
-      .mockRejectedValueOnce("Unknown table");
+    vi.mocked(api.restoreDatabase).mockResolvedValue({
+      statementsRun: 0,
+      statementsFailed: 2,
+      bytesRead: 20,
+      elapsedMs: 5,
+      cancelled: false,
+      rolledBack: false,
+      partiallyApplied: false,
+      errors: ["Statement 1: Syntax error", "Statement 2: Unknown table"],
+    });
 
     const user = userEvent.setup();
     render(<ImportDialog {...defaultProps} />);
@@ -273,7 +308,6 @@ describe("ImportDialog (browser)", () => {
     vi.mocked(api.pickFile).mockResolvedValue("/tmp/dump.sql");
     vi.mocked(api.readFileContents).mockResolvedValue("stmt1;");
     vi.mocked(splitSqlStatements).mockReturnValue(["stmt1"]);
-    vi.mocked(api.executeQuery).mockResolvedValue([]);
 
     const user = userEvent.setup();
     render(<ImportDialog {...defaultProps} />);
@@ -730,7 +764,7 @@ describe("ImportDialog (browser)", () => {
     vi.mocked(api.pickFile).mockResolvedValue("/tmp/dump.sql");
     vi.mocked(api.readFileContents).mockResolvedValue("SELECT 1;");
     vi.mocked(splitSqlStatements).mockReturnValue(["SELECT 1"]);
-    vi.mocked(api.executeQuery).mockReturnValue(queryPromise as Promise<any>);
+    vi.mocked(api.restoreDatabase).mockReturnValue(queryPromise as Promise<any>);
 
     const user = userEvent.setup();
     render(<ImportDialog {...defaultProps} />);
@@ -743,6 +777,15 @@ describe("ImportDialog (browser)", () => {
     expect(fileBtn?.disabled).toBe(true);
 
     // Resolve to clean up
-    resolveQuery!(null);
+    resolveQuery!({
+      statementsRun: 1,
+      statementsFailed: 0,
+      bytesRead: 10,
+      elapsedMs: 1,
+      cancelled: false,
+      rolledBack: false,
+      partiallyApplied: false,
+      errors: [],
+    });
   });
 });

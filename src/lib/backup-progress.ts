@@ -74,3 +74,25 @@ export function formatBytes(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
   return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GB`;
 }
+
+/** What an event subscription hands back to stop listening. */
+type Unlisten = () => void;
+
+/**
+ * Subscribe to progress events, tolerating a subscription that cannot start.
+ *
+ * The work is done by the backend and reported as it goes; a listener that
+ * fails to attach means the bar does not move, not that the backup or restore
+ * should be refused. Returns a no-op unlisten in that case, so the caller's
+ * cleanup is unconditional.
+ */
+export async function attachProgress(
+  subscribe: () => Promise<Unlisten>,
+): Promise<Unlisten> {
+  try {
+    return await subscribe();
+  } catch (e) {
+    console.warn("Could not subscribe to progress events", e);
+    return () => {};
+  }
+}

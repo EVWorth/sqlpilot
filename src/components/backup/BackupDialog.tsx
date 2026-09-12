@@ -1,6 +1,7 @@
 import { AlertCircle, CheckCircle2, FolderOpen, HardDriveDownload, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  attachProgress,
   defaultBackupOptions,
   formatBytes,
   formatElapsed,
@@ -159,9 +160,13 @@ export function BackupDialog({
     setProgress(null);
     setWarnings([]);
 
-    const unlisten = await events.backupProgressEvent.listen((e) => {
-      if (e.payload.backupId === id) setProgress(e.payload.progress);
-    });
+    // A progress listener that cannot attach is not a reason to refuse to
+    // run: the work still happens, the bar just does not move.
+    const unlisten = await attachProgress(() =>
+      events.backupProgressEvent.listen((e) => {
+        if (e.payload.backupId === id) setProgress(e.payload.progress);
+      })
+    );
 
     try {
       const summary = await api.backupDatabase(

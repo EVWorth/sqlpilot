@@ -1,6 +1,6 @@
 import { AlertCircle, CheckCircle2, FileText, FolderOpen, HardDriveUpload, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { formatBytes, formatElapsed } from "../../lib/backup-progress";
+import { attachProgress, formatBytes, formatElapsed } from "../../lib/backup-progress";
 import { events, type RestoreOptions, type RestoreProgress, type RestoreSummary } from "../../lib/bindings";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -136,9 +136,13 @@ export function RestoreDialog({
     setSummary(null);
     setError(null);
 
-    const unlisten = await events.restoreProgressEvent.listen((e) => {
-      if (e.payload.restoreId === id) setProgress(e.payload.progress);
-    });
+    // A progress listener that cannot attach is not a reason to refuse to
+    // run: the work still happens, the bar just does not move.
+    const unlisten = await attachProgress(() =>
+      events.restoreProgressEvent.listen((e) => {
+        if (e.payload.restoreId === id) setProgress(e.payload.progress);
+      })
+    );
 
     try {
       setSummary(await api.restoreDatabase(id, connectionId, database, filePath, options));

@@ -1336,20 +1336,26 @@ async fn read_file_contents(path: String) -> Result<String, String>;
 async fn write_file_contents(path: String, contents: String) -> Result<(), String>;
 ```
 
-**Import.** The frontend reads the file, parses it (`csv-parser.ts`,
-`sql-import.ts`) and sends statements through `execute_query`. There is no
-server-side batching and no transaction around an import — and there could
-not usefully be one, since a dump's `CREATE`, `DROP` and `ALTER` each commit
-as they run. The import stops at the first error by default and reports how
-much had already applied (#365).
+**Import.** A CSV is parsed in the renderer (`csv-parser.ts`) and inserted in
+batches through `execute_query`. A SQL file is not: it goes to
+`restore_database` (§5.11), which reads it in chunks, splits it in Rust and
+runs it on one connection — the same path the restore dialog uses. The
+renderer reads only the first 512 KB of it, to preview it and to name what it
+will drop.
+
+There is a transaction around a SQL import, and it makes a data-only file all
+or nothing. It cannot make a dump with DDL atomic: `CREATE`, `DROP` and
+`ALTER` each commit before they run. The import stops at the first error by
+default and says whether what had already run stands (#365).
 
 **Preview** is frontend-side too: the file is already in memory, so a
 dedicated command would re-read it to answer a question the renderer can
 answer for free.
 
-**Streaming is not implemented.** Both paths hold the whole file; the size
-limit above is what keeps that from being fatal, not a substitute for
-streaming.
+**Streaming.** The SQL paths — import, restore and backup — stream: the file
+is read and written in chunks by the backend and never held whole. The CSV
+import still parses in the renderer, so `read_file_contents`'s size limit is
+what bounds it.
 
 ### 5.6 History Commands
 
