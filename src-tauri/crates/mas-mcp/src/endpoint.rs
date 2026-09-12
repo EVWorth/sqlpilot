@@ -189,12 +189,30 @@ pub async fn start(
     })
 }
 
-/// Reject anything that does not present the token.
+/// Reject anything that does not present the token — or that came from a page.
 async fn require_token(
     axum::extract::State(expected): axum::extract::State<String>,
     request: axum::extract::Request,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
+    // A browser sends `Origin` on cross-site requests and a CLI does not. A
+    // page cannot read our replies — nothing here sends CORS headers — but DNS
+    // rebinding can make a page same-origin with 127.0.0.1, and then only the
+    // token stands between a web page and someone's database. The MCP spec
+    // asks local servers to check this, and the check costs nothing: no
+    // harness has ever sent an Origin header.
+    if let Some(origin) = request.headers().get(axum::http::header::ORIGIN) {
+        tracing::warn!(
+            origin = %String::from_utf8_lossy(origin.as_bytes()),
+            "refused a request that came from a web page"
+        );
+        return (
+            axum::http::StatusCode::FORBIDDEN,
+            "SQLPilot's agent endpoint does not answer requests from web pages.",
+        )
+            .into_response();
+    }
+
     let presented = request
         .headers()
         .get(axum::http::header::AUTHORIZATION)

@@ -52,6 +52,9 @@ struct Fake {
     profile: Option<Vec<SqlValue>>,
     /// The rows its top-values query should return.
     top: Vec<(String, i64)>,
+    /// The columns and single row a plain read returns, for the tests that
+    /// are about what happens to particular column *names*.
+    columns: Vec<(String, SqlValue)>,
     /// What the history store holds.
     history: Vec<HistoryEntry>,
     /// How many rows a staged write reports.
@@ -391,6 +394,35 @@ impl Workspace for Fake {
                     })
                     .collect(),
             ));
+        }
+
+        if !self.columns.is_empty() {
+            return Ok(QueryResult {
+                query_id: "q".into(),
+                statement_index: 0,
+                sql: sql.to_string(),
+                columns: self
+                    .columns
+                    .iter()
+                    .map(|(name, _)| ColumnMeta {
+                        name: name.clone(),
+                        data_type: "varchar".into(),
+                        nullable: true,
+                        is_primary_key: false,
+                    })
+                    .collect(),
+                rows: vec![self
+                    .columns
+                    .iter()
+                    .map(|(_, value)| value.clone())
+                    .collect()],
+                rows_affected: 0,
+                execution_time_ms: 1,
+                warnings: vec![],
+                rows_truncated: false,
+                truncation_reason: None,
+                total_rows_available: None,
+            });
         }
 
         let wanted = limit.unwrap_or(u32::MAX) as usize;
@@ -2061,4 +2093,126 @@ async fn a_read_only_connection_will_not_even_measure() {
 
     assert!(refusal.contains("read-only"), "{refusal}");
     assert!(fake.staged.lock().unwrap().is_empty());
+}
+
+// ------------------------------------------------------------------ redaction
+
+#[tokio::test]
+async fn a_credential_column_is_not_returned_even_at_full_posture() {
+    // Sharing a database as `full` says "you can read this data". It does not
+    // say "you can read the password hashes".
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.columns = vec![
+        ("id".to_string(), SqlValue::Int(1)),
+        (
+            "password_hash".to_string(),
+            SqlValue::String("$2b$12$abcdef".into()),
+        ),
+    ];
+    let (server, _) = server(fake);
+
+    let result = server
+        .run_select(select("SELECT id, password_hash FROM users", None))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(result.rows[0][0], serde_json::json!(1));
+    assert_eq!(
+        result.rows[0][1].as_str().unwrap(),
+        mas_mcp::redact::REDACTED
+    );
+    let note = result
+        .note
+        .expect("something was hidden, so something is said");
+    assert!(note.contains("password_hash"), "{note}");
+}
+
+#[tokio::test]
+async fn ordinary_columns_are_untouched_by_it() {
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.columns = vec![
+        ("id".to_string(), SqlValue::Int(1)),
+        ("email".to_string(), SqlValue::String("a@b.c".into())),
+    ];
+    let (server, _) = server(fake);
+
+    let result = server
+        .run_select(select("SELECT id, email FROM users", None))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(result.rows[0][1], serde_json::json!("a@b.c"));
+    assert!(result.note.is_none());
+}
+
+#[tokio::test]
+async fn a_credential_column_gets_counts_but_no_top_values() {
+    // The counts are numbers about the column. A top-ten list *is* the column.
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.profile = Some(vec![
+        SqlValue::Int(10),
+        SqlValue::Int(10),
+        SqlValue::Int(10),
+        SqlValue::String("$2b$12$aaa".into()),
+        SqlValue::String("$2b$12$zzz".into()),
+    ]);
+    fake.top = vec![("$2b$12$aaa".to_string(), 1)];
+    let (server, fake) = server(fake);
+
+    let profile = server
+        .profile_column(Parameters(ColumnArg {
+            connection: "c1".into(),
+            database: "shop".into(),
+            table: "users".into(),
+            column: "password_hash".into(),
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(profile.rows_total, 10);
+    assert_eq!(profile.distinct_values, 10, "distinctness is a number");
+    assert!(profile.most_common.is_empty());
+    // The extremes are values too, and a min/max of a hash is two hashes.
+    assert!(profile.min.is_none());
+    assert!(profile.max.is_none());
+    assert!(profile.note.unwrap().contains("credential"));
+    assert_eq!(
+        fake.ran().len(),
+        1,
+        "the top-values query should not have run"
+    );
+}
+
+#[tokio::test]
+async fn the_result_on_screen_is_redacted_too() {
+    // The user can see it. That is not the same as it being allowed to leave.
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.affected = 0;
+    let (server, _) = with_window(
+        fake,
+        FakeWindow {
+            result: Some(RawResult {
+                sql: "SELECT id, api_key FROM apps".into(),
+                columns: vec!["id".into(), "api_key".into()],
+                rows: vec![vec![serde_json::json!(1), serde_json::json!("sk-live-123")]],
+                row_count: 1,
+                execution_time_ms: 2,
+                truncated: false,
+                connection: Some("c1".into()),
+            }),
+            ..Default::default()
+        },
+    );
+
+    let result = server.get_result_context().await.unwrap().0.unwrap();
+
+    assert_eq!(result.rows[0][0], serde_json::json!(1));
+    assert_eq!(
+        result.rows[0][1].as_str().unwrap(),
+        mas_mcp::redact::REDACTED
+    );
+    assert!(result.note.unwrap().contains("api_key"));
 }

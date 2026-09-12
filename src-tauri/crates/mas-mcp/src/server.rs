@@ -21,6 +21,7 @@ use crate::analysis::{check_identifier, profile_column_sql, table_stats_sql, top
 use crate::classify::single_statement;
 use crate::grants::ConnectionFacts;
 use crate::policy::{ConnectionPolicy, Decision, VerbClass};
+use crate::redact;
 use crate::shapes::{
     cell_to_json, Column, Database, ForeignKey, Index, Match, ReferencedBy, ResultColumn, Table,
 };
@@ -823,13 +824,22 @@ impl SqlPilot {
             .await
             .map_err(|e| e.to_string())?;
 
-        let row_count = result.rows.len();
+        // Whatever the posture allows, a column whose name says "credential"
+        // does not leave. The posture is about how much data; this is about
+        // which data, and they are different questions.
+        let column_names: Vec<String> = result.columns.iter().map(|c| c.name.clone()).collect();
+        let redacted = redact::redacted_columns(&column_names);
+        let mut rows = result.rows;
+
+        let row_count = rows.len();
         // Which cap actually bit decides what the note says, and the order
         // matters: "the row limit was reached" is misleading advice when the
         // limit was the posture, because raising it is not the caller's to do.
         let capped_by_posture = allowance.is_some_and(|allowed| allowed < requested);
         let note = if effective == 0 {
             Some(policy.no_values_hint())
+        } else if let Some(hidden) = redact::note(&column_names, &redacted) {
+            Some(hidden)
         } else if capped_by_posture && row_count as u32 >= effective {
             Some(format!(
                 "This connection is shared as samples, so at most {effective} rows come back. The \
@@ -854,11 +864,12 @@ impl SqlPilot {
             rows: if effective == 0 {
                 Vec::new()
             } else {
-                result
-                    .rows
-                    .into_iter()
+                let mut json: Vec<Vec<serde_json::Value>> = rows
+                    .drain(..)
                     .map(|row| row.into_iter().map(cell_to_json).collect())
-                    .collect()
+                    .collect();
+                redact::apply(&mut json, &redacted);
+                json
             },
             row_count: if effective == 0 { 0 } else { row_count },
             execution_time_ms: result.execution_time_ms,
@@ -1018,6 +1029,10 @@ impl SqlPilot {
         let (_, policy) = self.resolve_database(&connection, &database)?;
         check_identifier(&table)?;
         check_identifier(&column)?;
+        // The counts are numbers about the column and are always fine. A list
+        // of its most common values *is* the column, so a credential column
+        // does not get one.
+        let sensitive = redact::is_sensitive(&column);
 
         let result = self
             .workspace
@@ -1039,14 +1054,15 @@ impl SqlPilot {
         let rows_total = as_count(cells.next());
         let rows_present = as_count(cells.next());
         let distinct_values = as_count(cells.next());
-        let min = as_text(cells.next());
-        let max = as_text(cells.next());
+        // MIN and MAX are values, not numbers about values.
+        let min = as_text(cells.next()).filter(|_| !sensitive);
+        let max = as_text(cells.next()).filter(|_| !sensitive);
 
         // Top values are the one part of this that is data rather than a
         // number about data, so they follow the posture.
         let mut most_common = Vec::new();
         let mut note = None;
-        if policy.posture.allows_values() {
+        if policy.posture.allows_values() && !sensitive {
             let top = self
                 .workspace
                 .run(
@@ -1068,6 +1084,12 @@ impl SqlPilot {
                     }
                 })
                 .collect();
+        } else if sensitive {
+            note = Some(format!(
+                "The most common values of \"{column}\" are not included: the column name says it \
+                 holds a credential or personal identifier. The counts above are computed in the \
+                 database and carry no values."
+            ));
         } else {
             note = Some(
                 "The most common values are not included: this connection is shared as schema \
@@ -1124,20 +1146,29 @@ impl SqlPilot {
             .map(|p| p.posture.allows_values())
             .unwrap_or(false);
 
+        let redacted = redact::redacted_columns(&raw.columns);
+        let mut rows = if allowed { raw.rows } else { Vec::new() };
+        redact::apply(&mut rows, &redacted);
+
         Ok(Json(Some(ResultContext {
             sql: raw.sql,
-            columns: raw.columns,
             row_count: raw.row_count,
             execution_time_ms: raw.execution_time_ms,
             truncated: raw.truncated,
-            rows: if allowed { raw.rows } else { Vec::new() },
-            note: (!allowed).then(|| {
-                policy.map(|p| p.no_values_hint()).unwrap_or_else(|| {
-                    "This result is from a connection that is not shared with agents, so its \
+            rows,
+            // Redaction first: "these columns are hidden" is more specific
+            // than "this posture returns no values", and where both are true
+            // the specific one is the one worth saying.
+            note: redact::note(&raw.columns, &redacted).or_else(|| {
+                (!allowed).then(|| {
+                    policy.map(|p| p.no_values_hint()).unwrap_or_else(|| {
+                        "This result is from a connection that is not shared with agents, so its \
                          values are not included."
-                        .to_string()
+                            .to_string()
+                    })
                 })
             }),
+            columns: raw.columns,
         })))
     }
 
