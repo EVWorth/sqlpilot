@@ -1026,6 +1026,22 @@ async fn list_connection_profiles(
 fn keyring_available() -> bool;
 ```
 
+```rust
+/// What the health checker last saw for a connection (§3.1). The checker
+/// reports changes as `connection-health-event`; this is for a caller that
+/// wants the state now — on mount, or after missing the events.
+#[tauri::command]
+async fn connection_health(connection_id: String) -> Result<Option<ConnectionHealth>, String>;
+
+/// Check a connection now rather than waiting for the next scheduled ping.
+#[tauri::command]
+async fn ping_connection(connection_id: String) -> Result<ConnectionHealth, String>;
+
+/// How full each live pool is, for the status bar (FR-1.2.3).
+#[tauri::command]
+async fn pool_stats() -> Result<Vec<PoolStats>, String>;
+```
+
 ### 5.2 Query Commands
 
 ```rust
@@ -1172,6 +1188,23 @@ async fn get_triggers(
     table: Option<String>,
     state: State<'_, AppState>,
 ) -> Result<Vec<Trigger>, AppError>;
+
+/// Scheduled events for a database. FR-4.1.1 lists them beside the other
+/// object types, and there was no query for them at all (#291).
+#[tauri::command]
+async fn get_events(
+    connection_id: String,
+    database: String,
+) -> Result<Vec<EventInfo>, String>;
+
+/// A table's partitions, for the details panel (FR-4.2.1). Empty for an
+/// unpartitioned table, which is not an error (#292).
+#[tauri::command]
+async fn get_partitions(
+    connection_id: String,
+    database: String,
+    table: String,
+) -> Result<Vec<PartitionInfo>, String>;
 
 /// Get stored procedures and functions.
 #[tauri::command]
@@ -1623,6 +1656,29 @@ async fn cancel_backup(backup_id: String) -> Result<bool, String>;
 /// The defaults the dialog starts from.
 #[tauri::command]
 async fn default_backup_options() -> Result<BackupOptions, String>;
+
+/// Run a SQL file into a database, streaming it. Used by both the restore
+/// dialog and the SQL half of the import dialog — they are the same
+/// operation, and were two implementations of it (§5.5). Progress arrives as
+/// `restore-progress-event`; `cancel_backup` stops it.
+#[tauri::command]
+async fn restore_database(
+    restore_id: String,
+    connection_id: String,
+    database: String,
+    input_path: String,
+    options: RestoreOptions,
+) -> Result<RestoreSummary, String>;
+
+/// The defaults the restore dialog starts from.
+#[tauri::command]
+async fn default_restore_options() -> Result<RestoreOptions, String>;
+
+/// The first `max_bytes` of a file, with the whole file's size. For a
+/// preview: `read_file_contents` would read a multi-gigabyte dump into the
+/// renderer to draw thirty lines.
+#[tauri::command]
+async fn read_file_head(path: String, max_bytes: u32) -> Result<FileHead, String>;
 ```
 
 **No external binary.** There is no `mysqldump` wrapper and no probe for one.
