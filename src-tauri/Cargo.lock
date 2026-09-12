@@ -5097,6 +5097,7 @@ dependencies = [
  "keyring-core",
  "linux-keyutils-keyring-store",
  "mas-admin",
+ "mas-agent",
  "mas-core",
  "mas-export",
  "mas-mcp",

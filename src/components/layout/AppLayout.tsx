@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
 import { useAgentRequests } from "../../hooks/useAgentRequests";
+import { useAgentSessionEvents } from "../../hooks/useAgentSessionEvents";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useTheme } from "../../hooks/useTheme";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
@@ -15,6 +16,7 @@ import { useResultStore } from "../../stores/resultStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
+import { AgentPanel } from "../agent/AgentPanel";
 import { ProposedEditDialog } from "../agent/ProposedEditDialog";
 import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
@@ -63,6 +65,10 @@ export function AppLayout() {
   // The window's half of the agent surface: questions arrive as events and are
   // answered from whatever the stores hold at that moment.
   useAgentRequests();
+  // The session panel: a fixed-width column beside the editor, toggled from
+  // the menu rather than always present — most sessions do not involve one.
+  const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  useAgentSessionEvents();
   const dialogTarget = useDialogStore((s) => s.target);
   const helpTab = useDialogStore((s) => s.helpTab);
   const openDialog = useDialogStore((s) => s.openDialog);
@@ -196,6 +202,9 @@ export function AppLayout() {
         case "agents":
           useDialogStore.getState().openDialog("agents");
           break;
+        case "agent-panel":
+          setAgentPanelOpen((open) => !open);
+          break;
         case "cycle-theme":
           // Reaches here from the inline MenuBar (Windows/Linux) and from the
           // native Help menu on macOS, which is the surface #453 was about.
@@ -259,23 +268,31 @@ export function AppLayout() {
         />
       )}
       <ConnectionTabs />
-      <div className="flex-1 overflow-hidden">
-        <Group orientation="horizontal">
-          {!sidebarCollapsed && (
-            <>
-              <Panel defaultSize="20%" minSize="15%" maxSize="40%">
-                <Sidebar />
-              </Panel>
-              <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
-            </>
-          )}
-          <Panel
-            defaultSize={sidebarCollapsed ? "100%" : "80%"}
-            minSize="30%"
-          >
-            <MainPanel />
-          </Panel>
-        </Group>
+      <div className="flex flex-1 overflow-hidden">
+        <div className="min-w-0 flex-1">
+          <Group orientation="horizontal">
+            {!sidebarCollapsed && (
+              <>
+                <Panel defaultSize="20%" minSize="15%" maxSize="40%">
+                  <Sidebar />
+                </Panel>
+                <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
+              </>
+            )}
+            <Panel
+              defaultSize={sidebarCollapsed ? "100%" : "80%"}
+              minSize="30%"
+            >
+              <MainPanel />
+            </Panel>
+          </Group>
+        </div>
+        {
+          /* Outside the resizable group: the panel is a fixed width the user
+            toggles, not a pane they drag, and it should not steal space from
+            the editor when it is closed. */
+        }
+        {agentPanelOpen && <AgentPanel onClose={() => setAgentPanelOpen(false)} />}
       </div>
       <StatusBar />
       <ShortcutsDialog

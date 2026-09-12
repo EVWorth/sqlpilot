@@ -56,6 +56,7 @@ const MENUS: MenuDef[] = [
       { type: "item", id: "check-for-updates", label: "Check for Updates…" },
       { type: "separator" },
       { type: "item", id: "appearance", label: "Appearance…" },
+      { type: "item", id: "agent-panel", label: "Agent Panel" },
       { type: "item", id: "agents", label: "Agents…" },
       { type: "item", id: "cycle-theme", label: "Cycle Theme (Dark / Light / System)" },
       { type: "separator" },

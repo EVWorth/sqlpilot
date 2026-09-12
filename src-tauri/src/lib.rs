@@ -196,12 +196,19 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::agents::rotate_agent_token,
             commands::agents::agent_harness_setup,
             commands::agents::answer_agent_request,
+            commands::agents::list_harnesses,
+            commands::agents::start_agent_session,
+            commands::agents::send_agent_message,
+            commands::agents::cancel_agent_turn,
+            commands::agents::answer_agent_permission,
+            commands::agents::stop_agent_session,
         ])
         .events(tauri_specta::collect_events![
             commands::backup::BackupProgressEvent,
             commands::backup::RestoreProgressEvent,
             commands::ConnectionHealthEvent,
-            mcp::bridge::AgentRequest
+            mcp::bridge::AgentRequest,
+            mcp::sessions::AgentSessionEvent
         ]);
     specta_builder
 }
@@ -476,6 +483,7 @@ pub fn run() {
             let _ = (app, event);
         })
         .manage(agents)
+        .manage(mcp::AgentSessions::new())
         .manage(commands::StartupReport(startup_problems))
         .manage(AppState {
             connection_manager: manager,

@@ -52,6 +52,7 @@ axum = { version = "0.8", default-features = false, features = ["http1", "tokio"
 dirs = "6"
 keyring-core = "1"
 mas-admin = { path = "crates/mas-admin" }
+mas-agent = { version = "0.1.0", path = "crates/mas-agent" }
 mas-core = { path = "crates/mas-core" }
 mas-export = { path = "crates/mas-export" }
 mas-mcp = { version = "0.1.0", path = "crates/mas-mcp" }

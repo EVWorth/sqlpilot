@@ -38,6 +38,11 @@ impl AgentState {
         }
     }
 
+    /// Where per-session state lives.
+    pub fn data_dir(&self) -> &std::path::Path {
+        &self.data_dir
+    }
+
     pub fn status(&self) -> AgentEndpoint {
         match self.running().as_ref() {
             Some(endpoint) => AgentEndpoint {

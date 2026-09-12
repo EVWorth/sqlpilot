@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentConnection, AgentEndpoint, DataPosture, Harness } from "../lib/bindings";
+import type { AgentConnection, AgentEndpoint, DataPosture, SetupTarget } from "../lib/bindings";
 import { api } from "../lib/tauri-api";
 
 /**
@@ -52,7 +52,7 @@ interface AgentState {
   rotateToken: () => Promise<void>;
   share: (connectionId: string, sharing: Sharing) => Promise<void>;
   unlockDdl: (connectionId: string, unlocked: boolean) => Promise<void>;
-  loadSetup: (harness: Harness) => Promise<void>;
+  loadSetup: (target: SetupTarget) => Promise<void>;
   showProposal: (proposal: Proposal) => void;
   clearProposal: () => void;
   clearError: () => void;
@@ -126,9 +126,9 @@ export const useAgentStore = create<AgentState>((set) => ({
     });
   },
 
-  loadSetup: async (harness) => {
+  loadSetup: async (target) => {
     await guard(set, async () => {
-      set({ setup: await api.agentHarnessSetup(harness), error: null });
+      set({ setup: await api.agentHarnessSetup(target), error: null });
     });
   },
 
@@ -176,7 +176,7 @@ export const SHARING_OPTIONS: { value: Sharing; label: string; detail: string }[
   },
 ];
 
-export const HARNESSES: { value: Harness; label: string }[] = [
+export const SETUP_TARGETS: { value: SetupTarget; label: string }[] = [
   { value: "claude-code", label: "Claude Code" },
   { value: "copilot", label: "GitHub Copilot CLI" },
   { value: "other", label: "Something else" },

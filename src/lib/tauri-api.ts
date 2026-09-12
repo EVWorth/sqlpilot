@@ -9,6 +9,7 @@ import type {
   HistoryExportFormat,
   HistoryQuery,
   RestoreOptions,
+  SetupTarget,
 } from "./bindings";
 import { commands } from "./bindings";
 
@@ -379,7 +380,27 @@ export const api = {
 
   rotateAgentToken: () => unwrap("rotate_agent_token", () => commands.rotateAgentToken()),
 
-  agentHarnessSetup: (harness: Harness) => unwrap("agent_harness_setup", () => commands.agentHarnessSetup(harness)),
+  agentHarnessSetup: (target: SetupTarget) => unwrap("agent_harness_setup", () => commands.agentHarnessSetup(target)),
+
+  // Sessions: the user's own harness, running inside the app.
+  listHarnesses: () => unwrap("list_harnesses", () => commands.listHarnesses()),
+
+  startAgentSession: (harness: Harness) => unwrap("start_agent_session", () => commands.startAgentSession(harness)),
+
+  /** Send a turn. The answer arrives as events, not as a return value. */
+  sendAgentMessage: (session: string, text: string) =>
+    unwrap("send_agent_message", () => commands.sendAgentMessage(session, text)),
+
+  cancelAgentTurn: (session: string) => unwrap("cancel_agent_turn", () => commands.cancelAgentTurn(session)),
+
+  /** Answer the harness's own permission prompt. No option means dismissed. */
+  answerAgentPermission: (session: string, request: string, option?: string) =>
+    unwrap(
+      "answer_agent_permission",
+      () => commands.answerAgentPermission(session, request, orNull(option)),
+    ),
+
+  stopAgentSession: (session: string) => unwrap("stop_agent_session", () => commands.stopAgentSession(session)),
 
   /**
    * Answer something an agent asked of the window.

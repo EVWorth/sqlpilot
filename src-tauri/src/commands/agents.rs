@@ -15,7 +15,9 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::commands::AppState;
-use crate::mcp::AgentState;
+use crate::mcp::sessions::StartedSession;
+use crate::mcp::{AgentSessions, AgentState};
+use mas_agent::harness::HarnessStatus;
 
 /// A connection as the settings screen shows it: what it is, and how it is
 /// shared, if it is.
@@ -56,10 +58,14 @@ pub struct AgentEndpoint {
     pub token: Option<String>,
 }
 
-/// The harnesses SQLPilot knows how to write a configuration for.
+/// What SQLPilot can write setup instructions for.
+///
+/// Wider than the harnesses it can *run* in-app: any MCP client can use the
+/// endpoint, and the third case exists so there is always an answer for one
+/// this list has not caught up with.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, specta::Type)]
 #[serde(rename_all = "kebab-case")]
-pub enum Harness {
+pub enum SetupTarget {
     ClaudeCode,
     Copilot,
     /// Anything else that speaks MCP over HTTP. Shown as the raw values, so
@@ -221,7 +227,7 @@ pub async fn rotate_agent_token(
 #[specta::specta]
 pub async fn agent_harness_setup(
     agents: State<'_, AgentState>,
-    harness: Harness,
+    harness: SetupTarget,
 ) -> Result<String, String> {
     let status = agents.status();
     let (url, token) =
@@ -236,22 +242,22 @@ pub async fn agent_harness_setup(
 }
 
 /// The setup text for a harness. Pure, so it is testable without an endpoint.
-pub fn setup_text(harness: Harness, url: &str, token: &str) -> String {
+pub fn setup_text(harness: SetupTarget, url: &str, token: &str) -> String {
     match harness {
         // A command rather than a file: `claude mcp add` writes the config in
         // whichever scope the user picks, and telling someone to edit JSON by
         // hand is how a setup step becomes a support question.
-        Harness::ClaudeCode => format!(
+        SetupTarget::ClaudeCode => format!(
             "claude mcp add --transport http sqlpilot {url} \\\n  --header \"Authorization: \
              Bearer {token}\"\n"
         ),
-        Harness::Copilot => format!(
+        SetupTarget::Copilot => format!(
             "copilot mcp add --transport http sqlpilot {url} \\\n  --header \"Authorization: \
              Bearer {token}\"\n"
         ),
         // The values themselves, in the shape every MCP client's config file
         // uses, for the harness this list has not caught up with.
-        Harness::Other => serde_json::json!({
+        SetupTarget::Other => serde_json::json!({
             "mcpServers": {
                 "sqlpilot": {
                     "type": "http",
@@ -310,6 +316,95 @@ pub fn load_grants(store: &mas_core::connection::ConnectionStore) -> Grants {
             })
             .collect(),
     )
+}
+
+/// The harnesses on this machine, and their versions.
+///
+/// SQLPilot never installs or authenticates one: BYOH means the answer to "it
+/// is not there" is the command that installs it, not an offer to do it.
+#[tauri::command]
+#[specta::specta]
+pub async fn list_harnesses() -> Result<Vec<HarnessStatus>, String> {
+    Ok(mas_agent::harness::discover().await)
+}
+
+/// Start a session with a harness, with SQLPilot's tools wired into it.
+///
+/// The endpoint is started if it is not already: a session whose agent cannot
+/// reach the database is not what anyone opened this panel for.
+#[tauri::command]
+#[specta::specta]
+pub async fn start_agent_session(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
+    sessions: State<'_, AgentSessions>,
+    harness: mas_agent::harness::Harness,
+) -> Result<StartedSession, String> {
+    agents.start(&state).await.map_err(|e| e.to_string())?;
+    let status = agents.status();
+    let endpoint = status.url.zip(status.token);
+
+    sessions
+        .start(harness, agents.data_dir(), endpoint, move |event| {
+            use tauri_specta::Event as _;
+            if let Err(e) = event.emit(&app) {
+                tracing::warn!(error = %e, "could not deliver an agent session event");
+            }
+        })
+        .await
+}
+
+/// Send a message. The answer arrives as events, not as a return value.
+#[tauri::command]
+#[specta::specta]
+pub async fn send_agent_message(
+    app: tauri::AppHandle,
+    sessions: State<'_, AgentSessions>,
+    session: String,
+    text: String,
+) -> Result<(), String> {
+    sessions.send(&session, text, move |event| {
+        use tauri_specta::Event as _;
+        let _ = event.emit(&app);
+    })
+}
+
+/// Stop the turn in progress. The session stays open.
+#[tauri::command]
+#[specta::specta]
+pub async fn cancel_agent_turn(
+    sessions: State<'_, AgentSessions>,
+    session: String,
+) -> Result<(), String> {
+    sessions.cancel(&session).await
+}
+
+/// Answer the harness's own permission prompt, in SQLPilot's window.
+///
+/// `option` is absent when the user dismissed it without deciding, which the
+/// protocol distinguishes from a refusal: the agent should stop rather than
+/// look for another way round.
+#[tauri::command]
+#[specta::specta]
+pub async fn answer_agent_permission(
+    sessions: State<'_, AgentSessions>,
+    session: String,
+    request: String,
+    option: Option<String>,
+) -> Result<(), String> {
+    sessions.answer_permission(&session, &request, option).await
+}
+
+/// End a session and clean up after it.
+#[tauri::command]
+#[specta::specta]
+pub async fn stop_agent_session(
+    sessions: State<'_, AgentSessions>,
+    session: String,
+) -> Result<(), String> {
+    sessions.stop(&session);
+    Ok(())
 }
 
 /// The window's answer to something an agent asked.
@@ -372,7 +467,11 @@ mod tests {
 
     #[test]
     fn the_claude_code_setup_is_a_command_that_can_be_run() {
-        let text = setup_text(Harness::ClaudeCode, "http://127.0.0.1:47311/mcp", "abc123");
+        let text = setup_text(
+            SetupTarget::ClaudeCode,
+            "http://127.0.0.1:47311/mcp",
+            "abc123",
+        );
         assert!(text.starts_with("claude mcp add --transport http sqlpilot"));
         assert!(text.contains("http://127.0.0.1:47311/mcp"));
         assert!(text.contains("Bearer abc123"));
@@ -382,13 +481,13 @@ mod tests {
     fn the_copilot_setup_uses_copilots_own_command() {
         // Same transport, different CLI. Pasting Claude's command into Copilot
         // is the mistake this exists to prevent.
-        let text = setup_text(Harness::Copilot, "http://127.0.0.1:47311/mcp", "abc123");
+        let text = setup_text(SetupTarget::Copilot, "http://127.0.0.1:47311/mcp", "abc123");
         assert!(text.starts_with("copilot mcp add"));
     }
 
     #[test]
     fn any_other_harness_gets_the_values_it_needs() {
-        let text = setup_text(Harness::Other, "http://127.0.0.1:1/mcp", "abc123");
+        let text = setup_text(SetupTarget::Other, "http://127.0.0.1:1/mcp", "abc123");
         let parsed: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
         assert_eq!(
             parsed["mcpServers"]["sqlpilot"]["url"],
@@ -403,7 +502,11 @@ mod tests {
     #[test]
     fn the_token_is_in_the_setup_text_because_the_user_has_to_paste_it() {
         // Worth stating: this is the one place a secret is deliberately shown.
-        for harness in [Harness::ClaudeCode, Harness::Copilot, Harness::Other] {
+        for harness in [
+            SetupTarget::ClaudeCode,
+            SetupTarget::Copilot,
+            SetupTarget::Other,
+        ] {
             assert!(setup_text(harness, "http://x/mcp", "s3cret").contains("s3cret"));
         }
     }
