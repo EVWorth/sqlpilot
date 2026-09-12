@@ -247,16 +247,16 @@ Candidates:
 
 ### Risks
 
-| Risk                                      | Likelihood | Impact |
-| ----------------------------------------- | ---------- | ------ |
-| Monaco is ~2 MB (heavier than CodeMirror) | High       | Low    |
-| Web workers required (CSP configuration)  | High       | Medium |
-| Harder to customize appearance deeply     | Medium     | Low    |
+| Risk                                                 | Likelihood | Impact |
+| ---------------------------------------------------- | ---------- | ------ |
+| Monaco is ~3.7 MB minified (heavier than CodeMirror) | High       | Low    |
+| Web workers required (CSP configuration)             | High       | Medium |
+| Harder to customize appearance deeply                | Medium     | Low    |
 
 ### Mitigations
 
-- **Bundle size:** 2 MB is negligible for a desktop app. We lazy-load the editor component so it doesn't block initial render.
-- **Web workers:** Configure Tauri's CSP to allow blob: URLs for Monaco workers. This is a one-time setup documented in the codebase.
+- **Bundle size:** 3.7 MB is acceptable for a desktop app, but only after taking care over what is imported. `import * as monaco from "monaco-editor"` pulls in the TypeScript, CSS, HTML and JSON _language services_, whose web workers are another 10.8 MB — in a SQL client that edits none of those languages. The import is `editor.all` plus the SQL and MySQL contributions instead, which is the difference between a 17 MB and a 5.3 MB frontend build. The editor component is not lazy-loaded: it is the first thing on screen.
+- **Web workers:** One worker, `editor.worker`, wired up in `main.tsx` through `MonacoEnvironment.getWorker`. The CSP in `tauri.conf.json` allows `worker-src 'self' blob:` for it.
 - **Customization:** Monaco supports custom themes via `defineTheme()`. For the SQL-specific UI we need (execute button, connection selector above editor), we wrap Monaco in our own component.
 
 ---
@@ -678,21 +678,20 @@ Testing a database GUI requires a real database. Options:
 
 2. **Reproducible** — Every developer and CI run starts with the exact same database state. No "it works on my machine" issues.
 
-3. **Multi-version testing** — We test against MySQL 5.7, MySQL 8.0, and MariaDB 11 simultaneously. This ensures broad compatibility.
+3. **Two servers, not one** — the suite runs against MySQL 8 and MariaDB 11, and every integration file takes `MAS_TEST_PORT` so the same tests run on either. That is not ceremony: running them against MariaDB for the first time found a connection lost after every query timeout (#658) and JSON columns arriving as binary, neither of which MySQL showed.
 
 4. **Isolated** — Each test run gets fresh containers with no leftover state. Tests can't interfere with each other.
 
-5. **SSL and SSH testing** — Docker makes it easy to set up an SSL-enabled MySQL instance and an SSH server for tunnel testing. These would be difficult to configure on bare CI runners.
+5. **What is not tested this way** — the compose file also defines MySQL 5.7 and an SSL-enabled MySQL, and nothing starts or uses them. 5.7 is end-of-life and unsupported (Appendix B). SSL configuration is real code with no test, which is a known gap rather than a claim. The SSH container is gone: tunnelling is not implemented, and a profile configured for one is refused.
 
 ### Container Matrix
 
-| Container    | Port  | Purpose                         |
-| ------------ | ----- | ------------------------------- |
-| `mysql-8`    | 13306 | Primary test target (MySQL 8.0) |
-| `mysql-5.7`  | 13307 | Legacy version compatibility    |
-| `mariadb`    | 13308 | MariaDB compatibility           |
-| `mysql-ssl`  | 13309 | SSL/TLS connection testing      |
-| `ssh-tunnel` | 12222 | SSH tunnel connection testing   |
+| Container    | Port  | Purpose                                                             |
+| ------------ | ----- | ------------------------------------------------------------------- |
+| `mysql-8`    | 13306 | The default target for every integration test                       |
+| `mariadb-11` | 13308 | The same tests again, via `MAS_TEST_PORT=13308`                     |
+| `mysql-5_7`  | 13307 | Defined, never started. 5.7 is end-of-life and not supported        |
+| `mysql-ssl`  | 13309 | Defined, never started. SSL configuration has no test — a known gap |
 
 ### Risks
 
@@ -705,10 +704,10 @@ Testing a database GUI requires a real database. Options:
 
 ### Mitigations
 
-- **Developer machines:** Document Docker requirement in README. Provide `docker compose up` as a one-command setup. For developers without Docker, unit tests (which mock the database) still run.
+- **Developer machines:** `just db-up` starts the two containers and waits for them to be healthy. Without Docker, everything but the `#[ignore]`d tests still runs — which is most of the suite.
 - **Startup time:** Containers start in parallel. Health checks prevent tests from starting before MySQL is ready. In CI, Docker layer caching reduces pull times.
 - **CI runners:** GitHub Actions supports Docker on Ubuntu runners natively via `services`. For macOS/Windows runners (where Docker is limited), we run integration tests only on Ubuntu and run unit tests on all platforms.
-- **Flaky health checks:** Use `mysqladmin ping` with generous retry counts (10 retries, 5s intervals). Add a secondary check that verifies the seed data is loaded before starting tests.
+- **Flaky health checks:** health rather than a bare ping. While the seed scripts run, the server is a temporary local-only instance that then restarts, and a ping answers during that window — anything connecting on the strength of it meets an EOF moments later.
 
 ---
 
