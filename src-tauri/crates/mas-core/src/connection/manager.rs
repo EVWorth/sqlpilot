@@ -225,18 +225,28 @@ impl ConnectionManager {
                     Ok(())
                 })
             })
-            .connect_with(options)
-            .await
-            .map_err(|e| {
+            .connect_with(options.clone())
+            .await;
+
+        let pool = match pool {
+            Ok(pool) => pool,
+            Err(e) => {
                 tracing::warn!(connection_id = %conn_id, error = %e, "Connection failed");
-                super::describe_pool_error(
+                // Not `describe_pool_error`: this pool is one line old, so a
+                // timeout here cannot mean its connections are all busy. It
+                // means the first one never opened, and only a direct attempt
+                // can say why.
+                return Err(super::describe_first_connect_failure(
                     &e,
+                    &options,
                     &profile.name,
-                    pool_max,
+                    &profile.host,
+                    profile.port,
                     profile.connect_timeout_secs.unwrap_or(10) as u64,
                 )
-                .unwrap_or_else(|| CoreError::Connection(format!("Failed to connect: {}", e)))
-            })?;
+                .await);
+            }
+        };
 
         // If no default database was specified, auto-select the first user database
         let effective_database: Option<String> = if profile
@@ -424,12 +434,18 @@ impl ConnectionManager {
     }
 
     /// Pool sizing for a live connection, for the message when it runs out.
-    pub fn pool_limits(&self, connection_id: &str) -> Option<(String, u32, u64)> {
+    ///
+    /// The count of connections the pool is actually holding comes with it: a
+    /// pool that holds none cannot have run out of them, however it reports
+    /// the failure, and saying otherwise is how a server that went away gets
+    /// described as a setting the user should change.
+    pub fn pool_limits(&self, connection_id: &str) -> Option<(String, u32, u64, u32)> {
         self.connections.get(connection_id).map(|conn| {
             (
                 conn.info.name.clone(),
                 conn.pool_max,
                 conn.acquire_timeout_secs,
+                conn.pool.size(),
             )
         })
     }

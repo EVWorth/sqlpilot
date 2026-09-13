@@ -283,8 +283,8 @@ impl QueryExecutor {
                     // the limit that caused it (#279).
                     self.connection_manager
                         .pool_limits(&connection_id)
-                        .and_then(|(name, max, timeout)| {
-                            crate::connection::describe_pool_error(&e, &name, max, timeout)
+                        .and_then(|(name, max, timeout, held)| {
+                            crate::connection::describe_pool_error(&e, &name, max, timeout, held)
                         })
                         // Kept as the driver's own error rather than flattened to
                         // a string: the error number and SQLSTATE are the only
