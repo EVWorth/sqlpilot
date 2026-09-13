@@ -6,18 +6,33 @@
 # Usage:
 #   scripts/build-update-manifest.sh <version> <tag> <artifact-dir> [out-file]
 #
-# The updater looks up exactly one key per platform, of the form
-# {os}-{arch}, and each platform accepts exactly one artifact format:
+# The updater looks up two keys per platform, in order (tauri-plugin-updater
+# 2.10.1, `Update::download_url`): `{os}-{arch}-{installer}` for the format the
+# running copy was installed from, then `{os}-{arch}` as a fallback. The
+# installer names are appimage, deb, rpm, app, msi and nsis.
 #
-#   linux-x86_64     .AppImage      (the Linux updater handles no other format)
-#   windows-x86_64   .msi
-#   darwin-x86_64    .app.tar.gz    (a .dmg is a distribution format the
-#   darwin-aarch64   .app.tar.gz     updater cannot apply)
+# So the suffixed keys are not decoration — they are how a .deb install finds
+# a .deb and an .rpm install finds an .rpm, and the plugin installs those with
+# `dpkg -i` and `rpm -U` through pkexec. #572 removed them on the reasoning
+# that nothing reads them; that was wrong, and the evidence is a real 1.0.0
+# log showing `Searching for updater target 'linux-x86_64-rpm'` immediately
+# before an update that could not proceed.
 #
-# Anything else the release publishes — .deb, .rpm, .dmg, the NSIS installer,
-# the portable .exe — is a download for humans, not an update source. Listing
-# them under invented keys like `linux-deb` made the manifest read as though
-# they were covered when nothing reads those entries (#566, #567).
+# What stays true from #566/#567 is the other half: a key must point at
+# something the updater for *that* format can apply. A .dmg cannot be applied
+# by anything, so macOS gets the .app.tar.gz under both its keys.
+#
+#   linux-x86_64-appimage  .AppImage      linux-x86_64    .AppImage
+#   linux-x86_64-deb       .deb
+#   linux-x86_64-rpm       .rpm
+#   windows-x86_64-msi     .msi           windows-x86_64  .msi
+#   windows-x86_64-nsis    -setup.exe
+#   darwin-x86_64-app      .app.tar.gz    darwin-x86_64   .app.tar.gz
+#   darwin-aarch64-app     .app.tar.gz    darwin-aarch64  .app.tar.gz
+#
+# A package install on an image-based system (rpm-ostree, and anything else
+# with a read-only /usr) cannot apply any of these, whatever the manifest
+# says. That is the app's problem to explain, not this script's to solve.
 #
 # Every expected platform must be present. A missing artifact fails the
 # release rather than quietly shipping a manifest that strands those users on
@@ -38,9 +53,16 @@ repo="${MANIFEST_REPO:-EVWorth/sqlpilot}"
 # platform key : glob for the updater artifact
 platforms=(
   "linux-x86_64:*_amd64.AppImage"
+  "linux-x86_64-appimage:*_amd64.AppImage"
+  "linux-x86_64-deb:*_amd64.deb"
+  "linux-x86_64-rpm:*.x86_64.rpm"
   "windows-x86_64:*_x64_en-US.msi"
+  "windows-x86_64-msi:*_x64_en-US.msi"
+  "windows-x86_64-nsis:*_x64-setup.exe"
   "darwin-x86_64:*_x64.app.tar.gz"
+  "darwin-x86_64-app:*_x64.app.tar.gz"
   "darwin-aarch64:*_aarch64.app.tar.gz"
+  "darwin-aarch64-app:*_aarch64.app.tar.gz"
 )
 
 missing=()
@@ -138,10 +160,27 @@ problems = []
 if manifest.get("version") != expected_version:
     problems.append(f"version is {manifest.get('version')!r}, expected {expected_version!r}")
 
-expected = {"linux-x86_64", "windows-x86_64", "darwin-x86_64", "darwin-aarch64"}
+# Every key the plugin looks up. Checked as a set rather than a count so
+# that adding a platform to the table above without adding it here is a
+# failure at release time rather than a gap a user finds later.
+expected = {
+    "linux-x86_64",
+    "linux-x86_64-appimage",
+    "linux-x86_64-deb",
+    "linux-x86_64-rpm",
+    "windows-x86_64",
+    "windows-x86_64-msi",
+    "windows-x86_64-nsis",
+    "darwin-x86_64",
+    "darwin-x86_64-app",
+    "darwin-aarch64",
+    "darwin-aarch64-app",
+}
 actual = set(manifest.get("platforms", {}))
 if actual != expected:
-    problems.append(f"platforms are {sorted(actual)}, expected {sorted(expected)}")
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    problems.append(f"platforms missing {missing}, unexpected {extra}")
 
 for key, entry in manifest.get("platforms", {}).items():
     if not entry.get("url", "").startswith("https://"):
