@@ -133,22 +133,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `bundle_path` is not derivable from `rust_target`: cargo writes to
+          # `target/<triple>/release` only when `--target` is passed, and the
+          # Linux and Windows builds do not pass it. Spelling it out per entry
+          # is what stops the two from drifting apart again.
           - platform: ubuntu-22.04
             args: ""
             rust_target: x86_64-unknown-linux-gnu
             artifact_suffix: linux-x86_64
+            bundle_path: src-tauri/target/release/bundle/
           - platform: windows-latest
             args: ""
             rust_target: x86_64-pc-windows-msvc
             artifact_suffix: windows-x86_64
+            bundle_path: src-tauri/target/release/bundle/
           - platform: macos-latest
             args: "--target aarch64-apple-darwin"
             rust_target: aarch64-apple-darwin
             artifact_suffix: macos-aarch64
+            bundle_path: src-tauri/target/aarch64-apple-darwin/release/bundle/
           - platform: macos-latest
             args: "--target x86_64-apple-darwin"
             rust_target: x86_64-apple-darwin
             artifact_suffix: macos-x86_64
+            bundle_path: src-tauri/target/x86_64-apple-darwin/release/bundle/
 
     runs-on: ${{ matrix.platform }}
 
@@ -240,12 +248,17 @@ jobs:
       # Upload every artifact the upload job will need: the bundle tree
       # (containing .deb/.rpm/.AppImage/.msi/.exe/.dmg + .sig) and, on
       # Windows, the staged portable exe at the repo root.
+      #
+      # `if-no-files-found: error` is what caught the macOS path being wrong,
+      # on the first release cut since this job was split out of tauri-action.
+      # Keep it: a release that quietly ships three platforms out of four is
+      # worse than one that stops.
       - name: Upload build artifacts
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bundles-${{ matrix.artifact_suffix }}
           path: |
-            src-tauri/target/release/bundle/
+            ${{ matrix.bundle_path }}
             SQLPilot.exe
           if-no-files-found: error
 
