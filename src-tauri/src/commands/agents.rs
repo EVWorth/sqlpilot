@@ -39,6 +39,9 @@ pub struct AgentConnection {
     /// The databases it is shared for, when it is not all of them.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub databases: Option<Vec<String>>,
+    /// Column-name patterns this connection hides, on top of the built-in
+    /// credential list.
+    pub redact: Vec<String>,
     /// Whether this session may make schema changes on a production
     /// connection. Never persisted; see `mas_mcp::grants`.
     pub ddl_unlocked: bool,
@@ -103,6 +106,7 @@ pub async fn list_agent_connections(
                 read_only: profile.read_only,
                 posture: grant.map(|g| g.posture),
                 databases: grant.and_then(|g| g.databases.clone()),
+                redact: grant.map(|g| g.redact.clone()).unwrap_or_default(),
                 ddl_unlocked: grant.is_some_and(|g| g.ddl_unlocked),
                 connection_id: profile.id,
                 name: profile.name,
@@ -112,6 +116,9 @@ pub async fn list_agent_connections(
 }
 
 /// Share a connection with agents, or change the terms it is shared on.
+///
+/// `redact` names column patterns whose values never leave. The built-in
+/// credential list applies regardless of what is passed here.
 #[tauri::command]
 #[specta::specta]
 pub async fn share_connection_with_agents(
@@ -120,11 +127,20 @@ pub async fn share_connection_with_agents(
     connection_id: String,
     posture: DataPosture,
     databases: Option<Vec<String>>,
+    redact: Option<Vec<String>>,
 ) -> Result<(), String> {
     // An empty list would be a grant that shares nothing, which is a confusing
     // way to spell "revoke". Treated as "every database", which is what the
     // absence of a restriction means everywhere else.
     let databases = databases.filter(|list| !list.is_empty());
+    // Blank entries dropped here as well as in the matcher: a pattern that
+    // survives to storage is one someone will later wonder about.
+    let redact: Vec<String> = redact
+        .unwrap_or_default()
+        .into_iter()
+        .map(|pattern| pattern.trim().to_string())
+        .filter(|pattern| !pattern.is_empty())
+        .collect();
 
     state
         .connection_store
@@ -136,11 +152,16 @@ pub async fn share_connection_with_agents(
                 .map(serde_json::to_string)
                 .transpose()
                 .map_err(|e| e.to_string())?,
+            redact: (!redact.is_empty())
+                .then(|| serde_json::to_string(&redact))
+                .transpose()
+                .map_err(|e| e.to_string())?,
         })
         .map_err(|e| e.to_string())?;
 
     let mut grant = Grant::new(connection_id).with_posture(posture);
     grant.databases = databases;
+    grant.redact = redact;
     agents.state.set(grant);
     Ok(())
 }
@@ -312,6 +333,11 @@ pub fn load_grants(store: &mas_core::connection::ConnectionStore) -> Grants {
                     .databases
                     .as_deref()
                     .and_then(|json| serde_json::from_str(json).ok());
+                grant.redact = row
+                    .redact
+                    .as_deref()
+                    .and_then(|json| serde_json::from_str(json).ok())
+                    .unwrap_or_default();
                 grant
             })
             .collect(),

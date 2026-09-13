@@ -2335,3 +2335,77 @@ async fn a_database_name_inside_a_string_is_not_a_reference_to_it() {
 
     assert_eq!(fake.ran().len(), 1);
 }
+
+#[tokio::test]
+async fn a_connection_can_name_the_column_its_own_schema_calls_a_password() {
+    // The built-in list cannot know this schema says `pw`.
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.grants
+        .set(Grant::new("c1").redacting(vec!["pw".into()]));
+    fake.columns = vec![
+        ("id".to_string(), SqlValue::Int(1)),
+        ("user_pw".to_string(), SqlValue::String("hunter2".into())),
+    ];
+    let (server, _) = server(fake);
+
+    let result = server
+        .run_select(select("SELECT id, user_pw FROM users", None))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(result.rows[0][0], serde_json::json!(1));
+    assert_eq!(
+        result.rows[0][1].as_str().unwrap(),
+        mas_mcp::redact::REDACTED
+    );
+    assert!(result.note.unwrap().contains("user_pw"));
+}
+
+#[tokio::test]
+async fn one_connections_patterns_do_not_apply_to_another() {
+    // The patterns belong to the connection, not to the app.
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.grants.set(Grant::new("c1"));
+    fake.columns = vec![("user_pw".to_string(), SqlValue::String("hunter2".into()))];
+    let (server, _) = server(fake);
+
+    let result = server
+        .run_select(select("SELECT user_pw FROM users", None))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(result.rows[0][0], serde_json::json!("hunter2"));
+}
+
+#[tokio::test]
+async fn a_pattern_hides_a_columns_profile_values_too() {
+    let mut fake = Fake::shared(DataPosture::Full, "development", false);
+    fake.grants
+        .set(Grant::new("c1").redacting(vec!["*_nino".into()]));
+    fake.profile = Some(vec![
+        SqlValue::Int(4),
+        SqlValue::Int(4),
+        SqlValue::Int(4),
+        SqlValue::String("AB123456C".into()),
+        SqlValue::String("ZZ999999Z".into()),
+    ]);
+    fake.top = vec![("AB123456C".to_string(), 1)];
+    let (server, _) = server(fake);
+
+    let profile = server
+        .profile_column(Parameters(ColumnArg {
+            connection: "c1".into(),
+            database: "shop".into(),
+            table: "staff".into(),
+            column: "employee_nino".into(),
+        }))
+        .await
+        .unwrap()
+        .0;
+
+    assert_eq!(profile.rows_total, 4, "counts are numbers about the column");
+    assert!(profile.most_common.is_empty());
+    assert!(profile.min.is_none());
+}

@@ -144,6 +144,10 @@ pub struct ConnectionPolicy {
     /// Whether the session has been explicitly unlocked for schema changes.
     /// Off by default, and meaningless on a read-only connection.
     pub ddl_unlocked: bool,
+    /// Column-name patterns this connection redacts on top of the built-in
+    /// list. Carried on the policy because every tool that could return a
+    /// value already has the policy in hand.
+    pub redact: Vec<String>,
 }
 
 impl ConnectionPolicy {
@@ -238,6 +242,7 @@ mod tests {
             posture,
             read_only: false,
             ddl_unlocked: false,
+            redact: Vec::new(),
         }
     }
 

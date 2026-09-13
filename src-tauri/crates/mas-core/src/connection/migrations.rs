@@ -16,7 +16,7 @@ pub struct Migration {
 ///
 /// Initial schema (v1) is the original `connection_profiles` shape.
 /// Migrations v2..v5 add columns that were introduced post-launch; v6 adds
-/// the agent grants table.
+/// the agent grants table; v7 gives it per-connection redaction patterns.
 pub const MIGRATIONS: &[Migration] = &[
     Migration {
         v: 1,
@@ -74,12 +74,20 @@ pub const MIGRATIONS: &[Migration] = &[
             databases TEXT
         )",
     },
+    Migration {
+        v: 7,
+        name: "add_agent_grant_redact",
+        // Column-name patterns this connection hides from agents, on top of
+        // the built-in credential list. JSON, like `databases` above, because
+        // it is a list and this table is read as a whole.
+        up: "ALTER TABLE agent_grants ADD COLUMN redact TEXT",
+    },
 ];
 
 /// The latest schema version. Bump this when adding a new entry to
 /// `MIGRATIONS` (the constant itself enforces ordering, but having
 /// a single named source of truth is helpful for docs and tests).
-pub const SCHEMA_VERSION: i64 = 6;
+pub const SCHEMA_VERSION: i64 = 7;
 
 /// `PRAGMA user_version` reads 0 on a fresh DB (sqlite's default).
 /// Migrations start firing at version 1.

@@ -30,6 +30,7 @@ const connection = (overrides: Partial<AgentConnection> = {}): AgentConnection =
   connected: true,
   posture: null,
   databases: null,
+  redact: [],
   ddlUnlocked: false,
   ...overrides,
 });
@@ -110,6 +111,30 @@ describe("agentStore", () => {
     await useAgentStore.getState().loadSetup("copilot");
     expect(apiMocks.agentHarnessSetup).toHaveBeenCalledWith("copilot");
     expect(useAgentStore.getState().setup).toBe("claude mcp add …");
+  });
+
+  it("changing the hidden columns keeps how the connection is shared", async () => {
+    // Which data and how much data are separate decisions; editing one should
+    // not make you re-pick the other.
+    useAgentStore.setState({
+      connections: [connection({ posture: "samples", databases: ["shop"] })],
+    });
+
+    await useAgentStore.getState().setRedaction("c1", ["pw"]);
+
+    expect(apiMocks.shareConnectionWithAgents).toHaveBeenCalledWith(
+      "c1",
+      "samples",
+      ["shop"],
+      ["pw"],
+    );
+  });
+
+  it("does nothing for a connection that is not shared", async () => {
+    // There is nothing to redact on something an agent cannot see.
+    useAgentStore.setState({ connections: [connection({ posture: null })] });
+    await useAgentStore.getState().setRedaction("c1", ["pw"]);
+    expect(apiMocks.shareConnectionWithAgents).not.toHaveBeenCalled();
   });
 
   it("unlocking production DDL goes through the backend", async () => {

@@ -350,11 +350,11 @@ product and a much smaller blast radius.
    probably right; per column is where redaction already lives. Shipped as
    per-connection, with an optional list of databases — enough to share one
    database out of twenty, not enough to share one table out of a database.
-   Column redaction is built, but as a fixed rule rather than a setting: a
-   column whose name says credential — `password`, `api_key`, `ssn`, and a
-   dozen more — returns no values at any posture, and no top-N or min/max
-   either. **Per-profile patterns are still open**; the fixed list is the
-   ordinary case, and a schema that spells it differently is not yet served.
+   ~~Column redaction is a fixed rule rather than a setting.~~ **Settled.** A
+   column whose name says credential returns no values at any posture, and a
+   connection adds its own patterns on top — a bare word matches anywhere in
+   the name, `*` anchors a prefix or a suffix, for the schemas that call it
+   `pw` or `*_nino`.
 5. ~~**Does `run_ddl` exist at all in v1?**~~ **Yes, narrowly.** It exists,
    asks before it runs, and is refused on production unless that connection
    has been unlocked — and its refusal points at `open_draft`, which remains

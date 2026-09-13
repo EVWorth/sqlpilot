@@ -79,6 +79,14 @@ interface AgentState {
   stop: () => Promise<void>;
   rotateToken: () => Promise<void>;
   share: (connectionId: string, sharing: Sharing) => Promise<void>;
+  /**
+   * Change which columns a connection hides, keeping how it is shared.
+   *
+   * Separate from `share` because they are separate decisions: one is how
+   * much data, the other is which data, and a screen that made you re-pick
+   * the posture to edit a pattern would be describing them as one.
+   */
+  setRedaction: (connectionId: string, patterns: string[]) => Promise<void>;
   unlockDdl: (connectionId: string, unlocked: boolean) => Promise<void>;
   loadSetup: (target: SetupTarget) => Promise<void>;
   showProposal: (proposal: Proposal) => void;
@@ -97,7 +105,7 @@ async function guard(set: (partial: Partial<AgentState>) => void, run: () => Pro
   }
 }
 
-export const useAgentStore = create<AgentState>((set) => ({
+export const useAgentStore = create<AgentState>((set, get) => ({
   endpoint: null,
   connections: [],
   loading: false,
@@ -146,6 +154,21 @@ export const useAgentStore = create<AgentState>((set) => ({
       } else {
         await api.shareConnectionWithAgents(connectionId, sharing);
       }
+      set({ connections: await api.listAgentConnections(), error: null });
+    });
+  },
+
+  setRedaction: async (connectionId, patterns) => {
+    await guard(set, async () => {
+      const connection = get().connections.find((c) => c.connectionId === connectionId);
+      // Only a shared connection has anything to redact.
+      if (!connection?.posture) return;
+      await api.shareConnectionWithAgents(
+        connectionId,
+        connection.posture,
+        connection.databases ?? undefined,
+        patterns,
+      );
       set({ connections: await api.listAgentConnections(), error: null });
     });
   },

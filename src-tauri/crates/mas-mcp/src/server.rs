@@ -838,7 +838,8 @@ impl SqlPilot {
         // does not leave. The posture is about how much data; this is about
         // which data, and they are different questions.
         let column_names: Vec<String> = result.columns.iter().map(|c| c.name.clone()).collect();
-        let redacted = redact::redacted_columns(&column_names);
+        let rules = redact::Rules::new(policy.redact.iter().map(String::as_str));
+        let redacted = rules.redacted_columns(&column_names);
         let mut rows = result.rows;
 
         let row_count = rows.len();
@@ -1045,7 +1046,8 @@ impl SqlPilot {
         // The counts are numbers about the column and are always fine. A list
         // of its most common values *is* the column, so a credential column
         // does not get one.
-        let sensitive = redact::is_sensitive(&column);
+        let sensitive =
+            redact::Rules::new(policy.redact.iter().map(String::as_str)).is_sensitive(&column);
 
         let result = self
             .workspace
@@ -1159,7 +1161,15 @@ impl SqlPilot {
             .map(|p| p.posture.allows_values())
             .unwrap_or(false);
 
-        let redacted = redact::redacted_columns(&raw.columns);
+        let rules = redact::Rules::new(
+            policy
+                .as_ref()
+                .map(|p| p.redact.as_slice())
+                .unwrap_or_default()
+                .iter()
+                .map(String::as_str),
+        );
+        let redacted = rules.redacted_columns(&raw.columns);
         let mut rows = if allowed { raw.rows } else { Vec::new() };
         redact::apply(&mut rows, &redacted);
 
