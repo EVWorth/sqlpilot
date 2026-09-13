@@ -178,8 +178,13 @@ export const commands = {
 	sqliteGetTableDdl: (connectionId: string, table: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_get_table_ddl", { connectionId, table })),
 	/**  Every connection, with its sharing state. */
 	listAgentConnections: () => typedError<AgentConnection_Serialize[], string>(__TAURI_INVOKE("list_agent_connections")),
-	/**  Share a connection with agents, or change the terms it is shared on. */
-	shareConnectionWithAgents: (connectionId: string, posture: DataPosture, databases: string[] | null) => typedError<null, string>(__TAURI_INVOKE("share_connection_with_agents", { connectionId, posture, databases })),
+	/**
+	 *  Share a connection with agents, or change the terms it is shared on.
+	 * 
+	 *  `redact` names column patterns whose values never leave. The built-in
+	 *  credential list applies regardless of what is passed here.
+	 */
+	shareConnectionWithAgents: (connectionId: string, posture: DataPosture, databases: string[] | null, redact: string[] | null) => typedError<null, string>(__TAURI_INVOKE("share_connection_with_agents", { connectionId, posture, databases, redact })),
 	/**  Stop sharing a connection. Takes effect at the agent's next tool call. */
 	revokeAgentConnection: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("revoke_agent_connection", { connectionId })),
 	/**
@@ -326,6 +331,11 @@ export type AgentConnection_Deserialize = {
 	/**  The databases it is shared for, when it is not all of them. */
 	databases: string[] | null,
 	/**
+	 *  Column-name patterns this connection hides, on top of the built-in
+	 *  credential list.
+	 */
+	redact: string[],
+	/**
 	 *  Whether this session may make schema changes on a production
 	 *  connection. Never persisted; see `mas_mcp::grants`.
 	 */
@@ -352,6 +362,11 @@ export type AgentConnection_Serialize = {
 	posture?: DataPosture | null,
 	/**  The databases it is shared for, when it is not all of them. */
 	databases?: string[] | null,
+	/**
+	 *  Column-name patterns this connection hides, on top of the built-in
+	 *  credential list.
+	 */
+	redact: string[],
 	/**
 	 *  Whether this session may make schema changes on a production
 	 *  connection. Never persisted; see `mas_mcp::grants`.

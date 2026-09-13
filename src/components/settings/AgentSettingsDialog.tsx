@@ -22,6 +22,11 @@ import {
  * The token is shown on request rather than by default. It is not a secret
  * from the user — they have to paste it into their own harness — but it is a
  * secret from whoever is standing behind them.
+ *
+ * Passwords, keys and the rest are hidden from an agent whatever the posture
+ * says, by column name. The field on each row is for the schemas that spell it
+ * differently — `pw`, `*_nino` — and adds to that list rather than replacing
+ * it, which is why it says "also".
  */
 
 export interface AgentSettingsDialogProps {
@@ -71,8 +76,12 @@ function EnvironmentBadge({ environment }: { environment: string }) {
 function ConnectionRow({ connection }: { connection: AgentConnection }) {
   const share = useAgentStore((s) => s.share);
   const unlockDdl = useAgentStore((s) => s.unlockDdl);
+  const setRedaction = useAgentStore((s) => s.setRedaction);
   const sharing = sharingOf(connection);
   const shared = sharing !== "none";
+  // Edited as text and saved on blur: a pattern list is something people type
+  // in one go, and saving each keystroke would fire a round trip per letter.
+  const [patterns, setPatterns] = useState(connection.redact.join(", "));
 
   return (
     <div className="flex flex-col gap-1 border-b border-[var(--color-border)] px-1 py-2 last:border-b-0">
@@ -112,6 +121,24 @@ function ConnectionRow({ connection }: { connection: AgentConnection }) {
           it lapses when the app closes — so it belongs next to the connection
           rather than in a preferences pane someone sets once and forgets. */
       }
+      {shared && (
+        <label className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+          <span className="shrink-0">Also hide columns matching</span>
+          <input
+            aria-label={`Columns to hide on ${connection.name}`}
+            value={patterns}
+            placeholder="pw, *_nino"
+            onChange={(e) => setPatterns(e.target.value)}
+            onBlur={() =>
+              void setRedaction(
+                connection.connectionId,
+                patterns.split(",").map((pattern) => pattern.trim()).filter(Boolean),
+              )}
+            className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-0.5 text-xs text-[var(--color-text-primary)]"
+          />
+        </label>
+      )}
+
       {shared && connection.environment === "production" && !connection.readOnly && (
         <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
           <input

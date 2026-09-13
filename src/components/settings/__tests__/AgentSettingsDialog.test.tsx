@@ -32,6 +32,7 @@ const connection = (overrides: Partial<AgentConnection> = {}): AgentConnection =
   connected: true,
   posture: null,
   databases: null,
+  redact: [],
   ddlUnlocked: false,
   ...overrides,
 });
@@ -121,6 +122,47 @@ describe("AgentSettingsDialog", () => {
     open();
     const badge = await screen.findByTestId("environment-badge");
     expect(badge.textContent).toBe("production");
+  });
+
+  it("offers a place to name the columns this schema hides", async () => {
+    // The built-in credential list cannot know a schema calls it `pw`.
+    apiMocks.listAgentConnections.mockResolvedValue([connection({ posture: "samples" })]);
+    open();
+    expect(await screen.findByLabelText("Columns to hide on shop")).toBeTruthy();
+  });
+
+  it("does not offer it on a connection nobody shared", async () => {
+    apiMocks.listAgentConnections.mockResolvedValue([connection({ posture: null })]);
+    open();
+    await screen.findByLabelText("How shop is shared");
+    expect(screen.queryByLabelText("Columns to hide on shop")).toBeNull();
+  });
+
+  it("saves the patterns when the field is left, not on every keystroke", async () => {
+    apiMocks.listAgentConnections.mockResolvedValue([connection({ posture: "samples" })]);
+    open();
+    const field = await screen.findByLabelText("Columns to hide on shop");
+
+    fireEvent.change(field, { target: { value: "pw, *_nino ," } });
+    expect(apiMocks.shareConnectionWithAgents).not.toHaveBeenCalled();
+
+    fireEvent.blur(field);
+    await waitFor(() =>
+      // Trimmed, and the empty one from the trailing comma dropped.
+      expect(apiMocks.shareConnectionWithAgents).toHaveBeenCalledWith("c1", "samples", undefined, [
+        "pw",
+        "*_nino",
+      ])
+    );
+  });
+
+  it("shows the patterns a connection already has", async () => {
+    apiMocks.listAgentConnections.mockResolvedValue([
+      connection({ posture: "samples", redact: ["pw", "*_nino"] }),
+    ]);
+    open();
+    const field = await screen.findByLabelText("Columns to hide on shop") as HTMLInputElement;
+    expect(field.value).toBe("pw, *_nino");
   });
 
   it("offers the schema-change unlock only on a shared production connection", async () => {

@@ -32,6 +32,9 @@ pub struct StoredGrant {
     pub posture: String,
     /// A JSON array of database names, or None for "every database".
     pub databases: Option<String>,
+    /// A JSON array of column-name patterns, or None for "just the built-in
+    /// credential list".
+    pub redact: Option<String>,
 }
 
 impl ConnectionStore {
@@ -349,13 +352,14 @@ impl ConnectionStore {
             .lock()
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         let mut statement =
-            db.prepare("SELECT connection_id, posture, databases FROM agent_grants")?;
+            db.prepare("SELECT connection_id, posture, databases, redact FROM agent_grants")?;
         let grants = statement
             .query_map([], |row| {
                 Ok(StoredGrant {
                     connection_id: row.get(0)?,
                     posture: row.get(1)?,
                     databases: row.get::<_, Option<String>>(2)?,
+                    redact: row.get::<_, Option<String>>(3)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -368,10 +372,15 @@ impl ConnectionStore {
             .lock()
             .map_err(|e| CoreError::Storage(e.to_string()))?;
         db.execute(
-            "INSERT INTO agent_grants (connection_id, posture, databases)
-             VALUES (?1, ?2, ?3)
-             ON CONFLICT(connection_id) DO UPDATE SET posture = ?2, databases = ?3",
-            params![grant.connection_id, grant.posture, grant.databases],
+            "INSERT INTO agent_grants (connection_id, posture, databases, redact)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(connection_id) DO UPDATE SET posture = ?2, databases = ?3, redact = ?4",
+            params![
+                grant.connection_id,
+                grant.posture,
+                grant.databases,
+                grant.redact
+            ],
         )?;
         Ok(())
     }
@@ -541,6 +550,7 @@ mod agent_grant_tests {
                 connection_id: "c1".into(),
                 posture: "samples".into(),
                 databases: Some(r#"["shop"]"#.into()),
+                redact: Some(r#"["pw"]"#.into()),
             })
             .unwrap();
 
@@ -548,6 +558,7 @@ mod agent_grant_tests {
         assert_eq!(grants.len(), 1);
         assert_eq!(grants[0].posture, "samples");
         assert_eq!(grants[0].databases.as_deref(), Some(r#"["shop"]"#));
+        assert_eq!(grants[0].redact.as_deref(), Some(r#"["pw"]"#));
     }
 
     #[test]
@@ -562,6 +573,7 @@ mod agent_grant_tests {
                     connection_id: "c1".into(),
                     posture: posture.into(),
                     databases: None,
+                    redact: None,
                 })
                 .unwrap();
         }
@@ -582,6 +594,7 @@ mod agent_grant_tests {
                 connection_id: "c1".into(),
                 posture: "full".into(),
                 databases: None,
+                redact: None,
             })
             .unwrap();
 
@@ -599,6 +612,7 @@ mod agent_grant_tests {
                 connection_id: "c1".into(),
                 posture: "full".into(),
                 databases: None,
+                redact: None,
             })
             .unwrap();
 

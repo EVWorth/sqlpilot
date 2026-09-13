@@ -360,10 +360,21 @@ export const api = {
   // endpoint and are answered in Rust.
   listAgentConnections: () => unwrap("list_agent_connections", () => commands.listAgentConnections()),
 
-  shareConnectionWithAgents: (connectionId: string, posture: DataPosture, databases?: string[]) =>
+  shareConnectionWithAgents: (
+    connectionId: string,
+    posture: DataPosture,
+    databases?: string[],
+    redact?: string[],
+  ) =>
     unwrap(
       "share_connection_with_agents",
-      () => commands.shareConnectionWithAgents(connectionId, posture, orNull(databases)),
+      () =>
+        commands.shareConnectionWithAgents(
+          connectionId,
+          posture,
+          orNull(databases),
+          orNull(redact),
+        ),
     ),
 
   revokeAgentConnection: (connectionId: string) =>

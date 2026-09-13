@@ -41,6 +41,11 @@ pub struct Grant {
     /// them; an empty list is a grant that exposes nothing, which the UI
     /// should not be able to produce but which is harmless if it does.
     pub databases: Option<Vec<String>>,
+    /// Column-name patterns whose values never leave, on top of the built-in
+    /// credential list. A bare word matches anywhere in the name; `*` is a
+    /// wildcard.
+    #[serde(default)]
+    pub redact: Vec<String>,
     /// Whether schema changes are permitted on a production connection.
     ///
     /// Deliberately not persisted with the rest — see [`Grants::unlock_ddl`].
@@ -55,8 +60,15 @@ impl Grant {
             connection_id: connection_id.into(),
             posture: DataPosture::Samples,
             databases: None,
+            redact: Vec::new(),
             ddl_unlocked: false,
         }
+    }
+
+    /// Redact these column-name patterns as well as the built-in list.
+    pub fn redacting(mut self, patterns: Vec<String>) -> Self {
+        self.redact = patterns;
+        self
     }
 
     pub fn with_posture(mut self, posture: DataPosture) -> Self {
@@ -202,6 +214,7 @@ impl Grants {
             posture: grant.posture,
             read_only: facts.read_only,
             ddl_unlocked: grant.ddl_unlocked,
+            redact: grant.redact.clone(),
         })
     }
 
@@ -344,6 +357,35 @@ mod tests {
         grants.revoke("c1");
         assert!(grants.is_empty());
         assert!(grants.policy_for(&facts("c1")).is_err());
+    }
+
+    #[test]
+    fn a_connections_own_patterns_reach_its_policy() {
+        // The policy is what every tool has in hand, so that is where the
+        // rules have to arrive.
+        let mut grants = Grants::default();
+        grants.set(Grant::new("c1").redacting(vec!["nino".into()]));
+        assert_eq!(
+            grants.policy_for(&facts("c1")).unwrap().redact,
+            vec!["nino"]
+        );
+    }
+
+    #[test]
+    fn patterns_survive_being_saved_and_read_back() {
+        let grant = Grant::new("c1").redacting(vec!["pw".into(), "*_enc".into()]);
+        let json = serde_json::to_string(&grant).unwrap();
+        let restored: Grant = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.redact, vec!["pw", "*_enc"]);
+    }
+
+    #[test]
+    fn a_grant_saved_before_patterns_existed_still_reads() {
+        // The field is new; grants on disk predate it.
+        let restored: Grant =
+            serde_json::from_str(r#"{"connectionId":"c1","posture":"samples","databases":null}"#)
+                .unwrap();
+        assert!(restored.redact.is_empty());
     }
 
     #[test]
