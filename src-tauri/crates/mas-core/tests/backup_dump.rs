@@ -175,7 +175,7 @@ async fn a_hostile_value_is_data_in_the_file_and_stays_data_on_restore() {
             format!("DROP DATABASE IF EXISTS `{target}`"),
             format!("CREATE DATABASE `{target}`"),
             format!("CREATE TABLE `{target}`.`victim` (id INT)"),
-            format!("SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'"),
+            "SET SESSION sql_mode = 'NO_BACKSLASH_ESCAPES'".to_string(),
         ],
     )
     .await;
