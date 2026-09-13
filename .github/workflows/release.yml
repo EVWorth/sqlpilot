@@ -110,8 +110,12 @@ jobs:
         working-directory: src-tauri
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
+      # Not mas-agent: its ignored tests drive a real agent CLI, which is not
+      # installed here and would not be logged in if it were. `--test-threads=1`
+      # for the same reason the two steps above use it — the database tests
+      # share fixture schemas, and running them at once makes them fight.
       - name: Run full suite with coverage
-        run: cargo tarpaulin -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp --out Lcov --output-dir coverage/ -- --include-ignored
+        run: cargo tarpaulin -p mas-core -p mas-export -p mas-admin -p mas-mcp --out Lcov --output-dir coverage/ -- --include-ignored --test-threads=1
         working-directory: src-tauri
       - name: Upload coverage artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
