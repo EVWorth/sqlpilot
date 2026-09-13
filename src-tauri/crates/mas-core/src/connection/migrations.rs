@@ -89,13 +89,27 @@ pub const MIGRATIONS: &[Migration] = &[
 /// a single named source of truth is helpful for docs and tests).
 pub const SCHEMA_VERSION: i64 = 7;
 
+/// Whether a failure means the change is already in place.
+///
+/// Matched on the message because that is what rusqlite gives: SQLite reports
+/// both of these as a generic error, with the detail only in the text. Narrow
+/// on purpose — anything else is a real failure and must stay one.
+fn already_applied(error: &rusqlite::Error) -> bool {
+    let message = error.to_string();
+    message.starts_with("duplicate column name:")
+        || message.starts_with("index ") && message.ends_with(" already exists")
+        || message.starts_with("table ") && message.ends_with(" already exists")
+}
+
 /// `PRAGMA user_version` reads 0 on a fresh DB (sqlite's default).
 /// Migrations start firing at version 1.
 ///
 /// Apply all migrations in `MIGRATIONS` whose version is greater than
 /// the current `PRAGMA user_version`. Each migration runs inside a
 /// transaction. On success, `user_version` is bumped to the new
-/// version. Idempotent — re-running on an up-to-date DB is a no-op.
+/// version. Idempotent — re-running on an up-to-date DB is a no-op, and a
+/// database that already has a migration's changes without the version to say
+/// so is recorded rather than refused.
 ///
 /// `up` is split on `;` and each non-empty statement is executed
 /// individually. Sqlite doesn't support multiple statements in
@@ -117,6 +131,20 @@ pub fn run(conn: &SqliteConn) -> Result<i64, rusqlite::Error> {
             }
             match conn.execute(trimmed, []) {
                 Ok(_) => {}
+                // A column this migration adds is already there. That is what
+                // a database written before this framework existed looks like:
+                // the old code ran the same `ALTER TABLE` at startup and never
+                // recorded a version, so `user_version` sits at 1 with the
+                // columns of version 5 already in place. Treating it as an
+                // error stranded those users on an empty in-memory store with
+                // their real connections still on disk, unreadable.
+                Err(e) if already_applied(&e) => {
+                    tracing::info!(
+                        version = m.v,
+                        name = m.name,
+                        "Migration was already applied by an older version; recording it",
+                    );
+                }
                 Err(e) => {
                     // Best-effort rollback. Even if the rollback fails,
                     // the next run will skip this migration if the
@@ -227,6 +255,102 @@ mod tests {
             .unwrap();
         let v = run(&conn).expect("run");
         assert_eq!(v, SCHEMA_VERSION);
+    }
+
+    #[test]
+    fn a_database_from_before_this_framework_is_adopted_rather_than_refused() {
+        // The shape found on a real machine upgrading to 1.0.0: every column
+        // through v5 present, because an older build added them at startup,
+        // and `user_version` still 1 because that build never recorded any.
+        // Refusing it sent the app to an empty in-memory store while the
+        // user's actual connections sat on disk, unreadable.
+        let conn = empty_db();
+        conn.execute_batch(
+            "CREATE TABLE connection_profiles (
+                id TEXT PRIMARY KEY, name TEXT NOT NULL, grp TEXT, color TEXT,
+                host TEXT NOT NULL, port INTEGER NOT NULL DEFAULT 3306,
+                username TEXT NOT NULL, password TEXT NOT NULL DEFAULT '',
+                default_database TEXT, ssh_config TEXT, ssl_config TEXT,
+                pool_min INTEGER NOT NULL DEFAULT 1,
+                pool_max INTEGER NOT NULL DEFAULT 5,
+                read_only INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+            )",
+        )
+        .unwrap();
+        for column in [
+            "env TEXT",
+            "connect_timeout_secs INTEGER",
+            "query_timeout_secs INTEGER",
+            "charset TEXT",
+        ] {
+            conn.execute(
+                &format!("ALTER TABLE connection_profiles ADD COLUMN {column}"),
+                [],
+            )
+            .unwrap();
+        }
+        conn.execute_batch("PRAGMA user_version = 1").unwrap();
+        conn.execute(
+            "INSERT INTO connection_profiles
+             (id, name, host, port, username, password, pool_min, pool_max, read_only,
+              created_at, updated_at)
+             VALUES ('p1', 'Unraid', '10.0.1.11', 3306, 'root', '', 1, 5, 0, 'now', 'now')",
+            [],
+        )
+        .unwrap();
+
+        let applied = run(&conn).expect("an older database is still openable");
+
+        assert_eq!(applied, SCHEMA_VERSION);
+        // The profile is still there — the point of the whole exercise.
+        let name: String = conn
+            .query_row("SELECT name FROM connection_profiles", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(name, "Unraid");
+        // And the migrations that had nothing to do with columns still ran.
+        let grants: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'agent_grants'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(grants, 1);
+    }
+
+    #[test]
+    fn a_real_failure_is_still_a_failure() {
+        // The tolerance is narrow on purpose: only "this is already here".
+        // A migration against a table that does not exist is a broken
+        // database, and pretending otherwise would hide it.
+        let conn = empty_db();
+        let error = run(&conn).err();
+        assert!(error.is_none(), "a fresh database migrates cleanly");
+
+        conn.execute_batch("DROP TABLE connection_profiles")
+            .unwrap();
+        conn.execute_batch("PRAGMA user_version = 1").unwrap();
+        assert!(
+            run(&conn).is_err(),
+            "a missing table is a real problem and must be reported"
+        );
+    }
+
+    #[test]
+    fn only_already_here_errors_are_tolerated() {
+        use rusqlite::Error;
+        let conn = empty_db();
+        run(&conn).unwrap();
+        let duplicate = conn
+            .execute("ALTER TABLE connection_profiles ADD COLUMN env TEXT", [])
+            .unwrap_err();
+        assert!(already_applied(&duplicate), "{duplicate}");
+
+        let missing: Error = conn
+            .execute("ALTER TABLE nope ADD COLUMN x TEXT", [])
+            .unwrap_err();
+        assert!(!already_applied(&missing), "{missing}");
     }
 
     #[test]
