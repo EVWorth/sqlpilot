@@ -244,6 +244,32 @@ jobs:
         with:
           args: ${{ matrix.args }}
 
+      # Tauri names the macOS updater bundle `SQLPilot.app.tar.gz`, with no
+      # architecture in it — so both macOS jobs produce the same filename, and
+      # merging the artifacts leaves whichever finished last. The updater
+      # manifest needs one per architecture and looks for `*_x64.app.tar.gz`
+      # and `*_aarch64.app.tar.gz`, which is what v0.4.0 shipped and what this
+      # puts back.
+      - name: Stage updater bundle (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dir="src-tauri/target/${{ matrix.rust_target }}/release/bundle/macos"
+          case "${{ matrix.rust_target }}" in
+            aarch64-*) arch=aarch64 ;;
+            *) arch=x64 ;;
+          esac
+          version=$(node -p "require('./package.json').version")
+          for suffix in "" ".sig"; do
+            from="$dir/SQLPilot.app.tar.gz$suffix"
+            to="$dir/SQLPilot_${version}_${arch}.app.tar.gz$suffix"
+            # Loudly: a silently missing updater bundle is how a release ships
+            # without one and nobody notices until an update does not arrive.
+            [ -f "$from" ] || { echo "Expected $from"; ls -la "$dir"; exit 1; }
+            mv "$from" "$to"
+          done
+
       # Stage the Windows portable exe under its public name so the upload job
       # can publish it as `SQLPilot.exe` (matches the historical asset name).
       - name: Stage portable exe (Windows)
@@ -310,7 +336,9 @@ jobs:
             artifacts/**/*.exe
             artifacts/**/*.dmg
             artifacts/**/*.sig
-            artifacts/**/*.tar.gz
+            # Only the macOS updater bundle: a .deb's insides are also
+            # .tar.gz, and `control.tar.gz` has no business on a release page.
+            artifacts/**/*.app.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
