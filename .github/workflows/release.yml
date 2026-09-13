@@ -85,6 +85,11 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Read pinned Rust version
         id: rust-toolchain-file
+        # bash explicitly: the default shell on a Windows runner is PowerShell,
+        # where `$(...)` and `$GITHUB_OUTPUT` mean nothing, so the step passes
+        # having written no output — and the toolchain action then fails with
+        # "toolchain is a required input", eight steps from the real cause.
+        shell: bash
         run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # v1
         with:
@@ -178,6 +183,11 @@ jobs:
 
       - name: Read pinned Rust version
         id: rust-toolchain-file
+        # bash explicitly: the default shell on a Windows runner is PowerShell,
+        # where `$(...)` and `$GITHUB_OUTPUT` mean nothing, so the step passes
+        # having written no output — and the toolchain action then fails with
+        # "toolchain is a required input", eight steps from the real cause.
+        shell: bash
         run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
 
       - name: Install Rust toolchain
