@@ -21,20 +21,20 @@ failed=0
 ok() { printf '  ok   %s\n' "$1"; passed=$((passed + 1)); }
 bad() { printf '  FAIL %s\n     %s\n' "$1" "$2"; failed=$((failed + 1)); }
 
-# The exact names the release actually publishes, taken from v0.4.0.
+# The exact names the release actually publishes, taken from v1.0.0.
 UPDATER_ARTIFACTS=(
   "SQLPilot_9.9.9_amd64.AppImage"
+  "SQLPilot_9.9.9_amd64.deb"
+  "SQLPilot-9.9.9-1.x86_64.rpm"
   "SQLPilot_9.9.9_x64_en-US.msi"
+  "SQLPilot_9.9.9_x64-setup.exe"
   "SQLPilot_9.9.9_x64.app.tar.gz"
   "SQLPilot_9.9.9_aarch64.app.tar.gz"
 )
-# Published for humans, and not update sources.
+# Published for humans, and not update sources: nothing can apply a .dmg.
 OTHER_ARTIFACTS=(
   "SQLPilot_9.9.9_x64.dmg"
   "SQLPilot_9.9.9_aarch64.dmg"
-  "SQLPilot_9.9.9_amd64.deb"
-  "SQLPilot-9.9.9-1.x86_64.rpm"
-  "SQLPilot_9.9.9_x64-setup.exe"
 )
 
 # A release directory with everything present. $1 = directory.
@@ -59,15 +59,32 @@ case_dir() {
 dir="$(case_dir complete)"
 if "$builder" 9.9.9 v9.9.9 "$dir" "$dir/latest.json" >/dev/null 2>&1; then
   keys="$(python3 -c "import json,sys;print(' '.join(sorted(json.load(open(sys.argv[1]))['platforms'])))" "$dir/latest.json")"
-  expected="darwin-aarch64 darwin-x86_64 linux-x86_64 windows-x86_64"
+  # Every key the plugin looks up: `{os}-{arch}-{installer}` for the format
+  # the running copy came from, then `{os}-{arch}` as the fallback.
+  expected="darwin-aarch64 darwin-aarch64-app darwin-x86_64 darwin-x86_64-app"
+  expected="$expected linux-x86_64 linux-x86_64-appimage linux-x86_64-deb linux-x86_64-rpm"
+  expected="$expected windows-x86_64 windows-x86_64-msi windows-x86_64-nsis"
   if [ "$keys" = "$expected" ]; then
-    ok "emits exactly the four keys the updater reads"
+    ok "emits every key the updater looks up"
   else
-    bad "emits exactly the four keys the updater reads" "got: $keys"
+    bad "emits every key the updater looks up" "got: $keys"
   fi
 
+  # The bug this table exists for: a .deb install looks up
+  # `linux-x86_64-deb` before anything else, and finding nothing there sent
+  # it to an AppImage it cannot apply.
+  for pair in "linux-x86_64-deb:.deb" "linux-x86_64-rpm:.rpm" "windows-x86_64-nsis:-setup.exe"; do
+    key="${pair%%:*}"
+    want="${pair#*:}"
+    url="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['platforms'][sys.argv[2]]['url'])" "$dir/latest.json" "$key")"
+    case "$url" in
+      *"$want") ok "$key points at the $want" ;;
+      *) bad "$key points at the $want" "got: $url" ;;
+    esac
+  done
+
   # The heart of #566: macOS must point at the tarball, never the disk image.
-  for key in darwin-x86_64 darwin-aarch64; do
+  for key in darwin-x86_64 darwin-aarch64 darwin-x86_64-app darwin-aarch64-app; do
     url="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['platforms'][sys.argv[2]]['url'])" "$dir/latest.json" "$key")"
     case "$url" in
       *.app.tar.gz) ok "$key points at the .app.tar.gz" ;;

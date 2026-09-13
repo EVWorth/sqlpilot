@@ -165,11 +165,12 @@ git push origin v0.4.0
     → all 4 platform families present
 [ ] gh api repos/EVWorth/sqlpilot/releases | jq '.[] | select(.tag_name == "v<X.Y.Z>") | .draft'
     → exactly ONE release for the tag, draft=true
-[ ] latest.json has exactly four platform keys — linux-x86_64,
-    windows-x86_64, darwin-x86_64, darwin-aarch64 — each pointing at the one
-    format that platform's updater can apply. Keys like `linux-x86_64-rpm`
-    were removed in #572: nothing reads them, and listing them made the
-    manifest look as though those formats were covered.
+[ ] latest.json has all eleven platform keys. The updater looks up
+    `{os}-{arch}-{installer}` first — appimage, deb, rpm, app, msi, nsis —
+    and `{os}-{arch}` as a fallback, so a .deb install finds the .deb and an
+    .rpm install finds the .rpm. #572 removed the suffixed keys believing
+    nothing read them; a 1.0.0 log searching for `linux-x86_64-rpm` proved
+    otherwise, and #691 put them back.
 [ ] (Optional but recommended) Manual smoke test of update from previous version
 ```
 
