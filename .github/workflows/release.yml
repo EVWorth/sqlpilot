@@ -328,6 +328,11 @@ jobs:
           draft: true
           prerelease: false
           fail_on_unmatched_files: true
+          # Only the macOS updater bundle among the tarballs: a .deb's insides
+          # are also .tar.gz, and `control.tar.gz` has no business on a release
+          # page. The comment lives here rather than inside the list — a block
+          # scalar has no comments, only lines, and a `#` in one is a glob that
+          # matches nothing.
           files: |
             artifacts/**/*.AppImage
             artifacts/**/*.deb
@@ -336,8 +341,6 @@ jobs:
             artifacts/**/*.exe
             artifacts/**/*.dmg
             artifacts/**/*.sig
-            # Only the macOS updater bundle: a .deb's insides are also
-            # .tar.gz, and `control.tar.gz` has no business on a release page.
             artifacts/**/*.app.tar.gz
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
