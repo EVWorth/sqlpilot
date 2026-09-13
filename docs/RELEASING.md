@@ -41,7 +41,7 @@ gh release view v<NEW_VERSION> --json assets | \
     [print(' ', a['name']) for a in sorted(d['assets'], key=lambda x: x['name'])]"
 ```
 
-Expected output: 17+ assets including `latest.json`, `*.AppImage`, `*.deb`, `*x86_64.rpm` (Linux), `*aarch64.dmg` + `*x64.dmg` (macOS), `*x64-setup.exe` + `*x64_en-US.msi` (Windows), `SQLPilot.exe` (Windows portable).
+Expected output: 18 assets including `latest.json`, `*.AppImage`, `*.deb`, `*x86_64.rpm` (Linux), `*aarch64.dmg` + `*x64.dmg` (macOS), `*x64-setup.exe` + `*x64_en-US.msi` (Windows), `SQLPilot.exe` (Windows portable).
 
 ---
 
@@ -165,6 +165,31 @@ git push origin v0.4.0
     → all 4 platform families present
 [ ] gh api repos/EVWorth/sqlpilot/releases | jq '.[] | select(.tag_name == "v<X.Y.Z>") | .draft'
     → exactly ONE release for the tag, draft=true
-[ ] latest.json has linux-x86_64-rpm key
+[ ] latest.json has exactly four platform keys — linux-x86_64,
+    windows-x86_64, darwin-x86_64, darwin-aarch64 — each pointing at the one
+    format that platform's updater can apply. Keys like `linux-x86_64-rpm`
+    were removed in #572: nothing reads them, and listing them made the
+    manifest look as though those formats were covered.
 [ ] (Optional but recommended) Manual smoke test of update from previous version
 ```
+
+## What the v1.0.0 cut ran into
+
+Six tags. The release pipeline was rewritten in July — build split from
+upload — and v0.4.0 was cut two days before that landed, so v1.0.0 was the
+first release to execute any of it. Every failure below was waiting in `main`
+for someone to try:
+
+| Failure                                    | Cause                                                                                                                                                    |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Coverage step failed, blocking every build | `--include-ignored` reached the live agent tests, and the database suites ran in parallel and dropped each other's fixtures                              |
+| Both macOS builds: "No files were found"   | The bundles go to `target/<triple>/release/bundle` when `--target` is passed; the upload looked in `target/release/bundle`                               |
+| Windows: toolchain install failed in 19s   | `$(sed ...)` and `$GITHUB_OUTPUT` are bash, and Windows runners default to PowerShell. The step "succeeded" having written nothing                       |
+| Update manifest refused to write           | Tauri now names the updater bundle `SQLPilot.app.tar.gz` with no architecture, so both macOS jobs produced the same filename and one overwrote the other |
+| Upload rejected a glob                     | A `#` comment inside a YAML block scalar is a line, not a comment — self-inflicted, twenty minutes old                                                   |
+
+Two lessons worth keeping. **Cut a release after changing the release
+workflow**, even a no-op one — every one of these was invisible until the
+pipeline actually ran. And the loud failures earned their keep:
+`if-no-files-found: error` and the manifest's refusal to guess are what turned
+four silent partial releases into four red jobs.
