@@ -39,7 +39,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 
 [package]
 name = "sqlpilot"
-version = "0.4.0"
+version = "1.0.0"
 edition = "2021"
 description = "AI-powered MySQL GUI management tool"
 
