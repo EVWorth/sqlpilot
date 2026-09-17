@@ -1,4 +1,5 @@
 import { AlertTriangle } from "lucide-react";
+import { Modal } from "./Modal";
 
 interface Props {
   isOpen: boolean;
@@ -21,11 +22,15 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: Props) {
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60">
-      <div className="w-[420px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
+    <Modal
+      isOpen={isOpen}
+      onClose={onCancel}
+      label={title}
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
+      panelClassName="w-[420px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
+    >
+      <div>
         <div className="flex items-start gap-3 p-4">
           {danger && (
             <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-500/20">
@@ -60,6 +65,6 @@ export function ConfirmDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

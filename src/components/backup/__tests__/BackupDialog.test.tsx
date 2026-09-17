@@ -139,12 +139,15 @@ describe("BackupDialog", () => {
       expect(onClose).toHaveBeenCalledTimes(1);
     });
 
-    it("calls onClose when overlay clicked", () => {
+    it("calls onClose when the overlay is pressed", () => {
+      // mousedown rather than click: a drag that starts inside the dialog and
+      // releases over the backdrop should not throw the dialog away, so the
+      // shared Modal keys off where the press began.
       const onClose = vi.fn();
       render(<BackupDialog isOpen={true} onClose={onClose} />);
       const overlay = document.querySelector(".bg-black\\/50");
       expect(overlay).toBeTruthy();
-      if (overlay) fireEvent.click(overlay);
+      if (overlay) fireEvent.mouseDown(overlay);
       expect(onClose).toHaveBeenCalledTimes(1);
     });
 
