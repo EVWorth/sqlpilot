@@ -6,7 +6,35 @@ import { useThemeStore } from "../../stores/themeStore";
 import { FeatureButtons } from "./FeatureButtons";
 import { MenuBar } from "./MenuBar";
 
-const appWindow = getCurrentWindow();
+/**
+ * The Tauri window, or null when the UI is running in a plain browser.
+ *
+ * Resolved on first use rather than at module scope. `getCurrentWindow()`
+ * throws when Tauri's internals are absent, and a throw while this module is
+ * evaluating takes the whole app down before React renders anything — which
+ * is exactly what `just dev-web` did, white screen and all, despite the README
+ * offering it as the way to work on the UI.
+ *
+ * Every window control below is a no-op in the browser, which is the honest
+ * outcome: there is no native window frame there to minimize or close.
+ */
+let resolved: Window | null | undefined;
+type Window = ReturnType<typeof getCurrentWindow>;
+
+function appWindow(): Window | null {
+  if (resolved === undefined) {
+    // Asked rather than sniffed: `getCurrentWindow()` throws outside Tauri,
+    // and catching that is the question we actually mean. Checking for a
+    // global instead would also answer "no" to a test that has mocked this
+    // module, which is a different question with the same shape.
+    try {
+      resolved = getCurrentWindow();
+    } catch {
+      resolved = null;
+    }
+  }
+  return resolved;
+}
 
 // Restore icon: two overlapping squares
 function RestoreIcon() {
@@ -42,9 +70,11 @@ export function TitleBar(
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
-    appWindow.isMaximized().then(setIsMaximized);
-    appWindow.onResized(() => {
-      appWindow.isMaximized().then(setIsMaximized);
+    const win = appWindow();
+    if (!win) return;
+    void win.isMaximized().then(setIsMaximized);
+    void win.onResized(() => {
+      void win.isMaximized().then(setIsMaximized);
     }).then((fn) => {
       unlisten = fn;
     });
@@ -70,7 +100,7 @@ export function TitleBar(
   }, [systemMenu]);
 
   function startDrag(e: React.MouseEvent) {
-    if (e.button === 0) appWindow.startDragging();
+    if (e.button === 0) appWindow()?.startDragging();
   }
 
   function handleSpacerMouseDown(e: React.MouseEvent) {
@@ -78,10 +108,10 @@ export function TitleBar(
     const now = Date.now();
     if (now - lastClickTime.current < 400) {
       lastClickTime.current = 0;
-      appWindow.toggleMaximize();
+      appWindow()?.toggleMaximize();
     } else {
       lastClickTime.current = now;
-      appWindow.startDragging();
+      appWindow()?.startDragging();
     }
   }
 
@@ -96,13 +126,13 @@ export function TitleBar(
   }
 
   const sysMenuItems = [
-    { id: "restore", label: "Restore", disabled: !isMaximized, action: () => appWindow.unmaximize() },
+    { id: "restore", label: "Restore", disabled: !isMaximized, action: () => appWindow()?.unmaximize() },
     { id: "move", label: "Move", disabled: true, action: null },
     { id: "size", label: "Size", disabled: true, action: null },
-    { id: "minimize", label: "Minimize", disabled: false, action: () => appWindow.minimize() },
-    { id: "maximize", label: "Maximize", disabled: isMaximized, action: () => appWindow.maximize() },
+    { id: "minimize", label: "Minimize", disabled: false, action: () => appWindow()?.minimize() },
+    { id: "maximize", label: "Maximize", disabled: isMaximized, action: () => appWindow()?.maximize() },
     null,
-    { id: "close", label: "Close", shortcut: "Alt+F4", disabled: false, action: () => appWindow.close() },
+    { id: "close", label: "Close", shortcut: "Alt+F4", disabled: false, action: () => appWindow()?.close() },
   ] as const;
 
   const winBtn =
@@ -153,18 +183,18 @@ export function TitleBar(
 
       {/* Window controls */}
       <div className="flex h-full" onContextMenu={(e) => e.stopPropagation()}>
-        <button onClick={() => appWindow.minimize()} className={winBtn} title="Minimize">
+        <button onClick={() => appWindow()?.minimize()} className={winBtn} title="Minimize">
           <Minus className="h-3.5 w-3.5" />
         </button>
         <button
-          onClick={() => appWindow.toggleMaximize()}
+          onClick={() => appWindow()?.toggleMaximize()}
           className={winBtn}
           title={isMaximized ? "Restore" : "Maximize"}
         >
           {isMaximized ? <RestoreIcon /> : <Square className="h-3 w-3" />}
         </button>
         <button
-          onClick={() => appWindow.close()}
+          onClick={() => appWindow()?.close()}
           className="flex h-full w-11 items-center justify-center text-[var(--color-text-muted)] hover:bg-red-600 hover:text-white transition-colors"
           title="Close"
         >
