@@ -17,6 +17,12 @@ export default defineConfig({
       enabled: true,
       provider: playwright(),
       headless: true,
+      // A desktop window, because that is what this app is. The default is
+      // 414×896 — a phone — which put the title bar's window controls at
+      // x=430, off the right edge and beyond anything `elementFromPoint` can
+      // reach. Any test measuring where things are needs the viewport to be
+      // somewhere they fit.
+      viewport: { width: 1280, height: 800 },
       instances: [
         { browser: "chromium" },
       ],
