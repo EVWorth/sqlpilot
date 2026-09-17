@@ -738,7 +738,7 @@ export function ImportDialog({
           <button
             onClick={handleImportSql}
             disabled={!filePath || importing || progress?.done === true}
-            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {importing ? "Executing..." : "Execute SQL"}
           </button>
@@ -751,7 +751,7 @@ export function ImportDialog({
               || Object.values(columnMapping).filter(Boolean).length === 0
               || importing
               || progress?.done === true}
-            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             {importing ? "Importing..." : "Import CSV"}
           </button>

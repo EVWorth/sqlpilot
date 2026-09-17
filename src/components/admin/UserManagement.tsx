@@ -175,7 +175,7 @@ export function UserManagement({ connectionId }: UserManagementProps) {
           <button
             onClick={() => setShowCreateDialog(true)}
             title="Create User"
-            className="flex h-7 items-center gap-1 rounded bg-brand-600 px-2 text-xs font-medium text-white hover:bg-brand-500 transition-colors"
+            className="flex h-7 items-center gap-1 rounded bg-brand-600 px-2 text-xs font-medium text-white hover:bg-brand-700 transition-colors"
           >
             <UserPlus className="h-3.5 w-3.5" />
             New

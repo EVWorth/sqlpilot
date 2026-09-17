@@ -48,7 +48,7 @@ export class ErrorBoundary extends Component<Props, State> {
           </div>
           <button
             onClick={this.handleReload}
-            className="inline-flex items-center gap-2 rounded bg-brand-500 px-4 py-2 text-sm font-medium text-white hover:bg-brand-600"
+            className="inline-flex items-center gap-2 rounded bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700"
           >
             <RefreshCw className="h-4 w-4" />
             Reload Application

@@ -156,7 +156,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
           <button
             onClick={() => void handleSave(onClose)}
             disabled={!canSave}
-            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50"
+            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save"}
           </button>

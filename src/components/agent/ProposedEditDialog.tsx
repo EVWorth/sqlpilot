@@ -134,7 +134,7 @@ export function ProposedEditDialog() {
             type="button"
             onClick={() => void decide(true)}
             disabled={sending}
-            className="flex items-center gap-1 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500"
+            className="flex items-center gap-1 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700"
           >
             <Check className="h-3 w-3" />
             Accept

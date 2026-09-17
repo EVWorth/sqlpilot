@@ -58,7 +58,7 @@ export function UserDetail({
               <div className="flex items-center gap-1">
                 <button
                   onClick={onDropUser}
-                  className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-500"
+                  className="rounded bg-red-600 px-2 py-1 text-xs font-medium text-white hover:bg-red-700"
                 >
                   Confirm Drop
                 </button>
