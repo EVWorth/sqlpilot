@@ -21,6 +21,7 @@ import { ApprovalDialog } from "../agent/ApprovalDialog";
 import { ProposedEditDialog } from "../agent/ProposedEditDialog";
 import { BackupDialog } from "../backup/BackupDialog";
 import { RestoreDialog } from "../backup/RestoreDialog";
+import { CommandPalette } from "../common/CommandPalette";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
 import { HistoryQuickOpen } from "../history/HistoryQuickOpen";
@@ -300,6 +301,9 @@ export function AppLayout() {
         {agentPanelOpen && <AgentPanel onClose={() => setAgentPanelOpen(false)} />}
       </div>
       <StatusBar />
+      {/* Always mounted: it listens for its own chord and opens itself. */}
+      <CommandPalette />
+
       <ShortcutsDialog
         isOpen={openDialogName === "help"}
         onClose={closeDialog}
