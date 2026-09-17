@@ -39,6 +39,8 @@ test-results/
 src-tauri/gen/
 src-tauri/query-results-*
 .vitest-attachments/
+# vitest 5 moved attachments here (was .vitest-attachments/)
+.vitest/
 __screenshots__/
 
 # Agent runtime artifacts (regenerated per sweep, never source)

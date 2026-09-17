@@ -28,26 +28,43 @@ vi.mock("../App", () => ({
 vi.mock("../styles/globals.css", () => ({}));
 
 describe("main.tsx entry point", () => {
+  // What loading the module did, copied out before the assertions run.
+  //
+  // Loading is a one-time side effect, and vitest clears mock calls before
+  // each test — so by the time the first assertion looks at a mock, the calls
+  // made at import are gone. Recording them keeps this readable and matches
+  // the browser twin of this file, where re-importing is not even possible.
+  let atImport: {
+    createRoot: unknown[][];
+    render: unknown[][];
+    loaderConfig: unknown[][];
+  };
+
   beforeAll(async () => {
     const rootEl = document.createElement("div");
     rootEl.id = "root";
     document.body.appendChild(rootEl);
     await import("../main");
+
+    const copy = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.map((call) => [...call]);
+    atImport = {
+      createRoot: copy(mockCreateRoot),
+      render: copy(mockRender),
+      loaderConfig: copy(mockLoaderConfig),
+    };
   });
 
   it("calls createRoot with the root element", () => {
-    const rootEl = document.getElementById("root");
-    expect(mockCreateRoot).toHaveBeenCalledWith(rootEl);
+    expect(atImport.createRoot[0]?.[0]).toBe(document.getElementById("root"));
   });
 
   it("calls render with StrictMode and App", () => {
-    expect(mockRender).toHaveBeenCalled();
-    const rendered = mockRender.mock.calls[0]?.[0];
-    expect(rendered).toBeDefined();
+    expect(atImport.render).toHaveLength(1);
+    expect(atImport.render[0]?.[0]).toBeDefined();
   });
 
   it("configures the Monaco loader", () => {
-    expect(mockLoaderConfig).toHaveBeenCalledWith(
+    expect(atImport.loaderConfig[0]?.[0]).toEqual(
       expect.objectContaining({ monaco: expect.any(Object) }),
     );
   });
