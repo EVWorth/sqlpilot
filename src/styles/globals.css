@@ -51,12 +51,49 @@
     --color-border: #d1d5db;
     --color-text-primary: #1f2937;
     --color-text-secondary: #4b5563;
-    --color-text-muted: #9ca3af;
+    --color-text-muted: #646870;
     --color-accent: #2563eb;
-    --color-success: #16a34a;
-    --color-warning: #ca8a04;
-    --color-error: #dc2626;
+    --color-success: #107937;
+    --color-warning: #8b5f03;
+    --color-error: #ca2323;
     color-scheme: light;
+  }
+
+  /*
+   * One focus ring for the whole app.
+   *
+   * Without this the indicator is whatever the webview draws by default — a
+   * 1px hairline, and a different one on each of the three engines this app
+   * ships against, which sits badly beside a cross-platform parity promise
+   * and a keyboard-first one.
+   *
+   * `:where()` keeps specificity at zero, so any component that needs its own
+   * treatment overrides this without a fight. `:focus-visible` rather than
+   * `:focus` so a mouse click does not leave a ring behind it.
+   */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+    border-radius: inherit;
+  }
+
+  /*
+   * Honour a reduced-motion request.
+   *
+   * Not a taste setting: for some people motion is a migraine or vertigo
+   * trigger, and the OS switch is how they say so. Near-zero rather than
+   * `none` so transitionend still fires and anything waiting on it keeps
+   * working instead of hanging.
+   */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 
   body {

@@ -23,9 +23,9 @@ import type { ConnectionEnvironment } from "../../types";
 import { UpdateErrorDetails } from "./UpdateErrorDetails";
 
 const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
-  production: { label: "PROD", className: "bg-red-500/20 text-red-400" },
-  staging: { label: "STG", className: "bg-yellow-500/20 text-yellow-400" },
-  development: { label: "DEV", className: "bg-green-500/20 text-green-400" },
+  production: { label: "PROD", className: "bg-red-500/20 text-[var(--color-error)]" },
+  staging: { label: "STG", className: "bg-yellow-500/20 text-[var(--color-warning)]" },
+  development: { label: "DEV", className: "bg-green-500/20 text-[var(--color-success)]" },
 };
 
 function formatTime(ms: number): string {
@@ -193,7 +193,7 @@ export function StatusBar() {
                   {activeConn.name} — {activeConn.host}:{activeConn.port}
                 </span>
                 {copied
-                  ? <Check className="h-2.5 w-2.5 text-green-400" />
+                  ? <Check className="h-2.5 w-2.5 text-[var(--color-success)]" />
                   : <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100" />}
               </button>
               {envBadge && (
@@ -213,7 +213,7 @@ export function StatusBar() {
                 <span
                   data-testid="connection-lost"
                   title={health.error ?? undefined}
-                  className="flex items-center gap-1 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-medium text-red-400"
+                  className="flex items-center gap-1 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-error)]"
                 >
                   <AlertTriangle className="h-2.5 w-2.5" />
                   Lost — retrying ({health.consecutiveFailures})
@@ -236,7 +236,7 @@ export function StatusBar() {
               {keyringAvailable === false && (
                 <span
                   title="No OS credential store was available at startup, so connection passwords are kept only for this session."
-                  className="flex items-center gap-1 rounded bg-yellow-500/15 px-1.5 py-0.5 text-[9px] font-medium text-yellow-400"
+                  className="flex items-center gap-1 rounded bg-yellow-500/15 px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-warning)]"
                 >
                   <KeyRound className="h-2.5 w-2.5" />
                   Passwords not saved
@@ -254,7 +254,7 @@ export function StatusBar() {
         {connectionError && (
           <button
             onClick={clearConnectionError}
-            className="flex items-center gap-1 text-[10px] text-red-400 max-w-[300px] hover:text-red-300 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
             title="Connection error — click to dismiss"
           >
             <AlertCircle className="h-3 w-3 flex-shrink-0" />
@@ -280,7 +280,7 @@ export function StatusBar() {
           <button
             key={key}
             onClick={() => dismissStorageError(key as StorageErrorKey)}
-            className="flex items-center gap-1 text-[10px] text-yellow-400 max-w-[300px] hover:text-yellow-300 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-[var(--color-warning)] max-w-[300px] hover:text-[var(--color-warning)] transition-colors"
             title={`${message} — click to dismiss`}
           >
             <AlertTriangle className="h-3 w-3 flex-shrink-0" />
@@ -290,7 +290,7 @@ export function StatusBar() {
         {error && !isExecuting && (
           <button
             onClick={() => setShowFullError(!showFullError)}
-            className="flex items-center gap-1 text-[10px] text-red-400 max-w-[300px] hover:text-red-300 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
             title={showFullError ? error : "Click to expand error"}
           >
             <AlertCircle className="h-3 w-3 flex-shrink-0" />
@@ -300,7 +300,7 @@ export function StatusBar() {
           </button>
         )}
         {warningsCount > 0 && !isExecuting && (
-          <div className="flex items-center gap-1 text-[10px] text-yellow-400">
+          <div className="flex items-center gap-1 text-[10px] text-[var(--color-warning)]">
             <AlertTriangle className="h-3 w-3" />
             {warningsCount} warning{warningsCount !== 1 ? "s" : ""}
           </div>
@@ -323,7 +323,7 @@ export function StatusBar() {
                 setShowUpdateConfirm((open) =>
                   !open
                 )}
-              className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
+              className="flex items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-green-300 transition-colors"
               title={`Update v${updateVersion} available`}
             >
               <Download className="h-3 w-3" />
@@ -385,7 +385,7 @@ export function StatusBar() {
             /* Downloading and restarting are separate: the app closing is the
                part that can lose work, so it waits to be asked (#344). */
             onClick={() => void restartToApply()}
-            className="flex items-center gap-1 text-[10px] text-green-400 hover:text-green-300 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-green-300 transition-colors"
             title={`v${updateVersion} is installed — restart to finish`}
           >
             <RefreshCw className="h-3 w-3" />
@@ -395,7 +395,7 @@ export function StatusBar() {
         {updateStatus === "manual-update-required" && manualUpdateCommand && (
           <button
             onClick={handleCopyManualCommand}
-            className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-[var(--color-warning)] hover:text-[var(--color-warning)] transition-colors"
             title={`Click to copy: ${manualUpdateCommand}\n(then run in a terminal; reboot to apply)`}
           >
             <Terminal className="h-3 w-3" />
@@ -441,7 +441,7 @@ export function StatusBar() {
           title="Check for updates"
         >
           {appVersion && `v${appVersion}`}
-          {updateStatus === "up-to-date" && <Check className="h-2.5 w-2.5 text-green-400" />}
+          {updateStatus === "up-to-date" && <Check className="h-2.5 w-2.5 text-[var(--color-success)]" />}
         </button>
       </div>
     </div>
