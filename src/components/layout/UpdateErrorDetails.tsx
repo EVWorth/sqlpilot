@@ -115,7 +115,7 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
         ref={triggerRef}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 text-[10px] text-[var(--color-warning)] hover:text-[var(--color-warning)] transition-colors"
+        className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-warning)] hover:text-[var(--color-warning)] transition-colors"
         title={updateError
           ? `Update failed: ${updateError} — click for details`
           : "Update check failed — click for details"}

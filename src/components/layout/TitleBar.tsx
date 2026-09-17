@@ -139,7 +139,9 @@ export function TitleBar(
     "flex h-full w-11 items-center justify-center text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] transition-colors";
   const toolBtn = (disabled = false) =>
     clsx(
-      "flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
+      // min-h-6 rather than more padding: the row is only 36px tall, and a
+      // 24px target is the floor WCAG 2.2 asks for (SC 2.5.8).
+      "flex min-h-6 items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
       disabled
         ? "text-[var(--color-text-muted)] opacity-40 cursor-not-allowed"
         : "text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]",
@@ -172,7 +174,9 @@ export function TitleBar(
           aiEnabled={aiEnabled}
           buttonClassName={toolBtn}
           activeButtonClassName={clsx(
-            "flex items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
+            // min-h-6 rather than more padding: the row is only 36px tall, and a
+            // 24px target is the floor WCAG 2.2 asks for (SC 2.5.8).
+            "flex min-h-6 items-center gap-1 rounded px-2 py-0.5 text-xs transition-colors",
             "bg-brand-600/20 text-brand-400",
           )}
         />

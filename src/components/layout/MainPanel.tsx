@@ -53,7 +53,9 @@ export function MainPanel() {
                 <Panel defaultSize="50%" minSize="20%">
                   <SQLEditor />
                 </Panel>
-                <Separator className="h-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500" />
+                <Separator // As in AppLayout: the visible line is unchanged, the grab area
+                 // around it reaches the 24px floor.
+                className="relative z-10 h-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500 after:absolute after:inset-x-0 after:-top-2.5 after:-bottom-2.5 after:content-['']" />
                 <Panel defaultSize="50%" minSize="20%">
                   <ResultsPanel
                     showExplain={showExplain}
