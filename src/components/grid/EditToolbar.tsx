@@ -72,7 +72,7 @@ export function EditToolbar({
             disabled={!hasChanges || isSaving}
             className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium ${
               hasChanges && !isSaving
-                ? "bg-green-600 text-white hover:bg-green-700"
+                ? "bg-green-700 text-white hover:bg-green-700"
                 : "cursor-not-allowed text-[var(--color-text-muted)] opacity-50"
             }`}
           >

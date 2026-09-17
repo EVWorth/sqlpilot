@@ -141,7 +141,7 @@ export function ChangePasswordDialog({
         <button
           onClick={handleSave}
           disabled={!isValid || saving}
-          className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
         >
           {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
           Change Password

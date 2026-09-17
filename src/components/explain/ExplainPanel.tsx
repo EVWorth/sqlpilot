@@ -746,7 +746,7 @@ function CancelButton() {
     <button
       onClick={() => void cancelActiveQuery()}
       title="Cancel the running statement"
-      className="ml-2 flex items-center gap-1 rounded bg-red-600/90 px-1.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-red-500"
+      className="ml-2 flex items-center gap-1 rounded bg-red-600/90 px-1.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-red-700"
     >
       <Square className="h-2.5 w-2.5 fill-current" />
       Cancel

@@ -104,7 +104,7 @@ function PermissionRow(
                 type="button"
                 onClick={() => onAnswer(option.id)}
                 className={option.kind.startsWith("allow")
-                  ? "rounded bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-500"
+                  ? "rounded bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700"
                   : "rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"}
               >
                 {option.label}
@@ -279,7 +279,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
                     type="button"
                     disabled={starting}
                     onClick={() => void start(h.harness as Harness)}
-                    className="rounded bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-500 disabled:opacity-60"
+                    className="rounded bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-60"
                   >
                     {starting ? "Starting…" : `Start ${h.label}`}
                     {h.version && <span className="ml-1 font-normal opacity-80">({h.version})</span>}
@@ -348,7 +348,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
                       type="button"
                       onClick={submit}
                       disabled={!draft.trim()}
-                      className="flex items-center gap-1 rounded bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-500 disabled:opacity-50"
+                      className="flex items-center gap-1 rounded bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
                     >
                       <Send className="h-3 w-3" />
                       Send

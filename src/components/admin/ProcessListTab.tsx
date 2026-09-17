@@ -212,14 +212,14 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
                         <button
                           onClick={() => handleKill(p.id, "query")}
                           title="Abort the running statement, keep the session"
-                          className="rounded bg-amber-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-amber-500"
+                          className="rounded bg-amber-700 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-amber-800"
                         >
                           Kill query
                         </button>
                         <button
                           onClick={() => handleKill(p.id, "connection")}
                           title="Disconnect the session entirely, discarding its transaction"
-                          className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-500"
+                          className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-700"
                         >
                           Kill connection
                         </button>

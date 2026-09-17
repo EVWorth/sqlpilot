@@ -144,8 +144,8 @@ export function ApprovalDialog({ approval: given }: ApprovalDialogProps = {}) {
           onClick={() => void decide(true)}
           disabled={sending}
           className={production
-            ? "flex items-center gap-1 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
-            : "flex items-center gap-1 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500"}
+            ? "flex items-center gap-1 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700"
+            : "flex items-center gap-1 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700"}
         >
           <Check className="h-3 w-3" />
           {approval.change === "schema" ? "Run it" : "Apply"}

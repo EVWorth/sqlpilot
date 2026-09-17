@@ -421,7 +421,7 @@ export function RestoreDialog({
         <button
           onClick={handleRestore}
           disabled={!connectionId || !database || !filePath || restoring}
-          className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-500 disabled:opacity-50"
+          className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
         >
           {restoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <HardDriveUpload className="h-3.5 w-3.5" />}
           {restoring ? "Restoring..." : "Restore"}

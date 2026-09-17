@@ -281,7 +281,7 @@ export function SaveFavoriteDialog({
           <button
             onClick={handleSave}
             disabled={!name.trim() || conflictId !== null}
-            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
+            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
           >
             Save Favorite
           </button>

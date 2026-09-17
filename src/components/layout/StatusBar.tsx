@@ -362,7 +362,7 @@ export function StatusBar() {
                       setShowUpdateConfirm(false);
                       void installUpdate();
                     }}
-                    className="flex-1 rounded bg-brand-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-brand-500"
+                    className="flex-1 rounded bg-brand-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-brand-700"
                   >
                     Download
                   </button>

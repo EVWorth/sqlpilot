@@ -223,7 +223,7 @@ export function EditUserDialog(
         <button
           onClick={() => void handleSave()}
           disabled={saving || statements.length === 0}
-          className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
+          className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:cursor-not-allowed disabled:opacity-40"
         >
           {saving && <Loader2 className="h-3 w-3 animate-spin" />}
           Apply
