@@ -22,6 +22,21 @@ export default defineConfig({
       ],
     },
   },
+  // Pre-bundle monaco up front, or it is discovered mid-run.
+  //
+  // Vite's scanner starts from the app entry and does not reach monaco through
+  // the test files, so on a cold cache it optimized monaco *during* the run,
+  // announced "optimized dependencies changed. reloading", and reloaded the
+  // page underneath tests that were already executing. What came out the other
+  // side was a hundred failures wearing unrelated costumes — "Failed to fetch
+  // dynamically imported module", "Invalid hook call", files collecting zero
+  // tests — none of which point at the reload that caused them.
+  //
+  // Only ever visible on a cold cache, which is why a warm working copy passed
+  // and CI, which is always cold, was one scheduling accident from failing.
+  optimizeDeps: {
+    include: ["monaco-editor"],
+  },
   css: {
     postcss: "./postcss.config.js",
   },
