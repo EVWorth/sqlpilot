@@ -13,6 +13,7 @@ import {
 } from "../../lib/themes";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { allThemes, useThemeStore } from "../../stores/themeStore";
+import { Modal } from "../common/Modal";
 
 /**
  * Choosing, editing, importing and exporting themes.
@@ -106,120 +107,121 @@ export function ThemeSettingsDialog({ isOpen, onClose }: ThemeSettingsDialogProp
     "h-7 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 text-xs text-[var(--color-text-primary)] focus:border-brand-500 focus:outline-none";
 
   return (
-    <div
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      label="Themes"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={(e) => e.target === e.currentTarget && onClose()}
+      panelClassName="flex max-h-[80vh] w-[34rem] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-xl"
     >
-      <div className="flex max-h-[80vh] w-[34rem] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-xl">
-        <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
-          <Palette className="h-4 w-4 text-[var(--color-text-muted)]" />
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Appearance</h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="ml-auto rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-y-auto p-4">
-          {draft
-            ? (
-              <ThemeEditor
-                draft={draft}
-                onChange={setDraft}
-                onCancel={() => setDraft(null)}
-                onSave={handleSave}
-                field={field}
-              />
-            )
-            : (
-              <>
-                <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Theme
-                </p>
-                <div className="space-y-1">
-                  <ThemeRow
-                    name="Follow the system"
-                    detail="Dark or light, whichever the OS is set to"
-                    selected={theme === "system"}
-                    onSelect={() => setTheme("system")}
-                  />
-                  {available.map((t) => (
-                    <ThemeRow
-                      key={t.id}
-                      name={t.name}
-                      detail={t.builtIn ? "Built in" : "Custom"}
-                      swatch={t.colors}
-                      selected={theme === t.id}
-                      onSelect={() => setTheme(t.id)}
-                      onEdit={() => setDraft(t.builtIn ? derive(t, `${t.name} copy`) : { ...t })}
-                      onExport={() => handleExport(t)}
-                      onDelete={t.builtIn ? undefined : () => deleteCustomTheme(t.id)}
-                    />
-                  ))}
-                </div>
-
-                <p className="mb-2 mt-4 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Editor
-                </p>
-                <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-                  <input
-                    type="checkbox"
-                    checked={showMinimap}
-                    onChange={(e) =>
-                      setQuerySettings({
-                        ...useSettingsStore.getState().querySettings,
-                        showMinimap: e.target.checked,
-                      })}
-                    className="h-3.5 w-3.5 accent-brand-500"
-                  />
-                  {
-                    /* FR-2.3.7. Off by default — statements are short and the
-                      minimap costs width — but that is a preference (#295). */
-                  }
-                  Show minimap
-                </label>
-
-                <div className="mt-3 flex items-center gap-2">
-                  <button
-                    onClick={() => setDraft(derive(current ?? BUILT_IN_THEMES[0], "My theme"))}
-                    className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                  >
-                    <Plus className="h-3.5 w-3.5" /> New theme
-                  </button>
-                  <button
-                    onClick={() => fileRef.current?.click()}
-                    className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                  >
-                    <Upload className="h-3.5 w-3.5" /> Import
-                  </button>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept="application/json,.json"
-                    aria-label="Import theme file"
-                    className="hidden"
-                    onChange={(e) => {
-                      const file = e.target.files?.[0];
-                      if (file) handleImport(file);
-                      // Cleared so importing the same file twice still fires.
-                      e.target.value = "";
-                    }}
-                  />
-                </div>
-              </>
-            )}
-
-          {notice && (
-            <p role="status" className="mt-3 text-[11px] text-[var(--color-text-secondary)]">
-              {notice}
-            </p>
-          )}
-        </div>
+      <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
+        <Palette className="h-4 w-4 text-[var(--color-text-muted)]" />
+        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Appearance</h2>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="ml-auto rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
-    </div>
+
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        {draft
+          ? (
+            <ThemeEditor
+              draft={draft}
+              onChange={setDraft}
+              onCancel={() => setDraft(null)}
+              onSave={handleSave}
+              field={field}
+            />
+          )
+          : (
+            <>
+              <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                Theme
+              </p>
+              <div className="space-y-1">
+                <ThemeRow
+                  name="Follow the system"
+                  detail="Dark or light, whichever the OS is set to"
+                  selected={theme === "system"}
+                  onSelect={() => setTheme("system")}
+                />
+                {available.map((t) => (
+                  <ThemeRow
+                    key={t.id}
+                    name={t.name}
+                    detail={t.builtIn ? "Built in" : "Custom"}
+                    swatch={t.colors}
+                    selected={theme === t.id}
+                    onSelect={() => setTheme(t.id)}
+                    onEdit={() => setDraft(t.builtIn ? derive(t, `${t.name} copy`) : { ...t })}
+                    onExport={() => handleExport(t)}
+                    onDelete={t.builtIn ? undefined : () => deleteCustomTheme(t.id)}
+                  />
+                ))}
+              </div>
+
+              <p className="mb-2 mt-4 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                Editor
+              </p>
+              <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--color-text-secondary)]">
+                <input
+                  type="checkbox"
+                  checked={showMinimap}
+                  onChange={(e) =>
+                    setQuerySettings({
+                      ...useSettingsStore.getState().querySettings,
+                      showMinimap: e.target.checked,
+                    })}
+                  className="h-3.5 w-3.5 accent-brand-500"
+                />
+                {
+                  /* FR-2.3.7. Off by default — statements are short and the
+                      minimap costs width — but that is a preference (#295). */
+                }
+                Show minimap
+              </label>
+
+              <div className="mt-3 flex items-center gap-2">
+                <button
+                  onClick={() => setDraft(derive(current ?? BUILT_IN_THEMES[0], "My theme"))}
+                  className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                >
+                  <Plus className="h-3.5 w-3.5" /> New theme
+                </button>
+                <button
+                  onClick={() => fileRef.current?.click()}
+                  className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+                >
+                  <Upload className="h-3.5 w-3.5" /> Import
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="application/json,.json"
+                  aria-label="Import theme file"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) handleImport(file);
+                    // Cleared so importing the same file twice still fires.
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+            </>
+          )}
+
+        {notice && (
+          <p role="status" className="mt-3 text-[11px] text-[var(--color-text-secondary)]">
+            {notice}
+          </p>
+        )}
+      </div>
+    </Modal>
   );
 }
 

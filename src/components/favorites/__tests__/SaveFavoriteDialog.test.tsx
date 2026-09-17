@@ -119,10 +119,12 @@ describe("SaveFavoriteDialog", () => {
     expect(screen.getByText("Save Favorite")).toBeDisabled();
   });
 
-  it("closes on backdrop click", () => {
+  it("closes when the backdrop is pressed", () => {
     const onClose = vi.fn();
     render(<SaveFavoriteDialog {...dp({ onClose })} />);
-    fireEvent.click(document.querySelector(".fixed.inset-0") as HTMLElement);
+    // mousedown: the shared Modal keys off where the press began, so a drag
+    // out of the panel does not discard what was typed.
+    fireEvent.mouseDown(document.querySelector(".fixed.inset-0") as HTMLElement);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 

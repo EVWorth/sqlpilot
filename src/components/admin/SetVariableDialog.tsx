@@ -5,6 +5,7 @@ import { runStatement } from "../../lib/run-statement";
 import type { ServerFlavour } from "../../lib/server-flavour";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import type { ServerVariable } from "../../types";
+import { Modal } from "../common/Modal";
 
 /**
  * Changing one server variable.
@@ -96,100 +97,106 @@ export function SetVariableDialog(
     "h-8 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2.5 font-mono text-xs text-[var(--color-text-primary)] focus:border-brand-500 focus:outline-none";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-[460px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
-          <h2 className="font-mono text-sm font-semibold text-[var(--color-text-primary)]">
-            {variable.name}
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-
-        <div className="space-y-3 p-4">
-          {variable.description && (
-            <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
-              {variable.description}
-            </p>
-          )}
-
-          <div>
-            <label
-              htmlFor="set-var-value"
-              className="mb-1 block text-[11px] font-medium text-[var(--color-text-secondary)]"
-            >
-              Value
-            </label>
-            <input
-              id="set-var-value"
-              type="text"
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className={field}
-            />
-          </div>
-
-          <div>
-            <label
-              htmlFor="set-var-scope"
-              className="mb-1 block text-[11px] font-medium text-[var(--color-text-secondary)]"
-            >
-              Scope
-            </label>
-            <select
-              id="set-var-scope"
-              value={scope}
-              onChange={(e) => setScope(e.target.value as VariableScope)}
-              className={`${field} font-sans`}
-            >
-              {scopes.map((s) => <option key={s} value={s}>{SCOPE_LABEL[s]}</option>)}
-            </select>
-          </div>
-
-          {!survivesRestart(scope) && scope === "global" && (
-            <p className="flex items-start gap-1.5 rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-[11px] text-yellow-300">
-              <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
-              <span>
-                This holds until the server restarts, then reverts to the config file.
-                {flavour === "mariadb"
-                  ? " MariaDB has no SET PERSIST — to make it permanent, edit the server's configuration."
-                  : " Set the scope to persist it."}
-              </span>
-            </p>
-          )}
-
-          {statement && !unchanged && (
-            <pre className="overflow-x-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2 font-mono text-[10px] text-[var(--color-text-muted)]">
-              {statement};
-            </pre>
-          )}
-
-          {invalidName && <p role="alert" className="text-[11px] text-red-400">{invalidName}</p>}
-          {error && <p role="alert" className="text-[11px] text-red-400">{error}</p>}
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
-          <button
-            onClick={onClose}
-            className="rounded px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => void handleApply()}
-            disabled={saving || unchanged || !statement}
-            className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {saving && <Loader2 className="h-3 w-3 animate-spin" />}
-            Apply
-          </button>
-        </div>
+    <Modal
+      // Open whenever there is a variable to edit; the guard above returns
+      // null otherwise, so reaching here means open.
+      isOpen
+      onClose={onClose}
+      label="Set server variable"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      panelClassName="w-[460px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+        <h2 className="font-mono text-sm font-semibold text-[var(--color-text-primary)]">
+          {variable.name}
+        </h2>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
-    </div>
+
+      <div className="space-y-3 p-4">
+        {variable.description && (
+          <p className="text-[11px] leading-relaxed text-[var(--color-text-muted)]">
+            {variable.description}
+          </p>
+        )}
+
+        <div>
+          <label
+            htmlFor="set-var-value"
+            className="mb-1 block text-[11px] font-medium text-[var(--color-text-secondary)]"
+          >
+            Value
+          </label>
+          <input
+            id="set-var-value"
+            type="text"
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className={field}
+          />
+        </div>
+
+        <div>
+          <label
+            htmlFor="set-var-scope"
+            className="mb-1 block text-[11px] font-medium text-[var(--color-text-secondary)]"
+          >
+            Scope
+          </label>
+          <select
+            id="set-var-scope"
+            value={scope}
+            onChange={(e) => setScope(e.target.value as VariableScope)}
+            className={`${field} font-sans`}
+          >
+            {scopes.map((s) => <option key={s} value={s}>{SCOPE_LABEL[s]}</option>)}
+          </select>
+        </div>
+
+        {!survivesRestart(scope) && scope === "global" && (
+          <p className="flex items-start gap-1.5 rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-[11px] text-yellow-300">
+            <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
+            <span>
+              This holds until the server restarts, then reverts to the config file.
+              {flavour === "mariadb"
+                ? " MariaDB has no SET PERSIST — to make it permanent, edit the server's configuration."
+                : " Set the scope to persist it."}
+            </span>
+          </p>
+        )}
+
+        {statement && !unchanged && (
+          <pre className="overflow-x-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2 font-mono text-[10px] text-[var(--color-text-muted)]">
+              {statement};
+          </pre>
+        )}
+
+        {invalidName && <p role="alert" className="text-[11px] text-red-400">{invalidName}</p>}
+        {error && <p role="alert" className="text-[11px] text-red-400">{error}</p>}
+      </div>
+
+      <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
+        <button
+          onClick={onClose}
+          className="rounded px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => void handleApply()}
+          disabled={saving || unchanged || !statement}
+          className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+          Apply
+        </button>
+      </div>
+    </Modal>
   );
 }

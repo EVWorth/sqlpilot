@@ -92,7 +92,9 @@ describe("ApprovalDialog", () => {
     useAgentStore.setState({ approval: write });
     render(<ApprovalDialog />);
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    // Fired at the dialog rather than the window: the shared Modal takes focus
+    // when it opens, so this is where a real Escape keypress arrives.
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
 
     await waitFor(() => expect(apiMocks.answerAgentRequest).toHaveBeenCalled());
     expect(decision()).toEqual({ approved: false });

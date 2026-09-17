@@ -40,7 +40,7 @@ describe("SQLPreviewDialog", () => {
     expect(screen.getByText("Close")).toBeDefined();
   });
 
-  it("calls onClose when overlay is clicked", () => {
+  it("calls onClose when the overlay is pressed", () => {
     render(
       <SQLPreviewDialog
         sql="SELECT 1;"
@@ -49,7 +49,7 @@ describe("SQLPreviewDialog", () => {
       />,
     );
     const overlay = document.querySelector(".fixed.inset-0") as HTMLElement;
-    if (overlay) fireEvent.click(overlay);
+    if (overlay) fireEvent.mouseDown(overlay);
     expect(mockOnClose).toHaveBeenCalled();
   });
 
@@ -119,7 +119,9 @@ describe("SQLPreviewDialog", () => {
       />,
     );
 
-    fireEvent.keyDown(document, { key: "Escape" });
+    // Fired at the dialog rather than the document: the shared Modal takes
+    // focus when it opens, so this is where a real keypress arrives.
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(mockOnClose).toHaveBeenCalled();
   });
 
@@ -132,7 +134,7 @@ describe("SQLPreviewDialog", () => {
       />,
     );
 
-    fireEvent.keyDown(document, { key: "Enter" });
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Enter" });
     expect(mockOnClose).not.toHaveBeenCalled();
   });
 });

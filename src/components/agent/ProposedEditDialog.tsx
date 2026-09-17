@@ -6,6 +6,7 @@ import { answerProposal } from "../../hooks/useAgentRequests";
 import { useAgentStore } from "../../stores/agentStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useThemeStore } from "../../stores/themeStore";
+import { Modal } from "../common/Modal";
 
 /**
  * A change an agent has offered, as a diff the user answers.
@@ -59,91 +60,87 @@ export function ProposedEditDialog() {
     [proposal, sending, updateTabContent, clearProposal],
   );
 
-  // Escape rejects rather than dismissing silently: the agent is waiting, and
-  // a proposal that vanished without an answer would leave it waiting until
-  // its deadline.
-  useEffect(() => {
-    if (!proposal) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") void decide(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [proposal, decide]);
-
   if (!proposal) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" />
-      <div className="relative flex h-[70vh] w-[860px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-brand-400" />
-            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-              Suggested change to {proposal.tabTitle}
-            </h2>
-          </div>
+    <Modal
+      isOpen
+      // Escape rejects rather than dismissing silently: the agent is waiting,
+      // and a proposal that vanished without an answer would leave it waiting
+      // until its deadline.
+      onClose={() => void decide(false)}
+      // A stray click must not throw away a diff the user is reading.
+      closeOnBackdrop={false}
+      label={`Suggested change to ${proposal.tabTitle}`}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      panelClassName="relative flex h-[70vh] w-[860px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
+    >
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Sparkles className="h-4 w-4 text-brand-400" />
+          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+            Suggested change to {proposal.tabTitle}
+          </h2>
+        </div>
+        <button
+          onClick={() => void decide(false)}
+          aria-label="Reject and close"
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <p className="border-b border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-text-secondary)]">
+        {proposal.rationale}
+      </p>
+
+      <div className="min-h-0 flex-1">
+        <DiffEditor
+          original={proposal.current}
+          modified={proposal.proposed}
+          language="sql"
+          theme={effectiveTheme === "dark" ? "vs-dark" : "vs"}
+          onMount={(editorInstance) => {
+            diffRef.current = editorInstance;
+          }}
+          options={{
+            renderSideBySide: true,
+            // Editable, because "accept after fixing one thing" is the most
+            // common outcome and worth reporting back as its own answer.
+            readOnly: false,
+            originalEditable: false,
+            minimap: { enabled: false },
+            scrollBeyondLastLine: false,
+            fontSize: 13,
+          }}
+        />
+      </div>
+
+      <div className="flex items-center justify-between border-t border-[var(--color-border)] px-4 py-3">
+        <span className="text-xs text-[var(--color-text-muted)]">
+          Nothing is written unless you accept. You can edit the right-hand side first.
+        </span>
+        <div className="flex gap-2">
           <button
+            type="button"
             onClick={() => void decide(false)}
-            aria-label="Reject and close"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+            disabled={sending}
+            className="rounded border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
           >
-            <X className="h-4 w-4" />
+            Reject
+          </button>
+          <button
+            type="button"
+            onClick={() => void decide(true)}
+            disabled={sending}
+            className="flex items-center gap-1 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500"
+          >
+            <Check className="h-3 w-3" />
+            Accept
           </button>
         </div>
-
-        <p className="border-b border-[var(--color-border)] px-4 py-2 text-xs text-[var(--color-text-secondary)]">
-          {proposal.rationale}
-        </p>
-
-        <div className="min-h-0 flex-1">
-          <DiffEditor
-            original={proposal.current}
-            modified={proposal.proposed}
-            language="sql"
-            theme={effectiveTheme === "dark" ? "vs-dark" : "vs"}
-            onMount={(editorInstance) => {
-              diffRef.current = editorInstance;
-            }}
-            options={{
-              renderSideBySide: true,
-              // Editable, because "accept after fixing one thing" is the most
-              // common outcome and worth reporting back as its own answer.
-              readOnly: false,
-              originalEditable: false,
-              minimap: { enabled: false },
-              scrollBeyondLastLine: false,
-              fontSize: 13,
-            }}
-          />
-        </div>
-
-        <div className="flex items-center justify-between border-t border-[var(--color-border)] px-4 py-3">
-          <span className="text-xs text-[var(--color-text-muted)]">
-            Nothing is written unless you accept. You can edit the right-hand side first.
-          </span>
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void decide(false)}
-              disabled={sending}
-              className="rounded border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
-            >
-              Reject
-            </button>
-            <button
-              type="button"
-              onClick={() => void decide(true)}
-              disabled={sending}
-              className="flex items-center gap-1 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500"
-            >
-              <Check className="h-3 w-3" />
-              Accept
-            </button>
-          </div>
-        </div>
       </div>
-    </div>
+    </Modal>
   );
 }

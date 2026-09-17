@@ -94,10 +94,12 @@ describe("ImportDialog", () => {
     expect(screen.getByText("CSV File").className).toContain("brand");
   });
 
-  it("calls onClose when overlay is clicked", () => {
+  it("calls onClose when the overlay is pressed", () => {
+    // mousedown rather than click: the shared Modal keys off where the press
+    // began, so a drag out of the panel does not discard the dialog.
     render(<ImportDialog {...mockProps} />);
     const overlay = document.querySelector(".fixed.inset-0") as HTMLElement;
-    if (overlay) fireEvent.click(overlay);
+    if (overlay) fireEvent.mouseDown(overlay);
     expect(mockProps.onClose).toHaveBeenCalled();
   });
 
