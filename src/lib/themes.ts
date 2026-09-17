@@ -75,6 +75,25 @@ export interface Theme {
   colors: Record<ThemeToken, string>;
   /** True for the themes that ship with the app and cannot be edited away. */
   builtIn?: boolean;
+  /**
+   * Where the colours come from, which decides whether we may change them.
+   *
+   * `authored` is ours: we chose every value, so we are answerable for it and
+   * it is held to WCAG AA.
+   *
+   * `quoted` reproduces a published palette. Nord and Solarized are specific,
+   * named sets of colours, and neither can reach AA while staying itself —
+   * on Solarized's own light grounds the only canonical members that clear
+   * 4.5:1 are its two darkest tones, so every accent it defines fails. A
+   * "Solarized Light" whose values we had corrected until they passed would
+   * not be Solarized, and the name would be a lie.
+   *
+   * So these are held to fidelity instead: the test checks they still match
+   * the published palette, and the theme picker says what they cost. Choosing
+   * a low-contrast palette is the user's call to make, not ours to make
+   * quietly on their behalf.
+   */
+  origin?: "authored" | "quoted";
 }
 
 const DARK: Record<ThemeToken, string> = {
@@ -130,6 +149,7 @@ export const BUILT_IN_THEMES: Theme[] = [
     name: "Nord",
     base: "dark",
     builtIn: true,
+    origin: "quoted",
     colors: {
       "bg-primary": "#2e3440",
       "bg-secondary": "#3b4252",
@@ -137,15 +157,15 @@ export const BUILT_IN_THEMES: Theme[] = [
       "border": "#4c566a",
       "text-primary": "#eceff4",
       "text-secondary": "#d8dee9",
-      "text-muted": "#a5c9c9",
-      "accent": "#9bcad8",
-      "success": "#b4caa1",
+      "text-muted": "#8fbcbb",
+      "accent": "#88c0d0",
+      "success": "#a3be8c",
       "warning": "#ebcb8b",
-      "error": "#f2aeb6",
+      "error": "#bf616a",
       "brand-300": "#a3d3de",
       "brand-400": "#88c0d0",
       "brand-500": "#81a1c1",
-      "brand-600": "#547399",
+      "brand-600": "#5e81ac",
       "brand-700": "#4c6a8f",
     },
   },
@@ -154,18 +174,19 @@ export const BUILT_IN_THEMES: Theme[] = [
     name: "Solarized Light",
     base: "light",
     builtIn: true,
+    origin: "quoted",
     colors: {
       "bg-primary": "#fdf6e3",
       "bg-secondary": "#eee8d5",
       "bg-tertiary": "#e4ddc8",
       "border": "#d3cbb7",
       "text-primary": "#073642",
-      "text-secondary": "#4d6066",
-      "text-muted": "#555d5d",
-      "accent": "#1b6193",
-      "success": "#556200",
-      "warning": "#745800",
-      "error": "#b02826",
+      "text-secondary": "#586e75",
+      "text-muted": "#93a1a1",
+      "accent": "#268bd2",
+      "success": "#859900",
+      "warning": "#b58900",
+      "error": "#dc322f",
       "brand-300": "#7fc4ee",
       "brand-400": "#4ba7e0",
       "brand-500": "#268bd2",
