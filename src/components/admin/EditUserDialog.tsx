@@ -3,6 +3,7 @@ import { useState } from "react";
 import { type AlterUserOptions, buildAlterUserStatements, type PasswordExpiry } from "../../lib/admin/alter-user";
 import { runStatement } from "../../lib/run-statement";
 import { confirmDestructive } from "../../stores/productionGuardStore";
+import { Modal } from "../common/Modal";
 
 /**
  * Editing everything about a user except its password.
@@ -110,120 +111,124 @@ export function EditUserDialog(
   const label = "mb-1 block text-[11px] font-medium text-[var(--color-text-secondary)]";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-      <div className="w-[440px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            Edit {username}@{host}
-          </h2>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      label="Edit user"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      panelClassName="w-[440px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
+    >
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+          Edit {username}@{host}
+        </h2>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="space-y-3 p-4">
+        <div>
+          <label htmlFor="edit-user-lock" className={label}>Account</label>
+          <select
+            id="edit-user-lock"
+            value={lock}
+            onChange={(e) => setLock(e.target.value)}
+            className={field}
           >
-            <X className="h-4 w-4" />
-          </button>
+            <option value={UNCHANGED}>Leave unchanged</option>
+            <option value="lock">Lock</option>
+            <option value="unlock">Unlock</option>
+          </select>
         </div>
 
-        <div className="space-y-3 p-4">
-          <div>
-            <label htmlFor="edit-user-lock" className={label}>Account</label>
+        <div>
+          <label htmlFor="edit-user-expiry" className={label}>Password expiry</label>
+          <div className="flex gap-2">
             <select
-              id="edit-user-lock"
-              value={lock}
-              onChange={(e) => setLock(e.target.value)}
+              id="edit-user-expiry"
+              value={expiry}
+              onChange={(e) => setExpiry(e.target.value)}
               className={field}
             >
               <option value={UNCHANGED}>Leave unchanged</option>
-              <option value="lock">Lock</option>
-              <option value="unlock">Unlock</option>
+              <option value="now">Expire now</option>
+              <option value="interval">Expire every…</option>
+              <option value="never">Never expire</option>
+              <option value="default">Server default</option>
             </select>
+            {expiry === "interval" && (
+              <input
+                type="number"
+                min={1}
+                aria-label="Days"
+                value={expiryDays}
+                onChange={(e) => setExpiryDays(e.target.value)}
+                className={`${field} w-24`}
+              />
+            )}
           </div>
+        </div>
 
+        <div>
+          <label htmlFor="edit-user-max" className={label}>
+            Max connections <span className="text-[var(--color-text-muted)]">(blank: unchanged, 0: unlimited)</span>
+          </label>
+          <input
+            id="edit-user-max"
+            type="number"
+            min={0}
+            value={maxConnections}
+            onChange={(e) => setMaxConnections(e.target.value)}
+            className={field}
+          />
+        </div>
+
+        <div>
+          <label htmlFor="edit-user-host" className={label}>
+            Host <span className="text-[var(--color-text-muted)]">(changing this renames the user)</span>
+          </label>
+          <input
+            id="edit-user-host"
+            type="text"
+            value={newHost}
+            onChange={(e) => setNewHost(e.target.value)}
+            className={field}
+          />
+        </div>
+
+        {statements.length > 0 && (
           <div>
-            <label htmlFor="edit-user-expiry" className={label}>Password expiry</label>
-            <div className="flex gap-2">
-              <select
-                id="edit-user-expiry"
-                value={expiry}
-                onChange={(e) => setExpiry(e.target.value)}
-                className={field}
-              >
-                <option value={UNCHANGED}>Leave unchanged</option>
-                <option value="now">Expire now</option>
-                <option value="interval">Expire every…</option>
-                <option value="never">Never expire</option>
-                <option value="default">Server default</option>
-              </select>
-              {expiry === "interval" && (
-                <input
-                  type="number"
-                  min={1}
-                  aria-label="Days"
-                  value={expiryDays}
-                  onChange={(e) => setExpiryDays(e.target.value)}
-                  className={`${field} w-24`}
-                />
-              )}
-            </div>
-          </div>
-
-          <div>
-            <label htmlFor="edit-user-max" className={label}>
-              Max connections <span className="text-[var(--color-text-muted)]">(blank: unchanged, 0: unlimited)</span>
-            </label>
-            <input
-              id="edit-user-max"
-              type="number"
-              min={0}
-              value={maxConnections}
-              onChange={(e) => setMaxConnections(e.target.value)}
-              className={field}
-            />
-          </div>
-
-          <div>
-            <label htmlFor="edit-user-host" className={label}>
-              Host <span className="text-[var(--color-text-muted)]">(changing this renames the user)</span>
-            </label>
-            <input
-              id="edit-user-host"
-              type="text"
-              value={newHost}
-              onChange={(e) => setNewHost(e.target.value)}
-              className={field}
-            />
-          </div>
-
-          {statements.length > 0 && (
-            <div>
-              <span className={label}>Will run</span>
-              <pre className="max-h-28 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2 font-mono text-[10px] leading-relaxed text-[var(--color-text-muted)]">
+            <span className={label}>Will run</span>
+            <pre className="max-h-28 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-2 font-mono text-[10px] leading-relaxed text-[var(--color-text-muted)]">
                 {statements.join(";\n")};
-              </pre>
-            </div>
-          )}
+            </pre>
+          </div>
+        )}
 
-          {error && <p role="alert" className="text-[11px] text-red-400">{error}</p>}
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
-          <button
-            onClick={onClose}
-            className="rounded px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => void handleSave()}
-            disabled={saving || statements.length === 0}
-            className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {saving && <Loader2 className="h-3 w-3 animate-spin" />}
-            Apply
-          </button>
-        </div>
+        {error && <p role="alert" className="text-[11px] text-red-400">{error}</p>}
       </div>
-    </div>
+
+      <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
+        <button
+          onClick={onClose}
+          className="rounded px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={() => void handleSave()}
+          disabled={saving || statements.length === 0}
+          className="flex items-center gap-1.5 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {saving && <Loader2 className="h-3 w-3 animate-spin" />}
+          Apply
+        </button>
+      </div>
+    </Modal>
   );
 }
