@@ -1,7 +1,8 @@
 import { AlertTriangle, Check, Database } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { answerApproval } from "../../hooks/useAgentRequests";
 import { type PendingApproval, useAgentStore } from "../../stores/agentStore";
+import { Modal } from "../common/Modal";
 
 /**
  * The question SQLPilot always asks itself.
@@ -72,86 +73,84 @@ export function ApprovalDialog({ approval: given }: ApprovalDialogProps = {}) {
     [approval, sending, clearApproval],
   );
 
-  // Escape rejects. A dialog that vanished without an answer would leave the
-  // transaction open until it timed out, and the agent waiting on it.
-  useEffect(() => {
-    if (!approval) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") void decide(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [approval, decide]);
-
   if (!approval) return null;
 
   const production = approval.environment === "production";
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/60" />
-      <div className="relative w-[560px] overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl">
-        <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
-          <AlertTriangle
-            className={production ? "h-4 w-4 text-red-400" : "h-4 w-4 text-amber-400"}
-          />
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            {approval.change === "schema"
-              ? "The agent wants to change the schema"
-              : "The agent wants to change data"}
-          </h2>
-        </div>
-
-        <div className="space-y-3 p-4">
-          <div className="flex items-center gap-2 text-xs">
-            <Database className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
-            <span className="text-[var(--color-text-primary)]">{approval.connection}</span>
-            {approval.database && <span className="text-[var(--color-text-muted)]">/ {approval.database}</span>}
-            <span
-              data-testid="approval-environment"
-              className={production
-                ? "rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-400"
-                : "rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--color-text-muted)]"}
-            >
-              {approval.environment}
-            </span>
-          </div>
-
-          {approval.reason && (
-            <p className="text-xs italic text-[var(--color-text-secondary)]">
-              The agent says: {approval.reason}
-            </p>
-          )}
-
-          <pre className="max-h-48 overflow-auto rounded bg-[var(--color-bg-secondary)] p-2 font-mono text-[11px] text-[var(--color-text-primary)]">
-{approval.sql}
-          </pre>
-
-          <Rows approval={approval} />
-        </div>
-
-        <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
-          <button
-            type="button"
-            onClick={() => void decide(false)}
-            disabled={sending}
-            className="rounded border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
-          >
-            {approval.change === "schema" ? "Don't run it" : "Discard"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void decide(true)}
-            disabled={sending}
-            className={production
-              ? "flex items-center gap-1 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
-              : "flex items-center gap-1 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500"}
-          >
-            <Check className="h-3 w-3" />
-            {approval.change === "schema" ? "Run it" : "Apply"}
-          </button>
-        </div>
+    <Modal
+      isOpen
+      // Escape rejects rather than dismissing. A dialog that vanished without
+      // an answer would leave the transaction open until it timed out, with
+      // the agent still waiting on it.
+      onClose={() => void decide(false)}
+      // Nor can it be clicked away: this is a decision, and the two buttons
+      // below are the only ways to make it.
+      closeOnBackdrop={false}
+      label="The agent wants to make a change"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60"
+      panelClassName="relative w-[560px] overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
+    >
+      <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
+        <AlertTriangle
+          className={production ? "h-4 w-4 text-red-400" : "h-4 w-4 text-amber-400"}
+        />
+        <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+          {approval.change === "schema"
+            ? "The agent wants to change the schema"
+            : "The agent wants to change data"}
+        </h2>
       </div>
-    </div>
+
+      <div className="space-y-3 p-4">
+        <div className="flex items-center gap-2 text-xs">
+          <Database className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+          <span className="text-[var(--color-text-primary)]">{approval.connection}</span>
+          {approval.database && <span className="text-[var(--color-text-muted)]">/ {approval.database}</span>}
+          <span
+            data-testid="approval-environment"
+            className={production
+              ? "rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-400"
+              : "rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--color-text-muted)]"}
+          >
+            {approval.environment}
+          </span>
+        </div>
+
+        {approval.reason && (
+          <p className="text-xs italic text-[var(--color-text-secondary)]">
+            The agent says: {approval.reason}
+          </p>
+        )}
+
+        <pre className="max-h-48 overflow-auto rounded bg-[var(--color-bg-secondary)] p-2 font-mono text-[11px] text-[var(--color-text-primary)]">
+{approval.sql}
+        </pre>
+
+        <Rows approval={approval} />
+      </div>
+
+      <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
+        <button
+          type="button"
+          onClick={() => void decide(false)}
+          disabled={sending}
+          className="rounded border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          {approval.change === "schema" ? "Don't run it" : "Discard"}
+        </button>
+        <button
+          type="button"
+          onClick={() => void decide(true)}
+          disabled={sending}
+          className={production
+            ? "flex items-center gap-1 rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-500"
+            : "flex items-center gap-1 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500"}
+        >
+          <Check className="h-3 w-3" />
+          {approval.change === "schema" ? "Run it" : "Apply"}
+        </button>
+      </div>
+    </Modal>
   );
 }

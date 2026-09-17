@@ -1,6 +1,7 @@
 import { Star, X } from "lucide-react";
 import { useState } from "react";
 import { useFavoritesStore } from "../../stores/favoritesStore";
+import { Modal } from "../common/Modal";
 
 interface SaveFavoriteDialogProps {
   isOpen: boolean;
@@ -101,26 +102,25 @@ export function SaveFavoriteDialog({
     reset();
   };
 
+  // Escape is the Modal's now; this is only the Enter shortcut, which is
+  // specific to this dialog — a favourite is one field and a button, so
+  // Enter saving it is worth keeping.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey && name.trim()) {
       e.preventDefault();
       handleSave();
     }
-    if (e.key === "Escape") {
-      onClose();
-    }
   };
 
   return (
-    <div
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      label="Save favourite"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
+      panelClassName="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
     >
-      <div
-        className="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-        onKeyDown={handleKeyDown}
-      >
+      <div onKeyDown={handleKeyDown}>
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
           <div className="flex items-center gap-2">
             <Star className="h-4 w-4 text-yellow-400" />
@@ -287,6 +287,6 @@ export function SaveFavoriteDialog({
           </button>
         </div>
       </div>
-    </div>
+    </Modal>
   );
 }

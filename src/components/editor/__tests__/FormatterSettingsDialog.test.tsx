@@ -176,14 +176,17 @@ describe("FormatterSettingsDialog", () => {
     expect(state.formatterSettings.tabWidth).toBe(2);
   });
 
-  it("calls onClose when clicking the backdrop", () => {
+  it("calls onClose when pressing the backdrop", () => {
+    // mousedown, not click: the shared Modal keys off where the press began,
+    // so a drag that starts in the panel and ends on the backdrop does not
+    // discard the dialog.
     const onClose = vi.fn();
     const { container } = render(
       <FormatterSettingsDialog isOpen={true} onClose={onClose} />,
     );
 
     const backdrop = container.firstElementChild!;
-    fireEvent.click(backdrop);
+    fireEvent.mouseDown(backdrop);
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

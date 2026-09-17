@@ -9,6 +9,7 @@ import {
   sharingOf,
   useAgentStore,
 } from "../../stores/agentStore";
+import { Modal } from "../common/Modal";
 
 /**
  * Which databases an agent harness can reach, and how to point one here.
@@ -177,129 +178,135 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div className="relative max-h-[85vh] w-[620px] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
-          <div className="flex items-center gap-2">
-            <Bot className="h-4 w-4 text-brand-400" />
-            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Agents</h2>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Close"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      label="Agents"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      panelClassName="relative max-h-[85vh] w-[620px] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
+    >
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+        <div className="flex items-center gap-2">
+          <Bot className="h-4 w-4 text-brand-400" />
+          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">Agents</h2>
         </div>
-
-        <div className="space-y-5 p-4">
-          {error && (
-            <p role="alert" className="rounded bg-red-500/10 px-3 py-2 text-xs text-red-400">
-              {error}
-            </p>
-          )}
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase text-[var(--color-text-secondary)]">
-              Endpoint
-            </h3>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              {endpointSummary(endpoint)}
-            </p>
-            <div className="mt-2 flex items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void (endpoint?.running ? stop() : start())}
-                className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500"
-              >
-                {endpoint?.running ? "Stop" : "Start"}
-              </button>
-              <button
-                type="button"
-                onClick={() => void rotateToken()}
-                title="Issue a new token. Every harness you have configured stops working until you give it the new one."
-                className="flex items-center gap-1 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
-              >
-                <RefreshCw className="h-3 w-3" />
-                New token
-              </button>
-            </div>
-
-            {endpoint?.token && (
-              <div className="mt-2 flex items-center gap-2">
-                <span className={labelClasses}>Token</span>
-                <code className="flex-1 truncate rounded bg-[var(--color-bg-secondary)] px-2 py-1 font-mono text-xs text-[var(--color-text-primary)]">
-                  {showToken ? endpoint.token : "•".repeat(32)}
-                </code>
-                <button
-                  type="button"
-                  aria-label={showToken ? "Hide token" : "Show token"}
-                  onClick={() => setShowToken(!showToken)}
-                  className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-                >
-                  {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
-                </button>
-                <CopyButton value={endpoint.token} label="Copy token" />
-              </div>
-            )}
-          </section>
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase text-[var(--color-text-secondary)]">
-              Connect a harness
-            </h3>
-            <select
-              aria-label="Harness"
-              value={target}
-              onChange={(e) => setTarget(e.target.value as SetupTarget)}
-              className="mt-2 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
-            >
-              {SETUP_TARGETS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {endpoint?.running && setup
-              ? (
-                <div className="mt-2 flex items-start gap-2">
-                  <pre className="flex-1 overflow-x-auto rounded bg-[var(--color-bg-secondary)] p-2 font-mono text-[11px] text-[var(--color-text-primary)]">
-{setup}
-                  </pre>
-                  <CopyButton value={setup} label="Copy setup command" />
-                </div>
-              )
-              : (
-                <p className="mt-2 text-xs text-[var(--color-text-muted)]">
-                  Start the endpoint to see the command for this harness.
-                </p>
-              )}
-          </section>
-
-          <section>
-            <h3 className="text-xs font-semibold uppercase text-[var(--color-text-secondary)]">
-              Shared connections
-            </h3>
-            <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-              An agent can only see what you share here. Writes and schema changes are always approved in this window,
-              whatever the harness has been told it may do.
-            </p>
-            <div className="mt-2">
-              {connections.length === 0
-                ? (
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    No saved connections yet.
-                  </p>
-                )
-                : connections.map((connection) => (
-                  <ConnectionRow key={connection.connectionId} connection={connection} />
-                ))}
-            </div>
-          </section>
-        </div>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
-    </div>
+
+      <div className="space-y-5 p-4">
+        {error && (
+          <p role="alert" className="rounded bg-red-500/10 px-3 py-2 text-xs text-red-400">
+            {error}
+          </p>
+        )}
+
+        <section>
+          <h3 className="text-xs font-semibold uppercase text-[var(--color-text-secondary)]">
+            Endpoint
+          </h3>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            {endpointSummary(endpoint)}
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void (endpoint?.running ? stop() : start())}
+              className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-500"
+            >
+              {endpoint?.running ? "Stop" : "Start"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void rotateToken()}
+              title="Issue a new token. Every harness you have configured stops working until you give it the new one."
+              className="flex items-center gap-1 rounded border border-[var(--color-border)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+            >
+              <RefreshCw className="h-3 w-3" />
+              New token
+            </button>
+          </div>
+
+          {endpoint?.token && (
+            <div className="mt-2 flex items-center gap-2">
+              <span className={labelClasses}>Token</span>
+              <code className="flex-1 truncate rounded bg-[var(--color-bg-secondary)] px-2 py-1 font-mono text-xs text-[var(--color-text-primary)]">
+                {showToken ? endpoint.token : "•".repeat(32)}
+              </code>
+              <button
+                type="button"
+                aria-label={showToken ? "Hide token" : "Show token"}
+                onClick={() => setShowToken(!showToken)}
+                className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+              >
+                {showToken ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+              </button>
+              <CopyButton value={endpoint.token} label="Copy token" />
+            </div>
+          )}
+        </section>
+
+        <section>
+          <h3 className="text-xs font-semibold uppercase text-[var(--color-text-secondary)]">
+            Connect a harness
+          </h3>
+          <select
+            aria-label="Harness"
+            value={target}
+            onChange={(e) => setTarget(e.target.value as SetupTarget)}
+            className="mt-2 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
+          >
+            {SETUP_TARGETS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+          {endpoint?.running && setup
+            ? (
+              <div className="mt-2 flex items-start gap-2">
+                <pre className="flex-1 overflow-x-auto rounded bg-[var(--color-bg-secondary)] p-2 font-mono text-[11px] text-[var(--color-text-primary)]">
+{setup}
+                </pre>
+                <CopyButton value={setup} label="Copy setup command" />
+              </div>
+            )
+            : (
+              <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+                Start the endpoint to see the command for this harness.
+              </p>
+            )}
+        </section>
+
+        <section>
+          <h3 className="text-xs font-semibold uppercase text-[var(--color-text-secondary)]">
+            Shared connections
+          </h3>
+          <p className="mt-1 text-xs text-[var(--color-text-muted)]">
+            An agent can only see what you share here. Writes and schema changes are always approved in this window,
+            whatever the harness has been told it may do.
+          </p>
+          <div className="mt-2">
+            {connections.length === 0
+              ? (
+                <p className="text-xs text-[var(--color-text-muted)]">
+                  No saved connections yet.
+                </p>
+              )
+              : connections.map((connection) => (
+                <ConnectionRow
+                  key={connection.connectionId}
+                  connection={connection}
+                />
+              ))}
+          </div>
+        </section>
+      </div>
+    </Modal>
   );
 }

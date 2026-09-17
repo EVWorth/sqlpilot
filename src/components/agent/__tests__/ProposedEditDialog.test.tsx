@@ -155,7 +155,9 @@ describe("ProposedEditDialog", () => {
     useAgentStore.setState({ proposal });
     render(<ProposedEditDialog />);
 
-    fireEvent.keyDown(window, { key: "Escape" });
+    // Fired at the dialog rather than the window: the shared Modal takes
+    // focus when it opens, so this is where a real Escape arrives.
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
 
     await waitFor(() => expect(apiMocks.answerAgentRequest).toHaveBeenCalled());
     expect(decision().accepted).toBe(false);

@@ -1,6 +1,7 @@
 import { Info, Keyboard, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri-api";
+import { Modal } from "./Modal";
 
 interface HelpDialogProps {
   isOpen: boolean;
@@ -80,91 +81,89 @@ export function HelpDialog({ isOpen, onClose, initialTab = "shortcuts" }: HelpDi
     }`;
 
   return (
-    <div
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      label="Keyboard shortcuts"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-      onClick={onClose}
+      panelClassName="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
     >
-      <div
-        className="w-full max-w-md rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 pt-3 pb-0">
-          <div className="flex">
-            <button className={tabClass(tab === "shortcuts")} onClick={() => setTab("shortcuts")}>
-              <Keyboard className="h-3.5 w-3.5" />
-              Keyboard Shortcuts
-            </button>
-            <button className={tabClass(tab === "about")} onClick={() => setTab("about")}>
-              <Info className="h-3.5 w-3.5" />
-              About
-            </button>
-          </div>
-          <button
-            onClick={onClose}
-            className="mb-1 rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-          >
-            <X className="h-4 w-4" />
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 pt-3 pb-0">
+        <div className="flex">
+          <button className={tabClass(tab === "shortcuts")} onClick={() => setTab("shortcuts")}>
+            <Keyboard className="h-3.5 w-3.5" />
+            Keyboard Shortcuts
+          </button>
+          <button className={tabClass(tab === "about")} onClick={() => setTab("about")}>
+            <Info className="h-3.5 w-3.5" />
+            About
           </button>
         </div>
-
-        {/* Shortcuts tab */}
-        {tab === "shortcuts" && (
-          <div className="max-h-[60vh] overflow-y-auto p-4">
-            {sections.map((section) => (
-              <div key={section.title} className="mb-4 last:mb-0">
-                <h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                  {section.title}
-                </h3>
-                <div className="space-y-1">
-                  {section.shortcuts.map((s) => (
-                    <div
-                      key={s.keys + s.description}
-                      className="flex items-center justify-between rounded px-2 py-1.5"
-                    >
-                      <span className="text-xs text-[var(--color-text-secondary)]">
-                        {s.description}
-                      </span>
-                      <kbd className="rounded bg-[var(--color-bg-primary)] px-2 py-0.5 text-[11px] font-mono text-[var(--color-text-muted)] border border-[var(--color-border)]">
-                        {s.keys}
-                      </kbd>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* About tab */}
-        {tab === "about" && (
-          <div className="flex flex-col items-center gap-4 p-8 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600/20">
-              <img src="/icon.svg" alt="SQLPilot" className="h-10 w-10" />
-            </div>
-            <div>
-              <h2 className="text-lg font-bold text-[var(--color-text-primary)]">SQLPilot</h2>
-              {appVersion && <p className="text-xs text-[var(--color-text-muted)]">Version {appVersion}</p>}
-            </div>
-            <p className="text-xs text-[var(--color-text-secondary)] max-w-xs">
-              A blazing-fast, AI-powered MySQL GUI — built with Rust &amp; React.
-            </p>
-            <div className="h-px w-full bg-[var(--color-border)]" />
-            <div className="flex flex-col items-center gap-2 text-[11px] text-[var(--color-text-muted)]">
-              <span>Built with Tauri · Rust · React · TypeScript</span>
-              <a
-                href="https://www.buymeacoffee.com/evworth"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-yellow-400 px-4 py-1.5 text-xs font-semibold text-black hover:bg-yellow-300 transition-colors"
-              >
-                ☕ Buy me a coffee
-              </a>
-            </div>
-          </div>
-        )}
+        <button
+          onClick={onClose}
+          className="mb-1 rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+        >
+          <X className="h-4 w-4" />
+        </button>
       </div>
-    </div>
+
+      {/* Shortcuts tab */}
+      {tab === "shortcuts" && (
+        <div className="max-h-[60vh] overflow-y-auto p-4">
+          {sections.map((section) => (
+            <div key={section.title} className="mb-4 last:mb-0">
+              <h3 className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+                {section.title}
+              </h3>
+              <div className="space-y-1">
+                {section.shortcuts.map((s) => (
+                  <div
+                    key={s.keys + s.description}
+                    className="flex items-center justify-between rounded px-2 py-1.5"
+                  >
+                    <span className="text-xs text-[var(--color-text-secondary)]">
+                      {s.description}
+                    </span>
+                    <kbd className="rounded bg-[var(--color-bg-primary)] px-2 py-0.5 text-[11px] font-mono text-[var(--color-text-muted)] border border-[var(--color-border)]">
+                      {s.keys}
+                    </kbd>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* About tab */}
+      {tab === "about" && (
+        <div className="flex flex-col items-center gap-4 p-8 text-center">
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-brand-600/20">
+            <img src="/icon.svg" alt="SQLPilot" className="h-10 w-10" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-[var(--color-text-primary)]">SQLPilot</h2>
+            {appVersion && <p className="text-xs text-[var(--color-text-muted)]">Version {appVersion}</p>}
+          </div>
+          <p className="text-xs text-[var(--color-text-secondary)] max-w-xs">
+            A blazing-fast, AI-powered MySQL GUI — built with Rust &amp; React.
+          </p>
+          <div className="h-px w-full bg-[var(--color-border)]" />
+          <div className="flex flex-col items-center gap-2 text-[11px] text-[var(--color-text-muted)]">
+            <span>Built with Tauri · Rust · React · TypeScript</span>
+            <a
+              href="https://www.buymeacoffee.com/evworth"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-flex items-center gap-1.5 rounded-full bg-yellow-400 px-4 py-1.5 text-xs font-semibold text-black hover:bg-yellow-300 transition-colors"
+            >
+              ☕ Buy me a coffee
+            </a>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }
 
