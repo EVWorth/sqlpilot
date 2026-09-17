@@ -29,7 +29,7 @@ export function GridBanners({
   return (
     <>
       {truncated && (
-        <div className="flex items-center gap-2 border-b border-amber-800 bg-amber-900/20 px-3 py-1.5 text-xs text-amber-400">
+        <div className="flex items-center gap-2 border-b edge-warning surface-warning-strong px-3 py-1.5 text-xs text-[var(--color-warning)]">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>{truncationMessage(rowsShown, truncationReason)}</span>
 
@@ -38,7 +38,7 @@ export function GridBanners({
               responses, and the banner said nothing either way (#402). */
           }
           {rowCount.total && (
-            <span className="shrink-0 text-amber-300">
+            <span className="shrink-0 text-[var(--color-warning)]">
               {describeTotal(rowsShown, rowCount.total)}
             </span>
           )}
@@ -46,7 +46,7 @@ export function GridBanners({
             <button
               onClick={() => void rowCount.countExactly()}
               disabled={rowCount.counting}
-              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] underline underline-offset-2 hover:bg-amber-900/40 disabled:opacity-50"
+              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] underline underline-offset-2 hover:surface-warning-strong disabled:opacity-50"
               title="Runs COUNT(*) over the same query, which scans the whole table"
             >
               {rowCount.counting ? "Counting…" : "Count exactly"}
@@ -54,18 +54,18 @@ export function GridBanners({
           )}
           {rowCount.plan.kind === "none" && (
             // Offering a button that cannot work is worse than saying why.
-            <span className="shrink-0 text-amber-300/70" title={rowCount.plan.reason}>
+            <span className="shrink-0 text-[var(--color-warning)]/70" title={rowCount.plan.reason}>
               (no count: {rowCount.plan.reason})
             </span>
           )}
-          {rowCount.error && <span className="shrink-0 text-red-400">{rowCount.error}</span>}
+          {rowCount.error && <span className="shrink-0 text-[var(--color-error)]">{rowCount.error}</span>}
         </div>
       )}
 
       {warnings?.map((warning, idx) => (
         <div
           key={idx}
-          className="flex items-center gap-2 border-b border-yellow-800 bg-yellow-900/20 px-3 py-1.5 text-xs text-yellow-400"
+          className="flex items-center gap-2 border-b edge-warning surface-warning-strong px-3 py-1.5 text-xs text-[var(--color-warning)]"
         >
           <AlertCircle className="h-3.5 w-3.5 shrink-0" />
           <span>{warning}</span>

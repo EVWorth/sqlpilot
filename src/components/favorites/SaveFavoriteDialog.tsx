@@ -123,7 +123,7 @@ export function SaveFavoriteDialog({
       <div onKeyDown={handleKeyDown}>
         <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
           <div className="flex items-center gap-2">
-            <Star className="h-4 w-4 text-yellow-400" />
+            <Star className="h-4 w-4 text-[var(--color-warning)]" />
             <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
               Save as Favorite
             </h2>
@@ -140,7 +140,7 @@ export function SaveFavoriteDialog({
           {/* Name */}
           <div>
             <label className="mb-1 block text-[11px] font-medium text-[var(--color-text-secondary)]">
-              Name <span className="text-red-400">*</span>
+              Name <span className="text-[var(--color-error)]">*</span>
             </label>
             <input
               type="text"
@@ -155,12 +155,12 @@ export function SaveFavoriteDialog({
               aria-describedby={conflictId ? "favorite-name-error" : undefined}
               className={`w-full rounded border bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none ${
                 conflictId
-                  ? "border-red-500 focus:border-red-500"
+                  ? "edge-error focus:edge-error"
                   : "border-[var(--color-border)] focus:border-brand-500"
               }`}
             />
             {conflictId && (
-              <p id="favorite-name-error" role="alert" className="mt-1 text-[11px] text-red-400">
+              <p id="favorite-name-error" role="alert" className="mt-1 text-[11px] text-[var(--color-error)]">
                 A favorite named &ldquo;{name.trim()}&rdquo; is already in{" "}
                 {targetCategory}. Rename it, or overwrite the existing one.
               </p>
@@ -273,7 +273,7 @@ export function SaveFavoriteDialog({
           {conflictId && (
             <button
               onClick={handleOverwrite}
-              className="rounded border border-red-500/60 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/10"
+              className="rounded border edge-error px-3 py-1.5 text-xs font-medium text-[var(--color-error)] hover:surface-error"
             >
               Overwrite
             </button>

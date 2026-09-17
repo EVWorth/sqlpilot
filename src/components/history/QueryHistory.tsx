@@ -236,12 +236,12 @@ export function QueryHistory() {
         </button>
         <button
           onClick={handleClear}
-          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-red-400"
+          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-error)]"
           title={confirmClear ? "Click again to confirm" : "Clear history"}
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
-        {confirmClear && <span className="text-[10px] text-red-400">Confirm?</span>}
+        {confirmClear && <span className="text-[10px] text-[var(--color-error)]">Confirm?</span>}
       </div>
 
       {showFilters && (
@@ -432,7 +432,10 @@ export function QueryHistory() {
       </div>
 
       {storeError && (
-        <p role="alert" className="border-b border-[var(--color-border)] px-2 py-1 text-[10px] text-red-400">
+        <p
+          role="alert"
+          className="border-b border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-error)]"
+        >
           {storeError}
         </p>
       )}
@@ -499,15 +502,15 @@ export function QueryHistory() {
                     aria-label="Delete entry"
                     title="Delete entry"
                     onClick={(e) => handleRemove(e, entry.id)}
-                    className="inline-flex shrink-0 cursor-pointer rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-secondary)] hover:text-red-400 group-hover:opacity-100"
+                    className="inline-flex shrink-0 cursor-pointer rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-error)] group-hover:opacity-100"
                   >
                     <X className="h-3 w-3" />
                   </span>
                 </div>
                 <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
                   {entry.status === "success"
-                    ? <CheckCircle className="h-3 w-3 text-green-400" />
-                    : <XCircle className="h-3 w-3 text-red-400" />}
+                    ? <CheckCircle className="h-3 w-3 text-[var(--color-success)]" />
+                    : <XCircle className="h-3 w-3 text-[var(--color-error)]" />}
                   <span className="truncate">{entry.connectionName}</span>
                   <span className="flex items-center gap-0.5">
                     <Clock className="h-2.5 w-2.5" />
@@ -540,7 +543,7 @@ export function QueryHistory() {
                     </span>
                   )}
                   {entry.status === "error" && entry.errorCode !== undefined && (
-                    <span className="font-mono text-red-400/80">
+                    <span className="font-mono text-[var(--color-error)]/80">
                       {entry.errorCode}
                       {entry.errorSqlState ? ` · ${entry.errorSqlState}` : ""}
                     </span>
@@ -555,7 +558,7 @@ export function QueryHistory() {
                       e.stopPropagation();
                       setExpandedError((prev) => (prev === entry.id ? null : entry.id));
                     }}
-                    className={`cursor-pointer text-[10px] text-red-400 ${
+                    className={`cursor-pointer text-[10px] text-[var(--color-error)] ${
                       expandedError === entry.id ? "whitespace-pre-wrap break-words" : "truncate"
                     }`}
                   >

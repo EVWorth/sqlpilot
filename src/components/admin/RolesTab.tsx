@@ -189,7 +189,7 @@ export function RolesTab({ connectionId }: { connectionId: string }) {
       </div>
 
       <div className="flex-1 overflow-y-auto p-3">
-        {error && <p role="alert" className="mb-2 text-[11px] text-red-400">{error}</p>}
+        {error && <p role="alert" className="mb-2 text-[11px] text-[var(--color-error)]">{error}</p>}
         {notice && (
           <p role="status" className="mb-2 flex items-start gap-1 text-[11px] text-[var(--color-text-secondary)]">
             <span className="flex-1">{notice}</span>
@@ -223,7 +223,7 @@ export function RolesTab({ connectionId }: { connectionId: string }) {
                       `Drop role ${selected.name}?`,
                       `Dropped ${selected.name}.`,
                     ).then(() => setSelected(null))}
-                  className={`${btn} ml-auto text-red-400`}
+                  className={`${btn} ml-auto text-[var(--color-error)]`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                   Drop role
@@ -304,7 +304,7 @@ export function RolesTab({ connectionId }: { connectionId: string }) {
                                   `Revoke ${selected.name} from ${g.user}@${g.host}?`,
                                   `Revoked ${selected.name} from ${g.user}@${g.host}.`,
                                 )}
-                              className="rounded px-1.5 py-0.5 text-[10px] text-red-400 hover:bg-red-500/10"
+                              className="rounded px-1.5 py-0.5 text-[10px] text-[var(--color-error)] hover:surface-error"
                             >
                               Revoke
                             </button>

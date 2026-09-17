@@ -132,7 +132,7 @@ describe("ExplainPanel", () => {
       const allBadges = screen.getAllByText("ALL");
       const dataBadge = allBadges.find((el) => el.className.includes("inline-block"));
       expect(dataBadge).toBeTruthy();
-      expect(dataBadge!.className).toContain("bg-red");
+      expect(dataBadge!.className).toContain("surface-error");
     });
 
     it("shows type badge for ref (green)", () => {
@@ -147,7 +147,7 @@ describe("ExplainPanel", () => {
       const refBadges = screen.getAllByText("ref");
       const dataBadge = refBadges.find((el) => el.className.includes("inline-block"));
       expect(dataBadge).toBeTruthy();
-      expect(dataBadge!.className).toContain("bg-green");
+      expect(dataBadge!.className).toContain("surface-success");
     });
   });
 
@@ -215,7 +215,7 @@ describe("ExplainPanel", () => {
       );
       render(<ExplainPanel />);
       const timeSpan = screen.getByText(/actual time=0.500..2.100/);
-      expect(timeSpan.className).toContain("text-yellow");
+      expect(timeSpan.className).toContain("--color-warning");
     });
   });
 
@@ -241,7 +241,7 @@ describe("ExplainPanel", () => {
       );
       render(<ExplainPanel />);
       const temp = screen.getByText("Using temporary");
-      expect(temp.className).toContain("text-red");
+      expect(temp.className).toContain("--color-error");
     });
 
     it("highlights Using index in Extra column", () => {
@@ -253,7 +253,7 @@ describe("ExplainPanel", () => {
       );
       render(<ExplainPanel />);
       const idx = screen.getByText("Using index");
-      expect(idx.className).toContain("text-green");
+      expect(idx.className).toContain("--color-success");
     });
 
     it("highlights Using where in Extra column", () => {
@@ -265,7 +265,7 @@ describe("ExplainPanel", () => {
       );
       render(<ExplainPanel />);
       const where = screen.getByText("Using where");
-      expect(where.className).toContain("text-blue");
+      expect(where.className).toContain("--color-accent");
     });
 
     it("shows em dash for empty Extra", () => {

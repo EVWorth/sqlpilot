@@ -152,7 +152,7 @@ export function EditableCell({
   if (isBooleanSqlType(dataType) && !editing) {
     return (
       <div
-        className={`flex items-center gap-1 ${isEdited ? "border-l-2 border-amber-400 pl-1" : ""}`}
+        className={`flex items-center gap-1 ${isEdited ? "border-l-2 edge-warning pl-1" : ""}`}
         onDoubleClick={startEdit}
       >
         <input
@@ -176,9 +176,7 @@ export function EditableCell({
   if (!editing) {
     return (
       <div
-        className={`group flex min-h-[20px] cursor-text items-center ${
-          isEdited ? "border-l-2 border-amber-400 pl-1" : ""
-        }`}
+        className={`group flex min-h-[20px] cursor-text items-center ${isEdited ? "border-l-2 edge-warning pl-1" : ""}`}
         onDoubleClick={startEdit}
       >
         {value === null
@@ -253,7 +251,7 @@ export function EditableCell({
         title={invalid ? "Enter 0 or 1 (or true/false, yes/no, on/off)" : undefined}
         aria-invalid={invalid || undefined}
         className={`w-full rounded border bg-[var(--color-bg-primary)] px-1 py-0.5 text-xs text-[var(--color-text-primary)] outline-none ${
-          invalid ? "border-red-500" : "border-brand-500"
+          invalid ? "edge-error" : "border-brand-500"
         }`}
       />
       <button

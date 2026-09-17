@@ -124,7 +124,7 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
                 item.disabled
                   ? "cursor-default text-[var(--color-text-muted)] opacity-50"
                   : item.danger
-                  ? "text-red-400 hover:bg-red-500/10"
+                  ? "text-[var(--color-error)] hover:surface-error"
                   : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)]",
               )}
             >

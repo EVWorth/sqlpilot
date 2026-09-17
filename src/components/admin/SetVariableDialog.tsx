@@ -160,7 +160,7 @@ export function SetVariableDialog(
         </div>
 
         {!survivesRestart(scope) && scope === "global" && (
-          <p className="flex items-start gap-1.5 rounded border border-yellow-500/40 bg-yellow-500/10 p-2 text-[11px] text-yellow-300">
+          <p className="flex items-start gap-1.5 rounded border edge-warning surface-warning p-2 text-[11px] text-[var(--color-warning)]">
             <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0" />
             <span>
               This holds until the server restarts, then reverts to the config file.
@@ -177,8 +177,8 @@ export function SetVariableDialog(
           </pre>
         )}
 
-        {invalidName && <p role="alert" className="text-[11px] text-red-400">{invalidName}</p>}
-        {error && <p role="alert" className="text-[11px] text-red-400">{error}</p>}
+        {invalidName && <p role="alert" className="text-[11px] text-[var(--color-error)]">{invalidName}</p>}
+        {error && <p role="alert" className="text-[11px] text-[var(--color-error)]">{error}</p>}
       </div>
 
       <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">

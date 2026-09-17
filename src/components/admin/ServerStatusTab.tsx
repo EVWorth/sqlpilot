@@ -84,8 +84,9 @@ export function ServerStatusTab({ connectionId }: { connectionId: string }) {
 
   return (
     <div className="flex h-full flex-col">
-      {error && <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}
-      </div>}
+      {error && (
+        <div className="border-b edge-error surface-error px-3 py-1.5 text-xs text-[var(--color-error)]">{error}</div>
+      )}
 
       {/* Metric Cards */}
       <div className="grid grid-cols-2 gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 sm:grid-cols-4 lg:grid-cols-7">

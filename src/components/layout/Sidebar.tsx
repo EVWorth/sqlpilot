@@ -41,7 +41,7 @@ export function Sidebar() {
       )}
       {selectedConnection && (
         <div className="flex items-center gap-1.5 border-b border-[var(--color-border)] px-3 py-1.5 shrink-0">
-          <Database className="h-3 w-3 shrink-0 text-green-400" />
+          <Database className="h-3 w-3 shrink-0 text-[var(--color-success)]" />
           {selectedProfile?.color && (
             <span
               className="h-1.5 w-1.5 shrink-0 rounded-full"

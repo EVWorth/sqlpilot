@@ -244,10 +244,10 @@ export function ConnectionTabs() {
                 className={cn(
                   "h-3 w-3 shrink-0",
                   connectionState(conn.id) === "Disconnected"
-                    ? "text-red-500"
+                    ? "text-[var(--color-error)]"
                     : connectionState(conn.id) === "Connecting"
-                    ? "animate-pulse text-amber-400"
-                    : "text-green-400",
+                    ? "animate-pulse text-[var(--color-warning)]"
+                    : "text-[var(--color-success)]",
                 )}
               />
 
@@ -267,7 +267,7 @@ export function ConnectionTabs() {
                 <Lock
                   role="img"
                   aria-label="Read-only connection"
-                  className="h-3 w-3 shrink-0 text-yellow-400"
+                  className="h-3 w-3 shrink-0 text-[var(--color-warning)]"
                 />
               )}
 

@@ -121,7 +121,9 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
         <div className="px-4 pb-2">
           <div
             className={`flex items-center gap-2 rounded p-2 text-xs ${
-              testResult.success ? "bg-green-900/30 text-green-400" : "bg-red-900/30 text-red-400"
+              testResult.success
+                ? "surface-success-strong text-[var(--color-success)]"
+                : "surface-error-strong text-[var(--color-error)]"
             }`}
           >
             {testResult.success

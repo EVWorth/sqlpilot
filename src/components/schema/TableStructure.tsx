@@ -172,7 +172,7 @@ export function TableStructure({
           // Only the tab that failed. A user without rights on
           // information_schema.PARTITIONS should still see their columns.
           ? (
-            <div role="alert" className="p-4 text-sm text-red-400">
+            <div role="alert" className="p-4 text-sm text-[var(--color-error)]">
               {details.errors[activeSubTab]}
             </div>
           )
@@ -280,13 +280,15 @@ function ColumnsTable({ columns }: { columns: ColumnInfo[] }) {
               {col.column_type}
             </td>
             <td className={`${TD} text-center`}>
-              {col.nullable ? <span className="text-green-400">✓</span> : <span className="text-red-400">✗</span>}
+              {col.nullable
+                ? <span className="text-[var(--color-success)]">✓</span>
+                : <span className="text-[var(--color-error)]">✗</span>}
             </td>
             <td className={`${TD} font-mono text-[var(--color-text-muted)]`}>
               {col.default_value ?? <span className="italic opacity-50">NULL</span>}
             </td>
             <td className={`${TD} text-center`}>
-              {col.is_primary_key && <Key className="mx-auto h-3.5 w-3.5 text-yellow-400" />}
+              {col.is_primary_key && <Key className="mx-auto h-3.5 w-3.5 text-[var(--color-warning)]" />}
             </td>
             <td className={`${TD} text-[var(--color-text-muted)]`}>{col.extra}</td>
             <td className={`max-w-[200px] truncate ${TD} text-[var(--color-text-muted)]`}>

@@ -430,13 +430,13 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
         <span className="text-xs text-[var(--color-text-muted)]">in {database}</span>
         <div className="ml-auto flex items-center gap-2">
           {error && (
-            <span className="flex items-center gap-1 text-xs text-red-400">
+            <span className="flex items-center gap-1 text-xs text-[var(--color-error)]">
               <AlertCircle className="h-3.5 w-3.5" />
               {error}
             </span>
           )}
           {success && (
-            <span className="flex items-center gap-1 text-xs text-green-400">
+            <span className="flex items-center gap-1 text-xs text-[var(--color-success)]">
               <Check className="h-3.5 w-3.5" />
               {success}
             </span>
@@ -677,7 +677,7 @@ function ColumnsTab({
                   <td className="px-1 py-1">
                     <button
                       onClick={() => onRemove(col.id)}
-                      className="rounded p-0.5 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
+                      className="rounded p-0.5 text-[var(--color-text-muted)] hover:surface-error hover:text-[var(--color-error)]"
                     >
                       <Trash2 className="h-3 w-3" />
                     </button>
@@ -765,13 +765,13 @@ function IndexesTab({
                   data-testid="index-row"
                   className={cn(
                     "rounded border bg-[var(--color-bg-secondary)] p-3",
-                    problem ? "border-amber-600" : "border-[var(--color-border)]",
+                    problem ? "edge-warning" : "border-[var(--color-border)]",
                   )}
                 >
                   {problem && (
                     <p
                       data-testid="index-problem"
-                      className="mb-2 flex items-center gap-1 text-[11px] text-amber-400"
+                      className="mb-2 flex items-center gap-1 text-[11px] text-[var(--color-warning)]"
                     >
                       <AlertCircle className="h-3 w-3 shrink-0" />
                       {problem}
@@ -802,7 +802,7 @@ function IndexesTab({
                     </div>
                     <button
                       onClick={() => onRemove(idx.id)}
-                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
+                      className="rounded p-1 text-[var(--color-text-muted)] hover:surface-error hover:text-[var(--color-error)]"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
@@ -932,13 +932,13 @@ function ForeignKeysTab({
                   data-testid="fk-row"
                   className={cn(
                     "rounded border bg-[var(--color-bg-secondary)] p-3",
-                    problem ? "border-amber-600" : "border-[var(--color-border)]",
+                    problem ? "edge-warning" : "border-[var(--color-border)]",
                   )}
                 >
                   {problem && (
                     <p
                       data-testid="fk-problem"
-                      className="mb-2 flex items-center gap-1 text-[11px] text-amber-400"
+                      className="mb-2 flex items-center gap-1 text-[11px] text-[var(--color-warning)]"
                     >
                       <AlertCircle className="h-3 w-3 shrink-0" />
                       {problem}
@@ -956,7 +956,7 @@ function ForeignKeysTab({
                     </div>
                     <button
                       onClick={() => onRemove(fk.id)}
-                      className="rounded p-1 text-[var(--color-text-muted)] hover:bg-red-500/10 hover:text-red-400"
+                      className="rounded p-1 text-[var(--color-text-muted)] hover:surface-error hover:text-[var(--color-error)]"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>

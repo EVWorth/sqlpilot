@@ -42,11 +42,11 @@ export function Field({
         aria-invalid={problem !== undefined}
         aria-describedby={problem ? `${id}-problem` : hint ? `${id}-hint` : undefined}
         className={`w-full rounded border bg-[var(--color-bg-primary)] px-2.5 py-1.5 text-sm text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none focus:border-brand-500 ${
-          problem ? "border-red-500/60" : "border-[var(--color-border)]"
+          problem ? "edge-error" : "border-[var(--color-border)]"
         }`}
       />
       {problem
-        ? <p id={`${id}-problem`} className="mt-0.5 text-[10px] text-red-400">{problem}</p>
+        ? <p id={`${id}-problem`} className="mt-0.5 text-[10px] text-[var(--color-error)]">{problem}</p>
         : hint
         ? <p id={`${id}-hint`} className="mt-0.5 text-[10px] text-[var(--color-text-muted)]">{hint}</p>
         : null}

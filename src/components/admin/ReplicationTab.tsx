@@ -122,7 +122,7 @@ export function ReplicationTab({ connectionId }: { connectionId: string }) {
         </button>
       </div>
 
-      {error && <p role="alert" className="mb-2 text-[11px] text-red-400">{error}</p>}
+      {error && <p role="alert" className="mb-2 text-[11px] text-[var(--color-error)]">{error}</p>}
 
       {standalone && (
         <p className="text-[11px] text-[var(--color-text-muted)]">
@@ -135,12 +135,14 @@ export function ReplicationTab({ connectionId }: { connectionId: string }) {
         <section className="mb-4">
           <h4 className="mb-1.5 flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-secondary)]">
             {health.healthy
-              ? <CheckCircle className="h-3.5 w-3.5 text-green-400" />
-              : <AlertTriangle className="h-3.5 w-3.5 text-red-400" />}
+              ? <CheckCircle className="h-3.5 w-3.5 text-[var(--color-success)]" />
+              : <AlertTriangle className="h-3.5 w-3.5 text-[var(--color-error)]" />}
             Replicating from {replica.sourceHost}:{replica.sourcePort}
           </h4>
           <p
-            className={`mb-2 text-[11px] ${health.healthy ? "text-green-400" : "text-red-400"}`}
+            className={`mb-2 text-[11px] ${
+              health.healthy ? "text-[var(--color-success)]" : "text-[var(--color-error)]"
+            }`}
             role={health.healthy ? undefined : "alert"}
           >
             {health.summary}
@@ -174,13 +176,13 @@ export function ReplicationTab({ connectionId }: { connectionId: string }) {
               {replica.lastIoError && (
                 <tr>
                   <td className={cell}>Last IO error</td>
-                  <td className="py-1 font-mono text-red-400">{replica.lastIoError}</td>
+                  <td className="py-1 font-mono text-[var(--color-error)]">{replica.lastIoError}</td>
                 </tr>
               )}
               {replica.lastSqlError && (
                 <tr>
                   <td className={cell}>Last SQL error</td>
-                  <td className="py-1 font-mono text-red-400">{replica.lastSqlError}</td>
+                  <td className="py-1 font-mono text-[var(--color-error)]">{replica.lastSqlError}</td>
                 </tr>
               )}
             </tbody>

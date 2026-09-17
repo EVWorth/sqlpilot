@@ -340,9 +340,9 @@ export function RestoreDialog({
               />
             </div>
             <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-              <span className="text-green-400">✓ {progress.statementsRun} statements</span>
+              <span className="text-[var(--color-success)]">✓ {progress.statementsRun} statements</span>
               {progress.statementsFailed > 0 && (
-                <span className="text-red-400">✗ {progress.statementsFailed} failed</span>
+                <span className="text-[var(--color-error)]">✗ {progress.statementsFailed} failed</span>
               )}
               <span className="text-[var(--color-text-muted)]">
                 {formatBytes(progress.bytesRead)} of {formatBytes(progress.totalBytes)}
@@ -362,8 +362,8 @@ export function RestoreDialog({
         {summary && (
           <div
             className={summary.statementsFailed === 0
-              ? "rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400"
-              : "rounded border border-yellow-500/30 bg-yellow-500/10 px-3 py-2 text-xs text-yellow-400"}
+              ? "rounded border edge-success surface-success px-3 py-2 text-xs text-[var(--color-success)]"
+              : "rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]"}
           >
             <div className="flex items-center gap-2">
               {summary.statementsFailed === 0
@@ -387,7 +387,7 @@ export function RestoreDialog({
               </div>
             )}
             {summary.errors.length > 0 && (
-              <div className="mt-2 max-h-24 overflow-auto rounded bg-red-500/10 p-2 font-mono text-[10px] text-red-400">
+              <div className="mt-2 max-h-24 overflow-auto rounded surface-error p-2 font-mono text-[10px] text-[var(--color-error)]">
                 {summary.errors.slice(0, 10).map((err) => <div key={err}>{err}</div>)}
               </div>
             )}
@@ -395,7 +395,7 @@ export function RestoreDialog({
         )}
 
         {error && (
-          <div className="flex items-center gap-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          <div className="flex items-center gap-2 rounded border edge-error surface-error px-3 py-2 text-xs text-[var(--color-error)]">
             <AlertCircle className="h-4 w-4" />
             {error}
           </div>
@@ -407,7 +407,7 @@ export function RestoreDialog({
         {restoring && (
           <button
             onClick={handleCancel}
-            className="rounded border border-red-500/30 bg-red-500/10 px-4 py-1.5 text-xs text-red-400 hover:bg-red-500/20"
+            className="rounded border edge-error surface-error px-4 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
           >
             Cancel
           </button>

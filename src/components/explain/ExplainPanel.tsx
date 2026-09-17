@@ -15,19 +15,19 @@ type ViewMode = "table" | "tree";
  * badge with no legend entry (#426).
  */
 const ACCESS_TYPES: ReadonlyArray<{ type: string; color: string }> = [
-  { type: "ALL", color: "bg-red-600/80 text-white" },
-  { type: "index", color: "bg-yellow-600/80 text-white" },
-  { type: "index_merge", color: "bg-yellow-700/80 text-white" },
-  { type: "range", color: "bg-yellow-500/70 text-white" },
+  { type: "ALL", color: "surface-error-strong text-white" },
+  { type: "index", color: "surface-warning-strong text-white" },
+  { type: "index_merge", color: "surface-warning-strong text-white" },
+  { type: "range", color: "surface-warning-strong text-white" },
   { type: "index_subquery", color: "bg-lime-600/80 text-white" },
   { type: "unique_subquery", color: "bg-lime-500/80 text-white" },
-  { type: "ref_or_null", color: "bg-green-700/80 text-white" },
+  { type: "ref_or_null", color: "surface-success-strong text-white" },
   { type: "fulltext", color: "bg-purple-600/80 text-white" },
   { type: "spatial", color: "bg-pink-600/80 text-white" },
-  { type: "ref", color: "bg-green-600/80 text-white" },
-  { type: "eq_ref", color: "bg-green-500/80 text-white" },
-  { type: "const", color: "bg-blue-500/80 text-white" },
-  { type: "system", color: "bg-blue-500/80 text-white" },
+  { type: "ref", color: "surface-success-strong text-white" },
+  { type: "eq_ref", color: "surface-success-strong text-white" },
+  { type: "const", color: "surface-accent text-white" },
+  { type: "system", color: "surface-accent text-white" },
 ];
 
 const TYPE_COLORS: Record<string, string> = Object.fromEntries(
@@ -113,28 +113,28 @@ function ExtraHighlight({ text }: { text: string }) {
         }
         if (part === "Using temporary") {
           return (
-            <span key={i} className="rounded px-1 bg-red-600/30 text-red-300">
+            <span key={i} className="rounded px-1 surface-error-strong text-[var(--color-error)]">
               {part}
             </span>
           );
         }
         if (part === "Using index") {
           return (
-            <span key={i} className="rounded px-1 bg-green-600/30 text-green-300">
+            <span key={i} className="rounded px-1 surface-success-strong text-[var(--color-success)]">
               {part}
             </span>
           );
         }
         if (part === "Using where") {
           return (
-            <span key={i} className="rounded px-1 bg-blue-600/30 text-blue-300">
+            <span key={i} className="rounded px-1 surface-accent text-[var(--color-accent)]">
               {part}
             </span>
           );
         }
         if (part === "Using join buffer") {
           return (
-            <span key={i} className="rounded px-1 bg-yellow-600/30 text-yellow-300">
+            <span key={i} className="rounded px-1 surface-warning-strong text-[var(--color-warning)]">
               {part}
             </span>
           );
@@ -166,7 +166,7 @@ function KeyHighlight({
             {i > 0 && ", "}
             <span
               className={k.trim() === usedKey
-                ? "rounded bg-green-600/30 px-1 text-green-300"
+                ? "rounded surface-success-strong px-1 text-[var(--color-success)]"
                 : ""}
             >
               {k.trim()}
@@ -176,7 +176,7 @@ function KeyHighlight({
       </span>
     );
   }
-  return <span className="font-medium text-green-400">{text}</span>;
+  return <span className="font-medium text-[var(--color-success)]">{text}</span>;
 }
 
 function RowsBar({ rows, maxRows }: { rows: number; maxRows: number }) {
@@ -459,7 +459,7 @@ function TreeNodeView({
             )}
             {node.key && (
               <span>
-                key: <span className="text-green-400">{node.key}</span>
+                key: <span className="text-[var(--color-success)]">{node.key}</span>
               </span>
             )}
           </div>
@@ -524,14 +524,14 @@ function AnalyzeView({ result }: { result: QueryResult }) {
           {parts.map((part, j) => {
             if (part.startsWith("actual time=")) {
               return (
-                <span key={j} className="text-yellow-300">
+                <span key={j} className="text-[var(--color-warning)]">
                   {part}
                 </span>
               );
             }
             if (part.startsWith("rows=")) {
               return (
-                <span key={j} className="text-blue-300">
+                <span key={j} className="text-[var(--color-accent)]">
                   {part}
                 </span>
               );
@@ -647,7 +647,7 @@ function JsonNode(
     const highlight = name !== null && COST_KEYS.has(name)
       ? "text-orange-300"
       : name !== null && ROW_KEYS.has(name)
-      ? "text-blue-300"
+      ? "text-[var(--color-accent)]"
       : "text-[var(--color-text-primary)]";
     return (
       <div className="flex gap-1.5 py-px pl-4 font-mono text-[11px]">
@@ -726,8 +726,8 @@ function FormatPicker() {
  */
 function DowngradeNotice({ notice }: { notice: string }) {
   return (
-    <div className="flex items-start gap-2 border-b border-[var(--color-border)] bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
-      <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-amber-400" />
+    <div className="flex items-start gap-2 border-b border-[var(--color-border)] surface-warning px-3 py-2 text-[11px] text-[var(--color-warning)]">
+      <AlertTriangle className="mt-px h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />
       <span>{notice}</span>
     </div>
   );
@@ -746,7 +746,7 @@ function CancelButton() {
     <button
       onClick={() => void cancelActiveQuery()}
       title="Cancel the running statement"
-      className="ml-2 flex items-center gap-1 rounded bg-red-600/90 px-1.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-red-700"
+      className="ml-2 flex items-center gap-1 rounded surface-error-strong px-1.5 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-red-700"
     >
       <Square className="h-2.5 w-2.5 fill-current" />
       Cancel

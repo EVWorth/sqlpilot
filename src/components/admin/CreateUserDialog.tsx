@@ -115,7 +115,7 @@ export function CreateUserDialog({
       {/* Body */}
       <div className="space-y-3 p-4">
         {error && (
-          <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          <div className="rounded border edge-error surface-error px-3 py-2 text-xs text-[var(--color-error)]">
             {error}
           </div>
         )}
@@ -123,7 +123,7 @@ export function CreateUserDialog({
         {/* Username */}
         <div>
           <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-            Username <span className="text-red-400">*</span>
+            Username <span className="text-[var(--color-error)]">*</span>
           </label>
           <input
             type="text"
@@ -167,7 +167,7 @@ export function CreateUserDialog({
         {/* Password */}
         <div>
           <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-            Password <span className="text-red-400">*</span>
+            Password <span className="text-[var(--color-error)]">*</span>
           </label>
           <div className="relative">
             <input
@@ -189,7 +189,7 @@ export function CreateUserDialog({
         {/* Confirm Password */}
         <div>
           <label className="mb-1 block text-xs font-medium text-[var(--color-text-secondary)]">
-            Confirm Password <span className="text-red-400">*</span>
+            Confirm Password <span className="text-[var(--color-error)]">*</span>
           </label>
           <input
             type={showPassword ? "text" : "password"}
@@ -197,12 +197,12 @@ export function CreateUserDialog({
             onChange={(e) => setConfirmPassword(e.target.value)}
             className={`h-8 w-full rounded border bg-[var(--color-bg-primary)] px-2.5 text-xs text-[var(--color-text-primary)] focus:outline-none ${
               confirmPassword && confirmPassword !== password
-                ? "border-red-500 focus:border-red-500"
+                ? "edge-error focus:edge-error"
                 : "border-[var(--color-border)] focus:border-brand-500"
             }`}
           />
           {confirmPassword && confirmPassword !== password && (
-            <p className="mt-1 text-[10px] text-red-400">
+            <p className="mt-1 text-[10px] text-[var(--color-error)]">
               Passwords do not match
             </p>
           )}

@@ -172,7 +172,7 @@ describe("connection state on the tab (FR-1.3.2)", () => {
     storeState = { profiles, activeConnections: [conn] };
     render(<ConnectionTabs />);
     // `className` on an SVG element is an SVGAnimatedString, not a string.
-    expect(screen.getByLabelText("Connected").getAttribute("class")).toContain("green");
+    expect(screen.getByLabelText("Connected").getAttribute("class")).toContain("--color-success");
   });
 
   it("is red once the health checker says the server has gone", () => {
@@ -180,13 +180,13 @@ describe("connection state on the tab (FR-1.3.2)", () => {
     healthState = { c1: { connectionId: "c1", healthy: false, consecutiveFailures: 2 } };
     storeState = { profiles, activeConnections: [conn] };
     render(<ConnectionTabs />);
-    expect(screen.getByLabelText("Disconnected").getAttribute("class")).toContain("red");
+    expect(screen.getByLabelText("Disconnected").getAttribute("class")).toContain("--color-error");
   });
 
   it("is amber while a connect is in flight", () => {
     storeState = { profiles, activeConnections: [conn], loading: true };
     render(<ConnectionTabs />);
-    expect(screen.getByLabelText("Connecting").getAttribute("class")).toContain("amber");
+    expect(screen.getByLabelText("Connecting").getAttribute("class")).toContain("--color-warning");
   });
 
   it("shows a lost connection as lost even while another is connecting", () => {

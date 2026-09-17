@@ -82,7 +82,7 @@ export function ChangePasswordDialog({
       {/* Body */}
       <div className="space-y-3 p-4">
         {error && (
-          <div className="rounded border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          <div className="rounded border edge-error surface-error px-3 py-2 text-xs text-[var(--color-error)]">
             {error}
           </div>
         )}
@@ -118,12 +118,12 @@ export function ChangePasswordDialog({
             onChange={(e) => setConfirmPassword(e.target.value)}
             className={`h-8 w-full rounded border bg-[var(--color-bg-primary)] px-2.5 text-xs text-[var(--color-text-primary)] focus:outline-none ${
               confirmPassword && confirmPassword !== password
-                ? "border-red-500 focus:border-red-500"
+                ? "edge-error focus:edge-error"
                 : "border-[var(--color-border)] focus:border-brand-500"
             }`}
           />
           {confirmPassword && confirmPassword !== password && (
-            <p className="mt-1 text-[10px] text-red-400">
+            <p className="mt-1 text-[10px] text-[var(--color-error)]">
               Passwords do not match
             </p>
           )}

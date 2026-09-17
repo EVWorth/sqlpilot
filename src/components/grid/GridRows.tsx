@@ -81,7 +81,7 @@ export function VirtualGridRows({
               }}
             >
               <div
-                className="flex items-center justify-center border-b border-r border-[var(--color-border)] bg-green-900/15 px-2 py-1 text-center text-green-400 text-xs"
+                className="flex items-center justify-center border-b border-r border-[var(--color-border)] surface-success px-2 py-1 text-center text-[var(--color-success)] text-xs"
                 style={{ flex: "0 0 48px" }}
               >
                 +
@@ -97,7 +97,7 @@ export function VirtualGridRows({
                 return (
                   <div
                     key={col.name}
-                    className="border-b border-r border-[var(--color-border)] bg-green-900/15 px-2 py-1 text-xs text-[var(--color-text-primary)]"
+                    className="border-b border-r border-[var(--color-border)] surface-success px-2 py-1 text-xs text-[var(--color-text-primary)]"
                     style={{ flex: `1 1 ${colSize}px`, minWidth: minW }}
                   >
                     <EditableCell
@@ -123,8 +123,8 @@ export function VirtualGridRows({
         const isEdited = editing.isRowEdited(rowIdx);
         const isSelected = selection.rows.has(rowIdx);
         let rowBg = "";
-        if (isDeleted) rowBg = "bg-red-900/20 line-through opacity-60";
-        else if (isEdited) rowBg = "bg-amber-900/10";
+        if (isDeleted) rowBg = "surface-error-strong line-through opacity-60";
+        else if (isEdited) rowBg = "surface-warning";
         else if (isSelected) rowBg = "bg-brand-600/20";
         else rowBg = "hover:bg-[var(--color-bg-secondary)]";
 
@@ -194,8 +194,8 @@ export function TableGridRows({
         const isEdited = editing.isRowEdited(rowIdx);
         const isSelected = selection.rows.has(rowIdx);
         let rowClass = "hover:bg-[var(--color-bg-secondary)]";
-        if (isDeleted) rowClass = "bg-red-900/20 line-through opacity-60";
-        else if (isEdited) rowClass = "bg-amber-900/10";
+        if (isDeleted) rowClass = "surface-error-strong line-through opacity-60";
+        else if (isEdited) rowClass = "surface-warning";
         else if (isSelected) rowClass = "bg-brand-600/20";
 
         return (
@@ -227,8 +227,8 @@ export function TableGridRows({
       })}
       {editing.editMode
         && editing.inserts.map((insertRow, insertIdx) => (
-          <tr key={`insert-${insertIdx}`} className="bg-green-900/15">
-            <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-green-400">
+          <tr key={`insert-${insertIdx}`} className="surface-success">
+            <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-success)]">
               +
             </td>
             {orderedColumns.map((col, colIdx) => (

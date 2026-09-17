@@ -116,8 +116,9 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
         </span>
       </div>
 
-      {error && <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}
-      </div>}
+      {error && (
+        <div className="border-b edge-error surface-error px-3 py-1.5 text-xs text-[var(--color-error)]">{error}</div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
@@ -216,7 +217,7 @@ function GroupRows({
               >
                 {v.name}
                 {copiedKey === `name:${v.name}`
-                  ? <Check className="h-3 w-3 text-green-400" />
+                  ? <Check className="h-3 w-3 text-[var(--color-success)]" />
                   : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />}
               </button>
             </td>
@@ -229,7 +230,7 @@ function GroupRows({
                 >
                   <span className="max-w-[520px] truncate">{v.value}</span>
                   {copiedKey === `value:${v.name}`
-                    ? <Check className="h-3 w-3 text-green-400" />
+                    ? <Check className="h-3 w-3 text-[var(--color-success)]" />
                     : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />}
                 </button>
                 <button

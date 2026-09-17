@@ -143,7 +143,7 @@ export function HistoryQuickOpen({ isOpen, onClose, onPick }: Props) {
           />
         </div>
 
-        {error && <p role="alert" className="px-3 py-2 text-[11px] text-red-400">{error}</p>}
+        {error && <p role="alert" className="px-3 py-2 text-[11px] text-[var(--color-error)]">{error}</p>}
 
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto">
           {entries.length === 0
@@ -171,7 +171,7 @@ export function HistoryQuickOpen({ isOpen, onClose, onPick }: Props) {
                     {entry.sql}
                   </pre>
                   <span className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
-                    {entry.status === "error" && <XCircle className="h-2.5 w-2.5 text-red-400" />}
+                    {entry.status === "error" && <XCircle className="h-2.5 w-2.5 text-[var(--color-error)]" />}
                     <span className="truncate">{entry.connectionName}</span>
                     <span className="flex items-center gap-0.5">
                       <Clock className="h-2.5 w-2.5" />

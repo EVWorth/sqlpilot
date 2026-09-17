@@ -221,8 +221,8 @@ export function RoutineViewer({
   if (error) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 bg-[var(--color-bg-primary)]">
-        <AlertCircle className="h-6 w-6 text-red-400" />
-        <p className="text-sm text-red-400">{error}</p>
+        <AlertCircle className="h-6 w-6 text-[var(--color-error)]" />
+        <p className="text-sm text-[var(--color-error)]">{error}</p>
         <button
           onClick={loadDdl}
           className="rounded bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
@@ -273,7 +273,7 @@ export function RoutineViewer({
           </button>
           <button
             onClick={handleDrop}
-            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-red-400 hover:bg-red-500/10"
+            className="flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-error)] hover:surface-error"
             title={`Drop ${routineType.toLowerCase()}`}
           >
             <Trash2 className="h-3 w-3" />
@@ -370,9 +370,9 @@ export function RoutineViewer({
 
         {/* Execution error */}
         {execError && (
-          <div className="mx-3 mt-2 flex items-start gap-2 rounded border border-red-500/30 bg-red-500/10 px-3 py-2">
-            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
-            <pre className="flex-1 whitespace-pre-wrap text-xs text-red-400">
+          <div className="mx-3 mt-2 flex items-start gap-2 rounded border edge-error surface-error px-3 py-2">
+            <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-error)]" />
+            <pre className="flex-1 whitespace-pre-wrap text-xs text-[var(--color-error)]">
               {execError}
             </pre>
           </div>
@@ -418,8 +418,8 @@ function ParameterRow({
   const displayValue = isReadOnly && outValue !== undefined ? outValue : value;
 
   const directionColor = {
-    IN: "text-blue-400 bg-blue-500/10 border-blue-500/30",
-    OUT: "text-amber-400 bg-amber-500/10 border-amber-500/30",
+    IN: "text-[var(--color-accent)] surface-accent edge-accent",
+    OUT: "text-[var(--color-warning)] surface-warning edge-warning",
     INOUT: "text-purple-400 bg-purple-500/10 border-purple-500/30",
   }[param.direction];
 
@@ -465,13 +465,13 @@ function ParameterRow({
             isReadOnly && "cursor-default opacity-70",
             outValue !== undefined
               && isReadOnly
-              && "border-amber-500/30 bg-amber-500/5 text-amber-300",
-            problem && "border-red-500/60 bg-red-500/5",
+              && "edge-warning surface-warning text-[var(--color-warning)]",
+            problem && "edge-error surface-error",
           )}
         />
       </div>
       {problem && (
-        <p id={errorId} className="ml-[13.5rem] mt-0.5 text-[10px] text-red-400">
+        <p id={errorId} className="ml-[13.5rem] mt-0.5 text-[10px] text-[var(--color-error)]">
           {problem}
         </p>
       )}

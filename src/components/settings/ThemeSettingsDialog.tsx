@@ -301,7 +301,7 @@ function ThemeRow({
         <button
           onClick={onDelete}
           aria-label={`Delete ${name}`}
-          className="rounded p-1 text-[var(--color-text-muted)] hover:text-red-400"
+          className="rounded p-1 text-[var(--color-text-muted)] hover:text-[var(--color-error)]"
         >
           <Trash2 className="h-3.5 w-3.5" />
         </button>
@@ -372,7 +372,7 @@ function ThemeEditor({
       {unreadable && (
         <p
           role="alert"
-          className="mb-2 rounded border border-yellow-600/50 bg-yellow-900/20 p-2 text-[11px] text-yellow-300"
+          className="mb-2 rounded border edge-warning surface-warning-strong p-2 text-[11px] text-[var(--color-warning)]"
         >
           Text on the background is {textContrast.toFixed(1)}:1. WCAG AA asks for{" "}
           {MIN_TEXT_CONTRAST}:1 — this will be hard to read.
