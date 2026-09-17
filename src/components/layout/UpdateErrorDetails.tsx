@@ -115,7 +115,7 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
         ref={triggerRef}
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
-        className="flex items-center gap-1 text-[10px] text-yellow-400 hover:text-yellow-300 transition-colors"
+        className="flex items-center gap-1 text-[10px] text-[var(--color-warning)] hover:text-[var(--color-warning)] transition-colors"
         title={updateError
           ? `Update failed: ${updateError} — click for details`
           : "Update check failed — click for details"}
@@ -131,7 +131,7 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
         >
           <div className="flex items-start justify-between gap-2 mb-2">
             <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[var(--color-text-primary)]">
-              <Bug className="h-3.5 w-3.5 text-red-400" />
+              <Bug className="h-3.5 w-3.5 text-[var(--color-error)]" />
               Update failed
             </div>
             <button
@@ -144,7 +144,7 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
             </button>
           </div>
           {updateError && (
-            <pre className="max-h-32 overflow-auto rounded bg-[var(--color-bg-secondary)] p-2 text-[10px] font-mono whitespace-pre-wrap break-words text-red-400 mb-2">
+            <pre className="max-h-32 overflow-auto rounded bg-[var(--color-bg-secondary)] p-2 text-[10px] font-mono whitespace-pre-wrap break-words text-[var(--color-error)] mb-2">
               {updateError}
             </pre>
           )}
@@ -171,7 +171,7 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
                 setOpen(false);
                 void checkForUpdates(true);
               }}
-              className="flex items-center gap-1 rounded bg-yellow-500/20 px-2 py-1 text-[10px] text-yellow-400 hover:bg-yellow-500/30"
+              className="flex items-center gap-1 rounded bg-yellow-500/20 px-2 py-1 text-[10px] text-[var(--color-warning)] hover:bg-yellow-500/30"
             >
               <RefreshCw className="h-3 w-3" />
               Retry

@@ -75,6 +75,25 @@ export interface Theme {
   colors: Record<ThemeToken, string>;
   /** True for the themes that ship with the app and cannot be edited away. */
   builtIn?: boolean;
+  /**
+   * Where the colours come from, which decides whether we may change them.
+   *
+   * `authored` is ours: we chose every value, so we are answerable for it and
+   * it is held to WCAG AA.
+   *
+   * `quoted` reproduces a published palette. Nord and Solarized are specific,
+   * named sets of colours, and neither can reach AA while staying itself —
+   * on Solarized's own light grounds the only canonical members that clear
+   * 4.5:1 are its two darkest tones, so every accent it defines fails. A
+   * "Solarized Light" whose values we had corrected until they passed would
+   * not be Solarized, and the name would be a lie.
+   *
+   * So these are held to fidelity instead: the test checks they still match
+   * the published palette, and the theme picker says what they cost. Choosing
+   * a low-contrast palette is the user's call to make, not ours to make
+   * quietly on their behalf.
+   */
+  origin?: "authored" | "quoted";
 }
 
 const DARK: Record<ThemeToken, string> = {
@@ -103,11 +122,11 @@ const LIGHT: Record<ThemeToken, string> = {
   "border": "#d1d5db",
   "text-primary": "#1f2937",
   "text-secondary": "#4b5563",
-  "text-muted": "#9ca3af",
+  "text-muted": "#646870",
   "accent": "#2563eb",
-  "success": "#16a34a",
-  "warning": "#ca8a04",
-  "error": "#dc2626",
+  "success": "#107937",
+  "warning": "#8b5f03",
+  "error": "#ca2323",
   "brand-300": "#93c5fd",
   "brand-400": "#60a5fa",
   "brand-500": "#3b82f6",
@@ -130,6 +149,7 @@ export const BUILT_IN_THEMES: Theme[] = [
     name: "Nord",
     base: "dark",
     builtIn: true,
+    origin: "quoted",
     colors: {
       "bg-primary": "#2e3440",
       "bg-secondary": "#3b4252",
@@ -154,6 +174,7 @@ export const BUILT_IN_THEMES: Theme[] = [
     name: "Solarized Light",
     base: "light",
     builtIn: true,
+    origin: "quoted",
     colors: {
       "bg-primary": "#fdf6e3",
       "bg-secondary": "#eee8d5",
@@ -196,7 +217,7 @@ export const BUILT_IN_THEMES: Theme[] = [
       "brand-300": "#bcdcff",
       "brand-400": "#8ec5ff",
       "brand-500": "#4aa3ff",
-      "brand-600": "#1a86ff",
+      "brand-600": "#166fd4",
       "brand-700": "#0066d6",
     },
   },
