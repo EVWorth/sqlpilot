@@ -183,7 +183,7 @@ export function UserManagement({ connectionId }: UserManagementProps) {
         </div>
 
         {error && (
-          <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">
+          <div className="border-b edge-error surface-error px-3 py-1.5 text-xs text-[var(--color-error)]">
             {error}
           </div>
         )}
@@ -232,13 +232,13 @@ export function UserManagement({ connectionId }: UserManagementProps) {
                           </span>
                         )}
                         {u.accountLocked === "Y" && (
-                          <span className="inline-flex items-center rounded bg-yellow-500/20 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
+                          <span className="inline-flex items-center rounded surface-warning-strong px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-warning)]">
                             <Lock className="mr-0.5 h-2.5 w-2.5" />
                             Locked
                           </span>
                         )}
                         {u.passwordExpired === "Y" && (
-                          <span className="inline-flex items-center rounded bg-red-500/20 px-1.5 py-0.5 text-[10px] font-medium text-red-400">
+                          <span className="inline-flex items-center rounded surface-error-strong px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-error)]">
                             <AlertTriangle className="mr-0.5 h-2.5 w-2.5" />
                             Expired
                           </span>

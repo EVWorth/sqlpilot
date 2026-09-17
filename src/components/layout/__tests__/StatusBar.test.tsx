@@ -760,7 +760,7 @@ describe("StatusBar connection health (#276, FR-1.2.3)", () => {
       pools: { "conn-1": { connectionId: "conn-1", size: 5, idle: 0, max: 5 } },
     });
     render(<StatusBar />);
-    expect(screen.getByTestId("pool-stats").className).toContain("amber");
+    expect(screen.getByTestId("pool-stats").className).toContain("--color-warning");
   });
 
   it("shows no pool figure before the first reading", () => {

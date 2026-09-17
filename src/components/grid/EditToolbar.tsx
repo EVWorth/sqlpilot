@@ -125,7 +125,7 @@ export function EditToolbar({
           )}
 
           {keyWarning && (
-            <div className="ml-2 flex items-center gap-1 rounded bg-amber-900/30 px-2 py-0.5 text-[10px] text-amber-400">
+            <div className="ml-2 flex items-center gap-1 rounded surface-warning-strong px-2 py-0.5 text-[10px] text-[var(--color-warning)]">
               <AlertTriangle className="h-3 w-3" />
               {keyWarning}
             </div>

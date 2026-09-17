@@ -23,9 +23,9 @@ import type { ConnectionEnvironment } from "../../types";
 import { UpdateErrorDetails } from "./UpdateErrorDetails";
 
 const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
-  production: { label: "PROD", className: "bg-red-500/20 text-[var(--color-error)]" },
-  staging: { label: "STG", className: "bg-yellow-500/20 text-[var(--color-warning)]" },
-  development: { label: "DEV", className: "bg-green-500/20 text-[var(--color-success)]" },
+  production: { label: "PROD", className: "surface-error-strong text-[var(--color-error)]" },
+  staging: { label: "STG", className: "surface-warning-strong text-[var(--color-warning)]" },
+  development: { label: "DEV", className: "surface-success-strong text-[var(--color-success)]" },
 };
 
 function formatTime(ms: number): string {
@@ -186,7 +186,7 @@ export function StatusBar() {
                   data-testid="connection-health-dot"
                   aria-label={health && !health.healthy ? "Connection lost" : "Connection healthy"}
                   className={`h-1.5 w-1.5 rounded-full ${
-                    health && !health.healthy ? "animate-pulse bg-red-500" : "bg-green-400"
+                    health && !health.healthy ? "animate-pulse bg-[var(--color-error)]" : "bg-[var(--color-success)]"
                   }`}
                 />
                 <span className="text-[10px] text-[var(--color-text-secondary)]">
@@ -213,7 +213,7 @@ export function StatusBar() {
                 <span
                   data-testid="connection-lost"
                   title={health.error ?? undefined}
-                  className="flex items-center gap-1 rounded bg-red-500/15 px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-error)]"
+                  className="flex items-center gap-1 rounded surface-error px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-error)]"
                 >
                   <AlertTriangle className="h-2.5 w-2.5" />
                   Lost — retrying ({health.consecutiveFailures})
@@ -226,7 +226,7 @@ export function StatusBar() {
                     + "A query waits when they are all busy."}
                   className={`text-[10px] ${
                     pool.size - pool.idle >= pool.max
-                      ? "text-amber-400"
+                      ? "text-[var(--color-warning)]"
                       : "text-[var(--color-text-muted)]"
                   }`}
                 >
@@ -236,7 +236,7 @@ export function StatusBar() {
               {keyringAvailable === false && (
                 <span
                   title="No OS credential store was available at startup, so connection passwords are kept only for this session."
-                  className="flex items-center gap-1 rounded bg-yellow-500/15 px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-warning)]"
+                  className="flex items-center gap-1 rounded surface-warning px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-warning)]"
                 >
                   <KeyRound className="h-2.5 w-2.5" />
                   Passwords not saved
@@ -269,7 +269,7 @@ export function StatusBar() {
               data-testid={`startup-problem-${problem.kind}`}
               onClick={() => setDismissedProblems((d) => [...d, problem.kind])}
               title={`${problem.detail}\n\nClick to dismiss.`}
-              className="flex max-w-[380px] items-center gap-1 rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-400 hover:bg-amber-500/25"
+              className="flex max-w-[380px] items-center gap-1 rounded surface-warning px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-warning)] hover:surface-warning-strong"
             >
               <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
               <span className="truncate">{problem.summary}</span>
@@ -323,7 +323,7 @@ export function StatusBar() {
                 setShowUpdateConfirm((open) =>
                   !open
                 )}
-              className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-green-300 transition-colors"
+              className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-[var(--color-success)] transition-colors"
               title={`Update v${updateVersion} available`}
             >
               <Download className="h-3 w-3" />
@@ -385,7 +385,7 @@ export function StatusBar() {
             /* Downloading and restarting are separate: the app closing is the
                part that can lose work, so it waits to be asked (#344). */
             onClick={() => void restartToApply()}
-            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-green-300 transition-colors"
+            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-[var(--color-success)] transition-colors"
             title={`v${updateVersion} is installed — restart to finish`}
           >
             <RefreshCw className="h-3 w-3" />

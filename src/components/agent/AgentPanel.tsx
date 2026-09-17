@@ -55,8 +55,8 @@ function ToolRow({ item }: { item: Extract<TranscriptItem, { kind: "tool" }> }) 
       {item.status === "running"
         ? <Thinking />
         : item.status === "failed"
-        ? <X className="h-3 w-3 text-red-400" />
-        : <Check className="h-3 w-3 text-green-500" />}
+        ? <X className="h-3 w-3 text-[var(--color-error)]" />
+        : <Check className="h-3 w-3 text-[var(--color-success)]" />}
       <div className="min-w-0 flex-1">
         <span className="break-words">{item.title}</span>
         {item.detail && item.status !== "running" && (
@@ -85,7 +85,7 @@ function PermissionRow(
   return (
     <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2">
       <div className="flex items-start gap-2">
-        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />
         <span className="break-words text-xs text-[var(--color-text-primary)]">{item.title}</span>
       </div>
       {answered
@@ -126,7 +126,7 @@ function PlanRow({ item }: { item: Extract<TranscriptItem, { kind: "plan" }> }) 
         {item.entries.map((entry, i) => (
           <li key={i} className="flex items-start gap-1.5 text-xs">
             {entry.status === "completed"
-              ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-green-500" />
+              ? <Check className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-success)]" />
               : entry.status === "in_progress"
               ? <CircleDot className="mt-0.5 h-3 w-3 shrink-0 text-brand-400" />
               : <CircleDot className="mt-0.5 h-3 w-3 shrink-0 text-[var(--color-text-muted)]" />}
@@ -244,7 +244,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
       </div>
 
       {error && (
-        <p role="alert" className="px-3 py-2 text-xs text-red-400">
+        <p role="alert" className="px-3 py-2 text-xs text-[var(--color-error)]">
           {error}
         </p>
       )}
@@ -291,7 +291,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
         : (
           <>
             {!toolsAvailable && (
-              <p className="border-b border-[var(--color-border)] px-3 py-2 text-xs text-amber-400">
+              <p className="border-b border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-warning)]">
                 This agent could not be given SQLPilot's tools, so it cannot see your databases.
               </p>
             )}

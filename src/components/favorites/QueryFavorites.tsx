@@ -469,11 +469,11 @@ export function QueryFavorites() {
                                   aria-invalid={rename.error !== null || undefined}
                                   aria-label="Favorite name"
                                   className={`w-full rounded bg-[var(--color-bg-primary)] px-1 py-0.5 text-[11px] text-[var(--color-text-primary)] outline-none ring-1 ${
-                                    rename.error ? "ring-red-500" : "ring-brand-500"
+                                    rename.error ? "ring-[var(--color-error)]" : "ring-brand-500"
                                   }`}
                                 />
                                 {rename.error && (
-                                  <p role="alert" className="mt-0.5 text-[10px] text-red-400">
+                                  <p role="alert" className="mt-0.5 text-[10px] text-[var(--color-error)]">
                                     {rename.error}
                                   </p>
                                 )}
@@ -482,7 +482,7 @@ export function QueryFavorites() {
                             : (
                               <>
                                 <div className="flex items-center gap-1.5">
-                                  <Star className="h-3 w-3 shrink-0 text-yellow-400/70" />
+                                  <Star className="h-3 w-3 shrink-0 text-[var(--color-warning)]/70" />
                                   <span className="truncate text-[11px] text-[var(--color-text-primary)]">
                                     {fav.name}
                                   </span>

@@ -83,9 +83,9 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
   const options = useMemo(() => processFilterOptions(processes), [processes]);
 
   function timeColor(time: number): string {
-    if (time < 5) return "text-green-400";
-    if (time <= 30) return "text-yellow-400";
-    return "text-red-400";
+    if (time < 5) return "text-[var(--color-success)]";
+    if (time <= 30) return "text-[var(--color-warning)]";
+    return "text-[var(--color-error)]";
   }
 
   if (loading && processes.length === 0) {
@@ -154,8 +154,9 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
         </button>
       </div>
 
-      {error && <div className="border-b border-red-500/20 bg-red-500/10 px-3 py-1.5 text-xs text-red-400">{error}
-      </div>}
+      {error && (
+        <div className="border-b edge-error surface-error px-3 py-1.5 text-xs text-[var(--color-error)]">{error}</div>
+      )}
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
@@ -238,7 +239,7 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
                         title={ownThreadIds.has(p.id)
                           ? "This is SQLPilot's own connection to the server — killing it would disconnect the app"
                           : `Kill process ${p.id}`}
-                        className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:bg-red-500/20 hover:text-red-400 disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-muted)]"
+                        className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:surface-error-strong hover:text-[var(--color-error)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-muted)]"
                       >
                         <Skull className="h-3.5 w-3.5" />
                       </button>

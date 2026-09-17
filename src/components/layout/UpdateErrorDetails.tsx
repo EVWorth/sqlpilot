@@ -171,7 +171,7 @@ export function UpdateErrorDetails({ appVersion, packageFormat }: UpdateErrorDet
                 setOpen(false);
                 void checkForUpdates(true);
               }}
-              className="flex items-center gap-1 rounded bg-yellow-500/20 px-2 py-1 text-[10px] text-[var(--color-warning)] hover:bg-yellow-500/30"
+              className="flex items-center gap-1 rounded surface-warning-strong px-2 py-1 text-[10px] text-[var(--color-warning)] hover:surface-warning-strong"
             >
               <RefreshCw className="h-3 w-3" />
               Retry

@@ -201,6 +201,6 @@ describe("EditableCell", () => {
 
   it("shows edited indicator when isEdited is true", () => {
     const { container } = render(<ControlledCell {...createDefaultProps({ value: "edited", isEdited: true })} />);
-    expect(container.firstElementChild).toHaveClass("border-l-2", "border-amber-400");
+    expect(container.firstElementChild).toHaveClass("border-l-2", "edge-warning");
   });
 });

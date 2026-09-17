@@ -210,7 +210,7 @@ export function EditUserDialog(
           </div>
         )}
 
-        {error && <p role="alert" className="text-[11px] text-red-400">{error}</p>}
+        {error && <p role="alert" className="text-[11px] text-[var(--color-error)]">{error}</p>}
       </div>
 
       <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">

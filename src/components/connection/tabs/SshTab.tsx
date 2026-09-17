@@ -39,7 +39,7 @@ export function SshTab({
       }
       <div
         data-testid="ssh-unsupported"
-        className="flex items-start gap-2 rounded border border-amber-700 bg-amber-900/20 px-3 py-2 text-xs text-amber-300"
+        className="flex items-start gap-2 rounded border edge-warning surface-warning-strong px-3 py-2 text-xs text-[var(--color-warning)]"
       >
         <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
         <span>

@@ -478,7 +478,7 @@ export function ImportDialog({
             {destructiveStatements.length > 0 && (
               <div
                 data-testid="destructive-warning"
-                className="rounded border border-amber-600 bg-amber-900/20 px-3 py-2 text-[11px] text-amber-300"
+                className="rounded border edge-warning surface-warning-strong px-3 py-2 text-[11px] text-[var(--color-warning)]"
               >
                 <p className="flex items-center gap-1.5 font-medium">
                   <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
@@ -494,7 +494,7 @@ export function ImportDialog({
                   ))}
                 </ul>
                 {destructiveStatements.length > 5 && (
-                  <p className="mt-1 text-amber-400/80">
+                  <p className="mt-1 text-[var(--color-warning)]/80">
                     and {destructiveStatements.length - 5} more
                   </p>
                 )}
@@ -688,12 +688,12 @@ export function ImportDialog({
 
             {/* Results */}
             <div className="flex items-center gap-4 text-xs">
-              <span className="flex items-center gap-1 text-green-400">
+              <span className="flex items-center gap-1 text-[var(--color-success)]">
                 <CheckCircle2 className="h-3 w-3" />
                 {progress.successCount} {mode === "sql" ? "succeeded" : "rows imported"}
               </span>
               {progress.stoppedAt !== null && (
-                <span data-testid="stopped-at" className="text-[11px] text-amber-400">
+                <span data-testid="stopped-at" className="text-[11px] text-[var(--color-warning)]">
                   Stopped at statement {progress.stoppedAt}. {progress.successCount} already ran.
                   {partiallyApplied
                     ? " What they changed stands: MySQL commits before every CREATE, DROP or ALTER."
@@ -701,7 +701,7 @@ export function ImportDialog({
                 </span>
               )}
               {progress.errorCount > 0 && (
-                <span className="flex items-center gap-1 text-red-400">
+                <span className="flex items-center gap-1 text-[var(--color-error)]">
                   <AlertCircle className="h-3 w-3" />
                   {progress.errorCount} failed
                 </span>
@@ -710,11 +710,11 @@ export function ImportDialog({
 
             {/* Error list */}
             {progress.errors.length > 0 && (
-              <div className="max-h-32 overflow-auto rounded border border-red-900/30 bg-red-950/20 p-2">
+              <div className="max-h-32 overflow-auto rounded border edge-error surface-error-strong p-2">
                 {progress.errors.map((err, i) => (
                   <div
                     key={i}
-                    className="text-[10px] text-red-400 leading-relaxed"
+                    className="text-[10px] text-[var(--color-error)] leading-relaxed"
                   >
                     {err}
                   </div>

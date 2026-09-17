@@ -373,7 +373,7 @@ describe("ResultsGrid (browser)", () => {
       render(<ResultsGrid />);
 
       await waitFor(() => expect(headerText()).toEqual(["name", "id"]));
-      const insertRow = document.querySelector("tr.bg-green-900\\/15");
+      const insertRow = document.querySelector("tr.surface-success");
       const cells = [...(insertRow?.querySelectorAll("[data-column]") ?? [])]
         .map((c) => c.getAttribute("data-column"));
       expect(cells).toEqual(["name", "id"]);
@@ -1125,8 +1125,9 @@ describe("ResultsGrid (browser)", () => {
     // Insert rows have "+" indicator - we just verify rendering doesn't crash
     // Since the virtualizer returns empty items, the insert rows may not render.
     // With 2 rows + 2 inserts = 4 total, shouldVirtualize is false.
-    // The regular table tbody should contain the insert rows with bg-green class
-    const insertRows = document.querySelectorAll(".bg-green-900\\/15");
+    // The regular table tbody should contain the insert rows, marked with the
+    // success surface utility
+    const insertRows = document.querySelectorAll(".surface-success");
     expect(insertRows.length).toBeGreaterThanOrEqual(0);
   });
 
@@ -1347,7 +1348,7 @@ describe("ResultsGrid (browser)", () => {
     })];
     render(<ResultsGrid />);
 
-    const insertRows = document.querySelectorAll(".bg-green-900\\/15");
+    const insertRows = document.querySelectorAll(".surface-success");
     expect(insertRows.length).toBe(1);
   });
 

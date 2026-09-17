@@ -40,7 +40,7 @@ function Rows({ approval }: { approval: PendingApproval }) {
   return (
     <p
       className={many
-        ? "text-xs font-semibold text-amber-400"
+        ? "text-xs font-semibold text-[var(--color-warning)]"
         : "text-xs text-[var(--color-text-secondary)]"}
     >
       {rows === 0
@@ -93,7 +93,7 @@ export function ApprovalDialog({ approval: given }: ApprovalDialogProps = {}) {
     >
       <div className="flex items-center gap-2 border-b border-[var(--color-border)] px-4 py-3">
         <AlertTriangle
-          className={production ? "h-4 w-4 text-red-400" : "h-4 w-4 text-amber-400"}
+          className={production ? "h-4 w-4 text-[var(--color-error)]" : "h-4 w-4 text-[var(--color-warning)]"}
         />
         <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
           {approval.change === "schema"
@@ -110,7 +110,7 @@ export function ApprovalDialog({ approval: given }: ApprovalDialogProps = {}) {
           <span
             data-testid="approval-environment"
             className={production
-              ? "rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-400"
+              ? "rounded surface-error px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-error)]"
               : "rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--color-text-muted)]"}
           >
             {approval.environment}

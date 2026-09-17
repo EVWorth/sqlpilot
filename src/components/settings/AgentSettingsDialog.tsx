@@ -53,7 +53,7 @@ function CopyButton({ value, label }: { value: string; label: string }) {
       }}
       className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
     >
-      {copied ? <Check className="h-3.5 w-3.5 text-green-500" /> : <Copy className="h-3.5 w-3.5" />}
+      {copied ? <Check className="h-3.5 w-3.5 text-[var(--color-success)]" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
   );
 }
@@ -66,7 +66,7 @@ function EnvironmentBadge({ environment }: { environment: string }) {
     <span
       data-testid="environment-badge"
       className={production
-        ? "rounded bg-red-500/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-red-400"
+        ? "rounded surface-error px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-error)]"
         : "rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--color-text-muted)]"}
     >
       {environment}
@@ -201,7 +201,7 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
 
       <div className="space-y-5 p-4">
         {error && (
-          <p role="alert" className="rounded bg-red-500/10 px-3 py-2 text-xs text-red-400">
+          <p role="alert" className="rounded surface-error px-3 py-2 text-xs text-[var(--color-error)]">
             {error}
           </p>
         )}

@@ -73,7 +73,7 @@ export function UserDetail({
             : (
               <button
                 onClick={() => setConfirmDrop(true)}
-                className="flex items-center gap-1 rounded border border-red-500/30 px-2 py-1 text-xs text-red-400 hover:bg-red-500/10 transition-colors"
+                className="flex items-center gap-1 rounded border edge-error px-2 py-1 text-xs text-[var(--color-error)] hover:surface-error transition-colors"
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 Drop User
@@ -167,7 +167,7 @@ function GrantsView({
   }
 
   if (error) {
-    return <div className="p-4 text-xs text-red-400">{error}</div>;
+    return <div className="p-4 text-xs text-[var(--color-error)]">{error}</div>;
   }
 
   return (
@@ -263,7 +263,7 @@ function GrantSection({
               </span>
             ))}
             {g.grantOption && (
-              <span className="inline-flex rounded bg-yellow-500/15 px-1.5 py-0.5 text-[10px] font-medium text-yellow-400">
+              <span className="inline-flex rounded surface-warning px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-warning)]">
                 WITH GRANT OPTION
               </span>
             )}

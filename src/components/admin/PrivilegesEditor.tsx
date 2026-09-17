@@ -337,12 +337,12 @@ export function PrivilegesEditor({
         />
       )}
       {error && (
-        <div className="whitespace-pre-line rounded border border-red-500/30 bg-red-500/10 px-3 py-2 font-mono text-[11px] text-red-400">
+        <div className="whitespace-pre-line rounded border edge-error surface-error px-3 py-2 font-mono text-[11px] text-[var(--color-error)]">
           {error}
         </div>
       )}
       {successMsg && (
-        <div className="flex items-center gap-1.5 rounded border border-green-500/30 bg-green-500/10 px-3 py-2 text-xs text-green-400">
+        <div className="flex items-center gap-1.5 rounded border edge-success surface-success px-3 py-2 text-xs text-[var(--color-success)]">
           <Check className="h-3.5 w-3.5" />
           {successMsg}
         </div>
@@ -369,7 +369,7 @@ export function PrivilegesEditor({
                 className={cn(
                   "font-mono text-[11px]",
                   editedGlobalPrivs.has(priv) !== currentGlobalPrivs.has(priv)
-                    ? "text-yellow-400"
+                    ? "text-[var(--color-warning)]"
                     : "",
                 )}
               >
@@ -390,7 +390,7 @@ export function PrivilegesEditor({
             <span
               className={cn(
                 "font-mono text-[11px]",
-                editedGrantOption !== hasGrantOption ? "text-yellow-400" : "",
+                editedGrantOption !== hasGrantOption ? "text-[var(--color-warning)]" : "",
               )}
             >
               GRANT OPTION
@@ -425,7 +425,7 @@ export function PrivilegesEditor({
             </select>
             {dbLoading && <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-text-muted)]" />}
             {dirtyDbs.length > 0 && (
-              <span className="text-[10px] text-yellow-400">
+              <span className="text-[10px] text-[var(--color-warning)]">
                 {dirtyDbs.length === 1
                   ? `unapplied changes on ${dirtyDbs[0]}`
                   : `unapplied changes on ${dirtyDbs.length} databases`}
@@ -454,7 +454,7 @@ export function PrivilegesEditor({
                       className={cn(
                         "font-mono text-[11px]",
                         editedDbPrivs.has(priv) !== currentDbPrivs.has(priv)
-                          ? "text-yellow-400"
+                          ? "text-[var(--color-warning)]"
                           : "",
                       )}
                     >

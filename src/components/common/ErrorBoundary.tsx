@@ -31,7 +31,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
       return (
         <div className="flex h-screen w-screen flex-col items-center justify-center gap-4 bg-[var(--color-bg-primary)] p-8">
-          <AlertTriangle className="h-12 w-12 text-amber-500" />
+          <AlertTriangle className="h-12 w-12 text-[var(--color-warning)]" />
           <div className="text-center max-w-md">
             <h1 className="text-lg font-semibold text-[var(--color-text-primary)] mb-2">
               Something went wrong
@@ -41,7 +41,7 @@ export class ErrorBoundary extends Component<Props, State> {
               have been preserved.
             </p>
             {this.state.error && (
-              <pre className="mb-4 max-h-32 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2 text-left text-xs text-red-400">
+              <pre className="mb-4 max-h-32 overflow-auto rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2 text-left text-xs text-[var(--color-error)]">
                 {this.state.error.message}
               </pre>
             )}

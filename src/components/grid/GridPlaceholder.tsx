@@ -38,12 +38,12 @@ export function GridPlaceholder({
   if (error) {
     return (
       <div className="flex h-full items-center justify-center gap-2 p-4">
-        <div className="max-w-lg rounded border border-red-800 bg-red-900/20 p-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-red-400">
+        <div className="max-w-lg rounded border edge-error surface-error-strong p-4">
+          <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-error)]">
             <AlertCircle className="h-4 w-4" />
             Query Error
           </div>
-          <pre className="mt-2 whitespace-pre-wrap text-xs text-red-300">{error}</pre>
+          <pre className="mt-2 whitespace-pre-wrap text-xs text-[var(--color-error)]">{error}</pre>
         </div>
       </div>
     );

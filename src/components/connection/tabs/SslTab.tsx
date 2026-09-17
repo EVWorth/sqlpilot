@@ -62,7 +62,7 @@ export function SslTab({ form, onChange: handleSSLChange }: SslTabProps) {
           />
           {(sslMode === "VerifyCA" || sslMode === "VerifyIdentity")
             && !form.ssl_config?.ca_cert_path && (
-            <p className="text-[10px] text-yellow-400">
+            <p className="text-[10px] text-[var(--color-warning)]">
               ⚠ CA certificate is required for {sslMode === "VerifyCA" ? "Verify CA" : "Verify Identity"} mode
             </p>
           )}
