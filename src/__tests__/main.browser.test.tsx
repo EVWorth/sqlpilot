@@ -39,11 +39,32 @@ vi.mock("../App", () => ({
 vi.mock("../styles/globals.css", () => ({}));
 
 describe("main.tsx entry point (browser)", () => {
+  // What loading the module did, copied out before the assertions run.
+  //
+  // Loading is a one-time side effect, and vitest clears mock calls before
+  // each test — so by the time the first assertion looks at a mock, the calls
+  // made at import are gone. Re-importing per test is not an option here:
+  // module caching in browser mode belongs to the browser, so `resetModules`
+  // cannot make the module evaluate a second time. Recording the calls is the
+  // thing that survives both.
+  let atImport: {
+    loaderConfig: unknown[][];
+    createRoot: unknown[][];
+    render: unknown[][];
+  };
+
   beforeAll(async () => {
     const rootEl = document.createElement("div");
     rootEl.id = "root";
     document.body.appendChild(rootEl);
     await import("../main");
+
+    const copy = (fn: { mock: { calls: unknown[][] } }) => fn.mock.calls.map((call) => [...call]);
+    atImport = {
+      loaderConfig: copy(mk.mockLoaderConfig),
+      createRoot: copy(mk.mockCreateRoot),
+      render: copy(mk.mockRender),
+    };
   });
 
   it("MonacoEnvironment.getWorker returns a new editorWorker instance", () => {
@@ -53,7 +74,7 @@ describe("main.tsx entry point (browser)", () => {
     expect(env).toBeDefined();
     expect(typeof env.getWorker).toBe("function");
 
-    // Call getWorker — covers line 12: return new editorWorker()
+    // Called here rather than at import, so this one reads the mock directly.
     const worker = env.getWorker();
     expect(mk.MockEditorWorker).toHaveBeenCalledTimes(1);
     expect(worker).toBeDefined();
@@ -62,19 +83,17 @@ describe("main.tsx entry point (browser)", () => {
   });
 
   it("calls loader.config with monaco", () => {
-    expect(mk.mockLoaderConfig).toHaveBeenCalledWith(
+    expect(atImport.loaderConfig[0]?.[0]).toEqual(
       expect.objectContaining({ monaco: expect.any(Object) }),
     );
   });
 
   it("calls ReactDOM.createRoot with the root element", () => {
-    const rootEl = document.getElementById("root");
-    expect(mk.mockCreateRoot).toHaveBeenCalledWith(rootEl);
+    expect(atImport.createRoot[0]?.[0]).toBe(document.getElementById("root"));
   });
 
   it("calls root.render with App in StrictMode", () => {
-    expect(mk.mockRender).toHaveBeenCalled();
-    const rendered = mk.mockRender.mock.calls[0]?.[0];
-    expect(rendered).toBeDefined();
+    expect(atImport.render).toHaveLength(1);
+    expect(atImport.render[0]?.[0]).toBeDefined();
   });
 });
