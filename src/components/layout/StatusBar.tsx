@@ -254,7 +254,7 @@ export function StatusBar() {
         {connectionError && (
           <button
             onClick={clearConnectionError}
-            className="flex items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
+            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
             title="Connection error — click to dismiss"
           >
             <AlertCircle className="h-3 w-3 flex-shrink-0" />
@@ -280,7 +280,7 @@ export function StatusBar() {
           <button
             key={key}
             onClick={() => dismissStorageError(key as StorageErrorKey)}
-            className="flex items-center gap-1 text-[10px] text-[var(--color-warning)] max-w-[300px] hover:text-[var(--color-warning)] transition-colors"
+            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-warning)] max-w-[300px] hover:text-[var(--color-warning)] transition-colors"
             title={`${message} — click to dismiss`}
           >
             <AlertTriangle className="h-3 w-3 flex-shrink-0" />
@@ -290,7 +290,7 @@ export function StatusBar() {
         {error && !isExecuting && (
           <button
             onClick={() => setShowFullError(!showFullError)}
-            className="flex items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
+            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
             title={showFullError ? error : "Click to expand error"}
           >
             <AlertCircle className="h-3 w-3 flex-shrink-0" />
@@ -300,13 +300,13 @@ export function StatusBar() {
           </button>
         )}
         {warningsCount > 0 && !isExecuting && (
-          <div className="flex items-center gap-1 text-[10px] text-[var(--color-warning)]">
+          <div className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-warning)]">
             <AlertTriangle className="h-3 w-3" />
             {warningsCount} warning{warningsCount !== 1 ? "s" : ""}
           </div>
         )}
         {isExecuting && (
-          <div className="flex items-center gap-1 text-[10px] text-brand-400">
+          <div className="flex min-h-6 items-center gap-1 text-[10px] text-brand-400">
             <Loader2 className="h-3 w-3 animate-spin" />
             Executing...
           </div>
@@ -323,7 +323,7 @@ export function StatusBar() {
                 setShowUpdateConfirm((open) =>
                   !open
                 )}
-              className="flex items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-green-300 transition-colors"
+              className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-green-300 transition-colors"
               title={`Update v${updateVersion} available`}
             >
               <Download className="h-3 w-3" />
@@ -385,7 +385,7 @@ export function StatusBar() {
             /* Downloading and restarting are separate: the app closing is the
                part that can lose work, so it waits to be asked (#344). */
             onClick={() => void restartToApply()}
-            className="flex items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-green-300 transition-colors"
+            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-green-300 transition-colors"
             title={`v${updateVersion} is installed — restart to finish`}
           >
             <RefreshCw className="h-3 w-3" />
@@ -395,7 +395,7 @@ export function StatusBar() {
         {updateStatus === "manual-update-required" && manualUpdateCommand && (
           <button
             onClick={handleCopyManualCommand}
-            className="flex items-center gap-1 text-[10px] text-[var(--color-warning)] hover:text-[var(--color-warning)] transition-colors"
+            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-warning)] hover:text-[var(--color-warning)] transition-colors"
             title={`Click to copy: ${manualUpdateCommand}\n(then run in a terminal; reboot to apply)`}
           >
             <Terminal className="h-3 w-3" />
@@ -403,7 +403,7 @@ export function StatusBar() {
           </button>
         )}
         {updateStatus === "checking" && (
-          <span className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)]">
+          <span className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-text-muted)]">
             <RefreshCw className="h-3 w-3 animate-spin" />
             Checking updates...
           </span>
@@ -437,7 +437,7 @@ export function StatusBar() {
         <UpdateErrorDetails appVersion={appVersion} packageFormat={packageFormat} />
         <button
           onClick={() => void checkForUpdates(true)}
-          className="flex items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+          className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
           title="Check for updates"
         >
           {appVersion && `v${appVersion}`}

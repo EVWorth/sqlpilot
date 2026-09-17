@@ -129,8 +129,11 @@ export function QueryToolbar() {
 
   const canExecute = !!activeTab?.content?.trim() && hookCanExecute;
 
+  // min-h-6/min-w-6 keeps every one of these at the 24px floor WCAG 2.2 asks
+  // for (SC 2.5.8) without changing the icons, which are fine at 12px — it is
+  // the box around them that was 20px tall.
   const toolbarBtnClass =
-    "flex items-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+    "flex min-h-6 min-w-6 items-center justify-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
 
   return (
     <div className="flex h-8 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2">
@@ -177,7 +180,7 @@ export function QueryToolbar() {
           <button
             onClick={() => setExplainOpen((v) => !v)}
             disabled={!canExecute}
-            className="flex items-center rounded-r border border-l-0 border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            className="flex min-h-6 min-w-6 items-center justify-center rounded-r border border-l-0 border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ChevronDown className="h-3 w-3" />
           </button>
@@ -344,7 +347,7 @@ function RowLimit() {
           }}
           min={1}
           max={100000}
-          className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-xs text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+          className="min-h-6 w-16 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-xs text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
         />
       )}
     </div>

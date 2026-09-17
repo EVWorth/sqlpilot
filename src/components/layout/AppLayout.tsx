@@ -277,7 +277,11 @@ export function AppLayout() {
                 <Panel defaultSize="20%" minSize="15%" maxSize="40%">
                   <Sidebar />
                 </Panel>
-                <Separator className="w-1 bg-[var(--color-border)] hover:bg-brand-500 transition-colors" />
+                <Separator // The line stays 4px because its width is part of the layout;
+                 // the grab area around it is widened to the 24px floor with
+                // an invisible overlay, so the target is reachable without
+                // the divider becoming a bar.
+                className="relative z-10 w-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500 after:absolute after:inset-y-0 after:-left-2.5 after:-right-2.5 after:content-['']" />
               </>
             )}
             <Panel
