@@ -1,4 +1,10 @@
 import "@testing-library/jest-dom";
+// The app's stylesheet, so a rendered component looks the way it does in the
+// app. Without this the browser suite ran against unstyled markup: `text-xs`
+// computed to 16px, `h-9` to 0, and every geometric assertion was measuring a
+// layout the app does not have. jsdom ignores it either way, so the unit suite
+// is unaffected.
+import "./styles/globals.css";
 import { vi } from "vitest";
 
 vi.mock("@tauri-apps/plugin-updater", () => ({

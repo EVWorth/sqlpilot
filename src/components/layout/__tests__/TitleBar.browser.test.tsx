@@ -409,4 +409,57 @@ describe("TitleBar", () => {
     expect(importBtn.className).toContain("opacity-40");
     expect(importBtn.className).toContain("cursor-not-allowed");
   });
+
+  /**
+   * Nothing a pointer aims at should be smaller than 24×24 (WCAG 2.2
+   * SC 2.5.8). The buttons along this bar were 20px tall until #712.
+   *
+   * Two things this had to get right before it meant anything, both learned
+   * by getting them wrong first:
+   *
+   * The sweep has to report how much it swept. An earlier version lived in
+   * AppLayout's browser test, where every child is mocked to a stub — it
+   * measured nothing, found nothing, and passed.
+   *
+   * And the geometry has to be the app's. Until the stylesheet was loaded in
+   * `test-setup.ts`, this suite rendered unstyled markup: `text-xs` computed
+   * to 16px and `h-9` to zero, so these buttons measured 33px tall here while
+   * being 20px in the app. A test that measures a layout the app does not have
+   * cannot defend the layout it does.
+   *
+   * Measured by hit-testing rather than by reading the box, because a control
+   * can be larger than it looks — the splitters elsewhere keep a 4px line and
+   * widen only the area around them.
+   */
+  it("gives every control along the title bar at least 24×24 to aim at", () => {
+    render(<TitleBar />);
+
+    const selector = "button, a[href], input, select, [role=\"button\"], [tabindex]:not([tabindex=\"-1\"])";
+    const controls = Array.from(document.querySelectorAll<HTMLElement>(selector)).filter((el) => {
+      const box = el.getBoundingClientRect();
+      return box.width >= 2 && box.height >= 2;
+    });
+
+    expect(controls.length, "swept nothing, so this proves nothing").toBeGreaterThan(5);
+    const undersized = controls.flatMap((el) => {
+      const box = el.getBoundingClientRect();
+      const cx = box.left + box.width / 2;
+      const cy = box.top + box.height / 2;
+      const reach = (dx: number, dy: number) => {
+        let d = 0;
+        for (; d <= 24; d++) {
+          const hit = document.elementFromPoint(Math.round(cx + dx * d), Math.round(cy + dy * d));
+          if (hit !== el && !el.contains(hit)) break;
+        }
+        return d - 1;
+      };
+      const width = reach(-1, 0) + reach(1, 0) + 1;
+      const height = reach(0, -1) + reach(0, 1) + 1;
+      if (width >= 24 && height >= 24) return [];
+      const name = el.getAttribute("aria-label") ?? el.getAttribute("title") ?? el.textContent ?? el.tagName;
+      return [`${name.trim().slice(0, 30)} is ${width}×${height}`];
+    });
+
+    expect(undersized, `\n${undersized.join("\n")}\n`).toEqual([]);
+  });
 });
