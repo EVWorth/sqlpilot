@@ -208,7 +208,17 @@ export function CellViewerModal({
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60">
-      <div className="flex max-h-[80vh] w-[780px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
+      {
+        /*
+        h-[80vh] rather than max-h-[80vh]. A maximum is not a height: with
+        only a cap the panel sizes to its content, and the content is a
+        `flex-1` box whose basis is zero and whose child — Monaco — is
+        absolutely positioned and reports no intrinsic height. So the box
+        resolved to its own padding, 56px, and the viewer rendered a correct
+        title, a correct character count, and nothing else (#217).
+      */
+      }
+      <div className="flex h-[80vh] w-[780px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
         <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
           <div>
             <div className="flex items-center gap-2">
@@ -271,7 +281,7 @@ export function CellViewerModal({
           </div>
         )}
 
-        <div className="min-h-0 flex-1 p-4">
+        <div data-testid="cell-viewer-content" className="min-h-0 flex-1 p-4">
           {bytes
             ? <BlobViewer bytes={bytes} columnName={columnName} />
             : isNullValue
