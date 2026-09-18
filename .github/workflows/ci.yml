@@ -354,8 +354,20 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
+      - name: Install Tauri system dependencies
+        # Needed to build the `sqlpilot` crate below. The library crates do not
+        # need them, which is why this job went without for so long — and why
+        # the main crate's unit tests were never run here.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Run Rust tests
         run: cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite
+        working-directory: src-tauri
+      - name: Run Rust tests (main crate)
+        # `--lib` only: the integration tests under `src-tauri/tests/` need a
+        # live harness or a database and are `#[ignore]`d or run at release.
+        run: cargo test -p sqlpilot --lib
         working-directory: src-tauri
 
   test-frontend:
