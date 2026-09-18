@@ -42,8 +42,18 @@ build:
 test: test-rust test-frontend
 
 # Rust unit tests. No database required — mirrors what CI runs per PR.
+#
+# Two invocations rather than one. The library crates run all their targets,
+# integration tests included. The `sqlpilot` crate runs only its lib: its
+# integration tests under `tests/` need a live harness or a database, and one
+# of them currently fails to build a TLS client in a full-workspace build
+# (see the reqwest/rustls note in CI).
+#
+# Without the second line the main crate's 58 unit tests — every Tauri command
+# handler, and the startup messages — are tested by nothing at all.
 test-rust:
     cd src-tauri && cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite --verbose
+    cd src-tauri && cargo test -p sqlpilot --lib --verbose
 
 # These are #[ignore]d so the default run stays container-free, which means
 # CI only runs them at release time — this is the way to exercise them before

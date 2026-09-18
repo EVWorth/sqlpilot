@@ -277,7 +277,6 @@ fn open_connection_store(data_dir: &std::path::Path) -> (ConnectionStore, Option
     match ConnectionStore::new(&path) {
         Ok(store) => (store, None),
         Err(e) => {
-            let detail = format!("{}: {e}", path.display());
             tracing::error!(error = %e, path = %path.display(), "Could not open the connection store");
             // In memory, so the app runs and the file is left exactly as it
             // is — whatever is wrong with it is still there to be recovered.
@@ -287,9 +286,22 @@ fn open_connection_store(data_dir: &std::path::Path) -> (ConnectionStore, Option
                 fallback,
                 Some(StartupProblem {
                     kind: "connection-store".to_string(),
-                    summary: "Your saved connections could not be opened, so none are listed.                               The file has been left alone; nothing you do now will overwrite it."
+                    // Short enough to survive the status bar, which truncates
+                    // at about sixty characters — the old wording was three
+                    // times that and the reassuring half never appeared.
+                    summary: "Saved connections could not be opened — they are not lost."
                         .to_string(),
-                    detail,
+                    // The part someone acts on, so it goes where the whole of
+                    // it is readable. Naming the file and saying not to delete
+                    // it is the point: the store is never written when it
+                    // cannot be read, so the only way to actually lose these
+                    // is for someone to delete the file to fix the empty list.
+                    detail: format!(
+                        "Your connections are still in this file:\n{}\n\nDo not delete it. \
+                         Nothing is written here while it cannot be read, and a later version \
+                         may open it again.\n\nWhat went wrong: {e}",
+                        path.display()
+                    ),
                 }),
             )
         }
@@ -304,7 +316,6 @@ fn open_history_store(
     match mas_core::history::HistoryStore::new(&path) {
         Ok(store) => (store, None),
         Err(e) => {
-            let detail = format!("{}: {e}", path.display());
             tracing::error!(error = %e, path = %path.display(), "Could not open the history store");
             let fallback = mas_core::history::HistoryStore::in_memory()
                 .expect("an in-memory SQLite database cannot fail to open");
@@ -312,9 +323,13 @@ fn open_history_store(
                 fallback,
                 Some(StartupProblem {
                     kind: "history-store".to_string(),
-                    summary: "Query history could not be opened, so this session's history will                               not be kept. Everything else works."
+                    summary: "Query history could not be opened — this session will not be kept."
                         .to_string(),
-                    detail,
+                    detail: format!(
+                        "Everything else works; queries run normally and results are unaffected. \
+                         Only the record of what you ran is missing.\n\n{}\n\nWhat went wrong: {e}",
+                        path.display()
+                    ),
                 }),
             )
         }
@@ -505,6 +520,72 @@ pub fn run() {
 mod startup_tests {
     use super::*;
 
+    /// What a user is told when their connection store will not open.
+    ///
+    /// This is the message behind the 1.0.0 upgrade problem, where a store
+    /// written by an older version could not be read and the app started with
+    /// an empty list. Nothing is ever written to the file while it cannot be
+    /// read, so the data survives — unless someone deletes the file to fix the
+    /// empty list, which is the one action that actually loses it.
+    ///
+    /// So the text has a job: say the connections are not gone, say where they
+    /// are, and say not to delete the file. It is asserted rather than trusted
+    /// because it is the only thing standing between a confused user and the
+    /// one irreversible mistake available to them.
+    #[test]
+    fn a_broken_connection_store_says_the_data_is_still_there() {
+        let dir = tempfile::tempdir().unwrap();
+        // A file that is not a database at all, which is what a truncated or
+        // half-written store looks like from the outside.
+        std::fs::write(dir.path().join("connections.db"), b"this is not sqlite").unwrap();
+
+        let (_store, problem) = open_connection_store(dir.path());
+        let problem = problem.expect("an unreadable store has to be reported");
+
+        // The summary rides in a status-bar chip that truncates around sixty
+        // characters, so it has to say the reassuring half within that.
+        assert!(
+            problem.summary.len() <= 70,
+            "too long to read: {}",
+            problem.summary
+        );
+        assert!(problem.summary.contains("not lost"), "{}", problem.summary);
+
+        // The detail is the tooltip, where the whole of it is readable.
+        assert!(
+            problem.detail.contains("Do not delete"),
+            "{}",
+            problem.detail
+        );
+        assert!(
+            problem.detail.contains("connections.db"),
+            "the file has to be named, or 'this file' means nothing: {}",
+            problem.detail
+        );
+    }
+
+    /// The same, for history — which is a much smaller loss and should not be
+    /// dressed up as a bigger one.
+    #[test]
+    fn a_broken_history_store_says_everything_else_still_works() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("history.db"), b"this is not sqlite").unwrap();
+
+        let (_store, problem) = open_history_store(dir.path());
+        let problem = problem.expect("an unreadable history store has to be reported");
+
+        assert!(
+            problem.summary.len() <= 70,
+            "too long to read: {}",
+            problem.summary
+        );
+        assert!(
+            problem.detail.contains("Everything else works"),
+            "{}",
+            problem.detail
+        );
+    }
+
     /// A path that cannot be a directory, so `create_dir_all` fails the way a
     /// read-only or full disk would.
     fn blocked_path() -> (tempfile::TempDir, std::path::PathBuf) {
@@ -525,7 +606,7 @@ mod startup_tests {
         let problem = problem.expect("the user has to be told their profiles are missing");
         assert_eq!(problem.kind, "connection-store");
         assert!(
-            problem.summary.contains("saved connections"),
+            problem.summary.to_lowercase().contains("saved connections"),
             "{}",
             problem.summary
         );
@@ -563,10 +644,13 @@ mod startup_tests {
         let (_store, problem) = open_history_store(dir.path());
         let problem = problem.expect("the user has to be told history is not being kept");
         assert_eq!(problem.kind, "history-store");
+        // Moved from the summary to the detail, which is the tooltip: the
+        // summary rides in a chip that truncates, and "everything else works"
+        // is the half that was being cut off.
         assert!(
-            problem.summary.contains("Everything else works"),
+            problem.detail.contains("Everything else works"),
             "{}",
-            problem.summary
+            problem.detail
         );
     }
 
