@@ -82,15 +82,20 @@ export const ACTIONS: Action[] = [
   {
     id: "appearance",
     label: "Appearance…",
-    category: "Help",
+    category: "View",
     keywords: ["theme", "colours", "colors", "dark", "light"],
   },
-  { id: "agent-panel", label: "Agent Panel", category: "Help", keywords: ["ai", "assistant", "claude", "copilot"] },
-  { id: "agents", label: "Agents…", category: "Help", keywords: ["ai", "mcp", "assistant", "share"] },
+  {
+    id: "agent-panel",
+    label: "Agent Panel",
+    category: "View",
+    keywords: ["ai", "assistant", "chat", "claude", "copilot"],
+  },
+  { id: "agents", label: "Agents…", category: "Tools", keywords: ["ai", "mcp", "assistant", "share", "connect"] },
   {
     id: "cycle-theme",
     label: "Cycle Theme (Dark / Light / System)",
-    category: "Help",
+    category: "View",
     keywords: ["dark", "light", "appearance"],
   },
   {
@@ -149,20 +154,31 @@ export const MENUS: Menu[] = [
   },
   {
     label: "Tools",
-    entries: [{ type: "item", id: "format-sql" }],
+    entries: [
+      { type: "item", id: "format-sql" },
+      { type: "separator" },
+      // Configuring what agents may reach is a tool, not a help topic.
+      { type: "item", id: "agents" },
+    ],
+  },
+  {
+    // Help had become the place things went when no menu obviously owned them:
+    // four of its seven entries were not help at all, and the agent chat panel
+    // was one of them. What belongs together is what changes the view.
+    label: "View",
+    entries: [
+      { type: "item", id: "agent-panel" },
+      { type: "separator" },
+      { type: "item", id: "appearance" },
+      { type: "item", id: "cycle-theme" },
+    ],
   },
   {
     label: "Help",
     entries: [
       { type: "item", id: "check-for-updates" },
       { type: "separator" },
-      { type: "item", id: "appearance" },
-      { type: "item", id: "agent-panel" },
-      { type: "item", id: "agents" },
-      { type: "item", id: "cycle-theme" },
-      { type: "separator" },
       { type: "item", id: "keyboard-shortcuts" },
-      { type: "separator" },
       { type: "item", id: "about" },
     ],
   },

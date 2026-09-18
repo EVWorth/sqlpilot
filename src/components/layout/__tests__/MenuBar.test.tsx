@@ -140,17 +140,20 @@ describe("MenuBar", () => {
     );
   });
 
-  it("includes a 'Cycle Theme' entry under the Help menu (refs #453)", () => {
+  it("includes a 'Cycle Theme' entry under the View menu (refs #453)", () => {
+    // Under View rather than Help since the menus were sorted out: cycling the
+    // theme changes the view, and Help had become the place things went when
+    // no menu obviously owned them.
     render(<MenuBar />);
 
-    fireEvent.click(screen.getByText("Help"));
+    fireEvent.click(screen.getByText("View"));
     expect(screen.getByText(/Cycle Theme/)).toBeInTheDocument();
   });
 
   it("dispatches 'cycle-theme' menu-action when the entry is clicked", () => {
     render(<MenuBar />);
 
-    fireEvent.click(screen.getByText("Help"));
+    fireEvent.click(screen.getByText("View"));
     fireEvent.click(screen.getByText(/Cycle Theme/));
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({ detail: "cycle-theme" }),

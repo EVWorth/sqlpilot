@@ -260,6 +260,13 @@ export function AppLayout() {
           onShowImport={openImport}
           onShowBackup={openBackup}
           onShowRestore={openRestore}
+          // The agent panel had a toolbar button all along, in both title
+          // bars, and neither was ever given these props — so `aiEnabled` was
+          // undefined, the button never rendered, and the only route to an AI
+          // chat window was a menu item filed under Help.
+          aiEnabled
+          aiPanelOpen={agentPanelOpen}
+          onToggleAI={() => setAgentPanelOpen((open) => !open)}
         />
       )}
       {isMac && (
@@ -267,6 +274,13 @@ export function AppLayout() {
           onShowImport={openImport}
           onShowBackup={openBackup}
           onShowRestore={openRestore}
+          // The agent panel had a toolbar button all along, in both title
+          // bars, and neither was ever given these props — so `aiEnabled` was
+          // undefined, the button never rendered, and the only route to an AI
+          // chat window was a menu item filed under Help.
+          aiEnabled
+          aiPanelOpen={agentPanelOpen}
+          onToggleAI={() => setAgentPanelOpen((open) => !open)}
         />
       )}
       <ConnectionTabs />
