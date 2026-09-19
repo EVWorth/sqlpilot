@@ -27,8 +27,14 @@ function isOpenChord(event: KeyboardEvent): boolean {
   return false;
 }
 
-export function CommandPalette() {
-  const [isOpen, setIsOpen] = useState(false);
+export interface CommandPaletteProps {
+  /** Open state lives in AppLayout, which also routes the menu entry here. */
+  isOpen: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+}
+
+export function CommandPalette({ isOpen, onOpen, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const input = useRef<HTMLInputElement>(null);
@@ -40,13 +46,20 @@ export function CommandPalette() {
     const onKey = (event: KeyboardEvent) => {
       if (!isOpenChord(event)) return;
       event.preventDefault();
-      setQuery("");
-      setSelected(0);
-      setIsOpen(true);
+      onOpen();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [onOpen]);
+
+  // Reopening onto last time's filter makes the palette feel like it is
+  // arguing with you.
+  useEffect(() => {
+    if (isOpen) {
+      setQuery("");
+      setSelected(0);
+    }
+  }, [isOpen]);
 
   // A filtered list whose selection points past the end selects nothing, so
   // Enter would do nothing and look broken.
@@ -60,7 +73,7 @@ export function CommandPalette() {
   }, [selected]);
 
   const choose = (action: Action) => {
-    setIsOpen(false);
+    onClose();
     // After the dialog closes, so focus is back where it belongs before the
     // action runs — several of these open dialogs of their own.
     queueMicrotask(() => runAction(action.id));
@@ -83,7 +96,7 @@ export function CommandPalette() {
   return (
     <Modal
       isOpen={isOpen}
-      onClose={() => setIsOpen(false)}
+      onClose={onClose}
       label="Command palette"
       initialFocus={input}
       className="fixed inset-0 z-[70] flex items-start justify-center bg-black/50 pt-[12vh]"
