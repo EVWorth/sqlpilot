@@ -305,12 +305,15 @@ approvals do not care.
 1. ~~**MCP server + policy engine + config export.**~~ **Shipped.** The
    `mas-mcp` crate: the policy, the statement classifier, grants, twelve tools
    (shape, analysis, and `run_select`), and a loopback endpoint behind a bearer
-   token, with Settings → Agents to share connections and hand over the setup
+   token, with Tools → Agents… to share connections and hand over the setup
    command. Writes and schema changes are refused with a sentence pointing at
    what does work.
-2. **In-app sessions.** ~~Copilot in a terminal view~~ — Copilot ships natively
-   over ACP (§7), with the app-aware tools and `propose_edit`. **Claude Code's
-   adapter is still to come**, over its own `stream-json` transport.
+2. ~~**In-app sessions.**~~ **Shipped, both harnesses.** ~~Copilot in a terminal
+   view~~ — Copilot runs natively over ACP and Claude Code over its own
+   `stream-json` transport (§7), both with the app-aware tools and
+   `propose_edit`. The panel is toggled from the toolbar or View → Agent Panel;
+   it was reachable only from the Help menu until #719, and its toolbar button
+   had never been wired up at all.
 3. ~~**Writes**: dry-run, graded approval, transaction wrapping, undo.~~
    **Shipped**, and simpler than planned: the dry run and the write are the
    same run. `run_write` executes inside a transaction, so the user is asked
@@ -329,7 +332,7 @@ product and a much smaller blast radius.
 ## 9. Open questions
 
 1. **Transport.** Settled: loopback HTTP, bearer token in a 0600 file in the
-   data directory, rotation from Settings → Agents which restarts the endpoint
+   data directory, rotation from Tools → Agents… which restarts the endpoint
    so the old token stops working immediately, and requests carrying an
    `Origin` header are refused outright — no harness sends one, and a page
    that DNS-rebinding has made same-origin with 127.0.0.1 is the one attacker
