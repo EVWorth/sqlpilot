@@ -1,6 +1,17 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CommandPalette } from "../CommandPalette";
+
+/**
+ * The palette is controlled by AppLayout, which owns the open state so that
+ * View → Command Palette can route to it. The host here stands in for that,
+ * and keeps every test below written the way a person uses the thing.
+ */
+function Host() {
+  const [open, setOpen] = useState(false);
+  return <CommandPalette isOpen={open} onOpen={() => setOpen(true)} onClose={() => setOpen(false)} />;
+}
 
 /** Every action the app runs arrives as this event, whoever asked for it. */
 function listenForActions() {
@@ -24,12 +35,12 @@ describe("CommandPalette", () => {
   });
 
   it("stays out of the way until asked for", () => {
-    render(<CommandPalette />);
+    render(<Host />);
     expect(screen.queryByRole("dialog")).toBeNull();
   });
 
   it("opens on Ctrl+Shift+P", () => {
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
@@ -37,7 +48,7 @@ describe("CommandPalette", () => {
   it("opens on plain Ctrl+P too", () => {
     // Both chords, because muscle memory differs by editor and getting it
     // wrong means the feature may as well not exist.
-    render(<CommandPalette />);
+    render(<Host />);
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     expect(screen.getByRole("dialog")).toBeTruthy();
   });
@@ -45,19 +56,19 @@ describe("CommandPalette", () => {
   it("puts the cursor in the search field", () => {
     // Anything else means typing the command name goes nowhere, which is the
     // only thing anyone does next.
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     expect(document.activeElement).toBe(screen.getByLabelText("Command"));
   });
 
   it("lists every command before anything is typed", () => {
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     expect(screen.getAllByRole("option").length).toBeGreaterThan(20);
   });
 
   it("narrows as you type", () => {
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     type("backup");
     const options = screen.getAllByRole("option");
@@ -70,7 +81,7 @@ describe("CommandPalette", () => {
     // closed and handed focus back — several of these commands open dialogs of
     // their own, and they should arrive to a settled page.
     const actions = listenForActions();
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     type("backup");
     fireEvent.keyDown(screen.getByLabelText("Command"), { key: "Enter" });
@@ -78,7 +89,7 @@ describe("CommandPalette", () => {
   });
 
   it("closes once a command is chosen", async () => {
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     type("backup");
     fireEvent.keyDown(screen.getByLabelText("Command"), { key: "Enter" });
@@ -86,7 +97,7 @@ describe("CommandPalette", () => {
   });
 
   it("moves the highlight with the arrow keys", () => {
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     const first = screen.getAllByRole("option")[0];
     expect(first.getAttribute("aria-selected")).toBe("true");
@@ -98,7 +109,7 @@ describe("CommandPalette", () => {
   });
 
   it("wraps around rather than stopping at the ends", () => {
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     fireEvent.keyDown(screen.getByLabelText("Command"), { key: "ArrowUp" });
     const options = screen.getAllByRole("option");
@@ -107,7 +118,7 @@ describe("CommandPalette", () => {
 
   it("runs a command when it is clicked", async () => {
     const actions = listenForActions();
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     type("about");
     fireEvent.click(screen.getAllByRole("option")[0]);
@@ -115,7 +126,7 @@ describe("CommandPalette", () => {
   });
 
   it("says so when nothing matches, rather than showing an empty box", () => {
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     type("zzzzzz");
     expect(screen.queryAllByRole("option")).toHaveLength(0);
@@ -124,7 +135,7 @@ describe("CommandPalette", () => {
 
   it("does nothing on Enter when nothing matches", async () => {
     const actions = listenForActions();
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     type("zzzzzz");
     fireEvent.keyDown(screen.getByLabelText("Command"), { key: "Enter" });
@@ -134,7 +145,7 @@ describe("CommandPalette", () => {
 
   it("closes on Escape without running anything", () => {
     const actions = listenForActions();
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -144,7 +155,7 @@ describe("CommandPalette", () => {
   it("forgets the previous query when reopened", () => {
     // Reopening onto last time's filter is a small thing that makes the
     // palette feel like it is arguing with you.
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     type("backup");
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
@@ -154,7 +165,7 @@ describe("CommandPalette", () => {
 
   it("shows the shortcut for commands that have one", () => {
     // The palette should make itself less necessary over time.
-    render(<CommandPalette />);
+    render(<Host />);
     openPalette();
     type("new query");
     expect(screen.getAllByRole("option")[0].textContent).toContain("Ctrl+T");

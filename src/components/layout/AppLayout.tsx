@@ -70,6 +70,7 @@ export function AppLayout() {
   // The session panel: a fixed-width column beside the editor, toggled from
   // the menu rather than always present — most sessions do not involve one.
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
   useAgentSessionEvents();
   const dialogTarget = useDialogStore((s) => s.target);
   const helpTab = useDialogStore((s) => s.helpTab);
@@ -204,6 +205,9 @@ export function AppLayout() {
         case "agents":
           useDialogStore.getState().openDialog("agents");
           break;
+        case "command-palette":
+          setPaletteOpen(true);
+          break;
         case "agent-panel":
           setAgentPanelOpen((open) => !open);
           break;
@@ -315,8 +319,16 @@ export function AppLayout() {
         {agentPanelOpen && <AgentPanel onClose={() => setAgentPanelOpen(false)} />}
       </div>
       <StatusBar />
-      {/* Always mounted: it listens for its own chord and opens itself. */}
-      <CommandPalette />
+      {
+        /* Always mounted: it listens for its own chord, and View → Command
+          Palette routes here too, so the feature does not depend on a key
+          combination the window manager might have claimed. */
+      }
+      <CommandPalette
+        isOpen={paletteOpen}
+        onOpen={() => setPaletteOpen(true)}
+        onClose={() => setPaletteOpen(false)}
+      />
 
       <ShortcutsDialog
         isOpen={openDialogName === "help"}

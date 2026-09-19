@@ -86,6 +86,13 @@ export const ACTIONS: Action[] = [
     keywords: ["theme", "colours", "colors", "dark", "light"],
   },
   {
+    id: "command-palette",
+    label: "Command Palette",
+    category: "View",
+    shortcut: "Ctrl+Shift+P",
+    keywords: ["commands", "run", "search", "actions"],
+  },
+  {
     id: "agent-panel",
     label: "Agent Panel",
     category: "View",
@@ -167,6 +174,7 @@ export const MENUS: Menu[] = [
     // was one of them. What belongs together is what changes the view.
     label: "View",
     entries: [
+      { type: "item", id: "command-palette" },
       { type: "item", id: "agent-panel" },
       { type: "separator" },
       { type: "item", id: "appearance" },
