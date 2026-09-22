@@ -27,6 +27,8 @@ pub fn describe_pool_error(
     pool_max: u32,
     acquire_timeout_secs: u64,
     connections_held: u32,
+    // Queries this app knows are in flight on this connection.
+    running: usize,
 ) -> Option<crate::error::CoreError> {
     if !matches!(error, sqlx::Error::PoolTimedOut) {
         return None;
@@ -37,12 +39,29 @@ pub fn describe_pool_error(
     if connections_held == 0 {
         return None;
     }
+
+    // What is actually on those connections, if anything says so. Without this
+    // the message can only report a number the user already knew from their own
+    // settings, which is why the first report of this read as "no idea what is
+    // going on with the different connections".
+    // The advice has to match the situation. Telling someone to wait for work
+    // to finish, when this app has no work running, sends them to watch nothing.
+    let explanation = match running {
+        0 => "This app has nothing running on them, which means they are held by work that \
+              ended without releasing its connection. Reconnecting clears it. Please report \
+              it — that is a bug in SQLPilot, not a setting you have wrong."
+            .to_string(),
+        1 => "One query is still running. Wait for it, or raise \"Max pool size\" on the \
+              profile."
+            .to_string(),
+        n => format!(
+            "{n} queries are still running. Wait for them, or raise \"Max pool size\" on the \
+             profile — a backup, a schema refresh and a query each hold one at the same time."
+        ),
+    };
     Some(crate::error::CoreError::PoolExhausted(format!(
-        "\"{}\" reached its limit of {} simultaneous connections and nothing freed up within \
-         {}s. Either something long-running is holding them — check the process list — or the \
-         limit is too low for how this connection is used. Raise \"Max pool size\" on the \
-         profile, or wait for the running work to finish.",
-        profile_name, pool_max, acquire_timeout_secs
+        "\"{profile_name}\" is using all {pool_max} of its connections and none freed up \
+         within {acquire_timeout_secs}s. {explanation}"
     )))
 }
 
@@ -164,7 +183,7 @@ mod tests {
     fn a_pool_timeout_names_the_profile_and_the_limit() {
         // sqlx says only "pool timed out while waiting for an open connection",
         // which names neither the pool nor the number that caused it (#279).
-        let described = describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 5)
+        let described = describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 5, 3)
             .expect("a pool timeout should be described");
         let message = described.to_string();
         assert!(message.contains("prod-eu"), "{message}");
@@ -175,12 +194,43 @@ mod tests {
     }
 
     #[test]
+    fn a_full_pool_says_what_is_holding_it() {
+        // The first report of this read "no idea what's going on with the
+        // different connections", which is the right complaint: the old message
+        // could only quote a number the user had set themselves. The app knows
+        // what it has running, so it should say.
+        let three = describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 5, 3)
+            .expect("a full pool is described")
+            .to_string();
+        assert!(three.contains("3 queries are still running"), "{three}");
+
+        let one = describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 5, 1)
+            .expect("a full pool is described")
+            .to_string();
+        assert!(one.contains("One query is still running"), "{one}");
+    }
+
+    #[test]
+    fn a_full_pool_with_nothing_running_asks_to_be_reported() {
+        // Connections held with nothing running on them is the shape of a leak,
+        // and it is not something a user can act on by waiting or by raising a
+        // limit. Saying so is more useful than repeating the advice that fits
+        // the ordinary case.
+        let message = describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 5, 0)
+            .expect("a full pool is described")
+            .to_string();
+        assert!(message.contains("Please report it"), "{message}");
+        assert!(!message.contains("Wait for"), "{message}");
+        assert!(message.contains("Reconnecting clears it"), "{message}");
+    }
+
+    #[test]
     fn a_pool_holding_nothing_has_not_run_out_of_anything() {
         // A server that went away mid-session empties the pool and then times
         // out on acquire, which looks identical to saturation from the error
         // alone. Zero connections held is what tells them apart.
         assert!(
-            describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 0).is_none(),
+            describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 0, 0).is_none(),
             "an empty pool should fall through to the driver's own error"
         );
     }
@@ -237,7 +287,7 @@ mod tests {
     fn other_errors_are_left_alone() {
         // Only the pool case gets rewritten; everything else keeps whatever
         // the driver said, which is usually more specific than we could be.
-        assert!(describe_pool_error(&sqlx::Error::RowNotFound, "prod-eu", 5, 10, 5).is_none());
-        assert!(describe_pool_error(&sqlx::Error::WorkerCrashed, "prod-eu", 5, 10, 5).is_none());
+        assert!(describe_pool_error(&sqlx::Error::RowNotFound, "prod-eu", 5, 10, 5, 0).is_none());
+        assert!(describe_pool_error(&sqlx::Error::WorkerCrashed, "prod-eu", 5, 10, 5, 0).is_none());
     }
 }

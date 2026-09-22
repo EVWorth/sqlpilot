@@ -284,7 +284,26 @@ impl QueryExecutor {
                     self.connection_manager
                         .pool_limits(&connection_id)
                         .and_then(|(name, max, timeout, held)| {
-                            crate::connection::describe_pool_error(&e, &name, max, timeout, held)
+                            // What this app has running on that connection right
+                            // now, so the message can say why the pool is full
+                            // rather than only that it is.
+                            let running = self
+                                .in_flight
+                                .iter()
+                                .filter(|entry| entry.value() == &connection_id)
+                                .count();
+                            if matches!(e, sqlx::Error::PoolTimedOut) {
+                                tracing::warn!(
+                                    connection = %name,
+                                    held,
+                                    max,
+                                    running,
+                                    "Pool ran out of connections"
+                                );
+                            }
+                            crate::connection::describe_pool_error(
+                                &e, &name, max, timeout, held, running,
+                            )
                         })
                         // Kept as the driver's own error rather than flattened to
                         // a string: the error number and SQLSTATE are the only
