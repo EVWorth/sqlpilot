@@ -58,7 +58,10 @@ mas-export = { path = "crates/mas-export" }
 mas-mcp = { version = "0.1.0", path = "crates/mas-mcp" }
 mas-sqlite = { path = "crates/mas-sqlite" }
 rfd = "0.17"
-rmcp = { version = "=3.2.0", features = ["server", "transport-streamable-http-server"] }
+# Pinned exactly, and pinned again in crates/mas-mcp/Cargo.toml: both have to
+# move together or the workspace will not resolve. The exact pin is how the
+# seven-day publish-age rule is enforced until #225 lands.
+rmcp = { version = "=3.3.0", features = ["server", "transport-streamable-http-server"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true }
