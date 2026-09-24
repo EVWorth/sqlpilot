@@ -7,7 +7,7 @@ edition = "2021"
 async-trait = "0.1.92"
 axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "json"] }
 mas-core = { version = "0.1.0", path = "../mas-core" }
-rmcp = { version = "=3.2.0", features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "=3.3.0", features = ["server", "transport-streamable-http-server"] }
 schemars = "1"
 serde = { workspace = true }
 serde_json = { workspace = true }
