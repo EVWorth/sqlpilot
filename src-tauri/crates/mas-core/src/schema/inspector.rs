@@ -1,4 +1,4 @@
-use crate::connection::ConnectionManager;
+use crate::connection::{ConnectionManager, Lane};
 use crate::error::CoreError;
 use crate::schema::ident::qualified;
 use serde::Serialize;
@@ -7,6 +7,8 @@ use std::sync::Arc;
 
 pub struct SchemaInspector {
     connection_manager: Arc<ConnectionManager>,
+    /// Which of the connection's pools the reads come from.
+    lane: Lane,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -163,13 +165,30 @@ pub fn is_system_schema(name: &str) -> bool {
 
 impl SchemaInspector {
     pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
-        Self { connection_manager }
+        Self::for_lane(connection_manager, Lane::Interactive)
+    }
+
+    /// An inspector whose reads come from `lane`.
+    ///
+    /// The agent browses schema as much as it queries, and a burst of it on
+    /// the interactive lane would starve the editor just as its queries would
+    /// (#731).
+    pub fn for_lane(connection_manager: Arc<ConnectionManager>, lane: Lane) -> Self {
+        Self {
+            connection_manager,
+            lane,
+        }
+    }
+
+    fn pool(&self, connection_id: &str) -> Result<sqlx::MySqlPool, CoreError> {
+        self.connection_manager
+            .get_lane_pool(connection_id, self.lane)
     }
 
     #[tracing::instrument(skip(self))]
     pub async fn get_databases(&self, connection_id: &str) -> Result<Vec<DatabaseInfo>, CoreError> {
         tracing::debug!("Fetching databases");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(SCHEMA_NAME AS CHAR) AS SCHEMA_NAME,
                     CAST(DEFAULT_CHARACTER_SET_NAME AS CHAR) AS DEFAULT_CHARACTER_SET_NAME,
@@ -204,7 +223,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<TableInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching tables");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(TABLE_NAME AS CHAR) AS TABLE_NAME,
                     CAST(TABLE_TYPE AS CHAR) AS TABLE_TYPE,
@@ -244,7 +263,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<ColumnInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching columns");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(COLUMN_NAME AS CHAR) AS COLUMN_NAME,
                     CAST(DATA_TYPE AS CHAR) AS DATA_TYPE,
@@ -307,7 +326,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<ForeignKeyInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching foreign keys");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(k.CONSTRAINT_NAME AS CHAR) AS CONSTRAINT_NAME,
                     CAST(k.COLUMN_NAME AS CHAR) AS COLUMN_NAME,
@@ -375,7 +394,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<ReferencingKey>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching referencing keys");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(k.TABLE_NAME AS CHAR) AS TABLE_NAME,
                     CAST(k.CONSTRAINT_NAME AS CHAR) AS CONSTRAINT_NAME,
@@ -443,7 +462,7 @@ impl SchemaInspector {
         limit: u32,
     ) -> Result<Vec<SchemaMatch>, CoreError> {
         tracing::debug!(database = %database, "Searching schema");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         // Escaped so a fragment containing % or _ searches for those
         // characters rather than becoming a wildcard: someone looking for
         // "created_at" means that column, not "createdXat".
@@ -491,7 +510,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<IndexInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching indexes");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(INDEX_NAME AS CHAR) AS INDEX_NAME,
                     CAST(COLUMN_NAME AS CHAR) AS COLUMN_NAME,
@@ -550,7 +569,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching table DDL");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         // Qualified, so no `USE` is needed and no session state is relied on
         // (#290).
         let row = sqlx::raw_sql(AssertSqlSafe(format!(
@@ -573,7 +592,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<ViewInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching views");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(TABLE_NAME AS CHAR) AS TABLE_NAME,
                     CAST(IS_UPDATABLE AS CHAR) AS IS_UPDATABLE
@@ -607,7 +626,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<RoutineInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching routines");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(ROUTINE_NAME AS CHAR) AS ROUTINE_NAME,
                     CAST(ROUTINE_TYPE AS CHAR) AS ROUTINE_TYPE,
@@ -644,7 +663,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<EventInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching events");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(EVENT_NAME AS CHAR) AS EVENT_NAME,
                     CAST(EVENT_TYPE AS CHAR) AS EVENT_TYPE,
@@ -700,7 +719,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<PartitionInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching partitions");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(PARTITION_NAME AS CHAR) AS PARTITION_NAME,
                     CAST(PARTITION_METHOD AS CHAR) AS PARTITION_METHOD,
@@ -747,7 +766,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<TriggerInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching triggers");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let rows = sqlx::query(
             "SELECT CAST(TRIGGER_NAME AS CHAR) AS TRIGGER_NAME,
                     CAST(EVENT_MANIPULATION AS CHAR) AS EVENT_MANIPULATION,
@@ -783,7 +802,7 @@ impl SchemaInspector {
         view: &str,
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, view = %view, "Fetching view DDL");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let row = sqlx::raw_sql(AssertSqlSafe(format!(
             "SHOW CREATE VIEW {}",
             qualified(database, view)
@@ -806,7 +825,7 @@ impl SchemaInspector {
         routine_type: &str,
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, routine = %routine, routine_type = %routine_type, "Fetching routine DDL");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let name = qualified(database, routine);
         let show_cmd = match routine_type.to_uppercase().as_str() {
             "FUNCTION" => format!("SHOW CREATE FUNCTION {}", name),
@@ -831,7 +850,7 @@ impl SchemaInspector {
         trigger: &str,
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, trigger = %trigger, "Fetching trigger DDL");
-        let pool = self.connection_manager.get_pool(connection_id)?;
+        let pool = self.pool(connection_id)?;
         let row = sqlx::raw_sql(AssertSqlSafe(format!(
             "SHOW CREATE TRIGGER {}",
             qualified(database, trigger)
