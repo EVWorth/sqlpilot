@@ -58,9 +58,15 @@ test-rust:
 # These are #[ignore]d so the default run stays container-free, which means
 # CI only runs them at release time — this is the way to exercise them before
 # touching the query executor, connection manager or admin service.
+#
+# One test at a time, as the release gate runs them (release.yml): the suites
+# share fixture databases — backup_dump, restore_file, ddl_pool_safety and
+# paging_offset each drop and reseed their own — so parallel tests collide on
+# them ("database exists", tables vanishing mid-dump) and fail where the
+# release run passes.
 [doc("Rust tests that need a live MySQL/MariaDB. Run `just db-up` first.")]
 test-integration:
-    cd src-tauri && cargo test -p mas-core -p mas-admin -p mas-mcp -- --ignored
+    cd src-tauri && cargo test -p mas-core -p mas-admin -p mas-mcp -- --ignored --test-threads=1
 
 # The agent tests talk to a real harness, so they are not in test-integration:
 # they need the CLI installed and logged in, and they spend the user's own
