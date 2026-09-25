@@ -131,7 +131,7 @@ pub async fn run_restore(
         manager
             .pool_limits(connection_id, Lane::Job)
             .and_then(|(name, max, timeout, held)| {
-                describe_pool_error(&e, &name, max, timeout, held, Lane::Job)
+                describe_pool_error(&e, &name, max, timeout, held, Lane::Job, 0)
             })
             .unwrap_or_else(|| CoreError::Connection(format!("Could not start the restore: {e}")))
     })?;

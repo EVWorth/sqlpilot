@@ -20,7 +20,7 @@ pub struct QueryExecutor {
     /// executor without going through the editor's single-query gate. Keying by
     /// connection let the shorter one's completion deregister the longer one,
     /// and let a timeout kill whichever thread happened to be registered last.
-    in_flight: Arc<DashMap<u64, String>>,
+    in_flight: Arc<DashMap<u64, (String, Lane)>>,
     /// How little free RAM stops a fetch, in MB.
     ///
     /// A field rather than a literal inside MemoryGuard because the block that
@@ -40,7 +40,7 @@ pub const DEFAULT_MEMORY_FLOOR_MB: u64 = 512;
 /// Holds the id in a shared cell because it is only known once the server has
 /// answered the prelude, which is after the guard has to exist.
 struct InFlightGuard {
-    in_flight: Arc<DashMap<u64, String>>,
+    in_flight: Arc<DashMap<u64, (String, Lane)>>,
     thread_id: Arc<AtomicU64>,
 }
 
@@ -86,7 +86,7 @@ impl QueryExecutor {
         let thread_ids: Vec<u64> = self
             .in_flight
             .iter()
-            .filter(|entry| entry.value() == connection_id)
+            .filter(|entry| entry.value().0 == connection_id)
             .map(|entry| *entry.key())
             .collect();
         if thread_ids.is_empty() {
@@ -333,8 +333,41 @@ impl QueryExecutor {
                     self.connection_manager
                         .pool_limits(&connection_id, lane)
                         .and_then(|(name, max, timeout, held)| {
+                            // What the editor has running on that connection right
+                            // now, so the message can say why the lane is full
+                            // rather than only that it is. Only the interactive
+                            // lane's own queries: an agent's run on its own lane
+                            // and hold none of these connections.
+                            let editor_running = self
+                                .in_flight
+                                .iter()
+                                .filter(|entry| {
+                                    let (conn, in_lane) = entry.value();
+                                    conn == &connection_id && *in_lane == Lane::Interactive
+                                })
+                                .count();
+                            // Only a lane actually holding connections has run
+                            // out. An empty one timing out is a server that went
+                            // away, and logging it as exhaustion is the very
+                            // misreading describe_pool_error refuses to make.
+                            if matches!(e, sqlx::Error::PoolTimedOut) && held > 0 {
+                                tracing::warn!(
+                                    connection = %name,
+                                    ?lane,
+                                    held,
+                                    max,
+                                    editor_running,
+                                    "Pool ran out of connections"
+                                );
+                            }
                             crate::connection::describe_pool_error(
-                                &e, &name, max, timeout, held, lane,
+                                &e,
+                                &name,
+                                max,
+                                timeout,
+                                held,
+                                lane,
+                                editor_running,
                             )
                         })
                         // Kept as the driver's own error rather than flattened to
@@ -359,7 +392,8 @@ impl QueryExecutor {
                     if stmt_idx == -(prelude_count as isize) {
                         if let Ok(thread_id) = row.try_get::<u64, _>(0) {
                             my_thread_id.store(thread_id, Ordering::Relaxed);
-                            self.in_flight.insert(thread_id, connection_id.clone());
+                            self.in_flight
+                                .insert(thread_id, (connection_id.clone(), lane));
                             tracing::debug!(connection_id = %connection_id, thread_id, "Query in flight");
                         }
                     }

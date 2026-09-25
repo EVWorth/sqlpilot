@@ -244,3 +244,47 @@ async fn cancel_still_stops_what_the_agent_is_running() {
         .expect("the agent's query stopped when cancelled");
     assert!(started.elapsed() < Duration::from_secs(5));
 }
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_full_editor_lane_counts_only_the_editors_queries() {
+    // The message counts what is running to say why the pool is full. An
+    // agent's query runs on its own lane and holds none of the editor's
+    // connections, so counting it would blame the wrong thing.
+    let (manager, id) = connect(1).await;
+    let executor = Arc::new(QueryExecutor::new(manager.clone()));
+
+    let agent = {
+        let executor = executor.clone();
+        let id = id.clone();
+        tokio::spawn(async move {
+            executor
+                .execute_in(Lane::Agent, &id, "SELECT SLEEP(6)", None, None, None)
+                .await
+        })
+    };
+    let editor = {
+        let executor = executor.clone();
+        let id = id.clone();
+        tokio::spawn(async move {
+            executor
+                .execute(&id, "SELECT SLEEP(6)", None, None, None)
+                .await
+        })
+    };
+    // Both on the server, and the editor's one connection taken.
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let message = executor
+        .execute(&id, "SELECT 1", None, None, None)
+        .await
+        .expect_err("the editor's only connection is busy")
+        .to_string();
+    assert!(
+        message.contains("One editor query is still running"),
+        "the agent's query was counted as the editor's: {message}"
+    );
+
+    editor.await.unwrap().expect("the editor's query finishes");
+    agent.await.unwrap().expect("the agent's query finishes");
+}

@@ -28,6 +28,9 @@ pub fn describe_pool_error(
     acquire_timeout_secs: u64,
     connections_held: u32,
     lane: manager::Lane,
+    // Editor queries this app knows are in flight on the interactive lane.
+    // Only read for that lane: the others say what they are by being full.
+    editor_running: usize,
 ) -> Option<crate::error::CoreError> {
     if !matches!(error, sqlx::Error::PoolTimedOut) {
         return None;
@@ -42,13 +45,35 @@ pub fn describe_pool_error(
     // so "raise Max pool size" would send someone to a setting that cannot
     // help — and would not have been the lane that filled up anyway.
     let message = match lane {
-        manager::Lane::Interactive => format!(
-            "\"{profile_name}\" reached its limit of {pool_max} simultaneous connections and \
-             nothing freed up within {acquire_timeout_secs}s. Either something long-running is \
-             holding them — check the process list — or the limit is too low for how this \
-             connection is used. Raise \"Max pool size\" on the profile, or wait for the running \
-             work to finish."
-        ),
+        manager::Lane::Interactive => {
+            // What is actually on those connections, as far as the app knows.
+            // Without it the message could only repeat a number the user set
+            // themselves, which is why the first report of this read "no idea
+            // what's going on with the different connections".
+            //
+            // The advice has to match the situation. Telling someone to wait
+            // for queries when none are running sends them to watch nothing;
+            // and with no editor query running the holder is schema browsing,
+            // the admin panel, or a connection that was never given back —
+            // this lane cannot tell those apart, so it says which to try.
+            let explanation = match editor_running {
+                0 => "No editor queries are running on them. Schema browsing or the admin panel \
+                      may still be holding them, which clears on its own; if it does not, \
+                      reconnecting frees them, and that is worth reporting as a bug."
+                    .to_string(),
+                1 => "One editor query is still running. Wait for it, or raise \"Max pool \
+                      size\" on the profile."
+                    .to_string(),
+                n => format!(
+                    "{n} editor queries are still running. Wait for them, or raise \"Max pool \
+                     size\" on the profile."
+                ),
+            };
+            format!(
+                "\"{profile_name}\" is using all {pool_max} of its connections and none freed up \
+                 within {acquire_timeout_secs}s. {explanation}"
+            )
+        }
         manager::Lane::Agent => format!(
             "The agent is already using all {pool_max} of its connections to \
              \"{profile_name}\" and none freed up within {acquire_timeout_secs}s. Wait for its \
@@ -179,20 +204,25 @@ mod tests {
     use super::*;
     use manager::Lane;
 
-    #[test]
-    fn a_pool_timeout_names_the_profile_and_the_limit() {
-        // sqlx says only "pool timed out while waiting for an open connection",
-        // which names neither the pool nor the number that caused it (#279).
-        let described = describe_pool_error(
+    /// What a timed-out acquire on `prod-eu` (5 connections, 10s) reads as.
+    fn full(held: u32, lane: Lane, editor_running: usize) -> Option<String> {
+        describe_pool_error(
             &sqlx::Error::PoolTimedOut,
             "prod-eu",
             5,
             10,
-            5,
-            Lane::Interactive,
+            held,
+            lane,
+            editor_running,
         )
-        .expect("a pool timeout should be described");
-        let message = described.to_string();
+        .map(|e| e.to_string())
+    }
+
+    #[test]
+    fn a_pool_timeout_names_the_profile_and_the_limit() {
+        // sqlx says only "pool timed out while waiting for an open connection",
+        // which names neither the pool nor the number that caused it (#279).
+        let message = full(5, Lane::Interactive, 3).expect("a pool timeout should be described");
         assert!(message.contains("prod-eu"), "{message}");
         assert!(message.contains('5'), "{message}");
         assert!(message.contains("10s"), "{message}");
@@ -201,20 +231,44 @@ mod tests {
     }
 
     #[test]
+    fn a_full_pool_says_what_is_holding_it() {
+        // The first report of this read "no idea what's going on with the
+        // different connections", which is the right complaint: the old message
+        // could only quote a number the user had set themselves. The app knows
+        // what it has running, so it should say.
+        let three = full(5, Lane::Interactive, 3).expect("a full pool is described");
+        assert!(
+            three.contains("3 editor queries are still running"),
+            "{three}"
+        );
+
+        let one = full(5, Lane::Interactive, 1).expect("a full pool is described");
+        assert!(one.contains("One editor query is still running"), "{one}");
+    }
+
+    #[test]
+    fn a_full_pool_with_no_editor_query_names_the_other_holders() {
+        // With nothing of the editor's running, the holder is schema browsing,
+        // the admin panel, or a connection never given back. "Wait for your
+        // queries" would send someone to watch nothing, and calling it a bug
+        // outright would be wrong whenever schema browsing is simply slow.
+        let message = full(5, Lane::Interactive, 0).expect("a full pool is described");
+        assert!(
+            message.contains("No editor queries are running"),
+            "{message}"
+        );
+        assert!(message.contains("Schema browsing"), "{message}");
+        assert!(message.contains("reconnecting frees them"), "{message}");
+        assert!(!message.contains("Wait for"), "{message}");
+    }
+
+    #[test]
     fn a_pool_holding_nothing_has_not_run_out_of_anything() {
         // A server that went away mid-session empties the pool and then times
         // out on acquire, which looks identical to saturation from the error
         // alone. Zero connections held is what tells them apart.
         assert!(
-            describe_pool_error(
-                &sqlx::Error::PoolTimedOut,
-                "prod-eu",
-                5,
-                10,
-                0,
-                Lane::Interactive
-            )
-            .is_none(),
+            full(0, Lane::Interactive, 0).is_none(),
             "an empty pool should fall through to the driver's own error"
         );
     }
@@ -272,10 +326,17 @@ mod tests {
         // The agent's lane is a fixed size, so "raise Max pool size" would send
         // someone to a setting that cannot help. What they can do is wait for,
         // or cancel, what the agent is running (#731).
-        let message =
-            describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 2, 10, 2, Lane::Agent)
-                .expect("a full agent lane is described")
-                .to_string();
+        let message = describe_pool_error(
+            &sqlx::Error::PoolTimedOut,
+            "prod-eu",
+            2,
+            10,
+            2,
+            Lane::Agent,
+            0,
+        )
+        .expect("a full agent lane is described")
+        .to_string();
         assert!(message.contains("agent"), "{message}");
         assert!(message.contains("prod-eu"), "{message}");
         assert!(message.contains("editor is not affected"), "{message}");
@@ -284,10 +345,17 @@ mod tests {
 
     #[test]
     fn a_full_job_lane_says_backups_are_the_reason() {
-        let message =
-            describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 2, 10, 2, Lane::Job)
-                .expect("a full job lane is described")
-                .to_string();
+        let message = describe_pool_error(
+            &sqlx::Error::PoolTimedOut,
+            "prod-eu",
+            2,
+            10,
+            2,
+            Lane::Job,
+            0,
+        )
+        .expect("a full job lane is described")
+        .to_string();
         assert!(message.contains("backups or restores"), "{message}");
         assert!(!message.contains("Max pool size"), "{message}");
     }
@@ -296,23 +364,10 @@ mod tests {
     fn other_errors_are_left_alone() {
         // Only the pool case gets rewritten; everything else keeps whatever
         // the driver said, which is usually more specific than we could be.
-        assert!(describe_pool_error(
-            &sqlx::Error::RowNotFound,
-            "prod-eu",
-            5,
-            10,
-            5,
-            Lane::Interactive
-        )
-        .is_none());
-        assert!(describe_pool_error(
-            &sqlx::Error::WorkerCrashed,
-            "prod-eu",
-            5,
-            10,
-            5,
-            Lane::Interactive
-        )
-        .is_none());
+        for other in [sqlx::Error::RowNotFound, sqlx::Error::WorkerCrashed] {
+            assert!(
+                describe_pool_error(&other, "prod-eu", 5, 10, 5, Lane::Interactive, 0).is_none()
+            );
+        }
     }
 }
