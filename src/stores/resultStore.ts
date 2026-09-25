@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ExplainFormat } from "../lib/bindings";
 import { connectionKind, dataSourceFor } from "../lib/datasource";
+import { noteSession } from "../lib/server-sessions";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
 import type { QueryResult } from "../types";
@@ -23,6 +24,7 @@ interface ConfirmDialogState {
   connectionId: string;
   sql: string;
   database?: string;
+  session?: string;
 }
 
 /** Why the backend declined to ANALYZE, in words the user can act on. */
@@ -60,6 +62,12 @@ interface PageState {
   sql: string;
   connectionId: string;
   database?: string;
+  /**
+   * The tab's session, so a later page is read where the first one was: a
+   * temporary table or a session variable the statement uses exists only
+   * there (#731).
+   */
+  session?: string;
   /** 0-based. */
   index: number;
   size: number;
@@ -84,7 +92,13 @@ interface ResultState {
    * What was planned last, so the panel can ask for another format without
    * the editor having to hand it the statement again.
    */
-  explainRequest: { connectionId: string; sql: string; database?: string; analyze: boolean } | null;
+  explainRequest: {
+    connectionId: string;
+    sql: string;
+    database?: string;
+    analyze: boolean;
+    session?: string;
+  } | null;
   explainAnalyze: boolean;
   /**
    * True when the plan came back in tabular shape. MariaDB's ANALYZE answers
@@ -98,18 +112,25 @@ interface ResultState {
 
   confirmDialog: ConfirmDialogState | null;
 
-  executeQuery: (connectionId: string, sql: string, database?: string) => Promise<void>;
+  /**
+   * `session` is the editor tab running the statement, which keeps it on that
+   * tab's own server session (#731). Only the editor passes one; a caller
+   * that is not an editor tab leaves it out and runs on the shared pool.
+   */
+  executeQuery: (connectionId: string, sql: string, database?: string, session?: string) => Promise<void>;
   executeExplain: (
     connectionId: string,
     sql: string,
     database?: string,
     format?: ExplainFormat,
+    session?: string,
   ) => Promise<void>;
   executeExplainAnalyze: (
     connectionId: string,
     sql: string,
     database?: string,
     format?: ExplainFormat,
+    session?: string,
   ) => Promise<void>;
   cancelActiveQuery: () => Promise<void>;
   setActiveResult: (index: number) => void;
@@ -160,13 +181,13 @@ export const useResultStore = create<ResultState>((set, get) => ({
 
   confirmDialog: null,
 
-  executeQuery: async (connectionId, sql, database) => {
+  executeQuery: async (connectionId, sql, database, session) => {
     // Production safety check
     if (isProductionConnection(connectionId) && isDestructiveStatement(sql)) {
-      set({ confirmDialog: { isOpen: true, kind: "query", connectionId, sql, database } });
+      set({ confirmDialog: { isOpen: true, kind: "query", connectionId, sql, database, session } });
       return;
     }
-    await doExecuteQuery(connectionId, sql, set, database);
+    await doExecuteQuery(connectionId, sql, set, database, undefined, session);
   },
 
   confirmExecution: async () => {
@@ -181,10 +202,18 @@ export const useResultStore = create<ResultState>((set, get) => ({
         set,
         dialog.database,
         get().explainRequestedFormat,
+        dialog.session,
       );
       return;
     }
-    await doExecuteQuery(dialog.connectionId, dialog.sql, set, dialog.database);
+    await doExecuteQuery(
+      dialog.connectionId,
+      dialog.sql,
+      set,
+      dialog.database,
+      undefined,
+      dialog.session,
+    );
   },
 
   cancelExecution: () => {
@@ -218,10 +247,14 @@ export const useResultStore = create<ResultState>((set, get) => ({
   goToPage: async (index) => {
     const page = get().page;
     if (!page || index < 0 || index === page.index) return;
-    await doExecuteQuery(page.connectionId, page.sql, set, page.database, {
-      index,
-      size: page.size,
-    });
+    await doExecuteQuery(
+      page.connectionId,
+      page.sql,
+      set,
+      page.database,
+      { index, size: page.size },
+      page.session,
+    );
   },
   setShowExplain: (show) => set({ showExplain: show }),
 
@@ -238,6 +271,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       set,
       request.database,
       format,
+      request.session,
     );
   },
   clearResults: () =>
@@ -252,20 +286,20 @@ export const useResultStore = create<ResultState>((set, get) => ({
     }),
   clearError: () => set({ error: null }),
 
-  executeExplain: async (connectionId, sql, database, format) => {
-    await doExplain(connectionId, sql, false, set, database, format);
+  executeExplain: async (connectionId, sql, database, format, session) => {
+    await doExplain(connectionId, sql, false, set, database, format, session);
   },
 
-  executeExplainAnalyze: async (connectionId, sql, database, format) => {
+  executeExplainAnalyze: async (connectionId, sql, database, format, session) => {
     // ANALYZE really runs the statement. The backend downgrades writes on its
     // own; production gets a prompt even for a read, because the cost is real.
     if (isProductionConnection(connectionId)) {
       set({
-        confirmDialog: { isOpen: true, kind: "explain-analyze", connectionId, sql, database },
+        confirmDialog: { isOpen: true, kind: "explain-analyze", connectionId, sql, database, session },
       });
       return;
     }
-    await doExplain(connectionId, sql, true, set, database, format);
+    await doExplain(connectionId, sql, true, set, database, format, session);
   },
 }));
 
@@ -276,6 +310,7 @@ async function doExplain(
   set: (partial: Partial<ResultState>) => void,
   database?: string,
   format: ExplainFormat = "classic",
+  session?: string,
 ) {
   // The explain command is MySQL-only. Saying so beats letting the backend
   // answer "connection not found", which describes an internal detail rather
@@ -295,12 +330,13 @@ async function doExplain(
       error: null,
       explainNotice: null,
       explainRequestedFormat: format,
-      explainRequest: { connectionId, sql, database, analyze },
+      explainRequest: { connectionId, sql, database, analyze, session },
     });
 
     // Statement normalization (trailing `;`, multi-statement) and the
     // ANALYZE-safety decision both happen backend-side (#412, #418).
-    const response = await api.explainQuery(connectionId, sql, analyze, database, format);
+    if (session) noteSession(session, connectionId);
+    const response = await api.explainQuery(connectionId, sql, analyze, database, format, session);
     if (cancelGeneration !== myGeneration) return;
 
     set({
@@ -337,6 +373,8 @@ async function doExecuteQuery(
   database?: string,
   /** Set when this run is a page change rather than a fresh execution. */
   paging?: { index: number; size: number },
+  /** The editor tab whose session this runs on (#731). */
+  session?: string,
 ) {
   const startTime = Date.now();
   const connState = useConnectionStore.getState();
@@ -366,12 +404,17 @@ async function doExecuteQuery(
     set({ isExecuting: true, error: null });
     // Through the data source, so the editor runs a statement the same way
     // whichever backend the connection belongs to (#461).
-    const results = await dataSourceFor(connectionId).execute(
+    // Noted before the call: the backend opens the session as the statement
+    // starts, and a tab closed while it runs should still end it.
+    const source = dataSourceFor(connectionId);
+    if (session && source.kind === "mysql") noteSession(session, connectionId);
+    const results = await source.execute(
       connectionId,
       sql,
       effectiveDatabase,
       rowLimit,
       offset,
+      session,
     );
     if (cancelGeneration !== myGeneration) return;
 
@@ -390,6 +433,7 @@ async function doExecuteQuery(
           sql,
           connectionId,
           database: effectiveDatabase,
+          session,
           index: pageIndex,
           size: rowLimit,
           hasMore: filled,

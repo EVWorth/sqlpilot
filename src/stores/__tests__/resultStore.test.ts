@@ -214,8 +214,28 @@ describe("resultStore", () => {
         "shop",
         1000,
         1000,
+        undefined,
       );
       expect(useResultStore.getState().page).toMatchObject({ index: 1 });
+    });
+
+    it("reads a later page on the tab session the first page came from", async () => {
+      // A temporary table or a session variable the statement uses exists
+      // only on that session; a page read anywhere else would not find it
+      // (#731).
+      executeQueryMock.mockResolvedValue([fullPage()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM tmp", "shop", "tab-7");
+
+      await useResultStore.getState().goToPage(1);
+
+      expect(executeQueryMock).toHaveBeenLastCalledWith(
+        "conn-1",
+        "SELECT * FROM tmp",
+        "shop",
+        1000,
+        1000,
+        "tab-7",
+      );
     });
 
     it("recognises the last page by it coming back short", async () => {
@@ -287,7 +307,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 1000, undefined);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 1000, undefined, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: "SELECT 1",
@@ -308,7 +328,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "mydb");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "mydb", 1000, undefined);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "mydb", 1000, undefined, undefined);
     });
 
     it("uses connection name and database in history entry", async () => {
@@ -338,7 +358,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "otherdb");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "otherdb", 1000, undefined);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "otherdb", 1000, undefined, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({ database: "otherdb" }),
       );
@@ -522,7 +542,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 500, undefined);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 500, undefined, undefined);
     });
 
     it("passes undefined rowLimit when limitEnabled is false", async () => {
@@ -531,11 +551,31 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, undefined, undefined);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, undefined, undefined, undefined);
     });
   });
 
   describe("confirmExecution", () => {
+    it("runs a confirmed statement on the session it was asked for on", async () => {
+      // Confirming happens after the fact; the statement still belongs to the
+      // tab that ran it, and to that tab's open transaction if it has one.
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "DROP TABLE users" })]);
+      useResultStore.setState({
+        confirmDialog: {
+          isOpen: true,
+          kind: "query",
+          connectionId: "conn-1",
+          sql: "DROP TABLE users",
+          database: "mydb",
+          session: "tab-4",
+        },
+      });
+
+      await useResultStore.getState().confirmExecution();
+
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000, undefined, "tab-4");
+    });
+
     it("calls doExecuteQuery when dialog exists", async () => {
       // The entry records the statement the *result* names, so the fixture has
       // to agree with what was run (#329).
@@ -552,7 +592,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().confirmExecution();
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000, undefined);
+      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000, undefined, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: "DROP TABLE users",
@@ -579,7 +619,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeExplain("conn-1", "SELECT 1");
 
-      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", false, undefined, "classic");
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", false, undefined, "classic", undefined);
       const state = useResultStore.getState();
       expect(state.explainResult).toEqual(response.result);
       expect(state.explainAnalyze).toBe(false);
@@ -592,7 +632,17 @@ describe("resultStore", () => {
       // job now, so the store must not pre-chew the SQL (#418).
       await useResultStore.getState().executeExplain("conn-1", "SELECT 1;", "mydb");
 
-      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1;", false, "mydb", "classic");
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1;", false, "mydb", "classic", undefined);
+    });
+
+    it("plans on the tab's own session", async () => {
+      // A plan made anywhere but the tab's session cannot see its temporary
+      // tables or session settings (#731).
+      explainQueryMock.mockResolvedValue(makeExplainResponse());
+
+      await useResultStore.getState().executeExplain("conn-1", "SELECT 1", "mydb", "classic", "tab-2");
+
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", false, "mydb", "classic", "tab-2");
     });
 
     it("surfaces a backend rejection as an error", async () => {
@@ -619,7 +669,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
 
-      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined, "classic");
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined, "classic", undefined);
       const state = useResultStore.getState();
       expect(state.explainAnalyze).toBe(true);
       expect(state.explainNotice).toBeNull();
@@ -682,7 +732,7 @@ describe("resultStore", () => {
       await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1");
       await useResultStore.getState().confirmExecution();
 
-      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined, "classic");
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, undefined, "classic", undefined);
       expect(useResultStore.getState().confirmDialog).toBeNull();
       expect(useResultStore.getState().explainAnalyze).toBe(true);
     });

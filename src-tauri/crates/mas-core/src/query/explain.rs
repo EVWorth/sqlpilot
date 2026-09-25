@@ -10,7 +10,7 @@
 //! behind the `explain_query` command, rather than in the renderer where a
 //! second call site could skip it.
 
-use crate::connection::{ConnectionManager, Lane};
+use crate::connection::{ConnectionManager, Lane, Route};
 use crate::error::CoreError;
 use crate::models::QueryResult;
 use crate::query::executor::{split_statements, QueryExecutor};
@@ -229,14 +229,16 @@ pub async fn explain(
     .await
 }
 
-/// [`explain`], drawing its connection from `lane`.
+/// [`explain`], drawing its connection from `route`.
 ///
 /// For the agent: `ANALYZE` runs the statement it plans, so an agent's
-/// explain can take as long as its query and belongs on its lane (#731).
+/// explain can take as long as its query and belongs on its lane. For an
+/// editor tab: on the tab's own session, where its temporary tables and
+/// session settings are — a plan made anywhere else would not see them (#731).
 #[allow(clippy::too_many_arguments)]
-#[tracing::instrument(skip(connection_manager, executor, sql), fields(connection_id = %connection_id, analyze, ?lane))]
+#[tracing::instrument(skip(connection_manager, executor, sql, route), fields(connection_id = %connection_id, analyze))]
 pub async fn explain_in(
-    lane: Lane,
+    route: impl Into<Route>,
     connection_manager: &ConnectionManager,
     executor: &QueryExecutor,
     connection_id: String,
@@ -277,7 +279,7 @@ pub async fn explain_in(
     // No row limit: appending LIMIT to an EXPLAIN would rewrite the very
     // statement being planned.
     let mut results = executor
-        .execute_in(lane, &connection_id, &statement, database, None, None)
+        .execute_routed(route.into(), connection_id, statement, database, None, None)
         .await?;
 
     if results.is_empty() {

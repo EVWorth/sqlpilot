@@ -4,7 +4,7 @@ pub mod migrations;
 pub mod store;
 
 pub use health::ConnectionHealth;
-pub use manager::{ConnectionManager, Lane};
+pub use manager::{ConnectionManager, Lane, Route};
 pub use store::ConnectionStore;
 
 pub fn init_keyring(store: std::sync::Arc<keyring_core::CredentialStore>) {
@@ -28,8 +28,8 @@ pub fn describe_pool_error(
     acquire_timeout_secs: u64,
     connections_held: u32,
     lane: manager::Lane,
-    // Editor queries this app knows are in flight on the interactive lane.
-    // Only read for that lane: the others say what they are by being full.
+    // Queries this app knows are in flight on the interactive lane. Only read
+    // for that lane: the others say what they are by being full.
     editor_running: usize,
 ) -> Option<crate::error::CoreError> {
     if !matches!(error, sqlx::Error::PoolTimedOut) {
@@ -53,19 +53,19 @@ pub fn describe_pool_error(
             //
             // The advice has to match the situation. Telling someone to wait
             // for queries when none are running sends them to watch nothing;
-            // and with no editor query running the holder is schema browsing,
+            // and with no query running the holder is schema browsing,
             // the admin panel, or a connection that was never given back —
             // this lane cannot tell those apart, so it says which to try.
             let explanation = match editor_running {
-                0 => "No editor queries are running on them. Schema browsing or the admin panel \
+                0 => "No queries are running on them. Schema browsing or the admin panel \
                       may still be holding them, which clears on its own; if it does not, \
                       reconnecting frees them, and that is worth reporting as a bug."
                     .to_string(),
-                1 => "One editor query is still running. Wait for it, or raise \"Max pool \
+                1 => "One query is still running. Wait for it, or raise \"Max pool \
                       size\" on the profile."
                     .to_string(),
                 n => format!(
-                    "{n} editor queries are still running. Wait for them, or raise \"Max pool \
+                    "{n} queries are still running. Wait for them, or raise \"Max pool \
                      size\" on the profile."
                 ),
             };
@@ -87,6 +87,34 @@ pub fn describe_pool_error(
         ),
     };
     Some(crate::error::CoreError::PoolExhausted(message))
+}
+
+/// Turn a timed-out acquire on an editor tab's session into something a user
+/// can act on.
+///
+/// A session is one connection, so the only way it can be taken is by the
+/// tab's own previous statement still running on it. "Raise Max pool size"
+/// would be wrong advice twice over: that setting does not size sessions, and
+/// a second connection would not have the tab's session state anyway.
+pub fn describe_session_busy(
+    error: &sqlx::Error,
+    profile_name: &str,
+    acquire_timeout_secs: u64,
+    connections_held: u32,
+) -> Option<crate::error::CoreError> {
+    if !matches!(error, sqlx::Error::PoolTimedOut) {
+        return None;
+    }
+    // Same reading as for a lane: holding nothing means the server went away,
+    // and the driver's own error says that better than a guess would.
+    if connections_held == 0 {
+        return None;
+    }
+    Some(crate::error::CoreError::PoolExhausted(format!(
+        "This tab is still running its previous statement on \"{profile_name}\", and it did \
+         not finish within {acquire_timeout_secs}s. Each tab runs on its own session, one \
+         statement at a time; wait for it to finish, or cancel it."
+    )))
 }
 
 /// Why a brand-new pool could not open its first connection.
@@ -237,13 +265,10 @@ mod tests {
         // could only quote a number the user had set themselves. The app knows
         // what it has running, so it should say.
         let three = full(5, Lane::Interactive, 3).expect("a full pool is described");
-        assert!(
-            three.contains("3 editor queries are still running"),
-            "{three}"
-        );
+        assert!(three.contains("3 queries are still running"), "{three}");
 
         let one = full(5, Lane::Interactive, 1).expect("a full pool is described");
-        assert!(one.contains("One editor query is still running"), "{one}");
+        assert!(one.contains("One query is still running"), "{one}");
     }
 
     #[test]
@@ -253,10 +278,7 @@ mod tests {
         // queries" would send someone to watch nothing, and calling it a bug
         // outright would be wrong whenever schema browsing is simply slow.
         let message = full(5, Lane::Interactive, 0).expect("a full pool is described");
-        assert!(
-            message.contains("No editor queries are running"),
-            "{message}"
-        );
+        assert!(message.contains("No queries are running"), "{message}");
         assert!(message.contains("Schema browsing"), "{message}");
         assert!(message.contains("reconnecting frees them"), "{message}");
         assert!(!message.contains("Wait for"), "{message}");
@@ -358,6 +380,21 @@ mod tests {
         .to_string();
         assert!(message.contains("backups or restores"), "{message}");
         assert!(!message.contains("Max pool size"), "{message}");
+    }
+
+    #[test]
+    fn a_busy_tab_session_says_the_tab_is_busy() {
+        // A session is one connection: the only thing that can be holding it
+        // is the tab's own earlier statement, so that is what the message says.
+        let message = describe_session_busy(&sqlx::Error::PoolTimedOut, "prod-eu", 10, 1)
+            .expect("a busy session is described")
+            .to_string();
+        assert!(message.contains("This tab is still running"), "{message}");
+        assert!(message.contains("prod-eu"), "{message}");
+        assert!(!message.contains("Max pool size"), "{message}");
+        // A session holding nothing timed out for another reason entirely.
+        assert!(describe_session_busy(&sqlx::Error::PoolTimedOut, "prod-eu", 10, 0).is_none());
+        assert!(describe_session_busy(&sqlx::Error::RowNotFound, "prod-eu", 10, 1).is_none());
     }
 
     #[test]

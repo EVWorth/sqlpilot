@@ -281,7 +281,7 @@ async fn a_full_editor_lane_counts_only_the_editors_queries() {
         .expect_err("the editor's only connection is busy")
         .to_string();
     assert!(
-        message.contains("One editor query is still running"),
+        message.contains("One query is still running"),
         "the agent's query was counted as the editor's: {message}"
     );
 
