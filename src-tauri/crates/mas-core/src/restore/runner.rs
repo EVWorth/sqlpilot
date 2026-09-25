@@ -1,4 +1,4 @@
-use crate::connection::ConnectionManager;
+use crate::connection::{describe_pool_error, ConnectionManager, Lane};
 use crate::error::CoreError;
 use crate::restore::splitter::StatementSplitter;
 use crate::schema::ident::quote_ident;
@@ -104,7 +104,8 @@ pub async fn run_restore(
     mut on_progress: impl FnMut(RestoreProgress),
 ) -> Result<RestoreSummary, CoreError> {
     let started = Instant::now();
-    let pool = manager.get_pool(connection_id)?;
+    // The job lane, so a long restore never holds a slot the editor needs (#731).
+    let pool = manager.get_lane_pool(connection_id, Lane::Job)?;
 
     if manager.is_read_only(connection_id) {
         return Err(CoreError::ReadOnly(
@@ -124,10 +125,16 @@ pub async fn run_restore(
     // One connection for the whole restore: `USE`, the session settings and
     // the transaction all have to apply to the session running the
     // statements, and a pool does not promise that.
-    let mut conn = pool
-        .acquire()
-        .await
-        .map_err(|e| CoreError::Connection(format!("Could not start the restore: {e}")))?;
+    let mut conn = pool.acquire().await.map_err(|e| {
+        // Two already running is the one way this lane fills, and saying
+        // so beats sqlx's "pool timed out".
+        manager
+            .pool_limits(connection_id, Lane::Job)
+            .and_then(|(name, max, timeout, held)| {
+                describe_pool_error(&e, &name, max, timeout, held, Lane::Job)
+            })
+            .unwrap_or_else(|| CoreError::Connection(format!("Could not start the restore: {e}")))
+    })?;
 
     sqlx::raw_sql(AssertSqlSafe(format!("USE {}", quote_ident(database))))
         .execute(&mut *conn)

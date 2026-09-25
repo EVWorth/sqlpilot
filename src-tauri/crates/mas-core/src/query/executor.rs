@@ -1,4 +1,4 @@
-use crate::connection::ConnectionManager;
+use crate::connection::{ConnectionManager, Lane};
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
 use dashmap::DashMap;
@@ -136,7 +136,56 @@ impl QueryExecutor {
         // Rows to discard from the start of each result set, for paging.
         offset: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
-        let pool = self.connection_manager.get_pool(&connection_id)?;
+        self.execute_in_lane(
+            Lane::Interactive,
+            connection_id,
+            sql,
+            database,
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    /// [`execute`](Self::execute), drawing its connection from `lane`.
+    ///
+    /// The agent runs its statements here on [`Lane::Agent`], so however much
+    /// it runs it cannot take the editor's connections (#731). It stays on this
+    /// executor rather than getting its own so that cancel still reaches it:
+    /// the user's Cancel stops what the agent is running too.
+    pub async fn execute_in(
+        &self,
+        lane: Lane,
+        connection_id: &str,
+        sql: &str,
+        database: Option<String>,
+        limit: Option<u64>,
+        offset: Option<u64>,
+    ) -> Result<Vec<QueryResult>, CoreError> {
+        self.execute_in_lane(
+            lane,
+            connection_id.to_string(),
+            sql.to_string(),
+            database,
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    #[tracing::instrument(skip(self), fields(connection_id = %connection_id, ?lane, statement_count))]
+    async fn execute_in_lane(
+        &self,
+        lane: Lane,
+        connection_id: String,
+        sql: String,
+        database: Option<String>,
+        limit: Option<u64>,
+        offset: Option<u64>,
+    ) -> Result<Vec<QueryResult>, CoreError> {
+        let pool = self
+            .connection_manager
+            .get_lane_pool(&connection_id, lane)?;
         let statements = split_statements(&sql);
 
         // The user's SQL is sent exactly as written. The row limit is applied
@@ -282,9 +331,11 @@ impl QueryExecutor {
                     // for an open connection", which names neither the pool nor
                     // the limit that caused it (#279).
                     self.connection_manager
-                        .pool_limits(&connection_id)
+                        .pool_limits(&connection_id, lane)
                         .and_then(|(name, max, timeout, held)| {
-                            crate::connection::describe_pool_error(&e, &name, max, timeout, held)
+                            crate::connection::describe_pool_error(
+                                &e, &name, max, timeout, held, lane,
+                            )
                         })
                         // Kept as the driver's own error rather than flattened to
                         // a string: the error number and SQLSTATE are the only

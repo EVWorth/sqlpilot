@@ -7,9 +7,45 @@ use sqlx::{AssertSqlSafe, MySqlPool};
 use std::sync::Arc;
 use std::time::Instant;
 
+/// What a connection is being used for, which decides the pool it comes from.
+///
+/// One shared pool let any kind of work starve every other: an agent running a
+/// few queries, or a backup holding its connection for the length of a dump,
+/// could leave the editor waiting for a slot and then failing with "pool timed
+/// out" (#731). Each lane is its own pool, so work can only exhaust its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Lane {
+    /// The editor, schema browsing and the admin panel. Sized by the profile's
+    /// "Max pool size".
+    Interactive,
+    /// Everything an agent does over MCP. FR-6.3.2: a runaway agent query
+    /// cannot starve the user's.
+    Agent,
+    /// Backups and restores, which hold one connection for their whole run.
+    Job,
+}
+
+/// Connections the agent lane may hold: a query and a staged write at once.
+pub const AGENT_LANE_MAX: u32 = 2;
+
+/// Connections the job lane may hold: a backup and a restore at once.
+pub const JOB_LANE_MAX: u32 = 2;
+
+/// How long an unused agent or job connection is kept before it is closed.
+///
+/// Short, because these lanes are used in bursts and most sessions never use
+/// them at all; an idle server thread held for them is pure cost.
+const SIDE_LANE_IDLE_SECS: u64 = 60;
+
 pub struct ActiveConnection {
     pub info: ConnectionInfo,
+    /// The interactive lane.
     pub pool: MySqlPool,
+    /// The agent lane. Opened lazily: it holds no server connection until an
+    /// agent first uses it, and gives them back when idle.
+    pub agent_pool: MySqlPool,
+    /// The job lane, opened lazily in the same way.
+    pub job_pool: MySqlPool,
     /// Copied off the profile at connect time. The profile can be edited while
     /// a connection is live; the limits a query runs under are the ones that
     /// were in force when it was opened.
@@ -33,6 +69,44 @@ pub struct ActiveConnection {
     /// after its connection is recycled, which only ever means declining to
     /// kill a thread that no longer exists.
     pub own_threads: Arc<dashmap::DashSet<u64>>,
+}
+
+impl ActiveConnection {
+    /// The pool a lane draws from.
+    pub fn lane(&self, lane: Lane) -> &MySqlPool {
+        match lane {
+            Lane::Interactive => &self.pool,
+            Lane::Agent => &self.agent_pool,
+            Lane::Job => &self.job_pool,
+        }
+    }
+}
+
+/// Pool options every lane shares: the session setup each new connection gets.
+///
+/// One definition so the lanes cannot drift apart. A statement should behave
+/// the same whichever lane runs it, and every lane's threads have to be known
+/// as the application's own, or the admin panel would offer to kill an agent's
+/// or a backup's session out from under it (#433).
+fn lane_pool_options(charset: &str, own_threads: &Arc<dashmap::DashSet<u64>>) -> MySqlPoolOptions {
+    let charset = charset.to_string();
+    let own_threads = Arc::clone(own_threads);
+    MySqlPoolOptions::new().after_connect(move |conn, _meta| {
+        let charset = charset.clone();
+        let own_threads = Arc::clone(&own_threads);
+        Box::pin(async move {
+            sqlx::query(AssertSqlSafe(format!("SET NAMES {}", charset)))
+                .execute(&mut *conn)
+                .await?;
+            // Note which server thread this pooled connection is, so the admin
+            // panel can refuse to kill the application out from under itself.
+            let (thread_id,): (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
+                .fetch_one(&mut *conn)
+                .await?;
+            own_threads.insert(thread_id);
+            Ok(())
+        })
+    })
 }
 
 pub struct ConnectionManager {
@@ -182,9 +256,7 @@ impl ConnectionManager {
 
         tracing::debug!(connection_id = %conn_id, "Connecting to MySQL server");
 
-        let charset_for_after_connect = charset.clone();
         let own_threads: Arc<dashmap::DashSet<u64>> = Arc::new(dashmap::DashSet::new());
-        let own_threads_for_after_connect = Arc::clone(&own_threads);
         // FR-1.2.3 sets the range; a profile can hold anything, including a
         // zero max (which sqlx panics on) or a min above the max (which it
         // refuses). Clamping here means a stored profile from an older build,
@@ -201,30 +273,13 @@ impl ConnectionManager {
             );
         }
 
-        let pool = MySqlPoolOptions::new()
+        let acquire_timeout =
+            std::time::Duration::from_secs(profile.connect_timeout_secs.unwrap_or(10) as u64);
+        let pool = lane_pool_options(&charset, &own_threads)
             .min_connections(pool_min)
             .max_connections(pool_max)
-            .acquire_timeout(std::time::Duration::from_secs(
-                profile.connect_timeout_secs.unwrap_or(10) as u64,
-            ))
+            .acquire_timeout(acquire_timeout)
             .idle_timeout(std::time::Duration::from_secs(300))
-            .after_connect(move |conn, _meta| {
-                let charset = charset_for_after_connect.clone();
-                let own_threads = Arc::clone(&own_threads_for_after_connect);
-                Box::pin(async move {
-                    sqlx::query(AssertSqlSafe(format!("SET NAMES {}", charset)))
-                        .execute(&mut *conn)
-                        .await?;
-                    // Note which server thread this pooled connection is, so
-                    // the admin panel can refuse to kill the application out
-                    // from under itself.
-                    let (thread_id,): (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
-                        .fetch_one(&mut *conn)
-                        .await?;
-                    own_threads.insert(thread_id);
-                    Ok(())
-                })
-            })
             .connect_with(options.clone())
             .await;
 
@@ -290,6 +345,21 @@ impl ConnectionManager {
             environment: profile.environment.clone(),
         };
 
+        // The other lanes connect on first use, not now: most sessions never
+        // run an agent or a backup, and a lane nobody uses should cost the
+        // server nothing. Same options and session setup as the interactive
+        // lane, so a statement behaves identically whichever lane runs it.
+        let side_lane = |max: u32| {
+            lane_pool_options(&charset, &own_threads)
+                .min_connections(0)
+                .max_connections(max)
+                .acquire_timeout(acquire_timeout)
+                .idle_timeout(std::time::Duration::from_secs(SIDE_LANE_IDLE_SECS))
+                .connect_lazy_with(options.clone())
+        };
+        let agent_pool = side_lane(AGENT_LANE_MAX);
+        let job_pool = side_lane(JOB_LANE_MAX);
+
         // Watching starts as soon as the connection exists, and stops when it
         // is removed: the stop sender is owned by the entry below.
         let (stop_health, stop_rx) = tokio::sync::oneshot::channel();
@@ -313,6 +383,8 @@ impl ConnectionManager {
             ActiveConnection {
                 info: info.clone(),
                 pool,
+                agent_pool,
+                job_pool,
                 health,
                 _stop_health: stop_health,
                 query_timeout_secs: profile.query_timeout_secs,
@@ -331,7 +403,13 @@ impl ConnectionManager {
     #[tracing::instrument(skip(self))]
     pub async fn disconnect(&self, connection_id: &str) -> Result<(), CoreError> {
         if let Some((_, conn)) = self.connections.remove(connection_id) {
-            conn.pool.close().await;
+            // Every lane, together: a backup or agent connection left open
+            // after disconnect is a server thread nobody can see or reach.
+            tokio::join!(
+                conn.pool.close(),
+                conn.agent_pool.close(),
+                conn.job_pool.close()
+            );
             tracing::info!(connection_id = %connection_id, "Disconnected");
             Ok(())
         } else {
@@ -433,19 +511,36 @@ impl ConnectionManager {
             })
     }
 
-    /// Pool sizing for a live connection, for the message when it runs out.
+    /// The pool for one lane of a live connection.
+    ///
+    /// [`get_pool`](Self::get_pool) is the interactive lane; agent and job
+    /// work asks for its own here so it cannot take the editor's slots.
+    pub fn get_lane_pool(&self, connection_id: &str, lane: Lane) -> Result<MySqlPool, CoreError> {
+        self.connections
+            .get(connection_id)
+            .map(|conn| conn.lane(lane).clone())
+            .ok_or_else(|| CoreError::NotFound(format!("Connection not found: {}", connection_id)))
+    }
+
+    /// Pool sizing for one lane of a live connection, for the message when it
+    /// runs out.
     ///
     /// The count of connections the pool is actually holding comes with it: a
     /// pool that holds none cannot have run out of them, however it reports
     /// the failure, and saying otherwise is how a server that went away gets
     /// described as a setting the user should change.
-    pub fn pool_limits(&self, connection_id: &str) -> Option<(String, u32, u64, u32)> {
+    pub fn pool_limits(&self, connection_id: &str, lane: Lane) -> Option<(String, u32, u64, u32)> {
         self.connections.get(connection_id).map(|conn| {
+            let max = match lane {
+                Lane::Interactive => conn.pool_max,
+                Lane::Agent => AGENT_LANE_MAX,
+                Lane::Job => JOB_LANE_MAX,
+            };
             (
                 conn.info.name.clone(),
-                conn.pool_max,
+                max,
                 conn.acquire_timeout_secs,
-                conn.pool.size(),
+                conn.lane(lane).size(),
             )
         })
     }

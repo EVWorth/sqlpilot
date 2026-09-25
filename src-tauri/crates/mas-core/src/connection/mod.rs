@@ -4,7 +4,7 @@ pub mod migrations;
 pub mod store;
 
 pub use health::ConnectionHealth;
-pub use manager::ConnectionManager;
+pub use manager::{ConnectionManager, Lane};
 pub use store::ConnectionStore;
 
 pub fn init_keyring(store: std::sync::Arc<keyring_core::CredentialStore>) {
@@ -27,6 +27,7 @@ pub fn describe_pool_error(
     pool_max: u32,
     acquire_timeout_secs: u64,
     connections_held: u32,
+    lane: manager::Lane,
 ) -> Option<crate::error::CoreError> {
     if !matches!(error, sqlx::Error::PoolTimedOut) {
         return None;
@@ -37,13 +38,30 @@ pub fn describe_pool_error(
     if connections_held == 0 {
         return None;
     }
-    Some(crate::error::CoreError::PoolExhausted(format!(
-        "\"{}\" reached its limit of {} simultaneous connections and nothing freed up within \
-         {}s. Either something long-running is holding them — check the process list — or the \
-         limit is too low for how this connection is used. Raise \"Max pool size\" on the \
-         profile, or wait for the running work to finish.",
-        profile_name, pool_max, acquire_timeout_secs
-    )))
+    // Only the interactive lane is sized by the profile. The others are fixed,
+    // so "raise Max pool size" would send someone to a setting that cannot
+    // help — and would not have been the lane that filled up anyway.
+    let message = match lane {
+        manager::Lane::Interactive => format!(
+            "\"{profile_name}\" reached its limit of {pool_max} simultaneous connections and \
+             nothing freed up within {acquire_timeout_secs}s. Either something long-running is \
+             holding them — check the process list — or the limit is too low for how this \
+             connection is used. Raise \"Max pool size\" on the profile, or wait for the running \
+             work to finish."
+        ),
+        manager::Lane::Agent => format!(
+            "The agent is already using all {pool_max} of its connections to \
+             \"{profile_name}\" and none freed up within {acquire_timeout_secs}s. Wait for its \
+             running queries or staged writes to finish, or cancel them. The agent has its own \
+             connections, so the editor is not affected."
+        ),
+        manager::Lane::Job => format!(
+            "{pool_max} backups or restores are already running on \"{profile_name}\" and none \
+             finished within {acquire_timeout_secs}s. Wait for one to finish before starting \
+             another. They have their own connections, so the editor is not affected."
+        ),
+    };
+    Some(crate::error::CoreError::PoolExhausted(message))
 }
 
 /// Why a brand-new pool could not open its first connection.
@@ -159,13 +177,21 @@ fn diagnose_connect_error(error: &sqlx::Error, host: &str, port: u16) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use manager::Lane;
 
     #[test]
     fn a_pool_timeout_names_the_profile_and_the_limit() {
         // sqlx says only "pool timed out while waiting for an open connection",
         // which names neither the pool nor the number that caused it (#279).
-        let described = describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 5)
-            .expect("a pool timeout should be described");
+        let described = describe_pool_error(
+            &sqlx::Error::PoolTimedOut,
+            "prod-eu",
+            5,
+            10,
+            5,
+            Lane::Interactive,
+        )
+        .expect("a pool timeout should be described");
         let message = described.to_string();
         assert!(message.contains("prod-eu"), "{message}");
         assert!(message.contains('5'), "{message}");
@@ -180,7 +206,15 @@ mod tests {
         // out on acquire, which looks identical to saturation from the error
         // alone. Zero connections held is what tells them apart.
         assert!(
-            describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 5, 10, 0).is_none(),
+            describe_pool_error(
+                &sqlx::Error::PoolTimedOut,
+                "prod-eu",
+                5,
+                10,
+                0,
+                Lane::Interactive
+            )
+            .is_none(),
             "an empty pool should fall through to the driver's own error"
         );
     }
@@ -234,10 +268,51 @@ mod tests {
     }
 
     #[test]
+    fn a_full_agent_lane_does_not_blame_the_profile() {
+        // The agent's lane is a fixed size, so "raise Max pool size" would send
+        // someone to a setting that cannot help. What they can do is wait for,
+        // or cancel, what the agent is running (#731).
+        let message =
+            describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 2, 10, 2, Lane::Agent)
+                .expect("a full agent lane is described")
+                .to_string();
+        assert!(message.contains("agent"), "{message}");
+        assert!(message.contains("prod-eu"), "{message}");
+        assert!(message.contains("editor is not affected"), "{message}");
+        assert!(!message.contains("Max pool size"), "{message}");
+    }
+
+    #[test]
+    fn a_full_job_lane_says_backups_are_the_reason() {
+        let message =
+            describe_pool_error(&sqlx::Error::PoolTimedOut, "prod-eu", 2, 10, 2, Lane::Job)
+                .expect("a full job lane is described")
+                .to_string();
+        assert!(message.contains("backups or restores"), "{message}");
+        assert!(!message.contains("Max pool size"), "{message}");
+    }
+
+    #[test]
     fn other_errors_are_left_alone() {
         // Only the pool case gets rewritten; everything else keeps whatever
         // the driver said, which is usually more specific than we could be.
-        assert!(describe_pool_error(&sqlx::Error::RowNotFound, "prod-eu", 5, 10, 5).is_none());
-        assert!(describe_pool_error(&sqlx::Error::WorkerCrashed, "prod-eu", 5, 10, 5).is_none());
+        assert!(describe_pool_error(
+            &sqlx::Error::RowNotFound,
+            "prod-eu",
+            5,
+            10,
+            5,
+            Lane::Interactive
+        )
+        .is_none());
+        assert!(describe_pool_error(
+            &sqlx::Error::WorkerCrashed,
+            "prod-eu",
+            5,
+            10,
+            5,
+            Lane::Interactive
+        )
+        .is_none());
     }
 }

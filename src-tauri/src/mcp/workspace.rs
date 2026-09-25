@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use mas_core::connection::{ConnectionManager, ConnectionStore};
+use mas_core::connection::{ConnectionManager, ConnectionStore, Lane};
 use mas_core::error::CoreError;
 use mas_core::history::{HistoryEntry, HistoryQuery, HistoryStore};
 use mas_core::models::query::QueryResult;
@@ -305,7 +305,8 @@ impl Workspace for AppWorkspace {
         format: ExplainFormat,
     ) -> Result<ExplainResponse, CoreError> {
         let connection_id = self.live(connection_id)?;
-        mas_core::query::explain(
+        mas_core::query::explain_in(
+            Lane::Agent,
             &self.connections,
             &self.executor,
             connection_id,
@@ -334,7 +335,12 @@ impl Workspace for AppWorkspace {
         sql: &str,
     ) -> Result<mas_mcp::workspace::StagedWrite, CoreError> {
         let connection_id = self.live(connection_id)?;
-        let pool = self.connections.get_pool(&connection_id)?;
+        // The agent's lane. A staged write holds its connection, and its row
+        // locks, until the user answers; on the shared pool that was a slot
+        // the editor could not use in the meantime (#731).
+        let pool = self
+            .connections
+            .get_lane_pool(&connection_id, Lane::Agent)?;
         let staged = CoreStagedWrite::begin(&pool, database, sql, STAGE_DEADLINE)
             .await
             .map_err(|e| match e {
@@ -386,10 +392,12 @@ impl Workspace for AppWorkspace {
     ) -> Result<(), CoreError> {
         // Through the same executor as everything else: one set of timeouts,
         // one cancel path, and the statement lands in history where the user
-        // can see what their agent did.
+        // can see what their agent did. On the agent's own lane, though, so it
+        // cannot take the editor's connections (#731).
         let connection_id = self.live(connection_id)?;
         self.executor
-            .execute(
+            .execute_in(
+                Lane::Agent,
                 &connection_id,
                 sql,
                 database.map(str::to_string),
@@ -410,7 +418,8 @@ impl Workspace for AppWorkspace {
         let connection_id = &self.live(connection_id)?;
         let results = self
             .executor
-            .execute(
+            .execute_in(
+                Lane::Agent,
                 connection_id,
                 sql,
                 database.map(str::to_string),
