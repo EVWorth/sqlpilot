@@ -38,29 +38,32 @@ export function useQueryExecution() {
 
   const connectionId = selectedConnectionId ?? undefined;
   const database = activeTab?.database;
+  // The tab's own server session, so what one run sets up is there for the
+  // next (#731). Only a query tab has one; the others are views of an object.
+  const session = activeTab?.type === "query" ? activeTab.id : undefined;
 
   const executeQuery = useCallback(
     (sql: string) => {
       if (!connectionId) return Promise.reject(new Error("No active connection"));
-      return storeExecuteQuery(connectionId, sql, database);
+      return storeExecuteQuery(connectionId, sql, database, session);
     },
-    [connectionId, database, storeExecuteQuery],
+    [connectionId, database, session, storeExecuteQuery],
   );
 
   const executeExplain = useCallback(
     (sql: string) => {
       if (!connectionId) return Promise.reject(new Error("No active connection"));
-      return storeExecuteExplain(connectionId, sql, database);
+      return storeExecuteExplain(connectionId, sql, database, undefined, session);
     },
-    [connectionId, database, storeExecuteExplain],
+    [connectionId, database, session, storeExecuteExplain],
   );
 
   const executeExplainAnalyze = useCallback(
     (sql: string) => {
       if (!connectionId) return Promise.reject(new Error("No active connection"));
-      return storeExecuteExplainAnalyze(connectionId, sql, database);
+      return storeExecuteExplainAnalyze(connectionId, sql, database, undefined, session);
     },
-    [connectionId, database, storeExecuteExplainAnalyze],
+    [connectionId, database, session, storeExecuteExplainAnalyze],
   );
 
   const canExecute = !!connectionId && !isExecuting;

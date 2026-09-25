@@ -48,6 +48,11 @@ export interface DataSource {
     limit?: number,
     /** Rows to skip before the first one kept, for paging (#391). */
     offset?: number,
+    /**
+     * The editor tab running this, for a backend whose tabs keep their own
+     * server session (#731). A backend without sessions ignores it.
+     */
+    session?: string,
   ): Promise<QueryResult[]>;
 }
 
@@ -63,7 +68,7 @@ const mysql: DataSource = {
   getColumns: (c, d, t) => api.getColumns(c, d, t),
   getIndexes: (c, d, t) => api.getIndexes(c, d, t),
   getTableDdl: (c, d, t) => api.getTableDdl(c, d, t),
-  execute: (c, sql, d, limit, offset) => api.executeQuery(c, sql, d, limit, offset),
+  execute: (c, sql, d, limit, offset, session) => api.executeQuery(c, sql, d, limit, offset, session),
 };
 
 /**

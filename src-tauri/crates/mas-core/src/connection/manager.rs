@@ -25,6 +25,22 @@ pub enum Lane {
     Job,
 }
 
+/// Where a statement gets its connection: a shared lane, or one editor tab's
+/// own session.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Route {
+    Lane(Lane),
+    /// The dedicated connection an editor tab keeps for as long as it is open,
+    /// keyed by whatever id the caller gives the tab (#731).
+    Session(String),
+}
+
+impl From<Lane> for Route {
+    fn from(lane: Lane) -> Self {
+        Route::Lane(lane)
+    }
+}
+
 /// Connections the agent lane may hold: a query and a staged write at once.
 pub const AGENT_LANE_MAX: u32 = 2;
 
@@ -69,6 +85,18 @@ pub struct ActiveConnection {
     /// after its connection is recycled, which only ever means declining to
     /// kill a thread that no longer exists.
     pub own_threads: Arc<dashmap::DashSet<u64>>,
+    /// Each editor tab's own connection, opened on the tab's first statement.
+    ///
+    /// A shared pool hands a statement whichever connection is free, so
+    /// anything tied to the session — `SET @var`, `SET SESSION`, a temporary
+    /// table, a transaction begun in one run and committed in the next — could
+    /// land on a different connection than the one it was set on and silently
+    /// not be there (#731). A tab that keeps one connection has none of that.
+    pub sessions: DashMap<String, MySqlPool>,
+    /// What a new session connects with: the same options and session setup
+    /// as every lane, so a statement behaves the same wherever it runs.
+    session_connect: MySqlConnectOptions,
+    charset: String,
 }
 
 impl ActiveConnection {
@@ -393,6 +421,9 @@ impl ConnectionManager {
                 acquire_timeout_secs: profile.connect_timeout_secs.unwrap_or(10) as u64,
                 actor: format!("{}@{}:{}", profile.username, profile.host, profile.port),
                 own_threads: Arc::clone(&own_threads),
+                sessions: DashMap::new(),
+                session_connect: options.clone(),
+                charset: charset.clone(),
             },
         );
 
@@ -405,10 +436,15 @@ impl ConnectionManager {
         if let Some((_, conn)) = self.connections.remove(connection_id) {
             // Every lane, together: a backup or agent connection left open
             // after disconnect is a server thread nobody can see or reach.
+            // Editor sessions too: closing them is what rolls back a
+            // transaction a tab left open.
+            let sessions: Vec<MySqlPool> =
+                conn.sessions.iter().map(|s| s.value().clone()).collect();
             tokio::join!(
                 conn.pool.close(),
                 conn.agent_pool.close(),
-                conn.job_pool.close()
+                conn.job_pool.close(),
+                futures::future::join_all(sessions.iter().map(|pool| pool.close()))
             );
             tracing::info!(connection_id = %connection_id, "Disconnected");
             Ok(())
@@ -520,6 +556,68 @@ impl ConnectionManager {
             .get(connection_id)
             .map(|conn| conn.lane(lane).clone())
             .ok_or_else(|| CoreError::NotFound(format!("Connection not found: {}", connection_id)))
+    }
+
+    /// The pool a route draws from, opening a tab's session on first use.
+    pub fn route_pool(&self, connection_id: &str, route: &Route) -> Result<MySqlPool, CoreError> {
+        match route {
+            Route::Lane(lane) => self.get_lane_pool(connection_id, *lane),
+            Route::Session(session) => self.session_pool(connection_id, session),
+        }
+    }
+
+    /// An editor tab's own connection, opened lazily.
+    ///
+    /// A one-connection pool rather than a bare connection, for the reconnect
+    /// and session setup a pool already does. Never recycled while the tab is
+    /// open — no idle timeout, no maximum lifetime — because recycling it is
+    /// exactly the loss of session state this exists to prevent. A connection
+    /// the server drops still reconnects; that loses the state, as it would in
+    /// any client.
+    pub fn session_pool(&self, connection_id: &str, session: &str) -> Result<MySqlPool, CoreError> {
+        let conn = self.connections.get(connection_id).ok_or_else(|| {
+            CoreError::NotFound(format!("Connection not found: {}", connection_id))
+        })?;
+        let pool = conn
+            .sessions
+            .entry(session.to_string())
+            .or_insert_with(|| {
+                tracing::debug!(connection_id, session, "Opening an editor session");
+                lane_pool_options(&conn.charset, &conn.own_threads)
+                    .min_connections(0)
+                    .max_connections(1)
+                    .acquire_timeout(std::time::Duration::from_secs(conn.acquire_timeout_secs))
+                    .idle_timeout(None)
+                    .max_lifetime(None)
+                    .connect_lazy_with(conn.session_connect.clone())
+            })
+            .clone();
+        Ok(pool)
+    }
+
+    /// Close an editor tab's session, rolling back anything it left open.
+    ///
+    /// Closing the connection is what ends the server session, and the server
+    /// rolls back an uncommitted transaction when it does — the same as
+    /// closing a tab in any other client. A tab with no session, or a
+    /// connection that is already gone, is nothing to do.
+    pub async fn close_session(&self, connection_id: &str, session: &str) {
+        let pool = self
+            .connections
+            .get(connection_id)
+            .and_then(|conn| conn.sessions.remove(session).map(|(_, pool)| pool));
+        if let Some(pool) = pool {
+            pool.close().await;
+            tracing::debug!(connection_id, session, "Closed an editor session");
+        }
+    }
+
+    /// How many editor tabs hold a session on a connection.
+    pub fn session_count(&self, connection_id: &str) -> usize {
+        self.connections
+            .get(connection_id)
+            .map(|conn| conn.sessions.len())
+            .unwrap_or(0)
     }
 
     /// Pool sizing for one lane of a live connection, for the message when it

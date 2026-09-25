@@ -116,6 +116,11 @@ export const api = {
     database?: string,
     limit?: number,
     offset?: number,
+    /**
+     * The editor tab running this, so it lands on the tab's own server
+     * session (#731). Leave it out for anything that is not an editor tab.
+     */
+    session?: string,
   ) =>
     unwrap(
       "execute_query",
@@ -126,6 +131,7 @@ export const api = {
           orNull(database),
           orNull(limit),
           orNull(offset),
+          orNull(session),
         ),
     ),
 
@@ -184,13 +190,27 @@ export const api = {
     analyze: boolean,
     database?: string,
     format?: ExplainFormat,
+    /** The editor tab asking, so the plan sees its session (#731). */
+    session?: string,
   ) =>
     unwrap(
       "explain_query",
-      () => commands.explainQuery(connectionId, sql, orNull(database), analyze, orNull(format)),
+      () =>
+        commands.explainQuery(
+          connectionId,
+          sql,
+          orNull(database),
+          analyze,
+          orNull(format),
+          orNull(session),
+        ),
     ),
 
   cancelQuery: (connectionId: string) => unwrap("cancel_query", () => commands.cancelQuery(connectionId)),
+
+  /** End an editor tab's server session, rolling back anything it left open. */
+  closeSession: (connectionId: string, session: string) =>
+    unwrap("close_session", () => commands.closeSession(connectionId, session)),
 
   // Schema
   getDatabases: (connectionId: string) => unwrap("get_databases", () => commands.getDatabases(connectionId)),

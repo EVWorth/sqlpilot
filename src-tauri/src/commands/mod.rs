@@ -4,7 +4,7 @@ pub mod sqlite;
 
 use mas_admin::AdminService;
 use mas_core::connection::manager::PoolStats;
-use mas_core::connection::{ConnectionHealth, ConnectionManager, ConnectionStore};
+use mas_core::connection::{ConnectionHealth, ConnectionManager, ConnectionStore, Lane, Route};
 use mas_core::history::{
     render_export, HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistoryStore,
 };
@@ -241,24 +241,33 @@ pub async fn execute_query(
     // Rows to skip before the first one kept, so the grid can page through a
     // result the row limit would otherwise cut off at page one (#391).
     offset: Option<u32>,
+    // The editor tab running this, so it lands on that tab's own session and
+    // what one run set up is there for the next (#731). Absent for everything
+    // that is not an editor tab — the schema tree, the designer, grid edits —
+    // which keep taking whichever shared connection is free.
+    session: Option<String>,
 ) -> Result<Vec<QueryResult>, QueryError> {
+    let executor = &state.query_executor;
+    let (limit, offset) = (limit.map(u64::from), offset.map(u64::from));
+    let results = match session {
+        Some(session) => {
+            executor
+                .execute_in_session(&session, connection_id, sql, database, limit, offset)
+                .await
+        }
+        None => {
+            executor
+                .execute_owned(connection_id, sql, database, limit, offset)
+                .await
+        }
+    };
     // Structured rather than a string: the history panel needs to tell a
     // missing table from a syntax error, and the driver already knows which
     // it was (#324).
-    let results = state
-        .query_executor
-        .execute_owned(
-            connection_id,
-            sql,
-            database,
-            limit.map(u64::from),
-            offset.map(u64::from),
-        )
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "Query execution failed");
-            QueryError::from_core(&e)
-        })?;
+    let results = results.map_err(|e| {
+        tracing::error!(error = %e, "Query execution failed");
+        QueryError::from_core(&e)
+    })?;
     let total_rows: u64 = results.iter().map(|r| r.rows_affected).sum();
     tracing::info!(
         statement_count = results.len(),
@@ -386,8 +395,16 @@ pub async fn explain_query(
     // Absent means the tabular plan, so a caller that does not care about
     // the format keeps working.
     format: Option<ExplainFormat>,
+    // The editor tab asking, so the plan is made on its own session, where
+    // its temporary tables and session settings are (#731).
+    session: Option<String>,
 ) -> Result<ExplainResponse, String> {
-    mas_core::query::explain(
+    let route = match session {
+        Some(session) => Route::Session(session),
+        None => Route::Lane(Lane::Interactive),
+    };
+    mas_core::query::explain_in(
+        route,
         &state.connection_manager,
         &state.query_executor,
         connection_id,
@@ -419,6 +436,27 @@ pub async fn cancel_query(state: State<'_, AppState>, connection_id: String) -> 
             tracing::error!(error = %e, "Cancel failed");
             e.to_string()
         })
+}
+
+/// Close an editor tab's session.
+///
+/// Called when a tab closes or points at another connection. Closing the
+/// session ends it on the server, which rolls back anything the tab left
+/// uncommitted — the same as closing a tab in any other client. A tab that
+/// never ran anything has no session, and this does nothing.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn close_session(
+    state: State<'_, AppState>,
+    connection_id: String,
+    session: String,
+) -> Result<(), String> {
+    state
+        .connection_manager
+        .close_session(&connection_id, &session)
+        .await;
+    Ok(())
 }
 
 // Schema commands

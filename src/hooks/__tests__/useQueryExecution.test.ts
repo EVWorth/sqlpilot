@@ -87,19 +87,21 @@ describe("useQueryExecution", () => {
     const { result } = renderHook(() => useQueryExecution());
     await act(() => result.current.executeQuery("SELECT 1"));
 
-    expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", "my_db");
+    // The tab's id rides along as its server session, so what one run sets
+    // up is there for the next (#731).
+    expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", "my_db", tabId);
   });
 
   it("executeQuery uses undefined database when no tab database is set", async () => {
     useConnectionStore.setState(
       { selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0],
     );
-    useEditorStore.getState().addTab("conn-1");
+    const tabId = useEditorStore.getState().addTab("conn-1");
 
     const { result } = renderHook(() => useQueryExecution());
     await act(() => result.current.executeQuery("SELECT 1"));
 
-    expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined);
+    expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, tabId);
   });
 
   it("executeQuery rejects when no connection is selected", async () => {
@@ -120,7 +122,13 @@ describe("useQueryExecution", () => {
     const { result } = renderHook(() => useQueryExecution());
     await act(() => result.current.executeExplain("SELECT * FROM t"));
 
-    expect(mockExecuteExplain).toHaveBeenCalledWith("conn-2", "SELECT * FROM t", "schema_x");
+    expect(mockExecuteExplain).toHaveBeenCalledWith(
+      "conn-2",
+      "SELECT * FROM t",
+      "schema_x",
+      undefined,
+      tabId,
+    );
   });
 
   it("executeExplainAnalyze passes connectionId and database from active tab", async () => {
@@ -133,7 +141,13 @@ describe("useQueryExecution", () => {
     const { result } = renderHook(() => useQueryExecution());
     await act(() => result.current.executeExplainAnalyze("SELECT * FROM t"));
 
-    expect(mockExecuteExplainAnalyze).toHaveBeenCalledWith("conn-3", "SELECT * FROM t", "db_y");
+    expect(mockExecuteExplainAnalyze).toHaveBeenCalledWith(
+      "conn-3",
+      "SELECT * FROM t",
+      "db_y",
+      undefined,
+      tabId,
+    );
   });
 
   it("database reflects the active tab after setTabConnection", () => {

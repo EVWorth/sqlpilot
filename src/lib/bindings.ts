@@ -15,7 +15,7 @@ export const commands = {
 	connect: (profileId: string) => typedError<ConnectionInfo, string>(__TAURI_INVOKE("connect", { profileId })),
 	disconnect: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("disconnect", { connectionId })),
 	listConnections: () => typedError<ConnectionInfo[], string>(__TAURI_INVOKE("list_connections")),
-	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null, offset: number | null) => typedError<QueryResult_Serialize[], QueryError>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit, offset })),
+	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null, offset: number | null, session: string | null) => typedError<QueryResult_Serialize[], QueryError>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit, offset, session })),
 	/**
 	 *  Plan a single statement.
 	 * 
@@ -39,7 +39,7 @@ export const commands = {
  *  The iterator tree, which is the shape `EXPLAIN ANALYZE` reports in.
  *  MySQL 8.0.16 and later; MariaDB does not have it.
  */
-"tree" | null) => typedError<ExplainResponse_Serialize, string>(__TAURI_INVOKE("explain_query", { connectionId, sql, database, analyze, format })),
+"tree" | null, session: string | null) => typedError<ExplainResponse_Serialize, string>(__TAURI_INVOKE("explain_query", { connectionId, sql, database, analyze, format, session })),
 	/**
 	 *  Stop whatever is running on this connection.
 	 * 
@@ -47,6 +47,15 @@ export const commands = {
 	 *  leave the statement running to completion (#420).
 	 */
 	cancelQuery: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("cancel_query", { connectionId })),
+	/**
+	 *  Close an editor tab's session.
+	 * 
+	 *  Called when a tab closes or points at another connection. Closing the
+	 *  session ends it on the server, which rolls back anything the tab left
+	 *  uncommitted — the same as closing a tab in any other client. A tab that
+	 *  never ran anything has no session, and this does nothing.
+	 */
+	closeSession: (connectionId: string, session: string) => typedError<null, string>(__TAURI_INVOKE("close_session", { connectionId, session })),
 	/**
 	 *  What the health checker last saw for a connection.
 	 * 

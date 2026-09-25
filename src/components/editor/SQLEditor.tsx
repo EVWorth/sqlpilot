@@ -12,6 +12,22 @@ import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 
+/**
+ * The active tab's database and server session, for the editor's own actions.
+ *
+ * Read at the moment an action runs rather than captured when the editor
+ * mounted, since the keybindings outlive any one tab. The session keeps the
+ * tab's statements on its own connection (#731); only a query tab has one.
+ */
+function activeTabContext(): { database?: string; session?: string } {
+  const { tabs, activeTabId } = useEditorStore.getState();
+  const tab = tabs.find((t) => t.id === activeTabId);
+  return {
+    database: tab?.database,
+    session: tab?.type === "query" ? tab.id : undefined,
+  };
+}
+
 export function SQLEditor() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const providerRef = useRef<IDisposable | null>(null);
@@ -150,10 +166,9 @@ export function SQLEditor() {
             sql = model?.getValue() ?? "";
           }
           const connectionId = useConnectionStore.getState().selectedConnectionId;
-          const { tabs: editorTabs, activeTabId: editorActiveTabId } = useEditorStore.getState();
-          const editorActiveTab = editorTabs.find((t) => t.id === editorActiveTabId);
+          const { database, session } = activeTabContext();
           if (sql?.trim() && connectionId) {
-            useResultStore.getState().executeQuery(connectionId, sql, editorActiveTab?.database);
+            useResultStore.getState().executeQuery(connectionId, sql, database, session);
           }
         },
       });
@@ -187,10 +202,9 @@ export function SQLEditor() {
           const model = editor.getModel();
           const sql = model?.getValue() ?? "";
           const connectionId = useConnectionStore.getState().selectedConnectionId;
-          const { tabs: editorTabs, activeTabId: editorActiveTabId } = useEditorStore.getState();
-          const editorActiveTab = editorTabs.find((t) => t.id === editorActiveTabId);
+          const { database, session } = activeTabContext();
           if (sql.trim() && connectionId) {
-            useResultStore.getState().executeQuery(connectionId, sql, editorActiveTab?.database);
+            useResultStore.getState().executeQuery(connectionId, sql, database, session);
           }
         },
       });
@@ -212,8 +226,9 @@ export function SQLEditor() {
             sql = model?.getValue() ?? "";
           }
           const connectionId = useConnectionStore.getState().selectedConnectionId;
+          const { database, session } = activeTabContext();
           if (sql.trim() && connectionId) {
-            useResultStore.getState().executeExplain(connectionId, sql);
+            useResultStore.getState().executeExplain(connectionId, sql, database, undefined, session);
           }
         },
       });
@@ -235,10 +250,9 @@ export function SQLEditor() {
             sql = model?.getValue() ?? "";
           }
           const connectionId = useConnectionStore.getState().selectedConnectionId;
-          const { tabs: editorTabs, activeTabId: editorActiveTabId } = useEditorStore.getState();
-          const editorActiveTab = editorTabs.find((t) => t.id === editorActiveTabId);
+          const { database, session } = activeTabContext();
           if (sql.trim() && connectionId) {
-            useResultStore.getState().executeExplainAnalyze(connectionId, sql, editorActiveTab?.database);
+            useResultStore.getState().executeExplainAnalyze(connectionId, sql, database, undefined, session);
           }
         },
       });
