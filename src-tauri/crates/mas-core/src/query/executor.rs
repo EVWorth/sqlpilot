@@ -1,4 +1,4 @@
-use crate::connection::ConnectionManager;
+use crate::connection::{ConnectionManager, Lane};
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
 use dashmap::DashMap;
@@ -20,7 +20,7 @@ pub struct QueryExecutor {
     /// executor without going through the editor's single-query gate. Keying by
     /// connection let the shorter one's completion deregister the longer one,
     /// and let a timeout kill whichever thread happened to be registered last.
-    in_flight: Arc<DashMap<u64, String>>,
+    in_flight: Arc<DashMap<u64, (String, Lane)>>,
     /// How little free RAM stops a fetch, in MB.
     ///
     /// A field rather than a literal inside MemoryGuard because the block that
@@ -40,7 +40,7 @@ pub const DEFAULT_MEMORY_FLOOR_MB: u64 = 512;
 /// Holds the id in a shared cell because it is only known once the server has
 /// answered the prelude, which is after the guard has to exist.
 struct InFlightGuard {
-    in_flight: Arc<DashMap<u64, String>>,
+    in_flight: Arc<DashMap<u64, (String, Lane)>>,
     thread_id: Arc<AtomicU64>,
 }
 
@@ -86,7 +86,7 @@ impl QueryExecutor {
         let thread_ids: Vec<u64> = self
             .in_flight
             .iter()
-            .filter(|entry| entry.value() == connection_id)
+            .filter(|entry| entry.value().0 == connection_id)
             .map(|entry| *entry.key())
             .collect();
         if thread_ids.is_empty() {
@@ -136,7 +136,56 @@ impl QueryExecutor {
         // Rows to discard from the start of each result set, for paging.
         offset: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
-        let pool = self.connection_manager.get_pool(&connection_id)?;
+        self.execute_in_lane(
+            Lane::Interactive,
+            connection_id,
+            sql,
+            database,
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    /// [`execute`](Self::execute), drawing its connection from `lane`.
+    ///
+    /// The agent runs its statements here on [`Lane::Agent`], so however much
+    /// it runs it cannot take the editor's connections (#731). It stays on this
+    /// executor rather than getting its own so that cancel still reaches it:
+    /// the user's Cancel stops what the agent is running too.
+    pub async fn execute_in(
+        &self,
+        lane: Lane,
+        connection_id: &str,
+        sql: &str,
+        database: Option<String>,
+        limit: Option<u64>,
+        offset: Option<u64>,
+    ) -> Result<Vec<QueryResult>, CoreError> {
+        self.execute_in_lane(
+            lane,
+            connection_id.to_string(),
+            sql.to_string(),
+            database,
+            limit,
+            offset,
+        )
+        .await
+    }
+
+    #[tracing::instrument(skip(self), fields(connection_id = %connection_id, ?lane, statement_count))]
+    async fn execute_in_lane(
+        &self,
+        lane: Lane,
+        connection_id: String,
+        sql: String,
+        database: Option<String>,
+        limit: Option<u64>,
+        offset: Option<u64>,
+    ) -> Result<Vec<QueryResult>, CoreError> {
+        let pool = self
+            .connection_manager
+            .get_lane_pool(&connection_id, lane)?;
         let statements = split_statements(&sql);
 
         // The user's SQL is sent exactly as written. The row limit is applied
@@ -282,27 +331,43 @@ impl QueryExecutor {
                     // for an open connection", which names neither the pool nor
                     // the limit that caused it (#279).
                     self.connection_manager
-                        .pool_limits(&connection_id)
+                        .pool_limits(&connection_id, lane)
                         .and_then(|(name, max, timeout, held)| {
-                            // What this app has running on that connection right
-                            // now, so the message can say why the pool is full
-                            // rather than only that it is.
-                            let running = self
+                            // What the editor has running on that connection right
+                            // now, so the message can say why the lane is full
+                            // rather than only that it is. Only the interactive
+                            // lane's own queries: an agent's run on its own lane
+                            // and hold none of these connections.
+                            let editor_running = self
                                 .in_flight
                                 .iter()
-                                .filter(|entry| entry.value() == &connection_id)
+                                .filter(|entry| {
+                                    let (conn, in_lane) = entry.value();
+                                    conn == &connection_id && *in_lane == Lane::Interactive
+                                })
                                 .count();
-                            if matches!(e, sqlx::Error::PoolTimedOut) {
+                            // Only a lane actually holding connections has run
+                            // out. An empty one timing out is a server that went
+                            // away, and logging it as exhaustion is the very
+                            // misreading describe_pool_error refuses to make.
+                            if matches!(e, sqlx::Error::PoolTimedOut) && held > 0 {
                                 tracing::warn!(
                                     connection = %name,
+                                    ?lane,
                                     held,
                                     max,
-                                    running,
+                                    editor_running,
                                     "Pool ran out of connections"
                                 );
                             }
                             crate::connection::describe_pool_error(
-                                &e, &name, max, timeout, held, running,
+                                &e,
+                                &name,
+                                max,
+                                timeout,
+                                held,
+                                lane,
+                                editor_running,
                             )
                         })
                         // Kept as the driver's own error rather than flattened to
@@ -327,7 +392,8 @@ impl QueryExecutor {
                     if stmt_idx == -(prelude_count as isize) {
                         if let Ok(thread_id) = row.try_get::<u64, _>(0) {
                             my_thread_id.store(thread_id, Ordering::Relaxed);
-                            self.in_flight.insert(thread_id, connection_id.clone());
+                            self.in_flight
+                                .insert(thread_id, (connection_id.clone(), lane));
                             tracing::debug!(connection_id = %connection_id, thread_id, "Query in flight");
                         }
                     }

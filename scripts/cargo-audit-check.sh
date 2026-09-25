@@ -36,6 +36,15 @@
 
 set -euo pipefail
 
+# Every tool this gate reads its answer through has to be present. A gate
+# that cannot read its input must fail, not report success.
+for tool in jq cargo-audit; do
+  if ! command -v "$tool" >/dev/null 2>&1; then
+    echo "::error::cargo-audit-check: '$tool' is not installed, so the audit cannot be read." >&2
+    exit 2
+  fi
+done
+
 WORKSPACE_DIR="${CARGO_WORKSPACE_DIR:-src-tauri}"
 cd "$WORKSPACE_DIR"
 
@@ -59,7 +68,19 @@ done
 # Run cargo audit with JSON output. Pass --ignore for known-accepted.
 # Don't fail on non-zero exit (cargo audit returns non-zero when warnings
 # exist, even with --ignore).
-JSON_OUTPUT="$(cargo audit --json "${IGNORE_ARGS[@]}" 2>/dev/null || true)"
+AUDIT_STDERR="$(mktemp)"
+trap 'rm -f "$AUDIT_STDERR"' EXIT
+JSON_OUTPUT="$(cargo audit --json "${IGNORE_ARGS[@]}" 2>"$AUDIT_STDERR" || true)"
+
+# The non-zero exit is ignored above, so check that a report actually came
+# back. Without this, a cargo audit that failed outright (no advisory
+# database, network error) produced empty output, every count below came out
+# blank, and the script reported "0 real vulnerabilities".
+if ! echo "$JSON_OUTPUT" | jq -e 'type == "object" and has("vulnerabilities")' >/dev/null 2>&1; then
+  echo "::error::cargo audit did not produce a report; refusing to call this a pass." >&2
+  cat "$AUDIT_STDERR" >&2
+  exit 2
+fi
 
 # Pretty-print the full advisory list to job logs (visible, not hidden).
 echo "=== cargo audit findings ==="

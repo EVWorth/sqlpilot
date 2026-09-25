@@ -14,6 +14,8 @@ use crate::mcp::bridge::WindowBridge;
 use crate::mcp::state::McpState;
 use crate::mcp::window::WindowSurface;
 use crate::mcp::workspace::AppWorkspace;
+use mas_core::connection::Lane;
+use mas_core::schema::SchemaInspector;
 use mas_mcp::endpoint::{self, Endpoint};
 
 pub struct AgentState {
@@ -73,7 +75,15 @@ impl AgentState {
             app.connection_manager.clone(),
             app.connection_store.clone(),
             app.history_store.clone(),
-            app.schema_inspector.clone(),
+            // Its own inspector on the agent's lane: an agent browses schema
+            // as much as it queries, and on the editor's pool a burst of it
+            // starved the editor just the same (#731). The executor is shared
+            // so the user's Cancel still reaches what the agent is running;
+            // the workspace picks the lane per call.
+            Arc::new(SchemaInspector::for_lane(
+                app.connection_manager.clone(),
+                Lane::Agent,
+            )),
             app.query_executor.clone(),
             self.state.clone(),
         ));
