@@ -318,7 +318,15 @@ describe("SQLEditor (browser)", () => {
       }),
       getSelection: () => ({ isEmpty: () => true }),
     });
-    expect(m.mockExecuteExplainAnalyze).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined);
+    // No format of its own (the store's default), and the active query tab's
+    // id as its session, so the plan sees what that tab set up (#731).
+    expect(m.mockExecuteExplainAnalyze).toHaveBeenCalledWith(
+      "conn-1",
+      "SELECT 1",
+      undefined,
+      undefined,
+      "tab-1",
+    );
   });
 
   it("refresh-schema.run refreshes the whole connection", async () => {
