@@ -1,11 +1,8 @@
 {
   "name": "sqlpilot",
-  "private": true,
   "version": "1.1.0",
+  "private": true,
   "type": "module",
-  "engines": {
-    "node": ">=24"
-  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
@@ -64,5 +61,8 @@
     "typescript-eslint": "^8.70.0",
     "vite": "^8.3.0",
     "vitest": "^5.0.0"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }
