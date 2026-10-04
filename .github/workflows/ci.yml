@@ -157,6 +157,12 @@ jobs:
       - name: Test the update manifest builder
         run: scripts/test-build-update-manifest.sh
 
+      # The security gate has to tell "nothing found" from "could not look":
+      # a missing jq, no report, or a report that does not parse once read as
+      # a pass (#729).
+      - name: Test the cargo-audit gate
+        run: scripts/test-cargo-audit-check.sh
+
   # ARCHITECTURE section 5 is the reference for the Tauri command surface, and
   # it had drifted into describing ten commands that were never written — a
   # reader following it wrote calls that fail at runtime with "command not
