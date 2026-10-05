@@ -337,9 +337,35 @@ fn open_history_store(
     }
 }
 
+/// WebKitGTK settings to apply before the webview starts, given a way to read
+/// the environment. Returns only variables the user has not set themselves.
+///
+/// Under Wayland, WebKitGTK's DMABUF renderer can leave the surface at its old
+/// size when the window grows, so the new area stays black and nothing reflows
+/// (#726). Falling back to the shared-memory renderer avoids that. A user who
+/// wants DMABUF back sets `WEBKIT_DISABLE_DMABUF_RENDERER=0`, which is
+/// respected because only an unset variable is filled in.
+#[cfg(any(target_os = "linux", test))]
+fn linux_webkit_env(get: impl Fn(&str) -> Option<String>) -> Vec<(&'static str, &'static str)> {
+    let wayland = get("WAYLAND_DISPLAY").is_some_and(|v| !v.is_empty())
+        || get("XDG_SESSION_TYPE").is_some_and(|v| v.eq_ignore_ascii_case("wayland"));
+    let mut vars = Vec::new();
+    if wayland && get("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+        vars.push(("WEBKIT_DISABLE_DMABUF_RENDERER", "1"));
+    }
+    vars
+}
+
 pub fn run() {
     #[cfg(target_os = "macos")]
     augment_macos_path();
+
+    // Before anything starts a thread or touches GTK: WebKitGTK reads these
+    // once, when the first webview is created.
+    #[cfg(target_os = "linux")]
+    for (key, value) in linux_webkit_env(|k| std::env::var(k).ok()) {
+        std::env::set_var(key, value);
+    }
 
     // Nothing here may panic. A panic before the window exists is a process
     // that vanishes with a message in a terminal the user does not have open;
@@ -520,6 +546,48 @@ pub fn run() {
 #[cfg(test)]
 mod startup_tests {
     use super::*;
+
+    fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let map: std::collections::HashMap<String, String> = pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        move |k| map.get(k).cloned()
+    }
+
+    /// The black-on-resize workaround (#726) applies under Wayland, whether
+    /// the session is detected from the display socket or the session type.
+    #[test]
+    fn wayland_turns_off_the_dmabuf_renderer() {
+        let want = vec![("WEBKIT_DISABLE_DMABUF_RENDERER", "1")];
+        assert_eq!(
+            linux_webkit_env(env_of(&[("WAYLAND_DISPLAY", "wayland-0")])),
+            want
+        );
+        assert_eq!(
+            linux_webkit_env(env_of(&[("XDG_SESSION_TYPE", "wayland")])),
+            want
+        );
+    }
+
+    /// X11 never showed the bug, so it keeps WebKitGTK's default renderer.
+    #[test]
+    fn x11_is_left_alone() {
+        assert!(
+            linux_webkit_env(env_of(&[("XDG_SESSION_TYPE", "x11"), ("DISPLAY", ":0")])).is_empty()
+        );
+        assert!(linux_webkit_env(env_of(&[("WAYLAND_DISPLAY", "")])).is_empty());
+    }
+
+    /// A value the user set, including `0` to opt back in to DMABUF, wins.
+    #[test]
+    fn a_user_setting_is_never_overridden() {
+        let env = env_of(&[
+            ("WAYLAND_DISPLAY", "wayland-0"),
+            ("WEBKIT_DISABLE_DMABUF_RENDERER", "0"),
+        ]);
+        assert!(linux_webkit_env(env).is_empty());
+    }
 
     /// What a user is told when their connection store will not open.
     ///
