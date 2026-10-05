@@ -22,6 +22,14 @@ export function isBytes(value: unknown): value is number[] {
   return Array.isArray(value) && value.every((b) => typeof b === "number");
 }
 
+/**
+ * Bytes as one lowercase hex string, the form a BLOB is copied in. A byte
+ * array pasted anywhere is useless; hex round-trips through UNHEX() (#401).
+ */
+export function toHex(bytes: number[]): string {
+  return bytes.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 const UNITS = ["B", "KB", "MB", "GB"];
 
 /** A byte count someone can read at a glance. */
