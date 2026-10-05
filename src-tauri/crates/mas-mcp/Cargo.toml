@@ -23,7 +23,7 @@ chrono.workspace = true
 # dependency with tauri-plugin-updater, and feature unification left the
 # test client asking for a rustls crypto provider that nothing installs —
 # invisible unless you built the whole workspace at once (#717).
-reqwest = { version = "0.12", default-features = false, features = ["json"] }
+reqwest = { version = "0.13", default-features = false, features = ["json"] }
 sqlx.workspace = true
 tempfile = "3.27.0"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
