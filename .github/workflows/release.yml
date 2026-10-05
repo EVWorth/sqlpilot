@@ -83,17 +83,12 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Read pinned Rust version
-        id: rust-toolchain-file
-        # bash explicitly: the default shell on a Windows runner is PowerShell,
-        # where `$(...)` and `$GITHUB_OUTPUT` mean nothing, so the step passes
-        # having written no output — and the toolchain action then fails with
-        # "toolchain is a required input", eight steps from the real cause.
+      # rustup ships on GitHub-hosted runners and reads rust-toolchain.toml
+      # itself, so the version and components live in that one file and no
+      # third-party action sits between it and the build.
+      - name: Install Rust toolchain
         shell: bash
-        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
-        with:
-          toolchain: ${{ steps.rust-toolchain-file.outputs.channel }}
+        run: rustup toolchain install --profile minimal --no-self-update
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           workspaces: src-tauri
@@ -181,22 +176,16 @@ jobs:
           node-version-file: ".node-version"
           cache: "npm"
 
-      - name: Read pinned Rust version
-        id: rust-toolchain-file
-        # bash explicitly: the default shell on a Windows runner is PowerShell,
-        # where `$(...)` and `$GITHUB_OUTPUT` mean nothing, so the step passes
-        # having written no output — and the toolchain action then fails with
-        # "toolchain is a required input", eight steps from the real cause.
-        shell: bash
-        run: echo "channel=$(sed -n 's/^channel *= *"\(.*\)"/\1/p' rust-toolchain.toml)" >> "$GITHUB_OUTPUT"
-
+      # From rust-toolchain.toml, so releases build on the same version CI
+      # tests against. rustup ships on GitHub-hosted runners and reads the
+      # file itself; bash, because the Windows default shell is PowerShell.
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # v1
-        with:
-          # From rust-toolchain.toml, so releases build on the same version
-          # CI tests against.
-          toolchain: ${{ steps.rust-toolchain-file.outputs.channel }}
-          targets: ${{ matrix.rust_target }}
+        shell: bash
+        env:
+          RUST_TARGET: ${{ matrix.rust_target }}
+        run: |
+          rustup toolchain install --profile minimal --no-self-update
+          rustup target add "$RUST_TARGET"
 
       - name: Rust cache
         uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
