@@ -342,3 +342,62 @@ describe("binary cells (#401)", () => {
     expect(onViewFull).toHaveBeenCalledWith(null, "avatar", PNG);
   });
 });
+
+describe("TruncatedCell copy (#739)", () => {
+  function stubClipboard() {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    return writeText;
+  }
+  const getCopyButton = (container: HTMLElement) => container.querySelector("button[aria-label=\"Copy value\"]");
+
+  it("copies a long value as stored, without opening the viewer", async () => {
+    const writeText = stubClipboard();
+    const onViewFull = vi.fn();
+    const ddl = "CREATE TABLE `t` (\n  `id` int NOT NULL,\n  PRIMARY KEY (`id`)\n) ENGINE=InnoDB";
+    const { container } = render(
+      <TruncatedCell value={ddl} columnName="Create Table" dataType="text" onViewFull={onViewFull} />,
+    );
+    const copy = getCopyButton(container);
+    expect(copy).not.toBeNull();
+    await act(async () => {
+      fireEvent.click(copy!);
+    });
+    expect(writeText).toHaveBeenCalledWith(ddl);
+    expect(onViewFull).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+
+  it("copies bytes as hex, the same as the viewer", async () => {
+    const writeText = stubClipboard();
+    const { container } = render(
+      <TruncatedCell value={[0x89, 0x50, 0x0a]} columnName="data" onViewFull={vi.fn()} />,
+    );
+    await act(async () => {
+      fireEvent.click(getCopyButton(container)!);
+    });
+    expect(writeText).toHaveBeenCalledWith("89500a");
+  });
+
+  it("is offered only where the expand button is", () => {
+    const { container } = render(
+      <TruncatedCell value="short" columnName="col" dataType="varchar" onViewFull={vi.fn()} />,
+    );
+    expect(getCopyButton(container)).toBeNull();
+    expect(getIconButton(container)).toBeNull();
+  });
+
+  it("copying does not also click the row", async () => {
+    stubClipboard();
+    const onRowClick = vi.fn();
+    const { container } = render(
+      <div onClick={onRowClick}>
+        <TruncatedCell value={"x".repeat(40)} columnName="col" dataType="text" onViewFull={vi.fn()} />
+      </div>,
+    );
+    await act(async () => {
+      fireEvent.click(getCopyButton(container)!);
+    });
+    expect(onRowClick).not.toHaveBeenCalled();
+  });
+});

@@ -3,7 +3,7 @@ import { Check, Copy, Download, Lock, Pencil, X } from "lucide-react";
 import type { editor } from "monaco-editor";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "sql-formatter";
-import { detectMime, formatBytes } from "../../lib/blob";
+import { detectMime, formatBytes, toHex } from "../../lib/blob";
 import { useThemeStore } from "../../stores/themeStore";
 import { BlobViewer } from "./BlobViewer";
 
@@ -162,12 +162,8 @@ export function CellViewerModal({
   if (!isOpen) return null;
 
   const handleCopy = async () => {
-    // Bytes go to the clipboard as hex rather than as `137,80,78,71`. Pasting
-    // a byte array into anything is useless; hex at least round-trips through
-    // UNHEX() (#401).
-    await navigator.clipboard.writeText(
-      bytes ? bytes.map((b) => b.toString(16).padStart(2, "0")).join("") : viewerContent,
-    );
+    // Bytes go to the clipboard as hex rather than as `137,80,78,71` (#401).
+    await navigator.clipboard.writeText(bytes ? toHex(bytes) : viewerContent);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
