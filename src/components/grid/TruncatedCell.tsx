@@ -1,6 +1,6 @@
-import { Maximize2 } from "lucide-react";
+import { Check, Copy, Maximize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { describeBlob, isBytes } from "../../lib/blob";
+import { describeBlob, isBytes, toHex } from "../../lib/blob";
 import { isLongTextSqlType } from "../../lib/sql-types";
 
 interface Props {
@@ -101,6 +101,27 @@ export function TruncatedCell({
     onViewFull(value === null || value === undefined ? null : formatted, columnName);
   };
 
+  // Copy sits beside the expand button, so a long value — a SHOW CREATE TABLE
+  // statement, say — can be taken without opening the viewer first (#739).
+  // It copies the stored text as-is, not the viewer's reformatted version;
+  // bytes go as hex, the same as the viewer's Copy.
+  const [copied, setCopied] = useState(false);
+  const copyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (copyTimer.current) clearTimeout(copyTimer.current);
+  }, []);
+  const copyValue = () => {
+    const text = binary ? toHex(binary) : formatted;
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      if (copyTimer.current) clearTimeout(copyTimer.current);
+      copyTimer.current = setTimeout(() => setCopied(false), 1500);
+    }, () => {});
+  };
+
+  const iconButton =
+    "shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] focus-visible:opacity-100 group-hover:opacity-100";
+
   return (
     <div className="group flex min-w-0 items-center gap-1">
       <div
@@ -111,6 +132,20 @@ export function TruncatedCell({
       >
         {formatted}
       </div>
+      {showIcon && !isNull && (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            copyValue();
+          }}
+          className={copied ? iconButton.replace("opacity-0", "opacity-100") : iconButton}
+          title={copied ? "Copied" : "Copy value"}
+          aria-label={copied ? "Copied" : "Copy value"}
+        >
+          {copied ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+        </button>
+      )}
       {showIcon && (
         <button
           type="button"
@@ -118,7 +153,7 @@ export function TruncatedCell({
             e.stopPropagation();
             openViewer();
           }}
-          className="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 transition-opacity hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] focus-visible:opacity-100 group-hover:opacity-100"
+          className={iconButton}
           title="View full content"
           aria-label="View full content"
         >
