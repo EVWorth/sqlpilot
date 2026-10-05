@@ -13,6 +13,11 @@ resolver = "2"
 [workspace.dependencies]
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
+# Pinned exactly, here only: the app crate and crates/mas-mcp both inherit it,
+# so a bump is one edit. Pinned separately in each, a bump that moved one and
+# not the other could not resolve (#736). The exact pin is how the seven-day
+# publish-age rule is enforced until #225 lands.
+rmcp = { version = "=3.4.0", features = ["server", "transport-streamable-http-server"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -58,10 +63,7 @@ mas-export = { path = "crates/mas-export" }
 mas-mcp = { version = "0.1.0", path = "crates/mas-mcp" }
 mas-sqlite = { path = "crates/mas-sqlite" }
 rfd = "0.17"
-# Pinned exactly, and pinned again in crates/mas-mcp/Cargo.toml: both have to
-# move together or the workspace will not resolve. The exact pin is how the
-# seven-day publish-age rule is enforced until #225 lands.
-rmcp = { version = "=3.4.0", features = ["server", "transport-streamable-http-server"] }
+rmcp = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true }
