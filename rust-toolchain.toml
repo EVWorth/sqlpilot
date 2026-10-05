@@ -1,6 +1,6 @@
 # Single source of truth for the Rust toolchain.
 #
-# Read natively by rustup, by dtolnay/rust-toolchain in CI, and by mise.
+# Read natively by rustup (locally and in CI) and by mise.
 # Pinned to an exact version rather than "stable": SQLPilot is an
 # application, not a published library, so a reproducible build matters
 # more than a wide MSRV — and an unpinned toolchain means a new stable
