@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use rmcp::handler::server::wrapper::{Json, Parameters};
-use rmcp::model::{ServerCapabilities, ServerInfo};
+use rmcp::model::{ServerCapabilities, ServerConfig};
 use rmcp::{tool, tool_handler, tool_router, ServerHandler};
 use serde::{Deserialize, Serialize};
 
@@ -1714,8 +1714,8 @@ impl SqlPilot {
 
 #[tool_handler]
 impl ServerHandler for SqlPilot {
-    fn get_info(&self) -> ServerInfo {
-        let mut info = ServerInfo::default();
+    fn get_info(&self) -> ServerConfig {
+        let mut info = ServerConfig::default();
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info.instructions = Some(
             "SQLPilot exposes the MySQL and MariaDB connections the user has chosen to share. \
