@@ -163,6 +163,9 @@ jobs:
       - name: Test the cargo-audit gate
         run: scripts/test-cargo-audit-check.sh
 
+      - name: Test the Tauri version check
+        run: scripts/test-check-tauri-versions.sh
+
   # ARCHITECTURE section 5 is the reference for the Tauri command surface, and
   # it had drifted into describing ten commands that were never written — a
   # reader following it wrote calls that fail at runtime with "command not
@@ -269,6 +272,12 @@ jobs:
             exit 1
           fi
           echo "All versions match: $jsver"
+      # tauri build refuses to start when a Tauri npm package and its crate are
+      # on different major.minor releases, but only the release workflow runs
+      # it. Dependabot bumps npm and cargo in separate PRs, so a one-sided
+      # Tauri bump otherwise passes here and breaks the next release.
+      - name: Check Tauri npm packages match their crates
+        run: scripts/check-tauri-versions.sh
 
   lint-ts:
     name: Lint (TypeScript)

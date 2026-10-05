@@ -95,6 +95,7 @@ lint:
     cd src-tauri && cargo clippy -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -- -D warnings
     npx tsc --noEmit
     npx dprint check
+    ./scripts/check-tauri-versions.sh
 
 # actionlint covers syntax, expressions and the shell inside `run:` blocks;
 # the script covers the two things it does not — whether a pinned action SHA
@@ -106,6 +107,7 @@ lint-workflows:
     ./scripts/check-action-pins.sh
     ./scripts/test-check-action-pins.sh
     ./scripts/test-cargo-audit-check.sh
+    ./scripts/test-check-tauri-versions.sh
 
 # Format Rust and everything dprint owns.
 fmt:
