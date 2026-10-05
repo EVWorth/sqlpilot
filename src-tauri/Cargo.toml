@@ -28,7 +28,7 @@ sqlx = { version = "=0.9.0", default-features = false, features = [
   "json",
   "uuid",
 ] }
-tauri = { version = "2", features = [] }
+tauri = { version = "2.12.0", features = [] }
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
@@ -44,7 +44,7 @@ edition = "2021"
 description = "AI-powered MySQL GUI management tool"
 
 [build-dependencies]
-tauri-build = { version = "2", features = [] }
+tauri-build = { version = "2.7.0", features = [] }
 
 [dependencies]
 async-trait = "0.1.92"
@@ -67,9 +67,9 @@ serde_json = { workspace = true }
 specta = { workspace = true }
 specta-typescript = { workspace = true }
 tauri = { workspace = true }
-tauri-plugin-process = "2.3.1"
-tauri-plugin-shell = "2"
-tauri-plugin-updater = "2.12.0"
+tauri-plugin-process = "2.4.0"
+tauri-plugin-shell = "2.4.0"
+tauri-plugin-updater = "2.13.0"
 tauri-specta = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
