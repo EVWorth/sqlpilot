@@ -1,4 +1,22 @@
 version: 2
+multi-ecosystem-groups:
+  # `tauri build` refuses to start when a Tauri npm package and its crate are
+  # on different major.minor releases, and scripts/check-tauri-versions.sh
+  # fails CI on the same rule. Proposed separately, the npm and cargo halves of
+  # a Tauri release could never pass on their own (#745), and the plugins'
+  # crates could not move at all: each new plugin minor requires the new
+  # `tauri`, and a per-ecosystem update moves one dependency at a time. This
+  # group opens one PR with both halves. The regular npm and cargo entries
+  # below ignore the same names so nothing is proposed twice.
+  tauri:
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+    # Group PRs get no prefix by default; match the other dependency PRs.
+    commit-message:
+      prefix: "chore(deps)"
+
 updates:
   # Supply-chain defense: minimum 7-day cooldown before Dependabot opens
   # a version-bump PR. Matches `.npmrc` `min-release-age=7` and the
@@ -7,6 +25,34 @@ updates:
   # When RFC 3923 (`-Zmin-publish-age`) stabilizes on Rust stable
   # (~1.98+), the cargo ecosystem can drop to native enforcement
   # and `cooldown` can be relaxed. Tracking: see sqlpilot issue.
+
+  # Members of the `tauri` group above: `patterns` (required) is what each
+  # ecosystem contributes, and the schedule comes from the group. Keep the
+  # cargo patterns in step with the ignore list on the regular cargo entry.
+  - package-ecosystem: "npm"
+    directory: "/"
+    multi-ecosystem-group: "tauri"
+    patterns:
+      - "@tauri-apps/*"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "cargo"
+    directory: "/src-tauri"
+    multi-ecosystem-group: "tauri"
+    patterns:
+      - "tauri"
+      - "tauri-build"
+      - "tauri-plugin-*"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
@@ -27,6 +73,11 @@ updates:
       - "dependencies"
       - "rust"
     open-pull-requests-limit: 10
+    # Owned by the `tauri` group; keep in step with its cargo patterns.
+    ignore:
+      - dependency-name: "tauri"
+      - dependency-name: "tauri-build"
+      - dependency-name: "tauri-plugin-*"
     groups:
       cargo:
         patterns:
@@ -47,6 +98,8 @@ updates:
     # ERESOLVE and takes every other update in the group down with it.
     # Lift this once typescript-eslint supports TS 7.
     ignore:
+      # Owned by the `tauri` group.
+      - dependency-name: "@tauri-apps/*"
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
       # monaco-editor is 0.x, so semver-minor is where it breaks: 0.56 added
