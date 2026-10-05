@@ -82,10 +82,30 @@ if ! echo "$JSON_OUTPUT" | jq -e 'type == "object" and has("vulnerabilities")' >
   exit 2
 fi
 
+# Say how fresh the advisory database is. cargo audit fetches it before each
+# run, but a --no-fetch run or `fetch = false` in audit.toml answers from
+# whatever copy is on disk, and an old copy reports clean.
+DB_UPDATED="$(echo "$JSON_OUTPUT" | jq -r '.database."last-updated" // empty')"
+if [ -z "$DB_UPDATED" ]; then
+  echo "::warning::cargo-audit-check: the report does not say when the advisory database was last updated." >&2
+elif DB_EPOCH="$(date -d "$DB_UPDATED" +%s 2>/dev/null)"; then
+  DB_AGE_DAYS=$(( ($(date +%s) - DB_EPOCH) / 86400 ))
+  echo "Advisory database last updated $DB_UPDATED ($DB_AGE_DAYS day(s) ago)."
+  if [ "$DB_AGE_DAYS" -gt 7 ]; then
+    echo "::warning::cargo-audit-check: the advisory database is $DB_AGE_DAYS days old, so newer advisories are not checked. Run without --no-fetch to update it." >&2
+  fi
+else
+  # BSD date (macOS) has no -d; show the timestamp and let the reader judge.
+  echo "Advisory database last updated $DB_UPDATED."
+fi
+echo ""
+
 # Pretty-print the full advisory list to job logs (visible, not hidden).
 echo "=== cargo audit findings ==="
 
-echo "$JSON_OUTPUT" | jq -r '
+# Parse first, then print: a parse failure must stop the gate, while the
+# display pipeline below may legitimately end early (head closing the pipe).
+if ! FINDINGS="$(echo "$JSON_OUTPUT" | jq -r '
   (.vulnerabilities.list // []) as $vulns |
   (.warnings.unmaintained // []) as $unm |
   (.warnings.unsound // []) as $uns |
@@ -96,7 +116,13 @@ echo "$JSON_OUTPUT" | jq -r '
     (.advisory.package // "?"),
     .advisory.title
   ] | @tsv
-' | column -t -s $'\t' 2>/dev/null | head -50 || echo "(parse failed)"
+')"; then
+  echo "::error::cargo-audit-check: could not parse the cargo audit report; refusing to call this a pass." >&2
+  exit 2
+fi
+if [ -n "$FINDINGS" ]; then
+  printf '%s\n' "$FINDINGS" | column -t -s $'\t' 2>/dev/null | head -50 || true
+fi
 
 # Always show the known-accepted list — even after they clear from
 # cargo audit output, the list serves as a reminder of past accepted.

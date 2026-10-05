@@ -105,6 +105,7 @@ lint-workflows:
     actionlint -no-color -oneline
     ./scripts/check-action-pins.sh
     ./scripts/test-check-action-pins.sh
+    ./scripts/test-cargo-audit-check.sh
 
 # Format Rust and everything dprint owns.
 fmt:
