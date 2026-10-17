@@ -22,7 +22,7 @@
 # When upstream ships, dependabot will offer the bump; remove the IDs
 # from KNOWN_ACCEPTED below, commit, and the gate goes green naturally.
 #
-# Currently known-accepted (2 advisories, all quick-xml 0.39):
+# Currently known-accepted (5 advisories):
 #
 #   RUSTSEC-2026-0194  Quadratic run time in quick-xml start tag check
 #   RUSTSEC-2026-0195  Unbounded namespace allocation DoS in quick-xml
@@ -31,6 +31,16 @@
 #   quick-xml = "0.39". Upstream fix: wayland-rs PR #938 merged
 #   2026-07-08 bumping to 0.41 on master. NOT YET RELEASED.
 # Tracked: https://github.com/EVWorth/sqlpilot/issues/206
+#
+#   RUSTSEC-2026-0367  zip extraction preserves SUID/SGID bits
+#   RUSTSEC-2026-0368  zip extract() creates symlinks outside the destination
+#   RUSTSEC-2026-0369  zip extract() applies permissions through symlinks
+#
+# Source: tauri-plugin-updater (2.13.3 is the latest) pins zip 4.x, and
+#   the fix is zip 9.0.0. The updater builds zip on Windows only and calls
+#   extract() only on a minisign-verified download that is a zip archive.
+#   Our releases ship raw .exe/.msi, so that path is not reached.
+# Tracked: https://github.com/EVWorth/sqlpilot/issues/760
 #
 # No silent failures. No blanket --ignore. Listed and reviewed.
 
@@ -57,6 +67,9 @@ cd "$WORKSPACE_DIR"
 KNOWN_ACCEPTED=(
   "RUSTSEC-2026-0194"  # quick-xml 0.39: quadratic start tag check (DoS)
   "RUSTSEC-2026-0195"  # quick-xml 0.39: unbounded namespace allocation (DoS)
+  "RUSTSEC-2026-0367"  # zip 4.x via tauri-plugin-updater: SUID/SGID preserved
+  "RUSTSEC-2026-0368"  # zip 4.x via tauri-plugin-updater: symlinks escape destination
+  "RUSTSEC-2026-0369"  # zip 4.x via tauri-plugin-updater: permissions through symlinks
 )
 
 # Build --ignore args from the list
@@ -136,6 +149,10 @@ echo "Fix pending: wayland-rs release with quick-xml 0.41 bump (PR #938"
 echo "merged 2026-07-08, not yet on crates.io). Dependabot will offer the"
 echo "bump when upstream publishes. Remove from KNOWN_ACCEPTED list above"
 echo "when the gate goes green naturally. Tracked in #206."
+echo ""
+echo "Fix pending: a tauri-plugin-updater release on zip >= 9.0.0 (zip"
+echo "advisories). Reached only on Windows, after signature verification,"
+echo "for zip downloads, which our releases do not ship. Tracked in #760."
 
 # Count real vulnerabilities (the blocking kind).
 VULN_COUNT="$(echo "$JSON_OUTPUT" | jq -r '(.vulnerabilities.list // []) | length')"
@@ -180,6 +197,7 @@ if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
       for id in "${KNOWN_ACCEPTED[@]}"; do
       case "$id" in
         RUSTSEC-2026-019*) echo "- **$id** (quick-xml): fix pending wayland-rs release (PR smithay/wayland-rs#938 merged 2026-07-08, not yet on crates.io). Tracked in #206." ;;
+        RUSTSEC-2026-036[789]) echo "- **$id** (zip): fix pending a tauri-plugin-updater release on zip >= 9.0.0. Windows-only, after signature verification, on a path our releases do not reach. Tracked in #760." ;;
         *) echo "- **$id**" ;;
       esac
       done
