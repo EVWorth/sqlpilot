@@ -1,4 +1,4 @@
-use crate::connection::{ConnectionManager, Lane, Route};
+use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
 use dashmap::DashMap;
@@ -137,7 +137,7 @@ impl QueryExecutor {
         offset: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
         self.execute_routed(
-            Route::Lane(Lane::Interactive),
+            Route::Interactive,
             connection_id,
             sql,
             database,
@@ -147,15 +147,16 @@ impl QueryExecutor {
         .await
     }
 
-    /// [`execute`](Self::execute), drawing its connection from `lane`.
+    /// [`execute`](Self::execute), drawing its connection from `route`.
     ///
-    /// The agent runs its statements here on [`Lane::Agent`], so however much
-    /// it runs it cannot take the editor's connections (#731). It stays on this
-    /// executor rather than getting its own so that cancel still reaches it:
-    /// the user's Cancel stops what the agent is running too.
+    /// An agent runs its statements here on [`Route::Agent`], its own
+    /// connections, so however much it runs it cannot take the editor's or
+    /// another agent's (#731). It stays on this executor rather than getting
+    /// its own so that cancel still reaches it: the user's Cancel stops what
+    /// the agent is running too.
     pub async fn execute_in(
         &self,
-        lane: Lane,
+        route: Route,
         connection_id: &str,
         sql: &str,
         database: Option<String>,
@@ -163,7 +164,7 @@ impl QueryExecutor {
         offset: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
         self.execute_routed(
-            Route::Lane(lane),
+            route,
             connection_id.to_string(),
             sql.to_string(),
             database,
@@ -354,65 +355,44 @@ impl QueryExecutor {
                     // A pool that has run out reports "pool timed out while waiting
                     // for an open connection", which names neither the pool nor
                     // the limit that caused it (#279).
-                    let described = match &route {
-                        Route::Lane(lane) => {
-                            let lane = *lane;
-                            self.connection_manager
-                                .pool_limits(&connection_id, lane)
-                                .and_then(|(name, max, timeout, held)| {
-                                    // What is running on this lane right now, so the
-                                    // message can say why it is full rather than only
-                                    // that it is. Only the interactive lane's own
-                                    // queries: an agent's, and an editor tab's on its
-                                    // session, hold none of these connections.
-                                    let editor_running = self
-                                        .in_flight
-                                        .iter()
-                                        .filter(|entry| {
-                                            let (conn, in_lane) = entry.value();
-                                            conn == &connection_id
-                                                && *in_lane == Route::Lane(Lane::Interactive)
-                                        })
-                                        .count();
-                                    // Only a lane actually holding connections has run
-                                    // out. An empty one timing out is a server that went
-                                    // away, and logging it as exhaustion is the very
-                                    // misreading describe_pool_error refuses to make.
-                                    if matches!(e, sqlx::Error::PoolTimedOut) && held > 0 {
-                                        tracing::warn!(
-                                            connection = %name,
-                                            ?lane,
-                                            held,
-                                            max,
-                                            editor_running,
-                                            "Pool ran out of connections"
-                                        );
-                                    }
-                                    crate::connection::describe_pool_error(
-                                        &e,
-                                        &name,
-                                        max,
-                                        timeout,
-                                        held,
-                                        lane,
-                                        editor_running,
-                                    )
+                    let described = self
+                        .connection_manager
+                        .pool_limits(&connection_id, &route)
+                        .and_then(|limits| {
+                            // What is running on the interactive lane right now,
+                            // so the message can say why it is full rather than
+                            // only that it is. Only that lane's own queries: an
+                            // agent's, and an editor tab's on its session, hold
+                            // none of its connections.
+                            let editor_running = self
+                                .in_flight
+                                .iter()
+                                .filter(|entry| {
+                                    let (conn, in_route) = entry.value();
+                                    conn == &connection_id && *in_route == Route::Interactive
                                 })
-                        }
-                        // One connection, so a timeout means the tab's previous
-                        // statement is still on it — not a limit anyone set.
-                        Route::Session(_) => self
-                            .connection_manager
-                            .pool_limits(&connection_id, Lane::Interactive)
-                            .and_then(|(name, _, timeout, _)| {
-                                crate::connection::describe_session_busy(
-                                    &e,
-                                    &name,
-                                    timeout,
-                                    pool.size(),
-                                )
-                            }),
-                    };
+                                .count();
+                            // Only a pool actually holding connections has run
+                            // out. An empty one timing out is a server that went
+                            // away, and logging it as exhaustion is the very
+                            // misreading describe_pool_error refuses to make.
+                            if matches!(e, sqlx::Error::PoolTimedOut) && limits.held > 0 {
+                                tracing::warn!(
+                                    connection = %limits.profile_name,
+                                    ?route,
+                                    held = limits.held,
+                                    max = limits.max,
+                                    editor_running,
+                                    "Ran out of connections"
+                                );
+                            }
+                            crate::connection::describe_pool_error(
+                                &e,
+                                &limits,
+                                &route,
+                                editor_running,
+                            )
+                        });
                     described
                         // Kept as the driver's own error rather than flattened to
                         // a string: the error number and SQLSTATE are the only

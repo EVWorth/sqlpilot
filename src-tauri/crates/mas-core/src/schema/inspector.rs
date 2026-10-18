@@ -1,4 +1,4 @@
-use crate::connection::{ConnectionManager, Lane};
+use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::schema::ident::qualified;
 use serde::Serialize;
@@ -8,7 +8,7 @@ use std::sync::Arc;
 pub struct SchemaInspector {
     connection_manager: Arc<ConnectionManager>,
     /// Which of the connection's pools the reads come from.
-    lane: Lane,
+    route: Route,
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -165,24 +165,24 @@ pub fn is_system_schema(name: &str) -> bool {
 
 impl SchemaInspector {
     pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
-        Self::for_lane(connection_manager, Lane::Interactive)
+        Self::for_route(connection_manager, Route::Interactive)
     }
 
-    /// An inspector whose reads come from `lane`.
+    /// An inspector whose reads come from `route`.
     ///
-    /// The agent browses schema as much as it queries, and a burst of it on
+    /// An agent browses schema as much as it queries, and a burst of it on
     /// the interactive lane would starve the editor just as its queries would
-    /// (#731).
-    pub fn for_lane(connection_manager: Arc<ConnectionManager>, lane: Lane) -> Self {
+    /// (#731), so each agent session reads on its own connections.
+    pub fn for_route(connection_manager: Arc<ConnectionManager>, route: Route) -> Self {
         Self {
             connection_manager,
-            lane,
+            route,
         }
     }
 
     fn pool(&self, connection_id: &str) -> Result<sqlx::MySqlPool, CoreError> {
         self.connection_manager
-            .get_lane_pool(connection_id, self.lane)
+            .route_pool(connection_id, &self.route)
     }
 
     #[tracing::instrument(skip(self))]

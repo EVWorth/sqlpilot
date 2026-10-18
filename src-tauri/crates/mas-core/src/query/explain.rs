@@ -10,7 +10,7 @@
 //! behind the `explain_query` command, rather than in the renderer where a
 //! second call site could skip it.
 
-use crate::connection::{ConnectionManager, Lane, Route};
+use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::models::QueryResult;
 use crate::query::executor::{split_statements, QueryExecutor};
@@ -217,7 +217,7 @@ pub async fn explain(
     format: ExplainFormat,
 ) -> Result<ExplainResponse, CoreError> {
     explain_in(
-        Lane::Interactive,
+        Route::Interactive,
         connection_manager,
         executor,
         connection_id,

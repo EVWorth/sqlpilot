@@ -18,6 +18,8 @@
 //! policy or a refusal, and the refusal is produced here rather than by each
 //! tool remembering to check.
 
+use std::sync::Arc;
+
 use mas_core::error::CoreError;
 use mas_core::history::HistoryEntry;
 use mas_core::models::query::QueryResult;
@@ -63,6 +65,17 @@ pub enum ObjectKind {
 /// accessor and does not repeat the policy.
 #[async_trait::async_trait]
 pub trait Workspace: Send + Sync + 'static {
+    /// The workspace one agent session should use, when the implementation
+    /// keeps something per session.
+    ///
+    /// The endpoint asks once per MCP session. The app answers with a
+    /// workspace on that session's own database connections, so one agent's
+    /// queries cannot hold up another's (#731). `None`, the default, shares
+    /// this one.
+    fn for_session(&self) -> Option<Arc<dyn Workspace>> {
+        None
+    }
+
     /// Connections the user has shared, and on what terms.
     fn grants(&self) -> Grants;
 

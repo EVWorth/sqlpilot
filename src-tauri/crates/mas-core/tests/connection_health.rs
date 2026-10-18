@@ -1,6 +1,6 @@
 use chrono::Utc;
 use mas_core::connection::manager::INTERACTIVE_LANE_MAX;
-use mas_core::connection::{ConnectionManager, Lane};
+use mas_core::connection::ConnectionManager;
 use mas_core::models::ConnectionProfile;
 use std::sync::Arc;
 use std::time::Duration;
@@ -121,7 +121,7 @@ async fn a_stored_pool_size_is_ignored() {
             .connect(&p)
             .await
             .unwrap_or_else(|e| panic!("pool_min {min}, pool_max {max} should still connect: {e}"));
-        let pool = manager.get_lane_pool(&info.id, Lane::Interactive).unwrap();
+        let pool = manager.get_pool(&info.id).unwrap();
         assert_eq!(pool.options().get_max_connections(), INTERACTIVE_LANE_MAX);
 
         manager.disconnect(&info.id).await.unwrap();

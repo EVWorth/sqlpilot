@@ -26,7 +26,7 @@
 use sqlx::pool::PoolConnection;
 use sqlx::{AssertSqlSafe, MySql};
 
-use crate::connection::{ConnectionManager, Lane};
+use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::query::statement::is_write_statement;
 
@@ -168,11 +168,10 @@ pub async fn apply_in_session(
 
     let pool = manager.session_pool(connection_id, session)?;
     let mut conn = pool.acquire().await.map_err(|e| {
+        let route = Route::Session(session.to_string());
         manager
-            .pool_limits(connection_id, Lane::Interactive)
-            .and_then(|(name, _, timeout, _)| {
-                crate::connection::describe_session_busy(&e, &name, timeout, pool.size())
-            })
+            .pool_limits(connection_id, &route)
+            .and_then(|limits| crate::connection::describe_pool_error(&e, &limits, &route, 0))
             .unwrap_or(CoreError::Sqlx(e))
     })?;
 

@@ -7,62 +7,46 @@ use sqlx::{AssertSqlSafe, MySqlPool};
 use std::sync::Arc;
 use std::time::Instant;
 
-/// What a connection is being used for, which decides the pool it comes from.
+/// Where a statement gets its connection: which kind of work it is, and whose.
 ///
 /// One shared pool let any kind of work starve every other: an agent running a
 /// few queries, or a backup holding its connection for the length of a dump,
 /// could leave the editor waiting for a slot and then failing with "pool timed
-/// out" (#731). Each lane is its own pool, so work can only exhaust its own.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Lane {
-    /// Schema browsing, dialogs, the admin panel and statements the app runs
-    /// for them. Editor tabs have sessions of their own (`Route::Session`).
-    /// A fixed size, [`INTERACTIVE_LANE_MAX`].
-    Interactive,
-    /// Everything an agent does over MCP. FR-6.3.2: a runaway agent query
-    /// cannot starve the user's.
-    Agent,
-    /// Backups and restores, which hold one connection for their whole run.
-    Job,
-}
-
-/// Where a statement gets its connection: a shared lane, or one editor tab's
-/// own session.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// out" (#731). Each kind of work has connections of its own, as in other
+/// clients, so it can only ever wait on itself.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Route {
-    Lane(Lane),
+    /// Schema browsing, dialogs, the admin panel and the statements the app
+    /// runs for them: short work, shared. A fixed [`INTERACTIVE_LANE_MAX`].
+    Interactive,
     /// The dedicated connection an editor tab keeps for as long as it is open,
-    /// keyed by whatever id the caller gives the tab (#731).
+    /// keyed by whatever id the caller gives the tab.
     Session(String),
+    /// One agent session's own connections, keyed by the session (FR-6.3.2):
+    /// a runaway agent query can starve neither the user nor another agent.
+    Agent(String),
+    /// One backup or restore, keyed by the job. See [`JobConnection`].
+    Job(String),
 }
 
-impl From<Lane> for Route {
-    fn from(lane: Lane) -> Self {
-        Route::Lane(lane)
-    }
-}
-
-/// Connections the agent lane may hold: a query and a staged write at once.
-pub const AGENT_LANE_MAX: u32 = 2;
-
-/// Connections the job lane may hold: a backup and a restore at once.
-pub const JOB_LANE_MAX: u32 = 2;
-
-/// How long an unused agent or job connection is kept before it is closed.
+/// Connections one agent session may hold.
 ///
-/// Short, because these lanes are used in bursts and most sessions never use
-/// them at all; an idle server thread held for them is pure cost.
-const SIDE_LANE_IDLE_SECS: u64 = 60;
+/// Two rather than one because agents make tool calls in parallel: with one,
+/// a long query would leave the next call waiting on it and then failing. A
+/// staged write takes its connection out of the pool, so it does not count.
+pub const AGENT_SESSION_MAX: u32 = 2;
+
+/// How long an unused agent connection is kept before it is closed.
+///
+/// Short, because agents work in bursts and an idle server thread held for
+/// one is pure cost. Unlike an editor tab's, an agent's connection carries no
+/// session state between calls, so closing it loses nothing.
+const AGENT_IDLE_SECS: u64 = 60;
 
 pub struct ActiveConnection {
     pub info: ConnectionInfo,
     /// The interactive lane.
     pub pool: MySqlPool,
-    /// The agent lane. Opened lazily: it holds no server connection until an
-    /// agent first uses it, and gives them back when idle.
-    pub agent_pool: MySqlPool,
-    /// The job lane, opened lazily in the same way.
-    pub job_pool: MySqlPool,
     /// Copied off the profile at connect time. The profile can be edited while
     /// a connection is live; the limits a query runs under are the ones that
     /// were in force when it was opened.
@@ -93,19 +77,68 @@ pub struct ActiveConnection {
     /// land on a different connection than the one it was set on and silently
     /// not be there (#731). A tab that keeps one connection has none of that.
     pub sessions: DashMap<String, MySqlPool>,
+    /// Each agent session's own connections, opened on its first statement
+    /// and closed when idle or when the session ends.
+    pub agent_sessions: DashMap<String, MySqlPool>,
+    /// Each running backup or restore's connection, gone when it finishes.
+    pub jobs: DashMap<String, MySqlPool>,
     /// What a new session connects with: the same options and session setup
-    /// as every lane, so a statement behaves the same wherever it runs.
+    /// as the interactive lane, so a statement behaves the same wherever it
+    /// runs.
     session_connect: MySqlConnectOptions,
     charset: String,
 }
 
 impl ActiveConnection {
-    /// The pool a lane draws from.
-    pub fn lane(&self, lane: Lane) -> &MySqlPool {
-        match lane {
-            Lane::Interactive => &self.pool,
-            Lane::Agent => &self.agent_pool,
-            Lane::Job => &self.job_pool,
+    /// A pool with the same session setup as every other, connecting on first
+    /// use. Nothing is opened until something needs it.
+    fn lazy_pool(&self, max: u32, idle: Option<std::time::Duration>) -> MySqlPool {
+        lane_pool_options(&self.charset, &self.own_threads)
+            .min_connections(0)
+            .max_connections(max)
+            .acquire_timeout(std::time::Duration::from_secs(self.acquire_timeout_secs))
+            .idle_timeout(idle)
+            .max_lifetime(None)
+            .connect_lazy_with(self.session_connect.clone())
+    }
+}
+
+/// A backup or restore's own connection, for as long as the job runs.
+///
+/// A dump holds its connection for its whole length. On a shared pool that
+/// was a slot nobody else could use; now each job opens one of its own and
+/// closes it when this is dropped, however the job ends — finished, failed or
+/// cancelled. Disconnecting closes it too.
+pub struct JobConnection {
+    pool: MySqlPool,
+    connections: Arc<DashMap<String, ActiveConnection>>,
+    connection_id: String,
+    id: String,
+}
+
+impl JobConnection {
+    pub fn pool(&self) -> &MySqlPool {
+        &self.pool
+    }
+
+    /// The route this job's statements take, for code that goes through the
+    /// executor rather than the pool.
+    pub fn route(&self) -> Route {
+        Route::Job(self.id.clone())
+    }
+}
+
+impl Drop for JobConnection {
+    fn drop(&mut self) {
+        if let Some(conn) = self.connections.get(&self.connection_id) {
+            conn.jobs.remove(&self.id);
+        }
+        // Closing waits for the connection to come back, which it has by the
+        // time the job lets go of this. Without a runtime (a test tearing
+        // down) the pool is simply dropped, which closes it all the same.
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let pool = self.pool.clone();
+            runtime.spawn(async move { pool.close().await });
         }
     }
 }
@@ -135,6 +168,15 @@ fn lane_pool_options(charset: &str, own_threads: &Arc<dashmap::DashSet<u64>>) ->
             Ok(())
         })
     })
+}
+
+/// See [`ConnectionManager::pool_limits`].
+#[derive(Debug, Clone)]
+pub struct PoolLimits {
+    pub profile_name: String,
+    pub max: u32,
+    pub acquire_timeout_secs: u64,
+    pub held: u32,
 }
 
 pub struct ConnectionManager {
@@ -324,21 +366,6 @@ impl ConnectionManager {
             environment: profile.environment.clone(),
         };
 
-        // The other lanes connect on first use, not now: most sessions never
-        // run an agent or a backup, and a lane nobody uses should cost the
-        // server nothing. Same options and session setup as the interactive
-        // lane, so a statement behaves identically whichever lane runs it.
-        let side_lane = |max: u32| {
-            lane_pool_options(&charset, &own_threads)
-                .min_connections(0)
-                .max_connections(max)
-                .acquire_timeout(acquire_timeout)
-                .idle_timeout(std::time::Duration::from_secs(SIDE_LANE_IDLE_SECS))
-                .connect_lazy_with(options.clone())
-        };
-        let agent_pool = side_lane(AGENT_LANE_MAX);
-        let job_pool = side_lane(JOB_LANE_MAX);
-
         // Watching starts as soon as the connection exists, and stops when it
         // is removed: the stop sender is owned by the entry below.
         let (stop_health, stop_rx) = tokio::sync::oneshot::channel();
@@ -362,8 +389,6 @@ impl ConnectionManager {
             ActiveConnection {
                 info: info.clone(),
                 pool,
-                agent_pool,
-                job_pool,
                 health,
                 _stop_health: stop_health,
                 query_timeout_secs: profile.query_timeout_secs,
@@ -372,6 +397,8 @@ impl ConnectionManager {
                 actor: format!("{}@{}:{}", profile.username, profile.host, profile.port),
                 own_threads: Arc::clone(&own_threads),
                 sessions: DashMap::new(),
+                agent_sessions: DashMap::new(),
+                jobs: DashMap::new(),
                 session_connect: options.clone(),
                 charset: charset.clone(),
             },
@@ -384,17 +411,20 @@ impl ConnectionManager {
     #[tracing::instrument(skip(self))]
     pub async fn disconnect(&self, connection_id: &str) -> Result<(), CoreError> {
         if let Some((_, conn)) = self.connections.remove(connection_id) {
-            // Every lane, together: a backup or agent connection left open
-            // after disconnect is a server thread nobody can see or reach.
-            // Editor sessions too: closing them is what rolls back a
+            // Every connection, together: a backup or agent connection left
+            // open after disconnect is a server thread nobody can see or
+            // reach. Editor sessions too: closing them is what rolls back a
             // transaction a tab left open.
-            let sessions: Vec<MySqlPool> =
-                conn.sessions.iter().map(|s| s.value().clone()).collect();
+            let others: Vec<MySqlPool> = conn
+                .sessions
+                .iter()
+                .chain(conn.agent_sessions.iter())
+                .chain(conn.jobs.iter())
+                .map(|s| s.value().clone())
+                .collect();
             tokio::join!(
                 conn.pool.close(),
-                conn.agent_pool.close(),
-                conn.job_pool.close(),
-                futures::future::join_all(sessions.iter().map(|pool| pool.close()))
+                futures::future::join_all(others.iter().map(|pool| pool.close()))
             );
             tracing::info!(connection_id = %connection_id, "Disconnected");
             Ok(())
@@ -497,23 +527,94 @@ impl ConnectionManager {
             })
     }
 
-    /// The pool for one lane of a live connection.
-    ///
-    /// [`get_pool`](Self::get_pool) is the interactive lane; agent and job
-    /// work asks for its own here so it cannot take the editor's slots.
-    pub fn get_lane_pool(&self, connection_id: &str, lane: Lane) -> Result<MySqlPool, CoreError> {
-        self.connections
-            .get(connection_id)
-            .map(|conn| conn.lane(lane).clone())
-            .ok_or_else(|| CoreError::NotFound(format!("Connection not found: {}", connection_id)))
-    }
-
-    /// The pool a route draws from, opening a tab's session on first use.
+    /// The pool a route draws from, opening a tab's or an agent's on first use.
     pub fn route_pool(&self, connection_id: &str, route: &Route) -> Result<MySqlPool, CoreError> {
         match route {
-            Route::Lane(lane) => self.get_lane_pool(connection_id, *lane),
+            Route::Interactive => self.get_pool(connection_id),
             Route::Session(session) => self.session_pool(connection_id, session),
+            Route::Agent(session) => self.agent_pool(connection_id, session),
+            Route::Job(job) => self
+                .connections
+                .get(connection_id)
+                .and_then(|conn| conn.jobs.get(job).map(|pool| pool.clone()))
+                .ok_or_else(|| {
+                    CoreError::NotFound(format!(
+                        "No running job {job} on connection {connection_id}"
+                    ))
+                }),
         }
+    }
+
+    /// One agent session's own connections on a connection, opened lazily.
+    ///
+    /// Closed after a minute idle: an agent works in bursts, and its
+    /// statements carry nothing from one call to the next that closing would
+    /// lose. An agent session using several connections gets this on each.
+    pub fn agent_pool(&self, connection_id: &str, session: &str) -> Result<MySqlPool, CoreError> {
+        let conn = self.connections.get(connection_id).ok_or_else(|| {
+            CoreError::NotFound(format!("Connection not found: {}", connection_id))
+        })?;
+        let pool = conn
+            .agent_sessions
+            .entry(session.to_string())
+            .or_insert_with(|| {
+                tracing::debug!(connection_id, session, "Opening an agent session");
+                conn.lazy_pool(
+                    AGENT_SESSION_MAX,
+                    Some(std::time::Duration::from_secs(AGENT_IDLE_SECS)),
+                )
+            })
+            .clone();
+        Ok(pool)
+    }
+
+    /// Close an agent session's connections, on every connection it used.
+    ///
+    /// Called when the agent session ends. A staged write it left unanswered
+    /// holds its own connection and rolls itself back on its deadline.
+    pub async fn close_agent_session(&self, session: &str) {
+        let pools: Vec<MySqlPool> = self
+            .connections
+            .iter()
+            .filter_map(|conn| conn.agent_sessions.remove(session).map(|(_, pool)| pool))
+            .collect();
+        futures::future::join_all(pools.iter().map(|pool| pool.close())).await;
+        if !pools.is_empty() {
+            tracing::debug!(session, "Closed an agent session");
+        }
+    }
+
+    /// How many agent sessions hold connections on a connection.
+    pub fn agent_session_count(&self, connection_id: &str) -> usize {
+        self.connections
+            .get(connection_id)
+            .map(|conn| conn.agent_sessions.len())
+            .unwrap_or(0)
+    }
+
+    /// A connection of its own for one backup or restore. See
+    /// [`JobConnection`].
+    pub fn start_job(&self, connection_id: &str) -> Result<JobConnection, CoreError> {
+        let conn = self.connections.get(connection_id).ok_or_else(|| {
+            CoreError::NotFound(format!("Connection not found: {}", connection_id))
+        })?;
+        let id = uuid::Uuid::new_v4().to_string();
+        let pool = conn.lazy_pool(1, None);
+        conn.jobs.insert(id.clone(), pool.clone());
+        Ok(JobConnection {
+            pool,
+            connections: Arc::clone(&self.connections),
+            connection_id: connection_id.to_string(),
+            id,
+        })
+    }
+
+    /// How many backups or restores are running on a connection.
+    pub fn job_count(&self, connection_id: &str) -> usize {
+        self.connections
+            .get(connection_id)
+            .map(|conn| conn.jobs.len())
+            .unwrap_or(0)
     }
 
     /// An editor tab's own connection, opened lazily.
@@ -533,13 +634,7 @@ impl ConnectionManager {
             .entry(session.to_string())
             .or_insert_with(|| {
                 tracing::debug!(connection_id, session, "Opening an editor session");
-                lane_pool_options(&conn.charset, &conn.own_threads)
-                    .min_connections(0)
-                    .max_connections(1)
-                    .acquire_timeout(std::time::Duration::from_secs(conn.acquire_timeout_secs))
-                    .idle_timeout(None)
-                    .max_lifetime(None)
-                    .connect_lazy_with(conn.session_connect.clone())
+                conn.lazy_pool(1, None)
             })
             .clone();
         Ok(pool)
@@ -570,26 +665,29 @@ impl ConnectionManager {
             .unwrap_or(0)
     }
 
-    /// Pool sizing for one lane of a live connection, for the message when it
-    /// runs out.
+    /// How many connections a route may hold and how many it holds, for the
+    /// message when it runs out.
     ///
-    /// The count of connections the pool is actually holding comes with it: a
-    /// pool that holds none cannot have run out of them, however it reports
-    /// the failure, and saying otherwise is how a server that went away gets
-    /// described as a setting the user should change.
-    pub fn pool_limits(&self, connection_id: &str, lane: Lane) -> Option<(String, u32, u64, u32)> {
-        self.connections.get(connection_id).map(|conn| {
-            let max = match lane {
-                Lane::Interactive => INTERACTIVE_LANE_MAX,
-                Lane::Agent => AGENT_LANE_MAX,
-                Lane::Job => JOB_LANE_MAX,
-            };
-            (
-                conn.info.name.clone(),
-                max,
-                conn.acquire_timeout_secs,
-                conn.lane(lane).size(),
-            )
+    /// The count actually held comes with it: a pool that holds none cannot
+    /// have run out of them, however it reports the failure, and saying
+    /// otherwise is how a server that went away gets described as something
+    /// busy.
+    pub fn pool_limits(&self, connection_id: &str, route: &Route) -> Option<PoolLimits> {
+        let conn = self.connections.get(connection_id)?;
+        let (max, held) = match route {
+            Route::Interactive => (INTERACTIVE_LANE_MAX, conn.pool.size()),
+            Route::Session(id) => (1, conn.sessions.get(id).map_or(0, |p| p.size())),
+            Route::Agent(id) => (
+                AGENT_SESSION_MAX,
+                conn.agent_sessions.get(id).map_or(0, |p| p.size()),
+            ),
+            Route::Job(id) => (1, conn.jobs.get(id).map_or(0, |p| p.size())),
+        };
+        Some(PoolLimits {
+            profile_name: conn.info.name.clone(),
+            max,
+            acquire_timeout_secs: conn.acquire_timeout_secs,
+            held,
         })
     }
 
