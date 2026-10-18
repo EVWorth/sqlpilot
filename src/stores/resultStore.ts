@@ -75,6 +75,14 @@ interface PageState {
   hasMore: boolean;
 }
 
+/** The connection, database and editor tab session a result was read on. */
+export interface ResultSource {
+  connectionId: string;
+  database?: string;
+  /** The editor tab whose session ran the statement; absent off the editor. */
+  session?: string;
+}
+
 interface ResultState {
   results: QueryResult[];
   activeResultIndex: number;
@@ -82,6 +90,12 @@ interface ResultState {
   error: string | null;
   /** Null when the result fitted inside the row limit, so paging is moot. */
   page: PageState | null;
+  /**
+   * Where the results on screen were read, so a grid edit to them is saved on
+   * the same session and the refresh after it reads from there too (#735).
+   * Null when nothing is on screen.
+   */
+  resultSource: ResultSource | null;
 
   explainResult: QueryResult | null;
   /** The shape the plan came back in, which decides how it is rendered. */
@@ -169,6 +183,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
   isExecuting: false,
   error: null,
   page: null,
+  resultSource: null,
 
   explainResult: null,
   explainFormat: "classic",
@@ -280,6 +295,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       activeResultIndex: 0,
       error: null,
       page: null,
+      resultSource: null,
       explainResult: null,
       explainNotice: null,
       showExplain: false,
@@ -428,6 +444,12 @@ async function doExecuteQuery(
       results,
       activeResultIndex: 0,
       isExecuting: false,
+      // Only a MySQL tab has a session of its own to come back to.
+      resultSource: {
+        connectionId,
+        database: effectiveDatabase,
+        session: source.kind === "mysql" ? session : undefined,
+      },
       page: rowLimit !== undefined && (filled || pageIndex > 0)
         ? {
           sql,
@@ -490,7 +512,7 @@ async function doExecuteQuery(
     // message with a raw database error and log the user's own cancellation
     // to history as a failed query.
     if (cancelGeneration !== myGeneration) return;
-    set({ error: String(e), isExecuting: false, results: [], page: null });
+    set({ error: String(e), isExecuting: false, results: [], page: null, resultSource: null });
 
     // The driver's code and SQLSTATE ride along where it supplied them, so the
     // history panel can say which failure this was (#324).

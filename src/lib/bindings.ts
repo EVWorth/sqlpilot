@@ -57,6 +57,23 @@ export const commands = {
 	 */
 	closeSession: (connectionId: string, session: string) => typedError<null, string>(__TAURI_INVOKE("close_session", { connectionId, session })),
 	/**
+	 *  Save grid edits on the editor tab's own session (#735).
+	 * 
+	 *  The edits belong to the tab the result came from: they land on its
+	 *  session, inside its transaction when one is open, and never commit that
+	 *  transaction for the user. `None` means the session could not say whether a
+	 *  transaction is open and nothing was applied; the caller falls back to the
+	 *  shared pool rather than risk the user's work.
+	 */
+	applyGridEdits: (connectionId: string, session: string, database: string | null, statements: string[]) => typedError<{
+	/**
+	 *  Rows each statement changed, in the order given. A statement whose
+	 *  WHERE no longer matches changes zero rows without failing (#419).
+	 */
+	rows_affected: number[],
+	transaction: TransactionState,
+} | null, QueryError>(__TAURI_INVOKE("apply_grid_edits", { connectionId, session, database, statements })),
+	/**
 	 *  What the health checker last saw for a connection.
 	 * 
 	 *  The checker reports changes as `connection-health-event`; this is for a
@@ -846,6 +863,16 @@ export type FormatFallback =
  */
 "none";
 
+/**  What a save did. */
+export type GridEditOutcome = {
+	/**
+	 *  Rows each statement changed, in the order given. A statement whose
+	 *  WHERE no longer matches changes zero rows without failing (#419).
+	 */
+	rows_affected: number[],
+	transaction: TransactionState,
+};
+
 /**  A harness SQLPilot knows how to run in-app. */
 export type Harness = 
 /**  Anthropic's CLI. Spoken to over its own NDJSON stream. */
@@ -1520,6 +1547,16 @@ export type TestConnectionResult = {
 	server_version: string | null,
 	latency_ms: number,
 };
+
+/**  Whether the session was inside a transaction when the save began. */
+export type TransactionState = 
+/**  No transaction: the edits were applied and committed. */
+"none" | 
+/**
+ *  The user's transaction: the edits were applied inside it and are not
+ *  committed until the user commits.
+ */
+"open";
 
 export type TriggerInfo = {
 	name: string,

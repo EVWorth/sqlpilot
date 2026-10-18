@@ -132,6 +132,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::explain_query,
             commands::cancel_query,
             commands::close_session,
+            commands::apply_grid_edits,
             commands::connection_health,
             commands::ping_connection,
             commands::pool_stats,

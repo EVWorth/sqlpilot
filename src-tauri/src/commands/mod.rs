@@ -11,7 +11,7 @@ use mas_core::history::{
 use mas_core::models::{
     ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, TestConnectionResult,
 };
-use mas_core::query::{ExplainFormat, ExplainResponse, QueryExecutor};
+use mas_core::query::{ExplainFormat, ExplainResponse, GridEditOutcome, QueryExecutor};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, EventInfo, ForeignKeyInfo, IndexInfo, PartitionInfo, RoutineInfo,
     TableInfo, TriggerInfo, ViewInfo,
@@ -243,8 +243,9 @@ pub async fn execute_query(
     offset: Option<u32>,
     // The editor tab running this, so it lands on that tab's own session and
     // what one run set up is there for the next (#731). Absent for everything
-    // that is not an editor tab — the schema tree, the designer, grid edits —
-    // which keep taking whichever shared connection is free.
+    // that is not an editor tab — the schema tree, the designer — which keep
+    // taking whichever shared connection is free. Grid edits have their own
+    // command, `apply_grid_edits`, which lands them on the tab's session.
     session: Option<String>,
 ) -> Result<Vec<QueryResult>, QueryError> {
     let executor = &state.query_executor;
@@ -457,6 +458,37 @@ pub async fn close_session(
         .close_session(&connection_id, &session)
         .await;
     Ok(())
+}
+
+/// Save grid edits on the editor tab's own session (#735).
+///
+/// The edits belong to the tab the result came from: they land on its
+/// session, inside its transaction when one is open, and never commit that
+/// transaction for the user. `None` means the session could not say whether a
+/// transaction is open and nothing was applied; the caller falls back to the
+/// shared pool rather than risk the user's work.
+#[tauri::command]
+#[tracing::instrument(skip(state, statements), fields(statement_count = statements.len()))]
+#[specta::specta]
+pub async fn apply_grid_edits(
+    state: State<'_, AppState>,
+    connection_id: String,
+    session: String,
+    database: Option<String>,
+    statements: Vec<String>,
+) -> Result<Option<GridEditOutcome>, QueryError> {
+    mas_core::query::apply_in_session(
+        &state.connection_manager,
+        &connection_id,
+        &session,
+        database.as_deref(),
+        &statements,
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(error = %e, "Grid edits failed");
+        QueryError::from_core(&e)
+    })
 }
 
 // Schema commands

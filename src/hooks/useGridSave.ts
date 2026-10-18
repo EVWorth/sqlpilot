@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { describeGridChanges } from "../lib/grid-navigation";
-import { runStatement } from "../lib/run-statement";
+import { runGridEdits, runStatement } from "../lib/run-statement";
 import {
   type ColumnTypes,
   generateDelete,
@@ -115,6 +115,15 @@ export function useGridSave({
       }
 
       let matched = 0;
+      let insideTransaction = false;
+      // Where the result on screen was read: the tab's session, and the
+      // database it ran against. The edits are saved there and the refresh
+      // reads from there, so a result that depends on the session — a
+      // temporary table, a session variable, the tab's open transaction —
+      // is edited and re-read where it exists (#735).
+      const source = useResultStore.getState().resultSource;
+      const session = source?.connectionId === connId ? source.session : undefined;
+      const database = source?.connectionId === connId ? source.database : undefined;
       if (statements.length > 0) {
         // The gate lives in resultStore, which this path does not go through
         // — so until #588 a cell edit on production wrote with no
@@ -134,15 +143,27 @@ export function useGridSave({
         });
         if (!confirmed) return;
 
-        // One transaction, so a statement that fails halfway leaves nothing
-        // half-applied.
-        const batch = "START TRANSACTION;\n" + statements.join(";\n") + ";\nCOMMIT;";
-        const results = await runStatement({ connectionId: connId, sql: batch, origin: "grid" });
-        matched = results.reduce((sum, r) => sum + Number(r.rows_affected ?? 0), 0);
+        // On the tab's session the backend decides how to wrap the edits:
+        // in a transaction of their own, or inside the user's open one
+        // without committing it. Null means it could not tell, and nothing
+        // was applied, so the save falls back to the shared pool.
+        const outcome = session
+          ? await runGridEdits({ connectionId: connId, session, database, statements })
+          : null;
+        if (outcome) {
+          matched = outcome.rows_affected.reduce((sum, n) => sum + n, 0);
+          insideTransaction = outcome.transaction === "open";
+        } else {
+          // One transaction, so a statement that fails halfway leaves nothing
+          // half-applied.
+          const batch = "START TRANSACTION;\n" + statements.join(";\n") + ";\nCOMMIT;";
+          const results = await runStatement({ connectionId: connId, sql: batch, database, origin: "grid" });
+          matched = results.reduce((sum, r) => sum + Number(r.rows_affected ?? 0), 0);
+        }
       }
 
       editing.discardAll();
-      await useResultStore.getState().executeQuery(connId, sql);
+      await useResultStore.getState().executeQuery(connId, sql, database, session);
 
       // A WHERE that matches nothing is not an error — the statement runs and
       // affects zero rows — so the save reported success either way (#419).
@@ -150,6 +171,14 @@ export function useGridSave({
         onMessage(
           `Only ${matched} of ${statements.length} change(s) matched a row. The rest changed `
             + `nothing — the values they matched on may no longer be in the table.`,
+        );
+      } else if (insideTransaction) {
+        // Applied, but only inside the user's transaction: nobody else sees
+        // the change until they commit, and a rollback undoes it with the
+        // rest of their work.
+        onMessage(
+          `Applied ${statements.length} change(s) inside your open transaction. `
+            + `COMMIT to keep them, or ROLLBACK to undo them.`,
         );
       } else {
         onMessage(`Applied ${statements.length} change(s)`);
