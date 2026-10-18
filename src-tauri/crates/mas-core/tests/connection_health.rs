@@ -1,5 +1,6 @@
 use chrono::Utc;
-use mas_core::connection::ConnectionManager;
+use mas_core::connection::manager::INTERACTIVE_LANE_MAX;
+use mas_core::connection::{ConnectionManager, Lane};
 use mas_core::models::ConnectionProfile;
 use std::sync::Arc;
 use std::time::Duration;
@@ -106,50 +107,23 @@ async fn a_ping_against_a_closed_pool_reports_the_failure_rather_than_hanging() 
 
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
-async fn pool_stats_report_what_the_profile_allows_and_what_is_open() {
-    // FR-1.2.3's "pool statistics visible in status bar" needs numbers to
-    // show; these are them.
-    let manager = Arc::new(ConnectionManager::new());
-    let info = manager.connect(&profile(port())).await.unwrap();
+async fn a_stored_pool_size_is_ignored() {
+    // Profiles saved by older builds still carry a pool size, anything from a
+    // zero (which sqlx panics on) to a hand-edited thousand. Connections are
+    // no longer sized per profile (#731), so none of it should matter.
+    for (min, max) in [(20, 0), (1, 1000), (1, 5)] {
+        let mut p = profile(port());
+        p.pool_min = min;
+        p.pool_max = max;
 
-    let stats = manager.pool_stats();
-    let mine = stats
-        .iter()
-        .find(|s| s.connection_id == info.id)
-        .expect("the live connection should be in the stats");
-    assert_eq!(mine.max, 3, "the profile's limit");
-    assert!(mine.size >= 1, "pool_min opens one");
-    assert!(mine.idle <= mine.size);
+        let manager = Arc::new(ConnectionManager::new());
+        let info = manager
+            .connect(&p)
+            .await
+            .unwrap_or_else(|e| panic!("pool_min {min}, pool_max {max} should still connect: {e}"));
+        let pool = manager.get_lane_pool(&info.id, Lane::Interactive).unwrap();
+        assert_eq!(pool.options().get_max_connections(), INTERACTIVE_LANE_MAX);
 
-    manager.disconnect(&info.id).await.unwrap();
-    assert!(
-        manager
-            .pool_stats()
-            .iter()
-            .all(|s| s.connection_id != info.id),
-        "a disconnected pool should not be reported"
-    );
-}
-
-#[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
-async fn a_pool_size_out_of_range_still_connects() {
-    // A profile can hold anything — an older build's value, or a hand-edited
-    // row. A zero max makes sqlx panic and a min above the max makes it refuse
-    // to build the pool; neither should reach a user as a failed connection.
-    let mut p = profile(port());
-    p.pool_min = 20;
-    p.pool_max = 0;
-
-    let manager = Arc::new(ConnectionManager::new());
-    let info = manager
-        .connect(&p)
-        .await
-        .expect("an out-of-range pool size should be clamped, not fatal");
-
-    let stats = manager.pool_stats();
-    let mine = stats.iter().find(|s| s.connection_id == info.id).unwrap();
-    assert_eq!(mine.max, 1);
-
-    manager.disconnect(&info.id).await.unwrap();
+        manager.disconnect(&info.id).await.unwrap();
+    }
 }

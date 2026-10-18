@@ -17,7 +17,7 @@ pub fn quote_ident(name: &str) -> String {
 /// `` `db`.`name` `` — a reference that needs no `USE` to resolve.
 ///
 /// The DDL reads used to run `USE <database>` and then an unqualified `SHOW
-/// CREATE`, as two statements against a pool. With `pool_max > 1` the second
+/// CREATE`, as two statements against a pool. With more than one connection the second
 /// is not guaranteed to land on the session the first one changed, so it
 /// either failed with "no database selected" or returned the object of that
 /// name from whichever database that connection happened to be pointing at —

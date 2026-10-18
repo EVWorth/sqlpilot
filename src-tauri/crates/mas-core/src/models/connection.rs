@@ -1,6 +1,16 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+/// What a profile without pool fields is stored with, matching the columns'
+/// defaults (`migrations.rs`).
+fn legacy_pool_min() -> u32 {
+    1
+}
+
+fn legacy_pool_max() -> u32 {
+    5
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, specta::Type)]
 pub enum ConnectionEnvironment {
     #[serde(rename = "development")]
@@ -35,7 +45,13 @@ pub struct ConnectionProfile {
     pub default_database: Option<String>,
     pub ssh_config: Option<SSHConfig>,
     pub ssl_config: Option<SSLConfig>,
+    /// Stored and no longer read: connections are no longer sized per
+    /// profile (#731). Kept so profiles saved by older builds, and the
+    /// frontend that still sends them, keep round-tripping.
+    #[serde(default = "legacy_pool_min")]
     pub pool_min: u32,
+    /// See `pool_min`.
+    #[serde(default = "legacy_pool_max")]
     pub pool_max: u32,
     pub read_only: bool,
     pub connect_timeout_secs: Option<u32>,
@@ -58,7 +74,13 @@ pub struct ConnectionProfileSummary {
     pub default_database: Option<String>,
     pub ssh_config: Option<SSHConfig>,
     pub ssl_config: Option<SSLConfig>,
+    /// Stored and no longer read: connections are no longer sized per
+    /// profile (#731). Kept so profiles saved by older builds, and the
+    /// frontend that still sends them, keep round-tripping.
+    #[serde(default = "legacy_pool_min")]
     pub pool_min: u32,
+    /// See `pool_min`.
+    #[serde(default = "legacy_pool_max")]
     pub pool_max: u32,
     pub read_only: bool,
     pub connect_timeout_secs: Option<u32>,

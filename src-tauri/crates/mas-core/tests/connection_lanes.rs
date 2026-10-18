@@ -1,5 +1,5 @@
 use chrono::Utc;
-use mas_core::connection::manager::{AGENT_LANE_MAX, JOB_LANE_MAX};
+use mas_core::connection::manager::{AGENT_LANE_MAX, INTERACTIVE_LANE_MAX, JOB_LANE_MAX};
 use mas_core::connection::{ConnectionManager, Lane};
 use mas_core::error::CoreError;
 use mas_core::models::ConnectionProfile;
@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 ///
 /// A short acquire timeout keeps the failure cases quick: a full lane fails in
 /// two seconds rather than ten.
-fn profile(pool_max: u32) -> ConnectionProfile {
+fn profile() -> ConnectionProfile {
     ConnectionProfile {
         id: uuid::Uuid::new_v4().to_string(),
         name: "lanes".to_string(),
@@ -35,7 +35,7 @@ fn profile(pool_max: u32) -> ConnectionProfile {
         ssh_config: None,
         ssl_config: None,
         pool_min: 1,
-        pool_max,
+        pool_max: 5,
         read_only: false,
         connect_timeout_secs: Some(2),
         query_timeout_secs: None,
@@ -46,10 +46,10 @@ fn profile(pool_max: u32) -> ConnectionProfile {
     }
 }
 
-async fn connect(pool_max: u32) -> (Arc<ConnectionManager>, String) {
+async fn connect() -> (Arc<ConnectionManager>, String) {
     let manager = Arc::new(ConnectionManager::new());
     let info = manager
-        .connect(&profile(pool_max))
+        .connect(&profile())
         .await
         .expect("connects to the test server");
     (manager, info.id)
@@ -73,9 +73,9 @@ async fn fill(
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_full_agent_lane_and_a_full_job_lane_leave_the_editor_alone() {
-    // The editor gets a single connection, so any slot taken from it by the
-    // agent or a backup would show immediately.
-    let (manager, id) = connect(1).await;
+    // Every agent and job connection taken; the interactive lane still has
+    // all of its own, so nothing should wait.
+    let (manager, id) = connect().await;
     let executor = QueryExecutor::new(manager.clone());
 
     let _agent = fill(&manager, &id, Lane::Agent, AGENT_LANE_MAX).await;
@@ -99,7 +99,7 @@ async fn a_full_agent_lane_and_a_full_job_lane_leave_the_editor_alone() {
 async fn running_agent_queries_do_not_take_the_editors_connections() {
     // The shape of the original complaint: an agent with queries in flight,
     // and the user trying to run one of their own.
-    let (manager, id) = connect(1).await;
+    let (manager, id) = connect().await;
     let executor = Arc::new(QueryExecutor::new(manager.clone()));
 
     let mut agent_queries = Vec::new();
@@ -137,7 +137,7 @@ async fn running_agent_queries_do_not_take_the_editors_connections() {
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_full_agent_lane_is_reported_as_the_agents() {
-    let (manager, id) = connect(5).await;
+    let (manager, id) = connect().await;
     let executor = QueryExecutor::new(manager.clone());
     let _agent = fill(&manager, &id, Lane::Agent, AGENT_LANE_MAX).await;
 
@@ -162,7 +162,7 @@ async fn a_full_agent_lane_is_reported_as_the_agents() {
 async fn the_side_lanes_cost_nothing_until_used() {
     // Most sessions never run an agent or a backup. Those lanes should not
     // hold server threads on the chance that they might.
-    let (manager, id) = connect(5).await;
+    let (manager, id) = connect().await;
     let agent = manager.get_lane_pool(&id, Lane::Agent).unwrap();
     let job = manager.get_lane_pool(&id, Lane::Job).unwrap();
     assert_eq!(
@@ -187,7 +187,7 @@ async fn every_lanes_sessions_are_known_as_the_apps_own() {
     // The admin panel refuses to kill the application's own sessions (#433).
     // An agent's or a backup's session is just as much the app's, and killing
     // one would break it mid-flight.
-    let (manager, id) = connect(5).await;
+    let (manager, id) = connect().await;
     for lane in [Lane::Agent, Lane::Job] {
         let pool = manager.get_lane_pool(&id, lane).unwrap();
         let (thread_id,): (u64,) = sqlx::query_as("SELECT CONNECTION_ID()")
@@ -206,7 +206,7 @@ async fn every_lanes_sessions_are_known_as_the_apps_own() {
 async fn disconnect_closes_every_lane() {
     // A lane left open after disconnect is a server thread nothing in the app
     // can see or reach any more.
-    let (manager, id) = connect(5).await;
+    let (manager, id) = connect().await;
     let agent = manager.get_lane_pool(&id, Lane::Agent).unwrap();
     let job = manager.get_lane_pool(&id, Lane::Job).unwrap();
     sqlx::query("SELECT 1").execute(&agent).await.unwrap();
@@ -223,7 +223,7 @@ async fn cancel_still_stops_what_the_agent_is_running() {
     // The agent moved to its own lane but not its own executor, so the user's
     // Cancel still reaches it: stopping an agent's runaway query from the app
     // has to keep working.
-    let (manager, id) = connect(5).await;
+    let (manager, id) = connect().await;
     let executor = Arc::new(QueryExecutor::new(manager.clone()));
 
     let running = {
@@ -247,11 +247,11 @@ async fn cancel_still_stops_what_the_agent_is_running() {
 
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
-async fn a_full_editor_lane_counts_only_the_editors_queries() {
-    // The message counts what is running to say why the pool is full. An
-    // agent's query runs on its own lane and holds none of the editor's
-    // connections, so counting it would blame the wrong thing.
-    let (manager, id) = connect(1).await;
+async fn a_full_interactive_lane_counts_only_its_own_queries() {
+    // The message counts what is running to say why the lane is full. An
+    // agent's query runs on its own lane and holds none of these connections,
+    // so counting it would blame the wrong thing.
+    let (manager, id) = connect().await;
     let executor = Arc::new(QueryExecutor::new(manager.clone()));
 
     let agent = {
@@ -263,28 +263,32 @@ async fn a_full_editor_lane_counts_only_the_editors_queries() {
                 .await
         })
     };
-    let editor = {
+    let mut interactive = Vec::new();
+    for _ in 0..INTERACTIVE_LANE_MAX {
         let executor = executor.clone();
         let id = id.clone();
-        tokio::spawn(async move {
+        interactive.push(tokio::spawn(async move {
             executor
                 .execute(&id, "SELECT SLEEP(6)", None, None, None)
                 .await
-        })
-    };
-    // Both on the server, and the editor's one connection taken.
+        }));
+    }
+    // All on the server, and every interactive connection taken.
     tokio::time::sleep(Duration::from_millis(700)).await;
 
     let message = executor
         .execute(&id, "SELECT 1", None, None, None)
         .await
-        .expect_err("the editor's only connection is busy")
+        .expect_err("every interactive connection is busy")
         .to_string();
+    let expected = format!("{INTERACTIVE_LANE_MAX} queries are still running");
     assert!(
-        message.contains("One query is still running"),
-        "the agent's query was counted as the editor's: {message}"
+        message.contains(&expected),
+        "the agent's query was counted as the lane's own: {message}"
     );
 
-    editor.await.unwrap().expect("the editor's query finishes");
+    for query in interactive {
+        query.await.unwrap().expect("the lane's queries finish");
+    }
     agent.await.unwrap().expect("the agent's query finishes");
 }

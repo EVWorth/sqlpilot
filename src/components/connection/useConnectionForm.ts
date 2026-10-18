@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { validatePoolSizing } from "../../lib/connection-validation";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type {
@@ -26,8 +25,6 @@ const defaultProfile: Omit<ConnectionProfileInput, "id" | "created_at" | "update
   username: "root",
   password: "",
   default_database: "",
-  pool_min: 1,
-  pool_max: 5,
   read_only: false,
   connect_timeout_secs: 10,
   query_timeout_secs: 0,
@@ -214,10 +211,6 @@ export function useConnectionForm(
     setSaving(false);
   };
 
-  // Checked as they are typed, so the answer is beside the field rather than
-  // a connection that fails later or a number quietly changed on the way in.
-  const poolProblems = validatePoolSizing(form.pool_min, form.pool_max);
-
   return {
     form,
     sshEnabled,
@@ -227,9 +220,7 @@ export function useConnectionForm(
     testResult,
     testing,
     saving,
-    poolProblems,
-    canSave: !saving && !!form.name && !!form.host
-      && Object.keys(poolProblems).length === 0,
+    canSave: !saving && !!form.name && !!form.host,
     handleChange,
     handleSSLChange,
     handleSSHChange,

@@ -210,9 +210,9 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 ### FR-1: Connection Management [partial]
 
 > Built: profiles with keyring storage, test-before-save, duplicate,
-> read-only enforcement (in the executor, not just the UI), SSL/TLS, pool
-> sizing with limits, health checks with backoff, pool statistics, and the
-> three-state connection indicator.
+> read-only enforcement (in the executor, not just the UI), SSL/TLS, a
+> connection for each kind of work (nothing for the user to size), health
+> checks with backoff, and the three-state connection indicator.
 >
 > **Not built, and each says so in its row:** SSH tunnelling (FR-1.2.1 — the
 > settings are stored, and a profile that uses them is refused rather than
@@ -240,7 +240,7 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 | -------- | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | FR-1.2.1 | SSH tunnel support        | **Not built.** The dialog collects the settings and the store keeps them, but no tunnel is opened — there is no ssh2 or russh dependency. A profile configured for one is **refused**, because connecting straight to the database while the UI implies a tunnel is worse than not connecting (#273). The tab says so above the fields |
 | FR-1.2.2 | SSL/TLS support           | Support CA certificate, client certificate, and client key; option to verify server certificate or allow self-signed                                                                                                                                                                                                                   |
-| FR-1.2.3 | Connection pooling        | Configurable pool size (default: 5, max: 50) per connection profile; idle connection timeout; pool statistics visible in status bar                                                                                                                                                                                                    |
+| FR-1.2.3 | Connection per purpose    | Each editor tab has its own session; the agent and backups/restores have their own connections; schema browsing, dialogs and admin share a small fixed set. Nothing for the user to size and no pool statistics, as in other clients (#731). Profiles still store `pool_min`/`pool_max` from older builds, unread                      |
 | FR-1.2.4 | Auto-reconnect            | A background check per connection (`SELECT 1` every 15s) backing off 1s, 2s, 4s, 8s, 16s, 30s while a connection is down; the status bar says it is lost and how many attempts have been made, and says nothing once it is back. No explicit reconnect step: sqlx opens a fresh pooled connection when one is next needed              |
 | FR-1.2.5 | Connection color-coding   | Built: eight presets and a custom colour, shown on the tab and in the status bar. The colour is not tied to the environment — that is what the environment field and its PROD/STG/DEV badge are for, and two things saying the same thing can disagree                                                                                 |
 | FR-1.2.6 | Connection groups/folders | **Not built.** The `group` field exists on the profile and is stored; nothing reads it. Worth building when a user has enough profiles for a flat list to be the problem                                                                                                                                                               |

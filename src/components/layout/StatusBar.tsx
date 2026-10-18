@@ -143,10 +143,8 @@ export function StatusBar() {
   const envBadge = activeProfile?.environment
     ? ENV_BADGES[activeProfile.environment]
     : undefined;
-  // What the backend's health checker last said about this connection, and
-  // how much of its pool is in use.
+  // What the backend's health checker last said about this connection.
   const health = useConnectionHealthStore((s) => selectedConnectionId ? s.health[selectedConnectionId] : undefined);
-  const pool = useConnectionHealthStore((s) => selectedConnectionId ? s.pools[selectedConnectionId] : undefined);
 
   const activeResult = results[activeResultIndex];
   const selectedDatabase = activeTabDatabase ?? activeConn?.database;
@@ -217,20 +215,6 @@ export function StatusBar() {
                 >
                   <AlertTriangle className="h-2.5 w-2.5" />
                   Lost — retrying ({health.consecutiveFailures})
-                </span>
-              )}
-              {pool && (
-                <span
-                  data-testid="pool-stats"
-                  title={`${pool.size - pool.idle} of ${pool.max} connections in use, ${pool.idle} idle. `
-                    + "A query waits when they are all busy."}
-                  className={`text-[10px] ${
-                    pool.size - pool.idle >= pool.max
-                      ? "text-[var(--color-warning)]"
-                      : "text-[var(--color-text-muted)]"
-                  }`}
-                >
-                  pool {pool.size - pool.idle}/{pool.max}
                 </span>
               )}
               {keyringAvailable === false && (

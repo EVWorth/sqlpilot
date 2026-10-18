@@ -173,9 +173,6 @@ export const api = {
   /** Check a connection now rather than waiting for the next scheduled ping. */
   pingConnection: (connectionId: string) => unwrap("ping_connection", () => commands.pingConnection(connectionId)),
 
-  /** How full each live pool is (FR-1.2.3). */
-  poolStats: () => unwrap("pool_stats", () => commands.poolStats()),
-
   /**
    * Anything that went wrong before the window existed.
    *

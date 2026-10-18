@@ -93,8 +93,6 @@ export const commands = {
 } | null, string>(__TAURI_INVOKE("connection_health", { connectionId })),
 	/**  Check a connection now rather than waiting for the next scheduled ping. */
 	pingConnection: (connectionId: string) => typedError<ConnectionHealth, string>(__TAURI_INVOKE("ping_connection", { connectionId })),
-	/**  How full each live pool is, for the status bar (FR-1.2.3). */
-	poolStats: () => typedError<PoolStats[], string>(__TAURI_INVOKE("pool_stats")),
 	/**
 	 *  Anything that went wrong during startup.
 	 * 
@@ -617,8 +615,14 @@ export type ConnectionProfileSummary_Deserialize = {
 	default_database: string | null,
 	ssh_config: SSHConfig_Deserialize | null,
 	ssl_config: SSLConfig | null,
-	pool_min: number,
-	pool_max: number,
+	/**
+	 *  Stored and no longer read: connections are no longer sized per
+	 *  profile (#731). Kept so profiles saved by older builds, and the
+	 *  frontend that still sends them, keep round-tripping.
+	 */
+	pool_min?: number,
+	/**  See `pool_min`. */
+	pool_max?: number,
 	read_only: boolean,
 	connect_timeout_secs: number | null,
 	query_timeout_secs: number | null,
@@ -639,7 +643,13 @@ export type ConnectionProfileSummary_Serialize = {
 	default_database: string | null,
 	ssh_config: SSHConfig_Serialize | null,
 	ssl_config: SSLConfig | null,
+	/**
+	 *  Stored and no longer read: connections are no longer sized per
+	 *  profile (#731). Kept so profiles saved by older builds, and the
+	 *  frontend that still sends them, keep round-tripping.
+	 */
 	pool_min: number,
+	/**  See `pool_min`. */
 	pool_max: number,
 	read_only: boolean,
 	connect_timeout_secs: number | null,
@@ -662,8 +672,14 @@ export type ConnectionProfile_Deserialize = {
 	default_database: string | null,
 	ssh_config: SSHConfig_Deserialize | null,
 	ssl_config: SSLConfig | null,
-	pool_min: number,
-	pool_max: number,
+	/**
+	 *  Stored and no longer read: connections are no longer sized per
+	 *  profile (#731). Kept so profiles saved by older builds, and the
+	 *  frontend that still sends them, keep round-tripping.
+	 */
+	pool_min?: number,
+	/**  See `pool_min`. */
+	pool_max?: number,
 	read_only: boolean,
 	connect_timeout_secs: number | null,
 	query_timeout_secs: number | null,
@@ -684,7 +700,13 @@ export type ConnectionProfile_Serialize = {
 	default_database: string | null,
 	ssh_config: SSHConfig_Serialize | null,
 	ssl_config: SSLConfig | null,
+	/**
+	 *  Stored and no longer read: connections are no longer sized per
+	 *  profile (#731). Kept so profiles saved by older builds, and the
+	 *  frontend that still sends them, keep round-tripping.
+	 */
 	pool_min: number,
+	/**  See `pool_min`. */
 	pool_max: number,
 	read_only: boolean,
 	connect_timeout_secs: number | null,
@@ -1069,17 +1091,6 @@ export type PlatformInfo = {
 	 *  update command (#571).
 	 */
 	arch: string,
-};
-
-/**  How much of a pool is in use, for the status bar (FR-1.2.3). */
-export type PoolStats = {
-	connectionId: string,
-	/**  Connections the pool holds, open or idle. */
-	size: number,
-	/**  Of those, how many are not in use. */
-	idle: number,
-	/**  What the profile allows. */
-	max: number,
 };
 
 /**

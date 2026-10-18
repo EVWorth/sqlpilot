@@ -14,9 +14,9 @@ pub fn init_keyring(store: std::sync::Arc<keyring_core::CredentialStore>) {
 /// Turn a pool-acquire timeout into something a user can act on.
 ///
 /// sqlx reports it as "pool timed out while waiting for an open connection",
-/// which says nothing about whose pool, how big it is, or what to change. The
-/// numbers that decide the outcome are on the profile, so they belong in the
-/// message (#279).
+/// which says nothing about whose connections they are or what is holding
+/// them (#279). Every lane is a fixed size (#731), so the message says which
+/// part of the app is busy and what to wait for, not a number to change.
 ///
 /// Only for a pool that is already up and serving. A pool that has never
 /// opened a connection reports the same error for a completely different
@@ -41,9 +41,6 @@ pub fn describe_pool_error(
     if connections_held == 0 {
         return None;
     }
-    // Only the interactive lane is sized by the profile. The others are fixed,
-    // so "raise Max pool size" would send someone to a setting that cannot
-    // help — and would not have been the lane that filled up anyway.
     let message = match lane {
         manager::Lane::Interactive => {
             // What is actually on those connections, as far as the app knows.
@@ -61,17 +58,14 @@ pub fn describe_pool_error(
                       may still be holding them, which clears on its own; if it does not, \
                       reconnecting frees them, and that is worth reporting as a bug."
                     .to_string(),
-                1 => "One query is still running. Wait for it, or raise \"Max pool \
-                      size\" on the profile."
-                    .to_string(),
-                n => format!(
-                    "{n} queries are still running. Wait for them, or raise \"Max pool \
-                     size\" on the profile."
-                ),
+                1 => "One query is still running. Wait for it to finish.".to_string(),
+                n => format!("{n} queries are still running. Wait for them to finish."),
             };
             format!(
-                "\"{profile_name}\" is using all {pool_max} of its connections and none freed up \
-                 within {acquire_timeout_secs}s. {explanation}"
+                "All {pool_max} of SQLPilot's connections to \"{profile_name}\" for schema \
+                 browsing, dialogs and admin are busy, and none freed up within \
+                 {acquire_timeout_secs}s. Editor tabs have their own connections and are not \
+                 affected. {explanation}"
             )
         }
         manager::Lane::Agent => format!(
@@ -93,9 +87,8 @@ pub fn describe_pool_error(
 /// can act on.
 ///
 /// A session is one connection, so the only way it can be taken is by the
-/// tab's own previous statement still running on it. "Raise Max pool size"
-/// would be wrong advice twice over: that setting does not size sessions, and
-/// a second connection would not have the tab's session state anyway.
+/// tab's own previous statement still running on it. A second connection
+/// would not help: it would not have the tab's session state.
 pub fn describe_session_busy(
     error: &sqlx::Error,
     profile_name: &str,
@@ -123,8 +116,8 @@ pub fn describe_session_busy(
 /// gives a pool whose connections are all busy. On a pool this side of
 /// `connect` the second reading is impossible — nobody else can be holding a
 /// connection to a pool that did not exist a moment ago — so reporting it as
-/// exhaustion sends someone to raise "Max pool size" while their server sits
-/// there refusing TCP.
+/// exhaustion sends someone looking for something that is busy while their
+/// server sits there refusing TCP.
 ///
 /// The real error is recoverable the one way sqlx leaves open: open a single
 /// connection outside the pool and let it fail on its own terms. That costs a
@@ -247,15 +240,17 @@ mod tests {
     }
 
     #[test]
-    fn a_pool_timeout_names_the_profile_and_the_limit() {
+    fn a_pool_timeout_names_the_profile_and_what_is_busy() {
         // sqlx says only "pool timed out while waiting for an open connection",
-        // which names neither the pool nor the number that caused it (#279).
+        // which names neither whose connections they are nor what holds them
+        // (#279).
         let message = full(5, Lane::Interactive, 3).expect("a pool timeout should be described");
         assert!(message.contains("prod-eu"), "{message}");
-        assert!(message.contains('5'), "{message}");
+        assert!(message.contains("schema browsing"), "{message}");
         assert!(message.contains("10s"), "{message}");
-        // It should say what to do about it, not just what happened.
-        assert!(message.contains("Max pool size"), "{message}");
+        assert!(message.contains("Editor tabs have their own"), "{message}");
+        // There is no setting to raise any more (#731), so none is suggested.
+        assert!(!message.contains("Max pool size"), "{message}");
     }
 
     #[test]
@@ -345,9 +340,8 @@ mod tests {
 
     #[test]
     fn a_full_agent_lane_does_not_blame_the_profile() {
-        // The agent's lane is a fixed size, so "raise Max pool size" would send
-        // someone to a setting that cannot help. What they can do is wait for,
-        // or cancel, what the agent is running (#731).
+        // What someone can do about a full agent lane is wait for, or cancel,
+        // what the agent is running (#731).
         let message = describe_pool_error(
             &sqlx::Error::PoolTimedOut,
             "prod-eu",
