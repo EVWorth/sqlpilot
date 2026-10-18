@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { listenFn, apiMocks } = vi.hoisted(() => ({
   listenFn: vi.fn(),
-  apiMocks: { poolStats: vi.fn(), pingConnection: vi.fn() },
+  apiMocks: { pingConnection: vi.fn() },
 }));
 
 vi.mock("../../lib/bindings", async (importOriginal) => ({
@@ -34,8 +34,7 @@ describe("connectionHealthStore (#276)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
-    useConnectionHealthStore.setState({ health: {}, pools: {} });
-    apiMocks.poolStats.mockResolvedValue([]);
+    useConnectionHealthStore.setState({ health: {} });
     listenFn.mockResolvedValue(() => {});
   });
 
@@ -71,42 +70,23 @@ describe("connectionHealthStore (#276)", () => {
     stop();
   });
 
-  it("polls the pool numbers and stops when told to", async () => {
-    apiMocks.poolStats.mockResolvedValue([
-      { connectionId: "c1", size: 3, idle: 1, max: 5 },
-    ]);
+  it("stops listening when told to", async () => {
+    const unlisten = vi.fn();
+    listenFn.mockResolvedValue(unlisten);
 
     const stop = await useConnectionHealthStore.getState().start();
-    await vi.waitFor(() => {
-      expect(useConnectionHealthStore.getState().pools.c1.max).toBe(5);
-    });
-
     stop();
-    const callsAfterStop = apiMocks.poolStats.mock.calls.length;
-    await new Promise((r) => setTimeout(r, 50));
-    expect(apiMocks.poolStats.mock.calls.length).toBe(callsAfterStop);
+
+    expect(unlisten).toHaveBeenCalledTimes(1);
   });
 
   it("carries on when the event subscription cannot be made", async () => {
-    // No live updates is not a reason to leave the app broken: the pool
-    // numbers still move and a query still reports its own failure.
+    // No live updates is not a reason to leave the app broken: a query still
+    // reports its own failure, and checking on demand still works.
     listenFn.mockRejectedValue(new Error("no tauri here"));
-    apiMocks.poolStats.mockResolvedValue([
-      { connectionId: "c1", size: 1, idle: 1, max: 5 },
-    ]);
 
     const stop = await useConnectionHealthStore.getState().start();
-    await vi.waitFor(() => {
-      expect(useConnectionHealthStore.getState().pools.c1).toBeDefined();
-    });
-    stop();
-  });
-
-  it("survives a pool read that fails", async () => {
-    apiMocks.poolStats.mockRejectedValue(new Error("gone"));
-    const stop = await useConnectionHealthStore.getState().start();
-    expect(useConnectionHealthStore.getState().pools).toEqual({});
-    stop();
+    expect(() => stop()).not.toThrow();
   });
 
   describe("checking on demand", () => {
@@ -131,14 +111,12 @@ describe("connectionHealthStore (#276)", () => {
   it("forgets a connection that has been disconnected", () => {
     useConnectionHealthStore.setState({
       health: { c1: healthy, c2: healthy },
-      pools: { c1: { connectionId: "c1", size: 1, idle: 1, max: 5 } },
     });
 
     useConnectionHealthStore.getState().forget("c1");
 
     const state = useConnectionHealthStore.getState();
     expect(state.health.c1).toBeUndefined();
-    expect(state.pools.c1).toBeUndefined();
     // A later connection could otherwise inherit a dead one's state.
     expect(state.health.c2).toBeDefined();
   });

@@ -115,8 +115,8 @@ async fn count_rows(executor: &QueryExecutor, id: &str, table: &str) -> String {
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn what_one_run_sets_up_is_there_for_the_next() {
-    // Five shared connections, so a statement that drifted onto another one
-    // would be likely to miss what the previous run left behind.
+    // Several shared connections, so a statement that drifted onto another
+    // one would be likely to miss what the previous run left behind.
     let (_manager, executor, id) = connect(5).await;
 
     run(&executor, &id, "tab-1", "SET @greeting = 'hello'")
@@ -246,11 +246,14 @@ async fn closing_a_tab_rolls_back_what_it_left_open() {
 async fn a_tab_with_a_session_runs_while_the_shared_pool_is_full() {
     // A tab's session is its own connection; the schema tree or a dialog
     // holding every shared one does not stop it.
-    let (manager, executor, id) = connect(1).await;
+    let (manager, executor, id) = connect(5).await;
     run(&executor, &id, "tab-1", "SELECT 1").await.unwrap();
 
     let shared = manager.get_lane_pool(&id, Lane::Interactive).unwrap();
-    let _held = shared.acquire().await.unwrap();
+    let mut held = Vec::new();
+    for _ in 0..shared.options().get_max_connections() {
+        held.push(shared.acquire().await.unwrap());
+    }
 
     let started = Instant::now();
     run(&executor, &id, "tab-1", "SELECT 1")

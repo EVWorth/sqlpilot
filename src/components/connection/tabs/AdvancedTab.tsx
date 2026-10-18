@@ -1,4 +1,3 @@
-import { POOL_MAX_LIMIT, type PoolProblems } from "../../../lib/connection-validation";
 import type { ConnectionProfileInput } from "../../../types";
 import { Field } from "../../common/Field";
 
@@ -8,32 +7,18 @@ interface AdvancedTabProps {
     field: keyof ConnectionProfileInput,
     value: string | number | boolean | undefined,
   ) => void;
-  /** What is wrong with the pool sizing, if anything (#279). */
-  poolProblems: PoolProblems;
 }
 
-/** Pool sizing, timeouts, and the read-only switch. */
-export function AdvancedTab({ form, onChange: handleChange, poolProblems }: AdvancedTabProps) {
+/**
+ * Timeouts and the read-only switch.
+ *
+ * There is no pool sizing here any more: each editor tab, agent session and
+ * backup has a connection of its own, and what is left is a small fixed set
+ * for schema browsing (#731). No other client asks its users to size a pool.
+ */
+export function AdvancedTab({ form, onChange: handleChange }: AdvancedTabProps) {
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 gap-3">
-        <Field
-          label="Pool Min Connections"
-          value={String(form.pool_min)}
-          onChange={(v) => handleChange("pool_min", parseInt(v) || 0)}
-          type="number"
-          problem={poolProblems.min}
-          hint="Opened up front. 0 opens them as they are needed."
-        />
-        <Field
-          label="Pool Max Connections"
-          value={String(form.pool_max)}
-          onChange={(v) => handleChange("pool_max", parseInt(v) || 1)}
-          type="number"
-          problem={poolProblems.max}
-          hint={`How many queries can run at once. 1–${POOL_MAX_LIMIT}.`}
-        />
-      </div>
       <label className="flex cursor-pointer items-center gap-2">
         <input
           type="checkbox"

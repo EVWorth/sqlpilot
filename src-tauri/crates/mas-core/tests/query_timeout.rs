@@ -168,14 +168,12 @@ async fn no_timeout_means_no_timeout() {
 async fn a_timed_out_statement_gives_its_connection_back() {
     // The timeout used to abandon the stream and then kill the statement,
     // which left sqlx draining a connection that, on MariaDB, never finished.
-    // Two connections and ten timeouts: if even one is lost the pool is empty
-    // by the third, and the later attempts take as long as the statement
-    // rather than as long as the timeout (#658).
+    // A few connections and ten timeouts: if each one lost a connection the
+    // pool would be empty within the first few, and the later attempts would
+    // take as long as the statement rather than as long as the timeout (#658).
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
-    let mut profile = profile(Some(1));
-    profile.pool_max = 2;
-    let info = manager.connect(&profile).await.unwrap();
+    let info = manager.connect(&profile(Some(1))).await.unwrap();
 
     for attempt in 1..=10 {
         let started = Instant::now();

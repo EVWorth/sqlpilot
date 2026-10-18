@@ -3,7 +3,6 @@ pub mod backup;
 pub mod sqlite;
 
 use mas_admin::AdminService;
-use mas_core::connection::manager::PoolStats;
 use mas_core::connection::{ConnectionHealth, ConnectionManager, ConnectionStore, Lane, Route};
 use mas_core::history::{
     render_export, HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistoryStore,
@@ -369,14 +368,6 @@ pub async fn ping_connection(
         error: result.err(),
         consecutive_failures: 0,
     })
-}
-
-/// How full each live pool is, for the status bar (FR-1.2.3).
-#[tauri::command]
-#[tracing::instrument(skip(state))]
-#[specta::specta]
-pub async fn pool_stats(state: State<'_, AppState>) -> Result<Vec<PoolStats>, String> {
-    Ok(state.connection_manager.pool_stats())
 }
 
 /// Plan a single statement.

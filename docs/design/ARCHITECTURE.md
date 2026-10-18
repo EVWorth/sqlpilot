@@ -961,10 +961,6 @@ async fn connection_health(connection_id: String) -> Result<Option<ConnectionHea
 #[tauri::command]
 async fn ping_connection(connection_id: String) -> Result<ConnectionHealth, String>;
 
-/// How full each live pool is, for the status bar (FR-1.2.3).
-#[tauri::command]
-async fn pool_stats() -> Result<Vec<PoolStats>, String>;
-
 /// Anything that went wrong before the window existed — no saved
 /// connections, no history, a data folder that will not persist. Empty is
 /// the ordinary case. Nothing in startup panics: a process that vanishes
@@ -2140,7 +2136,7 @@ Migration chain (each `.ok()` swallows failures — silent failure mode that nee
 | v0.3.x    | `query_timeout_secs` INTEGER   | per-query timeout               |
 | v0.3.x    | `charset` TEXT                 | per-connection charset override |
 
-No `password_ref` column (passwords live in OS keyring, not SQL). No `sort_order` column (ordering derived from `updated_at` at read time). No `pool_config` JSON blob (pool settings are two separate columns `pool_min` / `pool_max`).
+No `password_ref` column (passwords live in OS keyring, not SQL). No `sort_order` column (ordering derived from `updated_at` at read time). No `pool_config` JSON blob. `pool_min` / `pool_max` are still stored but no longer read: connections are not sized per profile (#731).
 
 ### Query history — in SQLite; favorites — not
 

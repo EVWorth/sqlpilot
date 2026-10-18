@@ -50,7 +50,6 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
     testResult,
     testing,
     saving,
-    poolProblems,
     canSave,
     handleChange,
     handleSSLChange,
@@ -114,7 +113,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
             onChange={handleSSHChange}
           />
         )}
-        {activeTab === "advanced" && <AdvancedTab form={form} onChange={handleChange} poolProblems={poolProblems} />}
+        {activeTab === "advanced" && <AdvancedTab form={form} onChange={handleChange} />}
       </div>
 
       {testResult && (

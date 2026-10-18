@@ -1,24 +1,19 @@
 import { create } from "zustand";
-import type { ConnectionHealth, PoolStats } from "../lib/bindings";
+import type { ConnectionHealth } from "../lib/bindings";
 import { events } from "../lib/bindings";
 import { api } from "../lib/tauri-api";
 
 /**
- * Whether each live connection is still answering, and how full its pool is.
+ * Whether each live connection is still answering.
  *
  * The backend pings every connection on a schedule and reports the changes;
  * this holds the last word on each. Before it existed, a tab whose server had
  * gone looked exactly like one whose server was fine, right up until the next
  * query failed with "Connection not found" (#276).
- *
- * Pool usage is polled rather than pushed: it changes with every query and
- * nobody needs to know within the second, so a heartbeat is cheaper than a
- * stream (FR-1.2.3).
  */
 interface ConnectionHealthState {
   /** By connection id. Absent means nothing has been reported yet. */
   health: Record<string, ConnectionHealth>;
-  pools: Record<string, PoolStats>;
 
   /** Start listening. Returns the teardown, for the effect that called it. */
   start: () => Promise<() => void>;
@@ -28,40 +23,22 @@ interface ConnectionHealthState {
   forget: (connectionId: string) => void;
 }
 
-/** How often pool usage is re-read. */
-const POOL_POLL_MS = 3000;
-
 export const useConnectionHealthStore = create<ConnectionHealthState>((set, get) => ({
   health: {},
-  pools: {},
 
   start: async () => {
     const unlisten = await events.connectionHealthEvent.listen((e) => {
       const health = e.payload;
       set((state) => ({ health: { ...state.health, [health.connectionId]: health } }));
     }).catch((e) => {
-      // A listener that cannot attach means no live updates; the poll below
-      // still keeps the pool numbers moving, and a query still reports its
-      // own failure. Not a reason to leave the app in a broken state.
+      // A listener that cannot attach means no live updates; a query still
+      // reports its own failure. Not a reason to leave the app in a broken
+      // state.
       console.warn("Could not subscribe to connection health events", e);
       return () => {};
     });
 
-    const readPools = async () => {
-      try {
-        const stats = await api.poolStats();
-        set({ pools: Object.fromEntries(stats.map((s) => [s.connectionId, s])) });
-      } catch {
-        // A failed read is not news; the next one is three seconds away.
-      }
-    };
-    void readPools();
-    const timer = setInterval(() => void readPools(), POOL_POLL_MS);
-
-    return () => {
-      clearInterval(timer);
-      unlisten();
-    };
+    return unlisten;
   },
 
   refresh: async (connectionId) => {
@@ -87,11 +64,8 @@ export const useConnectionHealthStore = create<ConnectionHealthState>((set, get)
   },
 
   forget: (connectionId) => {
-    const { health, pools } = get();
-    const nextHealth = { ...health };
-    const nextPools = { ...pools };
+    const nextHealth = { ...get().health };
     delete nextHealth[connectionId];
-    delete nextPools[connectionId];
-    set({ health: nextHealth, pools: nextPools });
+    set({ health: nextHealth });
   },
 }));

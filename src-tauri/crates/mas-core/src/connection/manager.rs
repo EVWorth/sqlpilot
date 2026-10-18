@@ -15,8 +15,9 @@ use std::time::Instant;
 /// out" (#731). Each lane is its own pool, so work can only exhaust its own.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Lane {
-    /// The editor, schema browsing and the admin panel. Sized by the profile's
-    /// "Max pool size".
+    /// Schema browsing, dialogs, the admin panel and statements the app runs
+    /// for them. Editor tabs have sessions of their own (`Route::Session`).
+    /// A fixed size, [`INTERACTIVE_LANE_MAX`].
     Interactive,
     /// Everything an agent does over MCP. FR-6.3.2: a runaway agent query
     /// cannot starve the user's.
@@ -67,7 +68,6 @@ pub struct ActiveConnection {
     /// were in force when it was opened.
     pub query_timeout_secs: Option<u32>,
     pub read_only: bool,
-    pub pool_max: u32,
     pub acquire_timeout_secs: u64,
     /// Who the server sees this connection as, for the audit line on a write.
     pub actor: String,
@@ -145,36 +145,16 @@ pub struct ConnectionManager {
     health_events: tokio::sync::broadcast::Sender<super::health::ConnectionHealth>,
 }
 
-/// How much of a pool is in use, for the status bar (FR-1.2.3).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, specta::Type)]
-#[serde(rename_all = "camelCase")]
-pub struct PoolStats {
-    pub connection_id: String,
-    /// Connections the pool holds, open or idle.
-    pub size: u32,
-    /// Of those, how many are not in use.
-    pub idle: u32,
-    /// What the profile allows.
-    pub max: u32,
-}
-
-/// The smallest and largest pool a profile may open.
+/// Connections the interactive lane holds: what is left once editor tabs, the
+/// agent and backups each have their own.
 ///
-/// FR-1.2.3: "configurable pool size (default: 5, max: 50)". The ceiling is
-/// not arbitrary — every pooled connection is a server thread, and fifty per
-/// profile across a handful of profiles is already more than most servers'
-/// `max_connections` allows for one client.
-pub const POOL_MAX_LIMIT: u32 = 50;
-
-/// Bring a stored pool size into range.
-///
-/// A max of zero makes sqlx panic, and a min above the max makes it refuse to
-/// build the pool at all — neither is something a user should meet because a
-/// number in a form was wrong.
-pub fn clamped_pool_sizing(min: u32, max: u32) -> (u32, u32) {
-    let max = max.clamp(1, POOL_MAX_LIMIT);
-    (min.min(max), max)
-}
+/// That is the schema tree, dialogs, the admin panel and the statements the
+/// app composes for them — short reads, a few at a time when the tree expands
+/// several nodes. Fixed rather than a profile setting (#731): no other client
+/// asks its users to size a pool, and with the long-running work moved off
+/// this lane there is no number a user could choose better. One would let a
+/// slow `information_schema` read stall the tree; three keeps it moving.
+pub const INTERACTIVE_LANE_MAX: u32 = 3;
 
 /// Refuse a profile whose traffic the user expects to be tunnelled.
 ///
@@ -236,19 +216,6 @@ impl ConnectionManager {
             .and_then(|conn| conn.health.read().ok().map(|h| h.clone()))
     }
 
-    /// How full each live pool is.
-    pub fn pool_stats(&self) -> Vec<PoolStats> {
-        self.connections
-            .iter()
-            .map(|entry| PoolStats {
-                connection_id: entry.key().clone(),
-                size: entry.pool.size(),
-                idle: entry.pool.num_idle() as u32,
-                max: entry.pool_max,
-            })
-            .collect()
-    }
-
     #[tracing::instrument(skip(self, profile), fields(host = %profile.host, port = %profile.port, user = %profile.username))]
     pub async fn connect(&self, profile: &ConnectionProfile) -> Result<ConnectionInfo, CoreError> {
         refuse_unimplemented_ssh(profile)?;
@@ -257,8 +224,6 @@ impl ConnectionManager {
 
         tracing::debug!(
             connection_id = %conn_id,
-            pool_min = profile.pool_min,
-            pool_max = profile.pool_max,
             default_database = ?profile.default_database,
             "Creating connection pool"
         );
@@ -285,27 +250,13 @@ impl ConnectionManager {
         tracing::debug!(connection_id = %conn_id, "Connecting to MySQL server");
 
         let own_threads: Arc<dashmap::DashSet<u64>> = Arc::new(dashmap::DashSet::new());
-        // FR-1.2.3 sets the range; a profile can hold anything, including a
-        // zero max (which sqlx panics on) or a min above the max (which it
-        // refuses). Clamping here means a stored profile from an older build,
-        // or one edited by hand, still connects.
-        let (pool_min, pool_max) = clamped_pool_sizing(profile.pool_min, profile.pool_max);
-        if pool_min != profile.pool_min || pool_max != profile.pool_max {
-            tracing::warn!(
-                profile = %profile.name,
-                stored_min = profile.pool_min,
-                stored_max = profile.pool_max,
-                used_min = pool_min,
-                used_max = pool_max,
-                "Pool sizing was out of range and has been clamped"
-            );
-        }
-
         let acquire_timeout =
             std::time::Duration::from_secs(profile.connect_timeout_secs.unwrap_or(10) as u64);
         let pool = lane_pool_options(&charset, &own_threads)
-            .min_connections(pool_min)
-            .max_connections(pool_max)
+            // One kept open, so the schema tree's first read after a quiet
+            // spell does not pay for a handshake.
+            .min_connections(1)
+            .max_connections(INTERACTIVE_LANE_MAX)
             .acquire_timeout(acquire_timeout)
             .idle_timeout(std::time::Duration::from_secs(300))
             .connect_with(options.clone())
@@ -417,7 +368,6 @@ impl ConnectionManager {
                 _stop_health: stop_health,
                 query_timeout_secs: profile.query_timeout_secs,
                 read_only: profile.read_only,
-                pool_max,
                 acquire_timeout_secs: profile.connect_timeout_secs.unwrap_or(10) as u64,
                 actor: format!("{}@{}:{}", profile.username, profile.host, profile.port),
                 own_threads: Arc::clone(&own_threads),
@@ -630,7 +580,7 @@ impl ConnectionManager {
     pub fn pool_limits(&self, connection_id: &str, lane: Lane) -> Option<(String, u32, u64, u32)> {
         self.connections.get(connection_id).map(|conn| {
             let max = match lane {
-                Lane::Interactive => conn.pool_max,
+                Lane::Interactive => INTERACTIVE_LANE_MAX,
                 Lane::Agent => AGENT_LANE_MAX,
                 Lane::Job => JOB_LANE_MAX,
             };
@@ -811,37 +761,5 @@ mod ssh_refusal_tests {
         // cleared; that is not a request to tunnel anywhere.
         assert!(refuse_unimplemented_ssh(&with_ssh("")).is_ok());
         assert!(refuse_unimplemented_ssh(&with_ssh("   ")).is_ok());
-    }
-}
-
-#[cfg(test)]
-mod pool_sizing_tests {
-    use super::*;
-
-    #[test]
-    fn the_ordinary_case_is_left_alone() {
-        assert_eq!(clamped_pool_sizing(1, 5), (1, 5));
-        assert_eq!(clamped_pool_sizing(2, 50), (2, 50));
-    }
-
-    #[test]
-    fn a_max_of_zero_becomes_one() {
-        // sqlx panics on a zero-max pool, and a profile can hold one. A min of
-        // zero is left alone: it is valid, and means the pool opens a
-        // connection when one is first asked for.
-        assert_eq!(clamped_pool_sizing(0, 0), (0, 1));
-        assert_eq!(clamped_pool_sizing(3, 0), (1, 1));
-    }
-
-    #[test]
-    fn a_max_above_the_ceiling_is_brought_down() {
-        // Every pooled connection is a server thread; FR-1.2.3 caps it at 50.
-        assert_eq!(clamped_pool_sizing(1, 5000), (1, POOL_MAX_LIMIT));
-    }
-
-    #[test]
-    fn a_min_above_the_max_is_brought_down_to_it() {
-        // sqlx refuses to build the pool otherwise.
-        assert_eq!(clamped_pool_sizing(20, 5), (5, 5));
     }
 }

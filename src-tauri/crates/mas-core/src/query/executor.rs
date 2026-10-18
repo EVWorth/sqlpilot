@@ -644,7 +644,7 @@ impl QueryExecutor {
             // Dropping it here instead — which is what this did — leaves sqlx
             // to drain the connection's remaining packets before it can go
             // back to the pool, and on MariaDB that drain never finishes: the
-            // connection stays checked out for good. `pool_max` timeouts then
+            // connection stays checked out for good. Enough such timeouts then
             // exhaust the pool, after which the *next* timeout waits for a
             // statement to end naturally rather than at its deadline, and
             // `disconnect` hangs on `pool.close()` for ever. MySQL happened to
@@ -730,7 +730,7 @@ async fn drain_after_kill(
 /// Abort the statement running on `thread_id` without dropping its session.
 ///
 /// This needs a connection of its own — the one being killed is busy — so a
-/// pool with `pool_max = 1` cannot cancel. That surfaces as an acquire timeout
+/// pool of one connection cannot cancel. That surfaces as an acquire timeout
 /// rather than a hang.
 async fn kill_query(pool: &sqlx::MySqlPool, thread_id: u64) -> Result<(), CoreError> {
     // thread_id is a u64 read back from the server, not user input.

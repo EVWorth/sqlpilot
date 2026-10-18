@@ -27,7 +27,7 @@ describe("StatusBar", () => {
     vi.clearAllMocks();
     useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
     useStorageErrorStore.setState({ errors: {} });
-    useConnectionHealthStore.setState({ health: {}, pools: {} });
+    useConnectionHealthStore.setState({ health: {} });
 
     useConnectionStore.setState({
       activeConnections: [
@@ -684,7 +684,7 @@ describe("StatusBar connection health (#276, FR-1.2.3)", () => {
     vi.clearAllMocks();
     useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
     useStorageErrorStore.setState({ errors: {} });
-    useConnectionHealthStore.setState({ health: {}, pools: {} });
+    useConnectionHealthStore.setState({ health: {} });
     useConnectionStore.setState({
       activeConnections: [
         {
@@ -745,27 +745,10 @@ describe("StatusBar connection health (#276, FR-1.2.3)", () => {
     expect(screen.queryByTestId("connection-lost")).toBeNull();
   });
 
-  it("shows how much of the pool is in use", () => {
-    useConnectionHealthStore.setState({
-      pools: { "conn-1": { connectionId: "conn-1", size: 4, idle: 1, max: 5 } },
-    });
-    render(<StatusBar />);
-    // Three of five busy: FR-1.2.3's "pool statistics visible in status bar".
-    expect(screen.getByTestId("pool-stats").textContent).toContain("3/5");
-  });
-
-  it("marks a pool that has nothing left to give", () => {
-    // The state where the next query waits rather than runs.
-    useConnectionHealthStore.setState({
-      pools: { "conn-1": { connectionId: "conn-1", size: 5, idle: 0, max: 5 } },
-    });
-    render(<StatusBar />);
-    expect(screen.getByTestId("pool-stats").className).toContain("--color-warning");
-  });
-
-  it("shows no pool figure before the first reading", () => {
+  it("shows no pool figure: there is no pool for a user to size (#731)", () => {
     render(<StatusBar />);
     expect(screen.queryByTestId("pool-stats")).toBeNull();
+    expect(screen.queryByText(/pool/i)).toBeNull();
   });
 });
 
@@ -783,7 +766,7 @@ describe("what went wrong before the window existed", () => {
     vi.mocked(api.startupProblems).mockResolvedValue([]);
     useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
     useStorageErrorStore.setState({ errors: {} });
-    useConnectionHealthStore.setState({ health: {}, pools: {} });
+    useConnectionHealthStore.setState({ health: {} });
     useConnectionStore.setState({ activeConnections: [], selectedConnectionId: null } as any);
   });
 

@@ -54,7 +54,6 @@ describe("useConnectionForm (#275)", () => {
     const { result } = renderHook(() => useConnectionForm(true));
     expect(result.current.form.host).toBe("127.0.0.1");
     expect(result.current.form.port).toBe(3306);
-    expect(result.current.form.pool_max).toBe(5);
     expect(result.current.form.id).toMatch(/[0-9a-f-]{36}/);
   });
 
@@ -66,15 +65,6 @@ describe("useConnectionForm (#275)", () => {
     expect(result.current.canSave).toBe(true);
 
     act(() => result.current.handleChange("host", ""));
-    expect(result.current.canSave).toBe(false);
-  });
-
-  it("cannot save a pool sizing the server would refuse", () => {
-    const { result } = renderHook(() => useConnectionForm(true));
-    act(() => result.current.handleChange("name", "Local"));
-    act(() => result.current.handleChange("pool_max", 0));
-
-    expect(result.current.poolProblems.max).toBeDefined();
     expect(result.current.canSave).toBe(false);
   });
 
