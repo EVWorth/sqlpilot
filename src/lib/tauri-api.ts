@@ -212,6 +212,17 @@ export const api = {
   closeSession: (connectionId: string, session: string) =>
     unwrap("close_session", () => commands.closeSession(connectionId, session)),
 
+  /**
+   * Save grid edits on an editor tab's session, inside its transaction when
+   * one is open and never committing it (#735). Null when the session could
+   * not say whether a transaction is open; nothing was applied then.
+   */
+  applyGridEdits: (connectionId: string, session: string, database: string | undefined, statements: string[]) =>
+    unwrap(
+      "apply_grid_edits",
+      () => commands.applyGridEdits(connectionId, session, orNull(database), statements),
+    ),
+
   // Schema
   getDatabases: (connectionId: string) => unwrap("get_databases", () => commands.getDatabases(connectionId)),
 

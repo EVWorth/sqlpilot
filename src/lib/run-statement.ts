@@ -1,6 +1,7 @@
 import { useConnectionStore } from "../stores/connectionStore";
 import { useHistoryStore } from "../stores/historyStore";
 import type { QueryResult } from "../types";
+import type { GridEditOutcome } from "./bindings";
 import { api, CommandError } from "./tauri-api";
 
 /**
@@ -94,6 +95,67 @@ export async function runStatement(
   }
 }
 
+export interface RunGridEditsOptions {
+  connectionId: string;
+  /** The editor tab whose result is being edited. */
+  session: string;
+  database?: string;
+  statements: string[];
+}
+
+/**
+ * Save grid edits on the editor tab's session and record them, as
+ * `runStatement` does for everything else (#735).
+ *
+ * Resolves to null when the session could not say whether a transaction is
+ * open. Nothing was applied or recorded then, and the caller falls back to
+ * `runStatement` on the shared pool.
+ */
+export async function runGridEdits(options: RunGridEditsOptions): Promise<GridEditOutcome | null> {
+  const { connectionId, session, database, statements } = options;
+  const startTime = Date.now();
+  const connection = useConnectionStore
+    .getState()
+    .activeConnections.find((c) => c.id === connectionId);
+
+  try {
+    const outcome = await api.applyGridEdits(connectionId, session, database, statements);
+    if (outcome) {
+      try {
+        recordRows({
+          rows: statements.map((sql) => ({ sql, rowCount: 0 })),
+          connection,
+          database,
+          origin: "grid",
+          startTime,
+        });
+      } catch (e) {
+        console.warn("Could not record query history", e);
+      }
+    }
+    return outcome;
+  } catch (e) {
+    if (connection) {
+      const structured = e instanceof CommandError ? e : undefined;
+      void useHistoryStore.getState().addEntry({
+        id: crypto.randomUUID(),
+        sql: statements.join(";\n"),
+        connectionName: connection.name,
+        database: database ?? connection.database ?? null,
+        executedAt: new Date().toISOString(),
+        executionTimeMs: Date.now() - startTime,
+        rowCount: 0,
+        status: "error",
+        error: structured?.message ?? String(e),
+        errorCode: structured?.code ?? null,
+        errorSqlState: structured?.sqlState ?? null,
+        origin: "grid",
+      });
+    }
+    throw e;
+  }
+}
+
 function record(
   { results, sql, connection, database, origin, startTime }: {
     results: QueryResult[];
@@ -104,10 +166,6 @@ function record(
     startTime: number;
   },
 ) {
-  const recordedAt = new Date().toISOString();
-  const elapsed = Date.now() - startTime;
-  const history = useHistoryStore.getState();
-
   // One entry per statement, matching the editor path (#329). A statement that
   // produced no result set still ran, so an empty result list records the
   // statement as sent rather than nothing at all.
@@ -116,6 +174,21 @@ function record(
     // defensively rather than trusting every backend shape.
     ? results.map((r) => ({ sql: r.sql || sql, rowCount: r.rows?.length ?? 0 }))
     : [{ sql, rowCount: 0 }];
+  recordRows({ rows, connection, database, origin, startTime });
+}
+
+function recordRows(
+  { rows, connection, database, origin, startTime }: {
+    rows: { sql: string; rowCount: number }[];
+    connection?: { name: string; database?: string | null };
+    database?: string;
+    origin: StatementOrigin;
+    startTime: number;
+  },
+) {
+  const recordedAt = new Date().toISOString();
+  const elapsed = Date.now() - startTime;
+  const history = useHistoryStore.getState();
 
   for (const row of rows) {
     void history.addEntry({

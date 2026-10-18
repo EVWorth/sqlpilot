@@ -174,6 +174,40 @@ describe("resultStore", () => {
     });
   });
 
+  describe("result source (#735)", () => {
+    // A grid edit to the result on screen is saved on the session it was
+    // read on, and the refresh after it reads from there too.
+    it("remembers the tab session and database the result was read on", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM tmp", "shop", "tab-7");
+
+      expect(useResultStore.getState().resultSource).toEqual({
+        connectionId: "conn-1",
+        database: "shop",
+        session: "tab-7",
+      });
+    });
+
+    it("forgets it when the results go", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "shop", "tab-7");
+
+      useResultStore.getState().clearResults();
+
+      expect(useResultStore.getState().resultSource).toBeNull();
+    });
+
+    it("forgets it when the statement fails", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "shop", "tab-7");
+      executeQueryMock.mockRejectedValue(new Error("Table 'shop.nope' doesn't exist"));
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM nope", "shop", "tab-7");
+
+      expect(useResultStore.getState().resultSource).toBeNull();
+    });
+  });
+
   describe("paging (#391)", () => {
     /** A page that came back exactly full, which is how "there may be more" is known. */
     const fullPage = () => makeQueryResult({ rows: Array.from({ length: 1000 }, () => ["x"]) });

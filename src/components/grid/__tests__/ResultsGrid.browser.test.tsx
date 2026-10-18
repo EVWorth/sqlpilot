@@ -83,6 +83,7 @@ vi.mock("../../../stores/connectionStore", () => ({
 
 // ─── Hook mocks ───────────────────────────────────────────────
 vi.mock("../../../lib/run-statement", () => ({
+  runGridEdits: vi.fn(async () => null),
   runStatement: vi.fn(async () => []),
 }));
 
