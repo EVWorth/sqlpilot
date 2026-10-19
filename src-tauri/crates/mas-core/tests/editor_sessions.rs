@@ -1,5 +1,5 @@
 use chrono::Utc;
-use mas_core::connection::{ConnectionManager, Lane, Route};
+use mas_core::connection::{ConnectionManager, Route};
 use mas_core::models::{ConnectionProfile, SqlValue};
 use mas_core::query::{explain_in, ExplainFormat, QueryExecutor};
 use std::sync::Arc;
@@ -249,7 +249,7 @@ async fn a_tab_with_a_session_runs_while_the_shared_pool_is_full() {
     let (manager, executor, id) = connect(5).await;
     run(&executor, &id, "tab-1", "SELECT 1").await.unwrap();
 
-    let shared = manager.get_lane_pool(&id, Lane::Interactive).unwrap();
+    let shared = manager.get_pool(&id).unwrap();
     let mut held = Vec::new();
     for _ in 0..shared.options().get_max_connections() {
         held.push(shared.acquire().await.unwrap());

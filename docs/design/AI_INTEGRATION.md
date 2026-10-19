@@ -199,8 +199,10 @@ it is why the approval model above is load-bearing rather than decorative.
 
 A session is a harness process attached to a connection and a database.
 
-- It gets **its own pooled connection**, its own query timeout and its own
-  grants, so a runaway agent query cannot starve the user's own pool.
+- It gets **its own database connections** (up to two, since agents call
+  tools in parallel; opened on first use, closed when idle or when the
+  session ends), its own query timeout and its own grants, so a runaway agent
+  query can hold up neither the user nor another agent (#731).
 - Grants are per session and expire with it. "This session may read values from
   `customers`" is a thing the user says once, to one session, not a global
   setting they forget about.

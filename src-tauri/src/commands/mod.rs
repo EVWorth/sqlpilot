@@ -3,7 +3,7 @@ pub mod backup;
 pub mod sqlite;
 
 use mas_admin::AdminService;
-use mas_core::connection::{ConnectionHealth, ConnectionManager, ConnectionStore, Lane, Route};
+use mas_core::connection::{ConnectionHealth, ConnectionManager, ConnectionStore, Route};
 use mas_core::history::{
     render_export, HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistoryStore,
 };
@@ -393,7 +393,7 @@ pub async fn explain_query(
 ) -> Result<ExplainResponse, String> {
     let route = match session {
         Some(session) => Route::Session(session),
-        None => Route::Lane(Lane::Interactive),
+        None => Route::Interactive,
     };
     mas_core::query::explain_in(
         route,

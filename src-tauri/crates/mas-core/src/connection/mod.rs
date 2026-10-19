@@ -4,7 +4,7 @@ pub mod migrations;
 pub mod store;
 
 pub use health::ConnectionHealth;
-pub use manager::{ConnectionManager, Lane, Route};
+pub use manager::{ConnectionManager, JobConnection, Route};
 pub use store::ConnectionStore;
 
 pub fn init_keyring(store: std::sync::Arc<keyring_core::CredentialStore>) {
@@ -15,19 +15,17 @@ pub fn init_keyring(store: std::sync::Arc<keyring_core::CredentialStore>) {
 ///
 /// sqlx reports it as "pool timed out while waiting for an open connection",
 /// which says nothing about whose connections they are or what is holding
-/// them (#279). Every lane is a fixed size (#731), so the message says which
-/// part of the app is busy and what to wait for, not a number to change.
+/// them (#279). Every kind of work has a fixed number of connections of its
+/// own (#731), so the message says which one is busy and what to wait for,
+/// not a number to change.
 ///
 /// Only for a pool that is already up and serving. A pool that has never
 /// opened a connection reports the same error for a completely different
 /// reason, and [`describe_first_connect_failure`] is the one for that.
 pub fn describe_pool_error(
     error: &sqlx::Error,
-    profile_name: &str,
-    pool_max: u32,
-    acquire_timeout_secs: u64,
-    connections_held: u32,
-    lane: manager::Lane,
+    limits: &manager::PoolLimits,
+    route: &Route,
     // Queries this app knows are in flight on the interactive lane. Only read
     // for that lane: the others say what they are by being full.
     editor_running: usize,
@@ -36,17 +34,23 @@ pub fn describe_pool_error(
         return None;
     }
     // Holding none of them means none are busy: the server went away, or was
-    // never there. Whatever that is, it is not a limit the user set too low,
-    // so the driver's own error is left to speak for itself.
-    if connections_held == 0 {
+    // never there. Whatever that is, it is not something busy, so the
+    // driver's own error is left to speak for itself.
+    if limits.held == 0 {
         return None;
     }
-    let message = match lane {
-        manager::Lane::Interactive => {
+    let manager::PoolLimits {
+        profile_name,
+        max,
+        acquire_timeout_secs,
+        ..
+    } = limits;
+    let message = match route {
+        Route::Interactive => {
             // What is actually on those connections, as far as the app knows.
-            // Without it the message could only repeat a number the user set
-            // themselves, which is why the first report of this read "no idea
-            // what's going on with the different connections".
+            // Without it the message could only repeat a number, which is why
+            // the first report of this read "no idea what's going on with the
+            // different connections".
             //
             // The advice has to match the situation. Telling someone to wait
             // for queries when none are running sends them to watch nothing;
@@ -62,52 +66,32 @@ pub fn describe_pool_error(
                 n => format!("{n} queries are still running. Wait for them to finish."),
             };
             format!(
-                "All {pool_max} of SQLPilot's connections to \"{profile_name}\" for schema \
+                "All {max} of SQLPilot's connections to \"{profile_name}\" for schema \
                  browsing, dialogs and admin are busy, and none freed up within \
                  {acquire_timeout_secs}s. Editor tabs have their own connections and are not \
                  affected. {explanation}"
             )
         }
-        manager::Lane::Agent => format!(
-            "The agent is already using all {pool_max} of its connections to \
+        // A session is one connection, so the only way it can be taken is by
+        // the tab's own previous statement still running on it. A second
+        // connection would not help: it would not have the tab's session
+        // state.
+        Route::Session(_) => format!(
+            "This tab is still running its previous statement on \"{profile_name}\", and it did \
+             not finish within {acquire_timeout_secs}s. Each tab runs on its own session, one \
+             statement at a time; wait for it to finish, or cancel it."
+        ),
+        Route::Agent(_) => format!(
+            "This agent session is already using both of its connections to \
              \"{profile_name}\" and none freed up within {acquire_timeout_secs}s. Wait for its \
-             running queries or staged writes to finish, or cancel them. The agent has its own \
-             connections, so the editor is not affected."
+             running queries to finish, or cancel them. Each agent session has its own \
+             connections, so the editor and other agents are not affected."
         ),
-        manager::Lane::Job => format!(
-            "{pool_max} backups or restores are already running on \"{profile_name}\" and none \
-             finished within {acquire_timeout_secs}s. Wait for one to finish before starting \
-             another. They have their own connections, so the editor is not affected."
-        ),
+        // A job's connection is its own and used by nothing else, so it
+        // cannot be busy with anything but the job itself.
+        Route::Job(_) => return None,
     };
     Some(crate::error::CoreError::PoolExhausted(message))
-}
-
-/// Turn a timed-out acquire on an editor tab's session into something a user
-/// can act on.
-///
-/// A session is one connection, so the only way it can be taken is by the
-/// tab's own previous statement still running on it. A second connection
-/// would not help: it would not have the tab's session state.
-pub fn describe_session_busy(
-    error: &sqlx::Error,
-    profile_name: &str,
-    acquire_timeout_secs: u64,
-    connections_held: u32,
-) -> Option<crate::error::CoreError> {
-    if !matches!(error, sqlx::Error::PoolTimedOut) {
-        return None;
-    }
-    // Same reading as for a lane: holding nothing means the server went away,
-    // and the driver's own error says that better than a guess would.
-    if connections_held == 0 {
-        return None;
-    }
-    Some(crate::error::CoreError::PoolExhausted(format!(
-        "This tab is still running its previous statement on \"{profile_name}\", and it did \
-         not finish within {acquire_timeout_secs}s. Each tab runs on its own session, one \
-         statement at a time; wait for it to finish, or cancel it."
-    )))
 }
 
 /// Why a brand-new pool could not open its first connection.
@@ -223,17 +207,23 @@ fn diagnose_connect_error(error: &sqlx::Error, host: &str, port: u16) -> String 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use manager::Lane;
+    use manager::PoolLimits;
+
+    fn limits(max: u32, held: u32) -> PoolLimits {
+        PoolLimits {
+            profile_name: "prod-eu".to_string(),
+            max,
+            acquire_timeout_secs: 10,
+            held,
+        }
+    }
 
     /// What a timed-out acquire on `prod-eu` (5 connections, 10s) reads as.
-    fn full(held: u32, lane: Lane, editor_running: usize) -> Option<String> {
+    fn full(held: u32, route: Route, editor_running: usize) -> Option<String> {
         describe_pool_error(
             &sqlx::Error::PoolTimedOut,
-            "prod-eu",
-            5,
-            10,
-            held,
-            lane,
+            &limits(5, held),
+            &route,
             editor_running,
         )
         .map(|e| e.to_string())
@@ -244,7 +234,7 @@ mod tests {
         // sqlx says only "pool timed out while waiting for an open connection",
         // which names neither whose connections they are nor what holds them
         // (#279).
-        let message = full(5, Lane::Interactive, 3).expect("a pool timeout should be described");
+        let message = full(5, Route::Interactive, 3).expect("a pool timeout should be described");
         assert!(message.contains("prod-eu"), "{message}");
         assert!(message.contains("schema browsing"), "{message}");
         assert!(message.contains("10s"), "{message}");
@@ -259,10 +249,10 @@ mod tests {
         // different connections", which is the right complaint: the old message
         // could only quote a number the user had set themselves. The app knows
         // what it has running, so it should say.
-        let three = full(5, Lane::Interactive, 3).expect("a full pool is described");
+        let three = full(5, Route::Interactive, 3).expect("a full pool is described");
         assert!(three.contains("3 queries are still running"), "{three}");
 
-        let one = full(5, Lane::Interactive, 1).expect("a full pool is described");
+        let one = full(5, Route::Interactive, 1).expect("a full pool is described");
         assert!(one.contains("One query is still running"), "{one}");
     }
 
@@ -272,7 +262,7 @@ mod tests {
         // the admin panel, or a connection never given back. "Wait for your
         // queries" would send someone to watch nothing, and calling it a bug
         // outright would be wrong whenever schema browsing is simply slow.
-        let message = full(5, Lane::Interactive, 0).expect("a full pool is described");
+        let message = full(5, Route::Interactive, 0).expect("a full pool is described");
         assert!(message.contains("No queries are running"), "{message}");
         assert!(message.contains("Schema browsing"), "{message}");
         assert!(message.contains("reconnecting frees them"), "{message}");
@@ -285,7 +275,7 @@ mod tests {
         // out on acquire, which looks identical to saturation from the error
         // alone. Zero connections held is what tells them apart.
         assert!(
-            full(0, Lane::Interactive, 0).is_none(),
+            full(0, Route::Interactive, 0).is_none(),
             "an empty pool should fall through to the driver's own error"
         );
     }
@@ -339,56 +329,36 @@ mod tests {
     }
 
     #[test]
-    fn a_full_agent_lane_does_not_blame_the_profile() {
-        // What someone can do about a full agent lane is wait for, or cancel,
-        // what the agent is running (#731).
-        let message = describe_pool_error(
-            &sqlx::Error::PoolTimedOut,
-            "prod-eu",
-            2,
-            10,
-            2,
-            Lane::Agent,
-            0,
-        )
-        .expect("a full agent lane is described")
-        .to_string();
-        assert!(message.contains("agent"), "{message}");
+    fn a_full_agent_session_says_the_agent_is_the_reason() {
+        // What someone can do about a full agent session is wait for, or
+        // cancel, what the agent is running (#731).
+        let message = full(2, Route::Agent("agent-1".to_string()), 0)
+            .expect("a full agent session is described");
+        assert!(message.contains("agent session"), "{message}");
         assert!(message.contains("prod-eu"), "{message}");
-        assert!(message.contains("editor is not affected"), "{message}");
-        assert!(!message.contains("Max pool size"), "{message}");
+        assert!(
+            message.contains("editor and other agents are not affected"),
+            "{message}"
+        );
     }
 
     #[test]
-    fn a_full_job_lane_says_backups_are_the_reason() {
-        let message = describe_pool_error(
-            &sqlx::Error::PoolTimedOut,
-            "prod-eu",
-            2,
-            10,
-            2,
-            Lane::Job,
-            0,
-        )
-        .expect("a full job lane is described")
-        .to_string();
-        assert!(message.contains("backups or restores"), "{message}");
-        assert!(!message.contains("Max pool size"), "{message}");
+    fn a_job_is_never_described_as_busy() {
+        // A job's connection is used by nothing but the job.
+        assert!(full(1, Route::Job("job-1".to_string()), 0).is_none());
     }
 
     #[test]
     fn a_busy_tab_session_says_the_tab_is_busy() {
         // A session is one connection: the only thing that can be holding it
         // is the tab's own earlier statement, so that is what the message says.
-        let message = describe_session_busy(&sqlx::Error::PoolTimedOut, "prod-eu", 10, 1)
-            .expect("a busy session is described")
-            .to_string();
+        let tab = || Route::Session("tab-1".to_string());
+        let message = full(1, tab(), 0).expect("a busy session is described");
         assert!(message.contains("This tab is still running"), "{message}");
         assert!(message.contains("prod-eu"), "{message}");
-        assert!(!message.contains("Max pool size"), "{message}");
         // A session holding nothing timed out for another reason entirely.
-        assert!(describe_session_busy(&sqlx::Error::PoolTimedOut, "prod-eu", 10, 0).is_none());
-        assert!(describe_session_busy(&sqlx::Error::RowNotFound, "prod-eu", 10, 1).is_none());
+        assert!(full(0, tab(), 0).is_none());
+        assert!(describe_pool_error(&sqlx::Error::RowNotFound, &limits(1, 1), &tab(), 0).is_none());
     }
 
     #[test]
@@ -396,9 +366,7 @@ mod tests {
         // Only the pool case gets rewritten; everything else keeps whatever
         // the driver said, which is usually more specific than we could be.
         for other in [sqlx::Error::RowNotFound, sqlx::Error::WorkerCrashed] {
-            assert!(
-                describe_pool_error(&other, "prod-eu", 5, 10, 5, Lane::Interactive, 0).is_none()
-            );
+            assert!(describe_pool_error(&other, &limits(5, 5), &Route::Interactive, 0).is_none());
         }
     }
 }

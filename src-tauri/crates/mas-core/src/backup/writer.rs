@@ -1,5 +1,5 @@
 use crate::backup::escape::{format_cell, shape_of, CellShape};
-use crate::connection::{describe_pool_error, ConnectionManager, Lane};
+use crate::connection::ConnectionManager;
 use crate::error::CoreError;
 use crate::schema::ident::{qualified, quote_ident};
 use crate::schema::SchemaInspector;
@@ -128,28 +128,22 @@ pub async fn run_backup(
     mut on_progress: impl FnMut(BackupProgress),
 ) -> Result<BackupSummary, CoreError> {
     let started = Instant::now();
-    // The job lane, not the editor's: a dump holds its connection for as long
-    // as it runs, and on the shared pool that was a slot the editor could not
-    // have back until it finished (#731).
-    let pool = manager.get_lane_pool(connection_id, Lane::Job)?;
-    // The metadata reads stay on the interactive lane. They are short, and on
-    // the job lane two dumps running at once would each hold one of its slots
-    // while waiting for the other for their metadata — and both time out.
+    // A connection of the dump's own: it is held for as long as the dump
+    // runs, and on the shared pool that was a slot the editor could not have
+    // back until it finished (#731). Closed when this returns, however.
+    let job = manager.start_job(connection_id)?;
+    // The metadata reads stay on the interactive lane. They are short, and
+    // the job's one connection is busy with the dump while they run.
     let inspector = SchemaInspector::new(manager.clone());
 
     // One connection for the whole dump. The pool would spread the reads over
     // several sessions, which makes a consistent snapshot impossible and
     // makes `LOCK TABLES` apply to a session that is not doing the reading.
-    let mut conn = pool.acquire().await.map_err(|e| {
-        // Two already running is the one way this lane fills, and saying
-        // so beats sqlx's "pool timed out".
-        manager
-            .pool_limits(connection_id, Lane::Job)
-            .and_then(|(name, max, timeout, held)| {
-                describe_pool_error(&e, &name, max, timeout, held, Lane::Job, 0)
-            })
-            .unwrap_or_else(|| CoreError::Connection(format!("Could not start the backup: {e}")))
-    })?;
+    let mut conn = job
+        .pool()
+        .acquire()
+        .await
+        .map_err(|e| CoreError::Connection(format!("Could not start the backup: {e}")))?;
 
     let mut warnings: Vec<String> = Vec::new();
 

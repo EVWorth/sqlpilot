@@ -21,7 +21,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use mas_core::connection::{ConnectionManager, ConnectionStore, Lane};
+use mas_core::connection::{ConnectionManager, ConnectionStore, Route};
 use mas_core::error::CoreError;
 use mas_core::history::{HistoryEntry, HistoryQuery, HistoryStore};
 use mas_core::models::query::QueryResult;
@@ -55,9 +55,14 @@ pub struct AppWorkspace {
     /// The saved profiles, so a shared connection has a policy whether or not
     /// it is connected right now.
     store: Arc<ConnectionStore>,
+    /// Schema reads, on this agent session's own connections.
     inspector: Arc<SchemaInspector>,
     executor: Arc<QueryExecutor>,
     state: McpState,
+    /// Which agent session this is. Everything it runs goes to connections of
+    /// its own, keyed by this, so neither the editor nor another agent waits
+    /// on it (#731, FR-6.3.2).
+    session: String,
 }
 
 impl AppWorkspace {
@@ -103,24 +108,76 @@ impl AppWorkspace {
         connections: Arc<ConnectionManager>,
         store: Arc<ConnectionStore>,
         history: Arc<HistoryStore>,
-        inspector: Arc<SchemaInspector>,
         executor: Arc<QueryExecutor>,
         state: McpState,
     ) -> Self {
-        Self {
+        Self::in_session(
             connections,
-            staged: Arc::new(Mutex::new(HashMap::new())),
-            history,
+            Arc::new(Mutex::new(HashMap::new())),
             store,
-            inspector,
+            history,
             executor,
             state,
+        )
+    }
+
+    /// A workspace for a new agent session, sharing everything but the
+    /// database connections.
+    fn in_session(
+        connections: Arc<ConnectionManager>,
+        staged: Arc<Mutex<HashMap<String, CoreStagedWrite>>>,
+        store: Arc<ConnectionStore>,
+        history: Arc<HistoryStore>,
+        executor: Arc<QueryExecutor>,
+        state: McpState,
+    ) -> Self {
+        let session = format!("agent-{}", uuid::Uuid::new_v4());
+        Self {
+            inspector: Arc::new(SchemaInspector::for_route(
+                connections.clone(),
+                Route::Agent(session.clone()),
+            )),
+            connections,
+            staged,
+            history,
+            store,
+            executor,
+            state,
+            session,
+        }
+    }
+
+    /// Where this session's statements run.
+    fn route(&self) -> Route {
+        Route::Agent(self.session.clone())
+    }
+}
+
+impl Drop for AppWorkspace {
+    /// The agent session is over: give its connections back now rather than
+    /// when they next sit idle for a minute.
+    fn drop(&mut self) {
+        if let Ok(runtime) = tokio::runtime::Handle::try_current() {
+            let connections = self.connections.clone();
+            let session = self.session.clone();
+            runtime.spawn(async move { connections.close_agent_session(&session).await });
         }
     }
 }
 
 #[async_trait::async_trait]
 impl Workspace for AppWorkspace {
+    fn for_session(&self) -> Option<Arc<dyn Workspace>> {
+        Some(Arc::new(Self::in_session(
+            self.connections.clone(),
+            self.staged.clone(),
+            self.store.clone(),
+            self.history.clone(),
+            self.executor.clone(),
+            self.state.clone(),
+        )))
+    }
+
     fn grants(&self) -> Grants {
         self.state.grants()
     }
@@ -306,7 +363,7 @@ impl Workspace for AppWorkspace {
     ) -> Result<ExplainResponse, CoreError> {
         let connection_id = self.live(connection_id)?;
         mas_core::query::explain_in(
-            Lane::Agent,
+            self.route(),
             &self.connections,
             &self.executor,
             connection_id,
@@ -335,12 +392,11 @@ impl Workspace for AppWorkspace {
         sql: &str,
     ) -> Result<mas_mcp::workspace::StagedWrite, CoreError> {
         let connection_id = self.live(connection_id)?;
-        // The agent's lane. A staged write holds its connection, and its row
-        // locks, until the user answers; on the shared pool that was a slot
-        // the editor could not use in the meantime (#731).
-        let pool = self
-            .connections
-            .get_lane_pool(&connection_id, Lane::Agent)?;
+        // This session's own connections. A staged write takes its
+        // connection, and its row locks, out of the pool until the user
+        // answers; on the shared pool that was a slot the editor could not
+        // use in the meantime (#731).
+        let pool = self.connections.route_pool(&connection_id, &self.route())?;
         let staged = CoreStagedWrite::begin(&pool, database, sql, STAGE_DEADLINE)
             .await
             .map_err(|e| match e {
@@ -392,12 +448,12 @@ impl Workspace for AppWorkspace {
     ) -> Result<(), CoreError> {
         // Through the same executor as everything else: one set of timeouts,
         // one cancel path, and the statement lands in history where the user
-        // can see what their agent did. On the agent's own lane, though, so it
-        // cannot take the editor's connections (#731).
+        // can see what their agent did. On this session's own connections,
+        // though, so it cannot take the editor's or another agent's (#731).
         let connection_id = self.live(connection_id)?;
         self.executor
             .execute_in(
-                Lane::Agent,
+                self.route(),
                 &connection_id,
                 sql,
                 database.map(str::to_string),
@@ -419,7 +475,7 @@ impl Workspace for AppWorkspace {
         let results = self
             .executor
             .execute_in(
-                Lane::Agent,
+                self.route(),
                 connection_id,
                 sql,
                 database.map(str::to_string),
@@ -452,7 +508,6 @@ mod tests {
             manager.clone(),
             store.clone(),
             Arc::new(HistoryStore::in_memory().unwrap()),
-            Arc::new(SchemaInspector::new(manager.clone())),
             Arc::new(QueryExecutor::new(manager)),
             McpState::default(),
         );

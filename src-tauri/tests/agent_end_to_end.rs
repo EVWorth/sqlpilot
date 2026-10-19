@@ -26,7 +26,6 @@ use mas_core::connection::{ConnectionManager, ConnectionStore};
 use mas_core::history::HistoryStore;
 use mas_core::models::ConnectionProfile;
 use mas_core::query::QueryExecutor;
-use mas_core::schema::SchemaInspector;
 use mas_mcp::endpoint;
 use mas_mcp::grants::{Grant, Grants};
 use mas_mcp::policy::DataPosture;
@@ -127,7 +126,6 @@ async fn running(posture: DataPosture) -> (Harnessed, String, String) {
         manager.clone(),
         store,
         Arc::new(HistoryStore::in_memory().unwrap()),
-        Arc::new(SchemaInspector::new(manager.clone())),
         Arc::new(QueryExecutor::new(manager.clone())),
         McpState::new(grants),
     ));

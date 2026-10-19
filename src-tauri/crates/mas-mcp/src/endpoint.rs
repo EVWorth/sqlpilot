@@ -141,7 +141,10 @@ pub async fn start(
             let workspace = workspace.clone();
             let surface = surface.clone();
             move || {
-                let server = SqlPilot::new(workspace.clone());
+                // One server per MCP session, so this is where a session gets
+                // a workspace of its own.
+                let workspace = workspace.for_session().unwrap_or_else(|| workspace.clone());
+                let server = SqlPilot::new(workspace);
                 Ok(match surface.clone() {
                     Some(surface) => server.with_surface(surface),
                     None => server,

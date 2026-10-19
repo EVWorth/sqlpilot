@@ -483,13 +483,13 @@ pays for — Claude Code, Copilot, or anything else that speaks MCP.
 
 #### FR-6.3: Sessions
 
-| ID       | Requirement       | Acceptance Criteria                                                                                                                                 |
-| -------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| FR-6.3.1 | Attach in-app     | A harness session runs inside SQLPilot with a transcript, its tool calls shown as the SQL they ran, and inline approvals                            |
-| FR-6.3.2 | Own connection    | Each session gets its own pooled connection, timeout and grants, so a runaway agent query cannot starve the user's                                  |
-| FR-6.3.3 | Cancellable       | Cancelling a session issues `KILL QUERY` for anything in flight                                                                                     |
-| FR-6.3.4 | Audited           | Every statement lands in query history tagged with the session, and "undo what this session did" is offered where the statements were transactional |
-| FR-6.3.5 | Harness discovery | Installed harnesses are detected and offered; with none installed the app says so rather than showing a dead panel                                  |
+| ID       | Requirement       | Acceptance Criteria                                                                                                                                                                                                       |
+| -------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| FR-6.3.1 | Attach in-app     | A harness session runs inside SQLPilot with a transcript, its tool calls shown as the SQL they ran, and inline approvals                                                                                                  |
+| FR-6.3.2 | Own connection    | Each session gets its own connections (up to two, for parallel tool calls; closed when idle or when the session ends), timeout and grants, so a runaway agent query can hold up neither the user nor another agent (#731) |
+| FR-6.3.3 | Cancellable       | Cancelling a session issues `KILL QUERY` for anything in flight                                                                                                                                                           |
+| FR-6.3.4 | Audited           | Every statement lands in query history tagged with the session, and "undo what this session did" is offered where the statements were transactional                                                                       |
+| FR-6.3.5 | Harness discovery | Installed harnesses are detected and offered; with none installed the app says so rather than showing a dead panel                                                                                                        |
 
 #### FR-6.4: Configuration
 
