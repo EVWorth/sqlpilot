@@ -24,8 +24,22 @@ import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
 loader.config({ monaco });
 
-ReactDOM.createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+function render() {
+  ReactDOM.createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}
+
+// `just dev-web`, opened with `?mock`: a fake backend with data in it, so the
+// UI can be used and reviewed in a browser (src/dev/mock). `DEV` is `false` in
+// a production build, so this branch and the mock module are left out of it.
+if (import.meta.env.DEV && new URLSearchParams(window.location.search).has("mock")) {
+  void import("./dev/mock").then(({ installMockBackend }) => {
+    installMockBackend();
+    render();
+  });
+} else {
+  render();
+}

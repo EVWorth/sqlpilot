@@ -28,8 +28,10 @@ import { commands } from "./bindings";
  * - a seam for anything cross-cutting (logging, retries) later
  */
 
-// In dev mode without Tauri, provide mock fallbacks
-const isTauri = "__TAURI_INTERNALS__" in window;
+// Without Tauri (the browser preview) every command fails with a clear error.
+// Checked per call rather than once at load, so the dev-only mock backend
+// (src/dev/mock) can install itself after this module has been imported.
+const isTauri = () => "__TAURI_INTERNALS__" in window;
 
 type CommandResult<T, E> = { status: "ok"; data: T } | { status: "error"; error: E };
 
@@ -70,7 +72,7 @@ async function unwrap<T, E>(
   name: string,
   run: () => Promise<CommandResult<T, E>>,
 ): Promise<T> {
-  if (!isTauri) {
+  if (!isTauri()) {
     console.warn(`Tauri not available, mock call: ${name}`);
     throw new Error(`Tauri not available for command: ${name}`);
   }
@@ -349,7 +351,7 @@ export const api = {
 
   // App metadata — not a Tauri command, so it stays hand-written
   getAppVersion: (): Promise<string> =>
-    isTauri
+    isTauri()
       ? getVersion()
       : Promise.resolve(import.meta.env.VITE_APP_VERSION ?? ""),
 
