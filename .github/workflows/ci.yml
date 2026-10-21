@@ -78,7 +78,8 @@ jobs:
             docs:
               - 'docs/**'
               - 'README.md'
-              - '.opencode/AGENTS.md'
+              - 'CLAUDE.md'
+              - '.claude/**'
             workflows:
               - '.github/workflows/**'
               # Release tooling lives here and is exercised by the same job.
@@ -89,7 +90,6 @@ jobs:
               - 'dprint.json'
               - 'vitest.config.ts'
               - 'vitest.browser.config.ts'
-              - 'opencode.json'
 
   # Workflow-only PRs used to run nothing at all: `detect-changes` computed a
   # `workflows` output that no job consumed, and the `frontend`/`rust` filters

@@ -1,9 +1,7 @@
 ---
+name: reviewer
 description: Read-only diff reviewer for SQLPilot. One-line findings per issue. Severity emoji + line + problem + fix.
-mode: subagent
-permission:
-  edit: deny
-  bash: ask
+tools: Read, Grep, Glob, Bash
 ---
 
 # Reviewer — Diff Reviewer

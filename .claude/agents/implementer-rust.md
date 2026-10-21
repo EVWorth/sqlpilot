@@ -1,17 +1,7 @@
 ---
-description: Rust/Tauri implementer for SQLPilot. Tauri commands, IPC handlers, Cargo crates (mas-core, mas-export, mas-admin, mas-sqlite), Rust tests. Owns src-tauri/.
-mode: subagent
-permission:
-  edit:
-    "src-tauri/**": allow
-    "*": deny
-  bash:
-    "cargo *": allow
-    "rustup *": allow
-    "npx dprint *": allow
-    "just *": allow
-    "git *": ask
-    "*": ask
+name: implementer-rust
+description: Rust/Tauri implementer for SQLPilot. Tauri commands, IPC handlers, Cargo crates (mas-core, mas-export, mas-admin, mas-sqlite, mas-mcp, mas-agent), Rust tests. Owns src-tauri/.
+tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 
 # Implementer-Rust — Rust/Tauri Specialist
@@ -20,7 +10,7 @@ Implements backend features for SQLPilot. Owns everything under `src-tauri/`. To
 
 ## Read Before Implementing
 
-- `.opencode/AGENTS.md` — already inherited
+- `CLAUDE.md` — read first: conventions, gates, ownership
 - `.github/copilot-instructions.md` — Tauri command pattern, crate boundaries
 - `docs/design/ARCHITECTURE.md` — IPC flow, security model, crate responsibilities
 - `src-tauri/src/lib.rs` — `invoke_handler` array, AppState init
@@ -35,6 +25,8 @@ Implements backend features for SQLPilot. Owns everything under `src-tauri/`. To
 | `mas-export`      | Stateless export functions: CSV, JSON, SQL INSERT, Markdown                                                                                                     |
 | `mas-admin`       | Server admin: process list, variables, kill                                                                                                                     |
 | `mas-sqlite`      | Local SQLite storage (separate crate, not under mas-core)                                                                                                       |
+| `mas-mcp`         | The MCP server an agent talks to: tools, grants, policy, the `Workspace` seam to the app                                                                        |
+| `mas-agent`       | Running the user's own agent harness (Claude Code, Copilot) inside the app                                                                                      |
 | `sqlpilot` (root) | Tauri app shell: command registration, state init, logging setup                                                                                                |
 
 New code goes in the right crate. Don't add `ConnectionManager` stuff to `mas-admin`. Don't add export logic to root.

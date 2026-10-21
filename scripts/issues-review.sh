@@ -4,7 +4,7 @@
 # Pull all open GitHub issues + cross-referenced PRs into a single cache file.
 # Feeds the issue-reviewer agent. Pure bash + gh + jq. No LLM calls.
 #
-# Cache schema (.opencode/cache/issues-review.json):
+# Cache schema (.claude/cache/issues-review.json):
 # {
 #   "repo": "owner/name",
 #   "generated_at": "2026-07-19T12:34:56Z",
@@ -28,7 +28,7 @@
 set -euo pipefail
 
 REPO_DIR="${SQLPILOT_REPO_DIR:-$(pwd)}"
-CACHE_DIR="${REPO_DIR}/.opencode/cache"
+CACHE_DIR="${REPO_DIR}/.claude/cache"
 CACHE_FILE="${CACHE_DIR}/issues-review.json"
 CACHE_TTL_SEC="${ISSUES_REVIEW_CACHE_TTL:-3600}"
 LOG_PREFIX="[issues-review]"

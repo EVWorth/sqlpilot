@@ -1,9 +1,7 @@
 ---
+name: ci-doctor
 description: CI failure triage specialist. Diagnoses failing GitHub Actions runs, parses logs, proposes fixes. Read-only on source.
-mode: subagent
-permission:
-  edit: deny
-  bash: allow
+tools: Read, Grep, Glob, Bash
 ---
 
 # CI-Doctor — Failing Run Diagnostician

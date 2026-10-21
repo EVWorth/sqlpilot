@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Edit(/node_modules/**)",
+      "Edit(**/node_modules/**)",
+      "Edit(/dist/**)",
+      "Edit(/coverage/**)",
+      "Edit(/src-tauri/target/**)",
+      "Edit(/playwright-report/**)",
+      "Edit(/test-results/**)",
+      "Edit(/.vitest-attachments/**)",
+      "Edit(**/*.lock)",
+      "Edit(**/*.lockb)",
+      "Edit(/.git/**)",
+      "Bash(rm -rf /*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git push origin main:*)"
+    ]
+  }
+}

@@ -45,4 +45,5 @@ __screenshots__/
 
 # Agent runtime artifacts (regenerated per sweep, never source)
 .doc-keeper-report.md
-.opencode/cache/
+.claude/cache/
+.claude/settings.local.json
