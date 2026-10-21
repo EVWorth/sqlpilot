@@ -12,7 +12,8 @@ export default defineConfig({
     coverage: {
       reporter: ["text", "json", "html"],
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/**/*.{test,spec}.{ts,tsx}", "src/test-setup.ts"],
+      // src/dev is the browser preview's mock backend: dev tooling, not app code.
+      exclude: ["src/**/*.{test,spec}.{ts,tsx}", "src/test-setup.ts", "src/dev/**"],
     },
   },
   resolve: {

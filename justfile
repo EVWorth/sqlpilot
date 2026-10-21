@@ -28,9 +28,15 @@ setup *ARGS:
 dev:
     npx tauri dev
 
-# Run the browser preview on localhost:1420.
+# Run the browser preview on localhost:1420. Open it with `?mock` for the
+# mock backend (src/dev/mock): data in every screen, no Tauri needed.
+# `?mock=empty` is a first run, `?mock=connected` starts connected.
 dev-web:
     npx vite --host
+
+# Screenshot every screen on the mock backend into ui-snapshots/, for review.
+ui-snapshots *ARGS:
+    node scripts/ui-snapshots.mjs {{ ARGS }}
 
 # Build the production desktop binary.
 build:

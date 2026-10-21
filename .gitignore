@@ -47,3 +47,6 @@ __screenshots__/
 .doc-keeper-report.md
 .claude/cache/
 .claude/settings.local.json
+
+# UI review screenshots (scripts/ui-snapshots.mjs)
+ui-snapshots/

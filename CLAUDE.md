@@ -68,6 +68,12 @@ These come from the maintainer. Follow them without asking again.
 - `README.md` — user-facing feature list. Read before adding user-visible
   features.
 
+**Seeing the UI without the desktop app:** `just dev-web`, then open
+`http://localhost:1420/?mock` (`?mock=empty` for a first run, `?mock=connected`
+to start connected). The mock backend in `src/dev/mock/` answers every command
+with fixed fixture data. `just ui-snapshots` screenshots the main screens into
+`ui-snapshots/`; set `CHROMIUM_PATH` if Playwright's own Chromium is missing.
+
 If any reference doc grows past ~1.5x its current size or contradicts code,
 flag it to doc-keeper.
 
@@ -167,14 +173,16 @@ Local failure = CI failure. Don't ship red.
 2. **Tauri command pattern:** `#[tauri::command]` + `#[tracing::instrument]` +
    `State<'_, AppState>` → `Result<T, String>` + `.map_err(|e| e.to_string())`.
    New commands must be added to the `invoke_handler` array in
-   `src-tauri/src/lib.rs`, and to `src/lib/bindings.ts` via `just bindings`.
+   `src-tauri/src/lib.rs`, to `src/lib/bindings.ts` via `just bindings`, and
+   to the mock backend in `src/dev/mock/handlers/` (a test fails otherwise).
 3. **IPC chain:** Component → store action → `api.*`
    (`src/lib/tauri-api.ts`) → `invoke()` → `src-tauri/src/commands/mod.rs`.
    Components NEVER call `api.*` directly.
 4. **Store actions own loading/error state.** Components don't track it.
 5. **Tests co-located** in `__tests__/` next to source. Vitest + jsdom + RTL.
-6. **Path alias:** `@/` → `src/`. Configured in `vite.config.ts` +
-   `vitest.config.ts`.
+6. **Path alias:** `@/` → `src/` exists only in `vitest.config.ts` and
+   `tsconfig.json`, not in `vite.config.ts`. Tests may use it; app code must
+   import relatively, or the dev server and the build fail to resolve it.
 7. **CSP:** Monaco forces `unsafe-eval` + `unsafe-inline` styles. Don't try to
    "fix" it — see `docs/SECURITY.md`.
 8. **Test databases** on ports **13306** (MySQL) and **13308** (MariaDB), not
