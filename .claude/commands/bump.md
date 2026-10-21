@@ -32,12 +32,15 @@ Cut a new release version for SQLPilot. Updates all three version files atomical
    ```
 6. Report next steps:
    ```bash
+   git switch -c release/<new>
    git add -A
-   git commit -m "chore: bump version to <new>"
-   git tag v<new>
-   git push origin main --follow-tags
+   git commit -m "release: <new>"
+   git push -u origin release/<new>   # open the release PR, get CI green, merge
+   git fetch origin main
+   git tag -a v<new> -m "SQLPilot <new>" origin/main   # the merge commit
+   git push origin v<new>
    ```
-7. Note: tag push triggers `.github/workflows/release.yml` → cross-platform build + `latest.json` manifest.
+7. Note: the tag push triggers `.github/workflows/release.yml` → cross-platform build, `latest.json` manifest and a draft release. Follow the whole flow in `CLAUDE.md` (Release Flow).
 
 ## Pre-flight Checks
 
@@ -52,23 +55,21 @@ If any check fails, warn before bumping.
 ```
 Version: 0.3.4 → 0.3.5 (patch)
 Files updated:
-  package.json
-  src-tauri/Cargo.toml
+  package.json, package-lock.json
+  src-tauri/Cargo.toml, src-tauri/Cargo.lock
   src-tauri/tauri.conf.json
 
 Next:
-  git add -A
-  git commit -m "chore: bump version to 0.3.5"
-  git tag v0.3.5
-  git push origin main --follow-tags
+  release PR with the bump → CI green → merge
+  git tag -a v0.3.5 on the merge commit, git push origin v0.3.5
 
 Release: tag push triggers .github/workflows/release.yml
   - Builds: linux, windows (signed if cert), macos-arm, macos-x86
   - Generates latest.json update manifest
-  - Draft release on GitHub (manual publish)
+  - Draft release on GitHub; publish once every build is attached
 ```
 
-Don't run `git tag` or `git push` without explicit user approval. Bumping is reversible (just amend), tagging is harder.
+Never push to `main`: the bump goes through a release PR. Tag only the merged release commit. Once the maintainer has asked for a release, that covers the tag too (`CLAUDE.md`, Working agreements).
 
 ## Rollback
 

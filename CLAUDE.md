@@ -248,9 +248,8 @@ CLI must be installed and signed in.
 0. **Pre-flight** (from a clean main checkout):
    `bash scripts/check-release-readiness.sh --strict` — verifies the
    manifests agree, the tree is clean and you are on main.
-1. `just bump [patch|minor|major]` — updates the three version files. Then
-   refresh the lockfiles' own version entries with
-   `npm install --package-lock-only` and `cd src-tauri && cargo update -p sqlpilot`.
+1. `just bump [patch|minor|major]` — sets the version in the three manifests
+   and in both lockfiles' entries for the app itself.
 2. Commit the bump in a release PR (no tag yet) and get CI green.
 3. After merging, re-check on the merge commit:
    `bash scripts/check-release-readiness.sh <new-version>`.

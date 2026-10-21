@@ -172,7 +172,7 @@ ssl-certs:
 # ── Release ────────────────────────────────────────────────────────────────
 
 # LEVEL is major, minor or patch, given as an argument.
-[doc("Bump the version across package.json, tauri.conf.json and Cargo.toml.")]
+[doc("Bump the version in package.json, tauri.conf.json, Cargo.toml and both lockfiles.")]
 bump LEVEL="patch":
     #!/usr/bin/env bash
     set -euo pipefail
@@ -199,10 +199,19 @@ bump LEVEL="patch":
         doc.version = '$new';
         fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n');
       }
+      // The lockfile records the app's own version twice. Set just those
+      // two fields: an npm install would re-resolve, and an npm older than
+      // the one that wrote the lockfile drops fields it does not know (#777).
+      const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
+      lock.version = '$new';
+      lock.packages[''].version = '$new';
+      fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
     "
     sed -i "s/^version = \".*\"/version = \"$new\"/" src-tauri/Cargo.toml
+    # Moves only the app's own entry in Cargo.lock; no other crate changes.
+    (cd src-tauri && cargo update -p sqlpilot --offline --quiet)
     echo "Version bumped to $new."
-    echo "Next: git add -A && git commit -m \"chore: bump version to $new\" && git tag v$new"
+    echo "Next: open a release PR with the bump; tag v$new on its merge commit (CLAUDE.md, Release Flow)."
 
 # ── Housekeeping ───────────────────────────────────────────────────────────
 
