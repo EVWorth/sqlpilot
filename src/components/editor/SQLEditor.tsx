@@ -5,7 +5,7 @@ import { useSchemaCompletion } from "../../hooks/useSchemaCompletion";
 import { runConnectionId } from "../../lib/run-connection";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { formatSql } from "../../lib/sql-format";
-import { getStatementAtCursor } from "../../lib/statement-at-cursor";
+import { sqlAtCursor } from "../../lib/statement-at-cursor";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
@@ -161,22 +161,9 @@ export function SQLEditor() {
           67,
         ],
         run: () => {
-          const model = editor.getModel();
-          const selection = editor.getSelection();
-          let sql;
-          if (selection && !selection.isEmpty()) {
-            sql = model?.getValueInRange(selection) ?? "";
-          } else if (model && selection) {
-            sql = getStatementAtCursor(
-              model.getValue(),
-              selection.positionLineNumber,
-              selection.positionColumn,
-            );
-          } else {
-            sql = model?.getValue() ?? "";
-          }
+          const sql = sqlAtCursor(editor);
           const { connectionId, database, session } = activeTabContext();
-          if (sql?.trim() && connectionId) {
+          if (sql.trim() && connectionId) {
             useResultStore.getState().executeQuery(connectionId, sql, database, session);
           }
         },
@@ -225,14 +212,7 @@ export function SQLEditor() {
           2048 | 1024 | 35,
         ],
         run: (ed) => {
-          const model = ed.getModel();
-          const selection = ed.getSelection();
-          let sql;
-          if (selection && !selection.isEmpty()) {
-            sql = model?.getValueInRange(selection) ?? "";
-          } else {
-            sql = model?.getValue() ?? "";
-          }
+          const sql = sqlAtCursor(ed);
           const { connectionId, database, session } = activeTabContext();
           if (sql.trim() && connectionId) {
             useResultStore.getState().executeExplain(connectionId, sql, database, undefined, session);
@@ -248,14 +228,7 @@ export function SQLEditor() {
           2048 | 1024 | 31,
         ],
         run: (ed) => {
-          const model = ed.getModel();
-          const selection = ed.getSelection();
-          let sql;
-          if (selection && !selection.isEmpty()) {
-            sql = model?.getValueInRange(selection) ?? "";
-          } else {
-            sql = model?.getValue() ?? "";
-          }
+          const sql = sqlAtCursor(ed);
           const { connectionId, database, session } = activeTabContext();
           if (sql.trim() && connectionId) {
             useResultStore.getState().executeExplainAnalyze(connectionId, sql, database, undefined, session);

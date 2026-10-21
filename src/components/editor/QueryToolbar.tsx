@@ -14,6 +14,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
 import { formatSql } from "../../lib/sql-format";
+import { sqlAtCursor } from "../../lib/statement-at-cursor";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
@@ -83,14 +84,9 @@ export function QueryToolbar() {
 
   const getCurrentSql = (): string => {
     const editorInstance = useEditorStore.getState().editorInstance;
-    if (editorInstance) {
-      const selection = editorInstance.getSelection();
-      const model = editorInstance.getModel();
-      if (selection && !selection.isEmpty()) {
-        return model?.getValueInRange(selection) ?? "";
-      }
-      return model?.getValue() ?? "";
-    }
+    // The statement at the cursor, as Ctrl+Enter runs — the hint beside Run
+    // names that shortcut, and Explain cannot plan a whole script (#846).
+    if (editorInstance) return sqlAtCursor(editorInstance);
     return activeTab?.content ?? "";
   };
 
