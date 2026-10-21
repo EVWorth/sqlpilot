@@ -9,6 +9,7 @@ import { useSqliteStore } from "../../stores/sqliteStore";
 import type { ConnectionProfileSummary } from "../../types";
 import type { MenuItem } from "../common/ContextMenu";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
+import { useConnectionSwitching } from "./useConnectionSwitching";
 import { useProfileDeletion } from "./useProfileDeletion";
 
 export function ConnectionTabs() {
@@ -50,6 +51,7 @@ export function ConnectionTabs() {
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const { contextMenu, showContextMenu } = useContextMenu();
   const { requestDelete, confirmDialog } = useProfileDeletion();
+  const { selectConnection, attachNewConnection } = useConnectionSwitching();
 
   /** Edit, duplicate and delete: what a saved profile offers wherever it is listed. */
   const profileMenuItems = (profile: ConnectionProfileSummary): MenuItem[] => [
@@ -187,11 +189,9 @@ export function ConnectionTabs() {
     try {
       const conn = await connect(profileId);
       setSelectedConnection(conn.id);
-      // Propagate the connection's auto-selected database to the active editor tab
-      const { activeTabId, setTabConnection } = useEditorStore.getState();
-      if (activeTabId) {
-        setTabConnection(activeTabId, conn.id, conn.database ?? undefined, conn.profile_id);
-      }
+      // A tab already on another server keeps it; the new one gets its own
+      // tab, so nothing is silently re-pointed (#788).
+      attachNewConnection(conn);
     } catch {
       // Error is captured in connectionStore.error and shown in StatusBar
     }
@@ -215,7 +215,7 @@ export function ConnectionTabs() {
                   ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm"
                   : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
               )}
-              onClick={() => setSelectedConnection(conn.id)}
+              onClick={() => selectConnection(conn.id)}
               onContextMenu={(e) => {
                 showContextMenu(e, [
                   {
@@ -338,7 +338,7 @@ export function ConnectionTabs() {
                   ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm"
                   : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
               )}
-              onClick={() => setSelectedConnection(session.id)}
+              onClick={() => selectConnection(session.id)}
               title={session.path}
             >
               {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}

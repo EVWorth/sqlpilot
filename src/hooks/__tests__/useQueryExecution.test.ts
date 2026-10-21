@@ -92,6 +92,24 @@ describe("useQueryExecution", () => {
     expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", "my_db", tabId);
   });
 
+  it("runs on the active tab's server even when another is selected (#788)", async () => {
+    // The tab's colour and production dot come from its own connection, so
+    // Run going to the selected one sent "production" statements to dev.
+    useConnectionStore.setState(
+      {
+        selectedConnectionId: "dev",
+        activeConnections: [{ id: "dev", profile_id: "p-dev" }, { id: "prod", profile_id: "p-prod" }],
+      } as unknown as Parameters<typeof useConnectionStore.setState>[0],
+    );
+    const tabId = useEditorStore.getState().addTab("prod", "shop");
+
+    const { result } = renderHook(() => useQueryExecution());
+    expect(result.current.connectionId).toBe("prod");
+    await act(() => result.current.executeQuery("SELECT 1"));
+
+    expect(mockExecuteQuery).toHaveBeenCalledWith("prod", "SELECT 1", "shop", tabId);
+  });
+
   it("executeQuery uses undefined database when no tab database is set", async () => {
     useConnectionStore.setState(
       { selectedConnectionId: "conn-1" } as Parameters<typeof useConnectionStore.setState>[0],

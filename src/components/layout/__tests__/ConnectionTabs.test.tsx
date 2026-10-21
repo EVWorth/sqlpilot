@@ -38,11 +38,15 @@ vi.mock("../../../stores/connectionStore", () => {
   return { useConnectionStore: hook };
 });
 
-vi.mock("../../../stores/editorStore", () => ({
-  useEditorStore: {
-    getState: vi.fn(() => ({ tabs: [], activeTabId: null, addTab: vi.fn(), setTabConnection: vi.fn() })),
-  },
-}));
+vi.mock("../../../stores/editorStore", () => {
+  const state = () => ({ tabs: [], activeTabId: null, addTab: vi.fn(), setTabConnection: vi.fn() });
+  const hook = vi.fn((s: (v: unknown) => unknown) => s(state())) as unknown as {
+    (s: (v: unknown) => unknown): unknown;
+    getState: () => unknown;
+  };
+  hook.getState = vi.fn(state);
+  return { useEditorStore: hook };
+});
 
 /** Captures the items a right-click would offer, so they can be invoked. */
 const { menuItems, showContextMenu } = vi.hoisted(() => {
