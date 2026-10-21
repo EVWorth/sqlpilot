@@ -92,7 +92,7 @@ npx dprint check
 npm run lint && npm run type-check
 
 # Rust changes:
-cd src-tauri && cargo fmt --all -- --check && cargo clippy --all-targets --all-features -- -D warnings
+cd src-tauri && cargo fmt --all -- --check && cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Version drift check (always):
 just --dry-run bump patch   # dry-run, verify the justfile parses

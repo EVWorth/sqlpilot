@@ -119,7 +119,7 @@ mod tests {
 
 ```bash
 cd src-tauri && cargo fmt --all
-cd src-tauri && cargo clippy --all-targets --all-features -- -D warnings
+cd src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warnings
 cd src-tauri && cargo test -p <crate> --verbose    # or all crates
 npx dprint check --list-different
 ```

@@ -141,9 +141,6 @@ cd src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warn
 cd src-tauri && cargo test -p <crate> --verbose
 ```
 
-CI's clippy step runs without `--workspace`, so it lints only the app crate
-(#772). Lint the whole workspace yourself.
-
 **Connection manager, executor, schema inspector, backup/restore or admin:**
 `just db-up`, then `just test-integration` against MySQL (port 13306), and
 again with `MAS_TEST_PORT=13308` for MariaDB. CI runs these only at release
@@ -251,9 +248,8 @@ CLI must be installed and signed in.
 0. **Pre-flight** (from a clean main checkout):
    `bash scripts/check-release-readiness.sh --strict` — verifies the
    manifests agree, the tree is clean and you are on main.
-1. `just bump [patch|minor|major]` — updates the three version files. Then
-   refresh the lockfiles' own version entries with
-   `npm install --package-lock-only` and `cd src-tauri && cargo update -p sqlpilot`.
+1. `just bump [patch|minor|major]` — sets the version in the three manifests
+   and in both lockfiles' entries for the app itself.
 2. Commit the bump in a release PR (no tag yet) and get CI green.
 3. After merging, re-check on the merge commit:
    `bash scripts/check-release-readiness.sh <new-version>`.
@@ -284,8 +280,6 @@ Linux deps, re-tag protocol.
 - Docker doesn't survive a container restart. Start `dockerd`, then
   `just db-up`.
 - `src/__tests__/main.test.tsx` times out in the container but passes in CI.
-  The `mas-mcp` endpoint tests panic when built together with the app crate
-  (#773).
 
 ## When You're Stuck
 

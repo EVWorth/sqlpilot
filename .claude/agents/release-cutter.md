@@ -88,15 +88,19 @@ git log v<last>..HEAD --pretty=format:"%s" --no-merges
 
 Categorize each commit subject line.
 
-### 6. Commit + Tag + Push (User Approval Required)
+### 6. Release PR, then Tag
 
-Generate commands, DON'T run push without explicit user OK:
+The bump goes through a PR; never push to `main`. A request to release covers
+the whole flow, tag included (`CLAUDE.md`, Working agreements).
 
 ```bash
+git switch -c release/<new>
 git add -A
-git commit -m "chore: bump version to <new>"
-git tag v<new>
-git push origin main --follow-tags
+git commit -m "release: <new>"
+git push -u origin release/<new>  # open the release PR, get CI green, merge
+git fetch origin main
+git tag -a v<new> -m "SQLPilot <new>" origin/main  # the merge commit
+git push origin v<new>
 ```
 
 Tag push triggers `.github/workflows/release.yml`:

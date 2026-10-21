@@ -363,6 +363,99 @@ fn first_line(text: &str, limit: usize) -> String {
     format!("{cut}…")
 }
 
+/// A running Claude Code session.
+///
+/// Owns the process's stdin and the task reading its stdout. The events come
+/// out of the same channel type the ACP client uses, so the layer above holds
+/// one of these or the other and does not branch on which.
+pub struct ClaudeSession {
+    stdin: tokio::sync::Mutex<tokio::process::ChildStdin>,
+    /// The id the CLI gave this conversation, once it has said.
+    pub session: std::sync::Arc<std::sync::Mutex<Option<String>>>,
+}
+
+impl ClaudeSession {
+    /// Start reading a spawned process, and return the handle and its events.
+    pub fn attach(
+        stdout: tokio::process::ChildStdout,
+        stdin: tokio::process::ChildStdin,
+    ) -> (
+        std::sync::Arc<Self>,
+        tokio::sync::mpsc::UnboundedReceiver<SessionEvent>,
+    ) {
+        use tokio::io::AsyncBufReadExt;
+
+        let (events, stream) = tokio::sync::mpsc::unbounded_channel();
+        let session = std::sync::Arc::new(std::sync::Mutex::new(None));
+
+        let seen = session.clone();
+        tokio::spawn(async move {
+            let mut lines = tokio::io::BufReader::new(stdout).lines();
+            let mut state = ParseState::default();
+            while let Ok(Some(line)) = lines.next_line().await {
+                for event in parse_line(&line, &mut state) {
+                    if let SessionEvent::Started { session } = &event {
+                        *seen.lock().unwrap_or_else(|e| e.into_inner()) = Some(session.clone());
+                    }
+                    if events.send(event).is_err() {
+                        return;
+                    }
+                }
+            }
+            // The process ended. Anything still expected is not coming.
+            let _ = events.send(SessionEvent::Failed {
+                message: "The agent stopped.".to_string(),
+            });
+        });
+
+        (
+            std::sync::Arc::new(Self {
+                stdin: tokio::sync::Mutex::new(stdin),
+                session,
+            }),
+            stream,
+        )
+    }
+
+    /// Send a turn. The answer arrives as events.
+    pub async fn prompt(&self, text: &str) -> Result<(), String> {
+        self.write(&user_message(text)).await
+    }
+
+    /// Ask the turn in progress to stop, leaving the session open.
+    pub async fn cancel(&self) -> Result<(), String> {
+        self.write(&interrupt(&uuid::Uuid::new_v4().to_string()))
+            .await
+    }
+
+    async fn write(&self, line: &str) -> Result<(), String> {
+        use tokio::io::AsyncWriteExt;
+        let mut stdin = self.stdin.lock().await;
+        stdin
+            .write_all(format!("{line}\n").as_bytes())
+            .await
+            .map_err(|e| format!("The agent is no longer listening: {e}"))?;
+        stdin
+            .flush()
+            .await
+            .map_err(|e| format!("The agent is no longer listening: {e}"))
+    }
+}
+
+/// Start Claude Code as a session.
+pub fn spawn(cwd: &str, mcp_config: Option<&str>) -> std::io::Result<tokio::process::Child> {
+    tokio::process::Command::new("claude")
+        .args(session_args(mcp_config))
+        .current_dir(cwd)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        // Inherited, so the CLI's own diagnostics reach the app's log rather
+        // than filling a pipe nobody reads.
+        .stderr(std::process::Stdio::inherit())
+        .kill_on_drop(true)
+        .spawn()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -652,97 +745,4 @@ mod tests {
         let message = user_message("first\nsecond");
         assert!(!message.contains('\n'));
     }
-}
-
-/// A running Claude Code session.
-///
-/// Owns the process's stdin and the task reading its stdout. The events come
-/// out of the same channel type the ACP client uses, so the layer above holds
-/// one of these or the other and does not branch on which.
-pub struct ClaudeSession {
-    stdin: tokio::sync::Mutex<tokio::process::ChildStdin>,
-    /// The id the CLI gave this conversation, once it has said.
-    pub session: std::sync::Arc<std::sync::Mutex<Option<String>>>,
-}
-
-impl ClaudeSession {
-    /// Start reading a spawned process, and return the handle and its events.
-    pub fn attach(
-        stdout: tokio::process::ChildStdout,
-        stdin: tokio::process::ChildStdin,
-    ) -> (
-        std::sync::Arc<Self>,
-        tokio::sync::mpsc::UnboundedReceiver<SessionEvent>,
-    ) {
-        use tokio::io::AsyncBufReadExt;
-
-        let (events, stream) = tokio::sync::mpsc::unbounded_channel();
-        let session = std::sync::Arc::new(std::sync::Mutex::new(None));
-
-        let seen = session.clone();
-        tokio::spawn(async move {
-            let mut lines = tokio::io::BufReader::new(stdout).lines();
-            let mut state = ParseState::default();
-            while let Ok(Some(line)) = lines.next_line().await {
-                for event in parse_line(&line, &mut state) {
-                    if let SessionEvent::Started { session } = &event {
-                        *seen.lock().unwrap_or_else(|e| e.into_inner()) = Some(session.clone());
-                    }
-                    if events.send(event).is_err() {
-                        return;
-                    }
-                }
-            }
-            // The process ended. Anything still expected is not coming.
-            let _ = events.send(SessionEvent::Failed {
-                message: "The agent stopped.".to_string(),
-            });
-        });
-
-        (
-            std::sync::Arc::new(Self {
-                stdin: tokio::sync::Mutex::new(stdin),
-                session,
-            }),
-            stream,
-        )
-    }
-
-    /// Send a turn. The answer arrives as events.
-    pub async fn prompt(&self, text: &str) -> Result<(), String> {
-        self.write(&user_message(text)).await
-    }
-
-    /// Ask the turn in progress to stop, leaving the session open.
-    pub async fn cancel(&self) -> Result<(), String> {
-        self.write(&interrupt(&uuid::Uuid::new_v4().to_string()))
-            .await
-    }
-
-    async fn write(&self, line: &str) -> Result<(), String> {
-        use tokio::io::AsyncWriteExt;
-        let mut stdin = self.stdin.lock().await;
-        stdin
-            .write_all(format!("{line}\n").as_bytes())
-            .await
-            .map_err(|e| format!("The agent is no longer listening: {e}"))?;
-        stdin
-            .flush()
-            .await
-            .map_err(|e| format!("The agent is no longer listening: {e}"))
-    }
-}
-
-/// Start Claude Code as a session.
-pub fn spawn(cwd: &str, mcp_config: Option<&str>) -> std::io::Result<tokio::process::Child> {
-    tokio::process::Command::new("claude")
-        .args(session_args(mcp_config))
-        .current_dir(cwd)
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        // Inherited, so the CLI's own diagnostics reach the app's log rather
-        // than filling a pipe nobody reads.
-        .stderr(std::process::Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()
 }
