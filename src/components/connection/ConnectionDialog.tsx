@@ -50,8 +50,12 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
     testResult,
     testing,
     saving,
+    numberText,
+    numberProblems,
     canSave,
+    canTest,
     handleChange,
+    handleNumberChange,
     handleSSLChange,
     handleSSHChange,
     handleTest,
@@ -101,7 +105,16 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
       </div>
 
       <div className="min-h-[320px] p-4">
-        {activeTab === "general" && <GeneralTab form={form} isExisting={!!editProfile} onChange={handleChange} />}
+        {activeTab === "general" && (
+          <GeneralTab
+            form={form}
+            isExisting={!!editProfile}
+            onChange={handleChange}
+            numberText={numberText}
+            numberProblems={numberProblems}
+            onNumberChange={handleNumberChange}
+          />
+        )}
         {activeTab === "ssl" && <SslTab form={form} onChange={handleSSLChange} />}
         {activeTab === "ssh" && (
           <SshTab
@@ -113,7 +126,15 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
             onChange={handleSSHChange}
           />
         )}
-        {activeTab === "advanced" && <AdvancedTab form={form} onChange={handleChange} />}
+        {activeTab === "advanced" && (
+          <AdvancedTab
+            form={form}
+            onChange={handleChange}
+            numberText={numberText}
+            numberProblems={numberProblems}
+            onNumberChange={handleNumberChange}
+          />
+        )}
       </div>
 
       {testResult && (
@@ -141,7 +162,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
       <div className="flex items-center justify-between border-t border-[var(--color-border)] p-4">
         <button
           onClick={handleTest}
-          disabled={testing}
+          disabled={!canTest}
           className="flex items-center gap-1.5 rounded bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
         >
           {testing && <Loader2 className="h-3 w-3 animate-spin" />}

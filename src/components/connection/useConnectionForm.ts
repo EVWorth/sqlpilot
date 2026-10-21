@@ -103,6 +103,33 @@ function initialForm(
   return blankProfile();
 }
 
+/** The number fields, which are typed as text and parsed when valid. */
+export type NumberField = "port" | "connect_timeout_secs" | "query_timeout_secs";
+
+/** What is wrong with a number field's text, if anything. */
+function numberProblem(field: NumberField, text: string): string | undefined {
+  const trimmed = text.trim();
+  if (trimmed === "") return "Required";
+  if (!/^\d+$/.test(trimmed)) return "Must be a whole number";
+  const n = Number(trimmed);
+  if (field === "port") {
+    return n >= 1 && n <= 65535 ? undefined : "Must be between 1 and 65535";
+  }
+  if (field === "connect_timeout_secs") {
+    return n >= 1 ? undefined : "Must be at least 1";
+  }
+  return undefined;
+}
+
+/** The text each number field starts with. */
+function numberTexts(form: ConnectionProfileInput): Record<NumberField, string> {
+  return {
+    port: String(form.port),
+    connect_timeout_secs: String(form.connect_timeout_secs ?? 10),
+    query_timeout_secs: String(form.query_timeout_secs ?? 0),
+  };
+}
+
 export function useConnectionForm(
   isOpen: boolean,
   editProfile?: ConnectionProfile,
@@ -120,13 +147,21 @@ export function useConnectionForm(
   const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  // What is typed in the number fields, kept apart from the form so that
+  // clearing one to type a new value does not snap it back to a default
+  // (#813). The form only takes the value once it parses.
+  const [numberText, setNumberText] = useState<Record<NumberField, string>>(
+    () => numberTexts(initialForm(editProfile, duplicateOf)),
+  );
   const saveProfile = useConnectionStore((s) => s.saveProfile);
 
   // Reopening is a fresh start, whether that is a new profile or the same one
   // again after an edit was abandoned.
   useEffect(() => {
     if (!isOpen) return;
-    setForm(initialForm(editProfile, duplicateOf));
+    const next = initialForm(editProfile, duplicateOf);
+    setForm(next);
+    setNumberText(numberTexts(next));
     const ssh = (editProfile ?? duplicateOf)?.ssh_config;
     setSshEnabled(!!ssh);
     setSshAuthMethod(ssh?.private_key_path ? "key" : "password");
@@ -141,6 +176,21 @@ export function useConnectionForm(
     // What was tested is no longer what is in the form.
     setTestResult(null);
   };
+
+  const handleNumberChange = (field: NumberField, text: string) => {
+    setNumberText((prev) => ({ ...prev, [field]: text }));
+    if (numberProblem(field, text) === undefined) {
+      setForm((prev) => ({ ...prev, [field]: Number(text.trim()) }));
+    }
+    setTestResult(null);
+  };
+
+  const numberProblems: Partial<Record<NumberField, string>> = {};
+  for (const field of Object.keys(numberText) as NumberField[]) {
+    const problem = numberProblem(field, numberText[field]);
+    if (problem !== undefined) numberProblems[field] = problem;
+  }
+  const numbersValid = Object.keys(numberProblems).length === 0;
 
   const handleSSLChange = (updates: Partial<SSLConfig>) => {
     setForm((prev) => {
@@ -220,8 +270,12 @@ export function useConnectionForm(
     testResult,
     testing,
     saving,
-    canSave: !saving && !!form.name && !!form.host,
+    numberText,
+    numberProblems,
+    canSave: !saving && !!form.name && !!form.host && numbersValid,
+    canTest: !testing && numbersValid,
     handleChange,
+    handleNumberChange,
     handleSSLChange,
     handleSSHChange,
     handleTest,

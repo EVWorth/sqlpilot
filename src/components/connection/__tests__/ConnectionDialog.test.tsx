@@ -302,4 +302,39 @@ describe("ConnectionDialog", () => {
       expect(screen.getByTestId("ssh-unsupported")).toBeInTheDocument();
     });
   });
+
+  describe("number fields (#813)", () => {
+    it("lets the port be cleared and retyped without snapping back", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      const port = screen.getByLabelText("Port") as HTMLInputElement;
+
+      fireEvent.change(port, { target: { value: "" } });
+      expect(port.value).toBe("");
+
+      fireEvent.change(port, { target: { value: "3307" } });
+      expect(port.value).toBe("3307");
+    });
+
+    it("flags an out-of-range port and disables Save and Test", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+      expect(screen.getByText("Save").closest("button")?.disabled).toBe(false);
+
+      fireEvent.change(screen.getByLabelText("Port"), { target: { value: "33063307" } });
+
+      expect(screen.getByText("Must be between 1 and 65535")).toBeInTheDocument();
+      expect(screen.getByText("Save").closest("button")?.disabled).toBe(true);
+      expect(screen.getByText("Test Connection").closest("button")?.disabled).toBe(true);
+    });
+
+    it("lets the connect timeout be cleared without snapping back to 10", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByText("Advanced"));
+      const timeout = screen.getByLabelText("Connect Timeout (s)") as HTMLInputElement;
+
+      fireEvent.change(timeout, { target: { value: "" } });
+      expect(timeout.value).toBe("");
+      expect(screen.getByText("Required")).toBeInTheDocument();
+    });
+  });
 });

@@ -1,5 +1,6 @@
 import type { ConnectionProfileInput } from "../../../types";
 import { Field } from "../../common/Field";
+import type { NumberField } from "../useConnectionForm";
 
 /** The colours a connection can be tagged with (FR-1.2.5). */
 export const PRESET_COLORS = [
@@ -27,10 +28,21 @@ interface GeneralTabProps {
     field: keyof ConnectionProfileInput,
     value: string | number | boolean | undefined,
   ) => void;
+  /** What is typed in the number fields, which may not parse yet (#813). */
+  numberText: Record<NumberField, string>;
+  numberProblems: Partial<Record<NumberField, string>>;
+  onNumberChange: (field: NumberField, text: string) => void;
 }
 
 /** Where the server is, and who to be when talking to it. */
-export function GeneralTab({ form, isExisting, onChange: handleChange }: GeneralTabProps) {
+export function GeneralTab({
+  form,
+  isExisting,
+  onChange: handleChange,
+  numberText,
+  numberProblems,
+  onNumberChange,
+}: GeneralTabProps) {
   return (
     <div className="space-y-3">
       <Field
@@ -49,8 +61,9 @@ export function GeneralTab({ form, isExisting, onChange: handleChange }: General
         </div>
         <Field
           label="Port"
-          value={String(form.port)}
-          onChange={(v) => handleChange("port", parseInt(v) || 3306)}
+          value={numberText.port}
+          onChange={(v) => onNumberChange("port", v)}
+          problem={numberProblems.port}
           type="number"
         />
       </div>
