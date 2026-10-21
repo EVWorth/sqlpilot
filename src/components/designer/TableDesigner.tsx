@@ -156,6 +156,15 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showPreview, setShowPreview] = useState(false);
+  /**
+   * Set when the columns or the DDL could not be read. Without them there is
+   * no baseline to diff against, so the form must not be offered at all: it
+   * showed one blank column and Apply sent `CREATE TABLE orders ()` (#796).
+   */
+  const [loadError, setLoadError] = useState<string | null>(null);
+  /** Indexes or foreign keys that could not be read; the rest still loaded. */
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   const [refTables, setRefTables] = useState<TableInfo[]>([]);
   // Name and type. The type is what makes a mismatched foreign key visible
@@ -193,7 +202,11 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
     const load = async () => {
       try {
         setLoading(true);
-        const [colsData, idxData, fkData, tableDdl] = await Promise.all([
+        setLoadError(null);
+        setLoadWarning(null);
+        // Settled rather than all: one failed read used to empty the whole
+        // form, as TableStructure already avoids (#796).
+        const [colsResult, idxResult, fkResult, ddlResult] = await Promise.allSettled([
           api.getColumns(connectionId, database, tableName),
           api.getIndexes(connectionId, database, tableName),
           // The Foreign Keys tab was empty for every table: the type existed
@@ -207,6 +220,27 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           // diffed against itself and silently dropped (#378).
           api.getTableDdl(connectionId, database, tableName),
         ]);
+        if (colsResult.status === "rejected") {
+          setOriginalConfig(null);
+          setLoadError(`Failed to load table structure: ${String(colsResult.reason)}`);
+          return;
+        }
+        if (ddlResult.status === "rejected") {
+          setOriginalConfig(null);
+          setLoadError(`Failed to load table structure: ${String(ddlResult.reason)}`);
+          return;
+        }
+        const colsData = colsResult.value;
+        const tableDdl = ddlResult.value;
+        const idxData = idxResult.status === "fulfilled" ? idxResult.value : [];
+        const fkData = fkResult.status === "fulfilled" ? fkResult.value : [];
+        const missing = [
+          idxResult.status === "rejected" ? `indexes (${String(idxResult.reason)})` : null,
+          fkResult.status === "rejected" ? `foreign keys (${String(fkResult.reason)})` : null,
+        ].filter((m): m is string => m !== null);
+        if (missing.length > 0) {
+          setLoadWarning(`Could not load ${missing.join(" and ")}. Those tabs may be incomplete.`);
+        }
         const loadedOptions = parseTableOptions(tableDdl);
 
         const loadedCols: DesignerColumn[] = colsData.map((c: ColumnInfo) => {
@@ -269,13 +303,14 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
         };
         setOriginalConfig(config);
       } catch (e) {
-        setError(`Failed to load table structure: ${e}`);
+        setOriginalConfig(null);
+        setLoadError(`Failed to load table structure: ${e}`);
       } finally {
         setLoading(false);
       }
     };
     load();
-  }, [isAlter, tableName, connectionId, database]);
+  }, [isAlter, tableName, connectionId, database, reloadKey]);
 
   const currentConfig = useCallback((): TableDesignerConfig => ({
     tableName: tblName,
@@ -288,11 +323,14 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
 
   const generateSql = useCallback(() => {
     const config = currentConfig();
-    if (isAlter && originalConfig) {
-      return generateAlterTable(tableName!, originalConfig, config);
+    if (tableName) {
+      // Never CREATE a table this tab is meant to alter: without a baseline
+      // there is nothing safe to send (#796). runSave refuses a comment.
+      if (!originalConfig) return "-- Table structure not loaded; nothing to apply.";
+      return generateAlterTable(tableName, originalConfig, config);
     }
     return generateCreateTable(config);
-  }, [currentConfig, isAlter, originalConfig, tableName]);
+  }, [currentConfig, originalConfig, tableName]);
 
   /**
    * What the primary button does.
@@ -411,6 +449,26 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
     );
   }
 
+  if (loadError) {
+    return (
+      <div
+        role="alert"
+        className="flex h-full flex-col items-center justify-center gap-3 bg-[var(--color-bg-primary)] p-6 text-center"
+      >
+        <span className="flex items-center gap-1.5 text-sm text-[var(--color-error)]">
+          <AlertCircle className="h-4 w-4 shrink-0" />
+          {loadError}
+        </span>
+        <button
+          onClick={() => setReloadKey((k) => k + 1)}
+          className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
   const columnNames = columns.filter((c) => c.name).map((c) => c.name);
 
   return (
@@ -455,6 +513,16 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           </button>
         </div>
       </div>
+
+      {loadWarning && (
+        <div
+          role="status"
+          className="flex items-center gap-1.5 border-b border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-warning)]"
+        >
+          <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+          {loadWarning}
+        </div>
+      )}
 
       {/* Sub-tabs */}
       <div className="flex border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">

@@ -285,6 +285,52 @@ describe("TableDesigner", () => {
       expect(await screen.findByText(/Failed to load table structure/)).toBeDefined();
     });
 
+    describe("when part of the table cannot be read (#796)", () => {
+      it("offers Retry and no Apply or Preview when the columns fail", async () => {
+        vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+        vi.mocked(api.getColumns).mockRejectedValueOnce("denied").mockResolvedValue(mockColumns);
+
+        render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
+
+        expect(await screen.findByRole("alert")).toHaveTextContent(/Failed to load table structure: denied/);
+        expect(screen.queryByText("Apply Changes")).toBeNull();
+        expect(screen.queryByText("Preview SQL")).toBeNull();
+
+        await act(async () => {
+          fireEvent.click(screen.getByText("Retry"));
+        });
+        expect(await screen.findByDisplayValue("users")).toBeDefined();
+        expect(screen.getByText("Apply Changes")).toBeDefined();
+      });
+
+      it("blocks the form when the DDL fails", async () => {
+        vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
+        vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+        vi.mocked(api.getTableDdl).mockRejectedValue("no SHOW CREATE");
+
+        render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
+
+        expect(await screen.findByRole("alert")).toHaveTextContent(/no SHOW CREATE/);
+        expect(screen.queryByText("Apply Changes")).toBeNull();
+      });
+
+      it("keeps the columns when only the foreign keys fail, and never emits CREATE TABLE", async () => {
+        vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
+        vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+        vi.mocked(api.getForeignKeys).mockRejectedValue("information_schema denied");
+
+        render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
+
+        expect(await screen.findByDisplayValue("users")).toBeDefined();
+        expect(screen.getByDisplayValue("id")).toBeDefined();
+        expect(screen.getByRole("status")).toHaveTextContent(/foreign keys/);
+        fireEvent.click(screen.getByText("Preview SQL"));
+        const preview = screen.getByTestId("sql-preview-dialog").textContent ?? "";
+        expect(preview).not.toContain("CREATE TABLE");
+        expect(preview).toContain("No changes detected");
+      });
+    });
+
     it("adds an index", async () => {
       vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
       vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
