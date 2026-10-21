@@ -303,15 +303,12 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
    * schema tree afterwards, in whichever database the tab happened to be
    * pointed at (#380).
    *
-   * Alter mode already shows its changes: the form is the table, the diff is
-   * against what was loaded, and a destructive change on a production
-   * connection raises the store's own confirmation. It keeps saving directly.
+   * Alter mode used to save directly, on the grounds that the form shows the
+   * changes. It does not show what they cost: one misclicked trash icon and
+   * Apply ran `DROP COLUMN` at once on any connection not marked production
+   * (#791). Both modes now show the statement and wait for Execute.
    */
   const handlePrimaryAction = () => {
-    if (isAlter) {
-      void runSave();
-      return;
-    }
     setShowPreview(true);
   };
 
@@ -677,6 +674,8 @@ function ColumnsTab({
                   <td className="px-1 py-1">
                     <button
                       onClick={() => onRemove(col.id)}
+                      aria-label={`Remove column ${col.name || "(unnamed)"}`}
+                      title="Remove column"
                       className="rounded p-0.5 text-[var(--color-text-muted)] hover:surface-error hover:text-[var(--color-error)]"
                     >
                       <Trash2 className="h-3 w-3" />

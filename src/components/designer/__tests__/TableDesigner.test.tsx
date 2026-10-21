@@ -363,8 +363,9 @@ describe("TableDesigner", () => {
       fireEvent.click(screen.getByText("Add Column"));
       const nameInputs = screen.getAllByPlaceholderText("column_name");
       fireEvent.change(nameInputs[nameInputs.length - 1], { target: { value: "added" } });
+      fireEvent.click(screen.getByText("Apply Changes"));
       await act(async () => {
-        fireEvent.click(screen.getByText("Apply Changes"));
+        fireEvent.click(screen.getByText("Execute Preview"));
       });
     }
 
@@ -463,20 +464,27 @@ describe("TableDesigner", () => {
       expect(screen.queryByTestId("sql-preview-dialog")).toBeNull();
     });
 
-    it("does not add a step to alter mode, which already shows its changes", async () => {
+    it("shows an alter as well, and runs nothing until Execute", async () => {
+      // A misclicked trash icon followed by Apply dropped the column at once,
+      // with no preview, on any connection not marked production (#791).
       vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
       vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
 
       render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
       await screen.findByDisplayValue("users");
-      fireEvent.click(screen.getByText("Add Column"));
-      const names = screen.getAllByPlaceholderText("column_name");
-      fireEvent.change(names[names.length - 1], { target: { value: "added" } });
+      fireEvent.click(screen.getByLabelText("Remove column name"));
       await act(async () => {
         fireEvent.click(screen.getByText("Apply Changes"));
       });
 
-      expect(useResultStore.getState().executeQuery).toHaveBeenCalled();
+      expect(screen.getByTestId("sql-preview-dialog").textContent)
+        .toContain("DROP COLUMN `name`");
+      expect(useResultStore.getState().executeQuery).not.toHaveBeenCalled();
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Close Preview"));
+      });
+      expect(useResultStore.getState().executeQuery).not.toHaveBeenCalled();
     });
   });
 
