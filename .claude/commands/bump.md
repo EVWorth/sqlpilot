@@ -1,6 +1,6 @@
 ---
 description: Cut a new release version. Updates package.json + Cargo.toml + tauri.conf.json atomically, runs just bump, reports next steps.
-agent: build
+argument-hint: "[patch|minor|major]"
 ---
 
 Cut a new release version for SQLPilot. Updates all three version files atomically, verifies consistency, reports git/tag/release flow.

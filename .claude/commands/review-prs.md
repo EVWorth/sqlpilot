@@ -1,9 +1,9 @@
 ---
-description: List open agent PRs, check one out, embody reviewer, output terse review findings with severity emojis. Team-lead's daily review routine.
-agent: build
+description: List open agent PRs, check one out, review it with the reviewer subagent, output terse findings with severity emojis. Team-lead's daily review routine.
+argument-hint: "[pr-number]"
 ---
 
-Review open agent-produced PRs. Team-lead's daily review routine — embody the `reviewer` agent per Self-Dispatch protocol.
+Review open agent-produced PRs. Team-lead's daily review routine, using the `reviewer` subagent.
 
 ## Inputs
 
@@ -35,9 +35,9 @@ PRs awaiting review: N
   labels: <labels>
 ```
 
-### 2. Read .opencode/agent/reviewer.md and embody
+### 2. Review with the `reviewer` subagent
 
-Per `.opencode/AGENTS.md` "Team-Lead Self-Dispatch": read the agent's prompt first, adopt its output format strictly.
+Delegate the review to the `reviewer` subagent (`.claude/agents/reviewer.md`). Keep its output format strictly:
 
 ```
 L<line>: <emoji> <severity>: <problem>. <fix>.
@@ -63,7 +63,7 @@ gh pr checkout <number>
 ```bash
 # Doc-keeper leaves .doc-keeper-report.md
 # Other agents may leave their own report files
-ls .opencode-report*.md .doc-keeper-report.md 2>/dev/null
+ls .*-report.md 2>/dev/null
 ```
 
 Every code change should be traceable to a finding in the report. Mismatch = finding.
@@ -175,6 +175,6 @@ Terse chat. The PR review body itself stays structured and professional — it's
 
 ## Related
 
-- `.opencode/agent/reviewer.md` — review agent definition (embody this)
-- `.opencode/AGENTS.md` — Self-Dispatch protocol
-- `.opencode/ops/nightly-doc-keeper.md` — doc-keeper review specifics
+- `.claude/agents/reviewer.md` — the reviewer subagent
+- `.claude/commands/doc-keeper.md` — doc-keeper review specifics
+- `CLAUDE.md` — team roster and PR rules

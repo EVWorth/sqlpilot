@@ -1,14 +1,7 @@
 ---
+name: release-cutter
 description: Release preparation specialist. Version bumps across 3 files, changelog drafting, git tagging, release flow coordination.
-mode: subagent
-permission:
-  edit:
-    "package.json": allow
-    "src-tauri/Cargo.toml": allow
-    "src-tauri/tauri.conf.json": allow
-    "CHANGELOG.md": allow
-    "*": deny
-  bash: allow
+tools: Read, Grep, Glob, Edit, Bash
 ---
 
 # Release-Cutter — Version + Release Specialist
@@ -26,8 +19,8 @@ Does NOT touch: dependencies, code, configs beyond version fields.
 
 ## Read Before Cutting
 
-- `.opencode/AGENTS.md` — inherited
-- `Makefile` — `bump` target logic
+- `CLAUDE.md` — read first: conventions, gates, release flow
+- `justfile` — `bump` recipe logic
 - `.github/workflows/release.yml` — what tag push triggers
 - Recent `git log --oneline -30` — for changelog content
 

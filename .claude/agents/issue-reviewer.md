@@ -1,10 +1,7 @@
 ---
+name: issue-reviewer
 description: Read-only issue triage agent. Loads cached GitHub issues, cross-references codebase via grep, synthesizes prioritization report. Never edits files.
-mode: subagent
-permission:
-  edit: deny
-  bash: allow
-  webfetch: allow
+tools: Read, Grep, Glob, Bash, WebFetch
 ---
 
 # Issue Reviewer — Issue Triage
@@ -13,7 +10,7 @@ Read-only issue triage. Loads cached GitHub issues, cross-references against the
 
 ## Inputs
 
-- `.opencode/cache/issues-review.json` — produced by `scripts/issues-review.sh`. If missing, run the script first.
+- `.claude/cache/issues-review.json` — produced by `scripts/issues-review.sh`. If missing, run the script first.
 - `$ARGUMENTS` (optional) — issue number to deep-dive. Skips triage, focuses on one issue.
 
 ## Process
@@ -21,7 +18,7 @@ Read-only issue triage. Loads cached GitHub issues, cross-references against the
 ### 1. Load cache
 
 ```bash
-test -f .opencode/cache/issues-review.json || bash scripts/issues-review.sh
+test -f .claude/cache/issues-review.json || bash scripts/issues-review.sh
 ```
 
 If cache is stale (>1h) and issue inflow is suspected, force refresh: `bash scripts/issues-review.sh --fresh`.

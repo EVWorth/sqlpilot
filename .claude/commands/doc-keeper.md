@@ -1,6 +1,5 @@
 ---
 description: Run doc-keeper drift sweep on demand. Detects drift between code and docs, applies minimal fixes, opens a PR for review.
-agent: build
 ---
 
 Run the doc-keeper agent for on-demand drift detection.
@@ -55,7 +54,7 @@ These guards mean the script is safe to run anytime. Worst case: it skips with a
 1. `gh pr list --label automated,documentation --state open`
 2. `gh pr checkout <number>`
 3. Read `.doc-keeper-report.md` (agent's audit trail)
-4. Embody `reviewer` per `.opencode/AGENTS.md` Self-Dispatch protocol
+4. Review the diff with the `reviewer` subagent
 5. Output terse findings (severity emojis, one line each) on PR
 6. User approves → merge
 
@@ -75,15 +74,15 @@ Or use `/review-prs` to do all of the above in one command.
 ## See also
 
 - `scripts/doc-keeper-sweep.sh` — the run script (well-commented header)
-- `.opencode/agent/doc-keeper.md` — agent definition
-- `.opencode/command/review-prs.md` — `/review-prs` review routine
-- `.opencode/AGENTS.md` — Self-Dispatch protocol
+- `.claude/agents/doc-keeper.md` — agent definition
+- `.claude/commands/review-prs.md` — `/review-prs` review routine
+- `CLAUDE.md` — team roster and PR rules
 
 ## Config
 
 Override defaults via env vars:
 
-- `SQLPILOT_REPO_DIR` — repo location (default: `/var/home/elliot/repos/sqlpilot`)
+- `SQLPILOT_REPO_DIR` — repo location (default: the repository the script is in)
 - `DOC_KEEPER_MAX_DIFF_LINES` — diff guard (default: 2000)
 - `DOC_KEEPER_AGENT_TIMEOUT` — agent timeout in sec (default: 1500)
 - `DOC_KEEPER_BRANCH_PREFIX` — branch name prefix (default: `doc-keeper/sweep`)

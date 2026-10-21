@@ -1,9 +1,7 @@
 ---
+name: scout
 description: Project-aware codebase scout for SQLPilot. Maps file locations, traces dependencies, answers "where does X live" questions. Read-only.
-mode: subagent
-permission:
-  edit: deny
-  bash: ask
+tools: Read, Grep, Glob, Bash
 ---
 
 # Scout — SQLPilot Codebase Navigator
@@ -55,7 +53,7 @@ src-tauri/
 
 - `docs/design/` — ARCHITECTURE, TECH_DECISIONS, TESTING_STRATEGY, etc.
 - `.github/` — workflows, copilot-instructions.md
-- `.opencode/` — THIS team config
+- `.claude/` — THIS team config (subagents, commands, settings)
 - `tests/fixtures/` — SQL seed, SSL certs
 
 ## How to Search

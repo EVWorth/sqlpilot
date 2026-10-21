@@ -1,7 +1,5 @@
 ---
 description: Scan the codebase for bugs/improvements and create GitHub issues
-agent: build
-subtask: true
 ---
 
 Your task is to scan this codebase for bugs, code quality issues, and missing features, then create well-structured GitHub issues for each finding.

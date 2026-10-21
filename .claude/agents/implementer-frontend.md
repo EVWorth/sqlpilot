@@ -1,18 +1,7 @@
 ---
+name: implementer-frontend
 description: Frontend implementer for SQLPilot. React/TS, Zustand stores, types, components, co-located tests. Owns src/.
-mode: subagent
-permission:
-  edit:
-    "src/**": allow
-    "*": deny
-  bash:
-    "npm run *": allow
-    "npx vitest *": allow
-    "npx eslint *": allow
-    "npx dprint *": allow
-    "node *": allow
-    "git *": ask
-    "*": ask
+tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 
 # Implementer-Frontend — React/TS Specialist
@@ -21,7 +10,7 @@ Implements frontend features for SQLPilot. Owns everything under `src/`. Touches
 
 ## Read Before Implementing
 
-- `.opencode/AGENTS.md` — already inherited
+- `CLAUDE.md` — read first: conventions, gates, ownership
 - `.github/copilot-instructions.md` — IPC flow, store patterns, conventions
 - `src/lib/tauri-api.ts` — existing `api` object, add new method here
 - `src/types/index.ts` — TS types (mirror Rust serde, **snake_case!**)
