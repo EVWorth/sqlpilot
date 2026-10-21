@@ -43,6 +43,8 @@ beforeEach(() => {
     loading: false,
     error: null,
     setup: null,
+    approval: null,
+    approvals: [],
   });
   apiMocks.agentEndpointStatus.mockResolvedValue(stopped);
   apiMocks.listAgentConnections.mockResolvedValue([connection()]);
@@ -165,5 +167,41 @@ describe("endpointSummary", () => {
     const summary = endpointSummary(running);
     expect(summary).toContain("http://127.0.0.1:47311/mcp");
     expect(summary).toContain("this machine");
+  });
+});
+
+describe("approval queue", () => {
+  const approval = (id: string) => ({
+    id,
+    connection: "shop",
+    environment: "staging",
+    sql: `UPDATE t SET a = '${id}'`,
+    change: "write",
+  });
+
+  it("keeps the first request in front when a second arrives", () => {
+    const { showApproval } = useAgentStore.getState();
+    showApproval(approval("a1"));
+    showApproval(approval("a2"));
+    expect(useAgentStore.getState().approval?.id).toBe("a1");
+    expect(useAgentStore.getState().approvals.map((a) => a.id)).toEqual(["a1", "a2"]);
+  });
+
+  it("moves to the next request once one is answered", () => {
+    const { showApproval, clearApproval } = useAgentStore.getState();
+    showApproval(approval("a1"));
+    showApproval(approval("a2"));
+    clearApproval("a1");
+    expect(useAgentStore.getState().approval?.id).toBe("a2");
+    clearApproval("a2");
+    expect(useAgentStore.getState().approval).toBeNull();
+    expect(useAgentStore.getState().approvals).toEqual([]);
+  });
+
+  it("does not queue the same request twice", () => {
+    const { showApproval } = useAgentStore.getState();
+    showApproval(approval("a1"));
+    showApproval(approval("a1"));
+    expect(useAgentStore.getState().approvals).toHaveLength(1);
   });
 });

@@ -31,7 +31,7 @@ function decision() {
 beforeEach(() => {
   vi.clearAllMocks();
   apiMocks.answerAgentRequest.mockResolvedValue(null);
-  useAgentStore.setState({ approval: null });
+  useAgentStore.setState({ approval: null, approvals: [] });
 });
 
 describe("ApprovalDialog", () => {
@@ -106,6 +106,34 @@ describe("ApprovalDialog", () => {
     render(<ApprovalDialog />);
     expect(screen.queryByRole("button", { name: /close/i })).toBeNull();
     expect(screen.getAllByRole("button")).toHaveLength(2);
+  });
+
+  it("queues a second request instead of swapping it in", async () => {
+    const second: PendingApproval = { ...write, id: "a2", sql: "DELETE FROM orders", rowsAffected: 90 };
+    const { showApproval } = useAgentStore.getState();
+    showApproval(write);
+    render(<ApprovalDialog />);
+    showApproval(second);
+
+    // Still the first statement, and it says another is waiting.
+    expect(await screen.findByText(write.sql)).toBeTruthy();
+    expect(screen.queryByText("DELETE FROM orders")).toBeNull();
+    expect(screen.getByTestId("approval-position").textContent).toBe("1 of 2");
+
+    fireEvent.click(screen.getByRole("button", { name: /Apply/ }));
+    await waitFor(() => expect(apiMocks.answerAgentRequest).toHaveBeenCalledTimes(1));
+    expect(apiMocks.answerAgentRequest.mock.calls[0][0]).toBe("a1");
+
+    // Then the second, on its own, answerable separately.
+    expect(await screen.findByText("DELETE FROM orders")).toBeTruthy();
+    expect(screen.queryByTestId("approval-position")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(apiMocks.answerAgentRequest).toHaveBeenCalledTimes(2));
+    expect(apiMocks.answerAgentRequest.mock.calls[1][0]).toBe("a2");
+    expect(JSON.parse(apiMocks.answerAgentRequest.mock.calls[1][1] as string)).toEqual({
+      approved: false,
+    });
+    expect(useAgentStore.getState().approval).toBeNull();
   });
 
   it("answers once however fast the button is clicked", async () => {

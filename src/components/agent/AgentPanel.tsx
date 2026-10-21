@@ -88,6 +88,13 @@ function PermissionRow(
         <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-[var(--color-warning)]" />
         <span className="break-words text-xs text-[var(--color-text-primary)]">{item.title}</span>
       </div>
+      {item.detail && (
+        // The whole request, not just its first line: a WHERE clause on the
+        // second line is the difference between one row and every row.
+        <pre className="mt-1 ml-6 max-h-40 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--color-bg-tertiary)] p-1.5 font-mono text-[11px] text-[var(--color-text-primary)]">
+          {item.detail}
+        </pre>
+      )}
       {answered
         ? (
           <p className="mt-1 pl-6 text-xs text-[var(--color-text-muted)]">
@@ -99,11 +106,13 @@ function PermissionRow(
         : (
           <div className="mt-2 flex flex-wrap gap-1 pl-6">
             {item.options.map((option) => (
+              // Only the one-off allow is primary; "always" is a bigger
+              // commitment and should not look like the default.
               <button
                 key={option.id}
                 type="button"
                 onClick={() => onAnswer(option.id)}
-                className={option.kind.startsWith("allow")
+                className={option.kind === "allow_once"
                   ? "rounded bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700"
                   : "rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"}
               >

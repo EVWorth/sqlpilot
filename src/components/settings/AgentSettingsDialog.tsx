@@ -82,7 +82,16 @@ function ConnectionRow({ connection }: { connection: AgentConnection }) {
   const shared = sharing !== "none";
   // Edited as text and saved on blur: a pattern list is something people type
   // in one go, and saving each keystroke would fire a round trip per letter.
-  const [patterns, setPatterns] = useState(connection.redact.join(", "));
+  const stored = connection.redact.join(", ");
+  const [patterns, setPatterns] = useState(stored);
+  // Follow the stored list when it changes underneath the field (revoking a
+  // connection clears it, for one), so the field never claims a column is
+  // hidden when it is not.
+  const [seeded, setSeeded] = useState(stored);
+  if (seeded !== stored) {
+    setSeeded(stored);
+    setPatterns(stored);
+  }
 
   return (
     <div className="flex flex-col gap-1 border-b border-[var(--color-border)] px-1 py-2 last:border-b-0">

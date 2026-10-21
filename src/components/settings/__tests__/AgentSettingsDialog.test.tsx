@@ -165,6 +165,30 @@ describe("AgentSettingsDialog", () => {
     expect(field.value).toBe("pw, *_nino");
   });
 
+  it("follows the stored patterns when re-sharing cleared them", async () => {
+    // Revoking clears the patterns; a field still showing them after a
+    // re-share would claim columns are hidden when they are not.
+    apiMocks.listAgentConnections.mockResolvedValue([
+      connection({ posture: "schema-only", redact: ["email", "*_token"] }),
+    ]);
+    open();
+    const field = await screen.findByLabelText("Columns to hide on shop") as HTMLInputElement;
+    expect(field.value).toBe("email, *_token");
+
+    apiMocks.listAgentConnections.mockResolvedValue([connection({ posture: null, redact: [] })]);
+    fireEvent.change(screen.getByLabelText("How shop is shared"), { target: { value: "none" } });
+    await waitFor(() => expect(screen.queryByLabelText("Columns to hide on shop")).toBeNull());
+
+    apiMocks.listAgentConnections.mockResolvedValue([
+      connection({ posture: "schema-only", redact: [] }),
+    ]);
+    fireEvent.change(screen.getByLabelText("How shop is shared"), {
+      target: { value: "schema-only" },
+    });
+    const again = await screen.findByLabelText("Columns to hide on shop") as HTMLInputElement;
+    expect(again.value).toBe("");
+  });
+
   it("offers the schema-change unlock only on a shared production connection", async () => {
     apiMocks.listAgentConnections.mockResolvedValue([
       connection({ environment: "production", posture: "samples" }),

@@ -55,25 +55,31 @@ function Rows({ approval }: { approval: PendingApproval }) {
 
 export function ApprovalDialog({ approval: given }: ApprovalDialogProps = {}) {
   const fromStore = useAgentStore((s) => s.approval);
-  const clearApproval = useAgentStore((s) => s.clearApproval);
+  const waiting = useAgentStore((s) => s.approvals.length);
   const approval = given ?? fromStore;
+  if (!approval) return null;
+  // Keyed on the request, so the next one in the queue is a fresh dialog
+  // rather than new SQL swapped in under the user's cursor.
+  return <ApprovalPrompt key={approval.id} approval={approval} total={given ? 1 : waiting} />;
+}
+
+function ApprovalPrompt({ approval, total }: { approval: PendingApproval; total: number }) {
+  const clearApproval = useAgentStore((s) => s.clearApproval);
   const [sending, setSending] = useState(false);
 
   const decide = useCallback(
     async (approved: boolean) => {
-      if (!approval || sending) return;
+      if (sending) return;
       setSending(true);
       try {
         await answerApproval(approval.id, approved);
       } finally {
         setSending(false);
-        clearApproval();
+        clearApproval(approval.id);
       }
     },
     [approval, sending, clearApproval],
   );
-
-  if (!approval) return null;
 
   const production = approval.environment === "production";
 
@@ -100,6 +106,14 @@ export function ApprovalDialog({ approval: given }: ApprovalDialogProps = {}) {
             ? "The agent wants to change the schema"
             : "The agent wants to change data"}
         </h2>
+        {total > 1 && (
+          <span
+            data-testid="approval-position"
+            className="ml-auto text-xs text-[var(--color-text-muted)]"
+          >
+            1 of {total}
+          </span>
+        )}
       </div>
 
       <div className="space-y-3 p-4">

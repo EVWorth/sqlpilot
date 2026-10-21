@@ -169,6 +169,14 @@ describe("SchemaTree", () => {
       expect(input).toBeInTheDocument();
       expect(input.getAttribute("placeholder")).toMatch(/Ctrl\+Shift/);
     });
+
+    it("advertises Ctrl+Shift+O, the shortcut that focuses the filter", () => {
+      render(<SchemaTree connectionId="conn-1" />);
+      const input = screen.getByPlaceholderText(/Filter/);
+      expect(input.getAttribute("placeholder")).toBe("Filter (Ctrl+Shift+O)");
+      fireEvent.keyDown(window, { key: "O", ctrlKey: true, shiftKey: true });
+      expect(document.activeElement).toBe(input);
+    });
   });
 
   describe("expand / collapse", () => {

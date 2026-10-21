@@ -1,5 +1,7 @@
 import { render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { EditorTab } from "../../../types";
+import { TableStructure } from "../../schema/TableStructure";
 import { MainPanel } from "../MainPanel";
 
 vi.mock("../../editor/SQLEditor", () => ({ SQLEditor: vi.fn(() => <div data-testid="sql-editor">SQLEditor</div>) }));
@@ -27,6 +29,11 @@ vi.mock(
 vi.mock(
   "../../designer/TableDesigner",
   () => ({ TableDesigner: vi.fn(() => <div data-testid="table-designer">TableDesigner</div>) }),
+);
+
+vi.mock(
+  "../../schema/TableStructure",
+  () => ({ TableStructure: vi.fn(() => <div data-testid="table-structure">TableStructure</div>) }),
 );
 
 vi.mock("react-resizable-panels", () => ({
@@ -87,5 +94,57 @@ describe("MainPanel", () => {
   it("has full height container", () => {
     const { container } = render(<MainPanel />);
     expect(container.firstElementChild).toHaveClass("h-full", "flex-col");
+  });
+
+  describe("renders the right panel for every tab kind", () => {
+    const base = { id: "t", title: "t", content: "", isDirty: false };
+    // A Record keyed on the union makes a new tab kind a type error here until
+    // it gets a case, so a kind MainPanel forgets to render fails CI (#787).
+    const cases: Record<EditorTab["type"], { tab: EditorTab; testId: string }> = {
+      query: { tab: { ...base, type: "query" }, testId: "sql-editor" },
+      structure: {
+        tab: { ...base, type: "structure", connectionId: "c1", database: "shop", tableName: "orders" },
+        testId: "table-structure",
+      },
+      admin: { tab: { ...base, type: "admin", connectionId: "c1" }, testId: "admin-panel" },
+      designer: {
+        tab: { ...base, type: "designer", connectionId: "c1", database: "shop", tableName: "orders" },
+        testId: "table-designer",
+      },
+      routine: {
+        tab: {
+          ...base,
+          type: "routine",
+          connectionId: "c1",
+          database: "shop",
+          routineName: "p",
+          routineType: "PROCEDURE",
+        },
+        testId: "routine-viewer",
+      },
+    };
+    const panelIds = Object.values(cases).map((c) => c.testId);
+    const showOnly = (tab: EditorTab) => {
+      Object.assign(globalThis, { __mainPanelEditorState: { tabs: [tab], activeTabId: tab.id } });
+    };
+
+    it.each(Object.entries(cases))("%s tab", (_kind, { tab, testId }) => {
+      showOnly(tab);
+      render(<MainPanel />);
+      expect(screen.getByTestId(testId)).toBeInTheDocument();
+      for (const other of panelIds.filter((id) => id !== testId)) {
+        expect(screen.queryByTestId(other)).toBeNull();
+      }
+    });
+
+    it("passes the table to TableStructure", () => {
+      showOnly(cases.structure.tab);
+      render(<MainPanel />);
+      expect(vi.mocked(TableStructure).mock.calls[0][0]).toEqual({
+        connectionId: "c1",
+        database: "shop",
+        tableName: "orders",
+      });
+    });
   });
 });
