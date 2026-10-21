@@ -9,7 +9,6 @@
 // virtual clock, so the rates and "time left" read like a real dump of tables
 // this size rather than millions of rows a second.
 
-import { emit } from "@tauri-apps/api/event";
 import type {
   BackupOptions,
   BackupProgress,
@@ -21,6 +20,7 @@ import type {
   RestoreSummary,
   SqlValue,
 } from "@/lib/bindings";
+import { emit } from "@tauri-apps/api/event";
 import { DATABASES, findTable, PROFILES, rand, tableRows } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection } from "../state";
@@ -92,7 +92,8 @@ const FAVORITES_JSON = JSON.stringify(
       {
         id: "fav-import-1",
         name: "Revenue by month",
-        sql: "SELECT DATE_FORMAT(placed_at, '%Y-%m') AS month, SUM(total) AS revenue\nFROM orders\nWHERE status <> 'refunded'\nGROUP BY month\nORDER BY month DESC;",
+        sql:
+          "SELECT DATE_FORMAT(placed_at, '%Y-%m') AS month, SUM(total) AS revenue\nFROM orders\nWHERE status <> 'refunded'\nGROUP BY month\nORDER BY month DESC;",
         category: "Reports",
         connectionName: "Local dev",
         database: "shop",
@@ -205,7 +206,9 @@ function backupSteps(database: string, tables: string[], options: BackupOptions)
     estimatedRows: null,
   });
   if (options.includeViews) {
-    for (const v of db?.tables.filter((t) => t.table_type === "VIEW") ?? []) steps.push(extra("Backing up views", v.name));
+    for (const v of db?.tables.filter((t) => t.table_type === "VIEW") ?? []) {
+      steps.push(extra("Backing up views", v.name));
+    }
   }
   if (options.includeRoutines) steps.push(extra("Backing up routines", ""));
   if (options.includeTriggers) steps.push(extra("Backing up triggers", ""));
@@ -349,7 +352,9 @@ async function runRestore(args: Record<string, unknown>): Promise<RestoreSummary
         // nothing succeeding every line says "Statement 1".
         for (let s = 0; s < failing && errors.length < 100; s++) {
           errors.push(
-            `Statement ${run + 1}: error returned from database: 1290 (HY000): The MySQL server is running with the --read-only option so it cannot execute this statement`,
+            `Statement ${
+              run + 1
+            }: error returned from database: 1290 (HY000): The MySQL server is running with the --read-only option so it cannot execute this statement`,
           );
         }
         if (options.stopOnError) break;
