@@ -111,10 +111,23 @@ export const connectionHandlers: Handlers = {
     const existing = state.profiles.find((p) => p.id === id);
     const now = new Date().toISOString();
     // Credentials are never echoed back, exactly as the real summary omits them.
-    const { password: _password, ssh_config, ...rest } = input;
+    const { ssh_config } = input;
+    // Listed field by field: spreading the input would carry the password.
     const summary: ConnectionProfileSummary_Serialize = {
-      ...rest,
       id,
+      name: input.name,
+      group: input.group,
+      color: input.color,
+      host: input.host,
+      port: input.port,
+      username: input.username,
+      default_database: input.default_database,
+      ssl_config: input.ssl_config,
+      read_only: input.read_only,
+      connect_timeout_secs: input.connect_timeout_secs,
+      query_timeout_secs: input.query_timeout_secs,
+      charset: input.charset,
+      environment: input.environment,
       ssh_config: ssh_config
         ? {
           host: ssh_config.host,
