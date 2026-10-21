@@ -45,6 +45,7 @@ export function resetState(scenario: Scenario): void {
 /** The live connection for an id, or the error the backend gives. */
 export function liveConnection(connectionId: unknown): ConnectionInfo {
   const conn = state.connections.get(String(connectionId));
-  if (!conn) throw `Connection not found: ${String(connectionId)}`;
+  // The backend's wording: CoreError::NotFound around the manager's message.
+  if (!conn) throw `Not found: Connection not found: ${String(connectionId)}`;
   return conn;
 }
