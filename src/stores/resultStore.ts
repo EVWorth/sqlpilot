@@ -87,7 +87,15 @@ interface ResultState {
   results: QueryResult[];
   activeResultIndex: number;
   isExecuting: boolean;
+  /** When the statement on screen started, for the elapsed-time counter. */
+  executionStartedAt: number | null;
   error: string | null;
+  /**
+   * How long the statement had run when the user cancelled it. A cancel is
+   * something the user asked for, so it is shown as information rather than
+   * as an error (#850). Null unless the last run was cancelled.
+   */
+  cancelledAfterMs: number | null;
   /** Null when the result fitted inside the row limit, so paging is moot. */
   page: PageState | null;
   /**
@@ -181,7 +189,9 @@ export const useResultStore = create<ResultState>((set, get) => ({
   results: [],
   activeResultIndex: 0,
   isExecuting: false,
+  executionStartedAt: null,
   error: null,
+  cancelledAfterMs: null,
   page: null,
   resultSource: null,
 
@@ -243,7 +253,19 @@ export const useResultStore = create<ResultState>((set, get) => ({
     const myGeneration = cancelGeneration;
     const connectionId = activeExecution?.connectionId ?? null;
     activeExecution = null;
-    set({ isExecuting: false, error: "Query cancelled by user" });
+    const startedAt = get().executionStartedAt;
+    // What was on screen came from the query before, and leaving it there
+    // read as that query's row count and timing (#850).
+    set({
+      isExecuting: false,
+      executionStartedAt: null,
+      error: null,
+      cancelledAfterMs: startedAt === null ? 0 : Math.max(0, Date.now() - startedAt),
+      results: [],
+      activeResultIndex: 0,
+      page: null,
+      resultSource: null,
+    });
     if (!connectionId) return;
     try {
       await api.cancelQuery(connectionId);
@@ -253,7 +275,10 @@ export const useResultStore = create<ResultState>((set, get) => ({
       // its failure over a query that started since would replace that
       // query's state with a message about one already gone (#287).
       if (cancelGeneration !== myGeneration) return;
-      set({ error: `Query cancelled, but the server did not confirm: ${String(e)}` });
+      set({
+        cancelledAfterMs: null,
+        error: `Query cancelled, but the server did not confirm: ${String(e)}`,
+      });
     }
   },
 
@@ -294,6 +319,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       results: [],
       activeResultIndex: 0,
       error: null,
+      cancelledAfterMs: null,
       page: null,
       resultSource: null,
       explainResult: null,
@@ -343,7 +369,9 @@ async function doExplain(
   try {
     set({
       isExecuting: true,
+      executionStartedAt: Date.now(),
       error: null,
+      cancelledAfterMs: null,
       explainNotice: null,
       explainRequestedFormat: format,
       explainRequest: { connectionId, sql, database, analyze, session },
@@ -417,7 +445,7 @@ async function doExecuteQuery(
   activeExecution = { generation: myGeneration, connectionId };
 
   try {
-    set({ isExecuting: true, error: null });
+    set({ isExecuting: true, executionStartedAt: Date.now(), error: null, cancelledAfterMs: null });
     // Through the data source, so the editor runs a statement the same way
     // whichever backend the connection belongs to (#461).
     // Noted before the call: the backend opens the session as the statement

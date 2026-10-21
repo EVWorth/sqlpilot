@@ -93,6 +93,7 @@ describe("resultStore", () => {
       activeResultIndex: 0,
       isExecuting: false,
       error: null,
+      cancelledAfterMs: null,
       explainResult: null,
       explainAnalyze: false,
       explainTabular: false,
@@ -802,10 +803,36 @@ describe("resultStore", () => {
       expect(useResultStore.getState().isExecuting).toBe(false);
     });
 
-    it("sets error message", async () => {
-      await useResultStore.getState().cancelActiveQuery();
+    // #850: the user's own cancel is information, not a "Query Error", and the
+    // previous query's rows must not stay on screen as if they were this one's.
+    it("records the cancel as a neutral state and clears the stale result", async () => {
+      vi.useFakeTimers();
+      try {
+        vi.setSystemTime(10_000);
+        const slow = new Promise<never>(() => {});
+        executeQueryMock.mockReturnValueOnce(slow);
+        useResultStore.setState({ results: [makeQueryResult({ rows: [["old"]] })] as any });
+        void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)");
+        vi.setSystemTime(11_200);
 
-      expect(useResultStore.getState().error).toBe("Query cancelled by user");
+        await useResultStore.getState().cancelActiveQuery();
+
+        const state = useResultStore.getState();
+        expect(state.error).toBeNull();
+        expect(state.cancelledAfterMs).toBe(1200);
+        expect(state.results).toEqual([]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("clears the cancelled state when the next query starts", async () => {
+      await useResultStore.getState().cancelActiveQuery();
+      executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+
+      expect(useResultStore.getState().cancelledAfterMs).toBeNull();
     });
 
     it("tells the server to stop the statement it is running", async () => {
@@ -864,7 +891,8 @@ describe("resultStore", () => {
       rejectQuery!(new Error("Query execution was interrupted"));
       await pending;
 
-      expect(useResultStore.getState().error).toBe("Query cancelled by user");
+      expect(useResultStore.getState().error).toBeNull();
+      expect(useResultStore.getState().cancelledAfterMs).not.toBeNull();
       expect(addEntryMock).not.toHaveBeenCalled();
     });
 
@@ -1087,7 +1115,7 @@ describe("resultStore cancel generations (#287)", () => {
     await inFlight;
 
     expect(useResultStore.getState().results).toEqual([]);
-    expect(useResultStore.getState().error).toBe("Query cancelled by user");
+    expect(useResultStore.getState().cancelledAfterMs).not.toBeNull();
   });
 
   it("does not report a failed cancel over a query that started since", async () => {

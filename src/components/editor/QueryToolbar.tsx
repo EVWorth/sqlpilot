@@ -137,7 +137,7 @@ export function QueryToolbar() {
         onClick={isExecuting ? cancelActiveQuery : handleExecute}
         disabled={!isExecuting && !canExecute}
         title={isExecuting ? "Cancel Query" : "Execute Query (Ctrl+Enter / F9)"}
-        className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+        className={`flex w-20 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
           isExecuting
             ? "bg-red-600 text-white hover:bg-red-700"
             : "bg-green-700 text-white hover:bg-green-800 disabled:hover:bg-green-700"

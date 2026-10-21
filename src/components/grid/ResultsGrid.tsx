@@ -41,6 +41,8 @@ export function ResultsGrid() {
   const activeResultIndex = useResultStore((s) => s.activeResultIndex);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const error = useResultStore((s) => s.error);
+  const executionStartedAt = useResultStore((s) => s.executionStartedAt);
+  const cancelledAfterMs = useResultStore((s) => s.cancelledAfterMs);
   const page = useResultStore((s) => s.page);
   const goToPage = useResultStore((s) => s.goToPage);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -297,7 +299,15 @@ export function ResultsGrid() {
   // Running, failed, a statement that returned a count, or nothing run yet —
   // none of which is a grid.
   if (isExecuting || error || !activeResult || activeResult.columns.length === 0) {
-    return <GridPlaceholder isExecuting={isExecuting} error={error} result={activeResult} />;
+    return (
+      <GridPlaceholder
+        isExecuting={isExecuting}
+        error={error}
+        result={activeResult}
+        startedAt={executionStartedAt}
+        cancelledAfterMs={cancelledAfterMs}
+      />
+    );
   }
 
   return (
