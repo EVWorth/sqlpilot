@@ -10,6 +10,7 @@ import { SQLEditor } from "../editor/SQLEditor";
 import { ExplainPanel } from "../explain/ExplainPanel";
 import { ResultsGrid } from "../grid/ResultsGrid";
 import { RoutineViewer } from "../routine/RoutineViewer";
+import { TableStructure } from "../schema/TableStructure";
 
 export function MainPanel() {
   const tabs = useEditorStore((s) => s.tabs);
@@ -31,6 +32,14 @@ export function MainPanel() {
         : activeTab?.type === "designer"
         ? (
           <TableDesigner
+            connectionId={activeTab.connectionId}
+            database={activeTab.database}
+            tableName={activeTab.tableName}
+          />
+        )
+        : activeTab?.type === "structure"
+        ? (
+          <TableStructure
             connectionId={activeTab.connectionId}
             database={activeTab.database}
             tableName={activeTab.tableName}
