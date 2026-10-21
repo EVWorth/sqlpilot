@@ -141,9 +141,6 @@ cd src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warn
 cd src-tauri && cargo test -p <crate> --verbose
 ```
 
-CI's clippy step runs without `--workspace`, so it lints only the app crate
-(#772). Lint the whole workspace yourself.
-
 **Connection manager, executor, schema inspector, backup/restore or admin:**
 `just db-up`, then `just test-integration` against MySQL (port 13306), and
 again with `MAS_TEST_PORT=13308` for MariaDB. CI runs these only at release

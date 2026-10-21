@@ -322,7 +322,7 @@ jobs:
         run: cargo fmt --all -- --check
         working-directory: src-tauri
       - name: Rust clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
         working-directory: src-tauri
       - name: Check TypeScript bindings are up to date
         run: |

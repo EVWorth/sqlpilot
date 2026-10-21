@@ -92,7 +92,7 @@ test-all: db-up test test-integration
 
 # Clippy, TypeScript type check, and formatting check.
 lint:
-    cd src-tauri && cargo clippy -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -- -D warnings
+    cd src-tauri && cargo clippy --workspace --all-targets --all-features -- -D warnings
     npx tsc --noEmit
     npx dprint check
     ./scripts/check-tauri-versions.sh
