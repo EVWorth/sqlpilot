@@ -366,4 +366,41 @@ describe("ConnectionDialog", () => {
       await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     });
   });
+
+  describe("delete and duplicate in the footer (#795)", () => {
+    const saved = {
+      id: "p1",
+      name: "Existing DB",
+      host: "db.example.com",
+      port: 3306,
+      username: "admin",
+      read_only: false,
+      created_at: "2023-01-01",
+      updated_at: "2023-01-01",
+    } as never;
+
+    it("offers them when editing", () => {
+      const onDelete = vi.fn();
+      const onDuplicate = vi.fn();
+      render(
+        <ConnectionDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          editProfile={saved}
+          onDelete={onDelete}
+          onDuplicate={onDuplicate}
+        />,
+      );
+      fireEvent.click(screen.getByText("Delete"));
+      fireEvent.click(screen.getByText("Duplicate"));
+      expect(onDelete).toHaveBeenCalledTimes(1);
+      expect(onDuplicate).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not offer them for a new profile", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} onDelete={vi.fn()} onDuplicate={vi.fn()} />);
+      expect(screen.queryByText("Delete")).not.toBeInTheDocument();
+      expect(screen.queryByText("Duplicate")).not.toBeInTheDocument();
+    });
+  });
 });

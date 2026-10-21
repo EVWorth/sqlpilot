@@ -1,4 +1,4 @@
-import { CheckCircle2, Database, Loader2, Settings, Shield, Terminal, X, XCircle } from "lucide-react";
+import { CheckCircle2, Copy, Database, Loader2, Settings, Shield, Terminal, Trash2, X, XCircle } from "lucide-react";
 import { useState } from "react";
 import type { ConnectionProfile } from "../../types";
 import { Modal } from "../common/Modal";
@@ -28,6 +28,10 @@ interface Props {
    * the original's id.
    */
   duplicateOf?: ConnectionProfile;
+  /** Offered in the footer when editing: delete this profile (asks first). */
+  onDelete?: () => void;
+  /** Offered in the footer when editing: open a copy of this profile. */
+  onDuplicate?: () => void;
 }
 
 type TabId = "general" | "ssl" | "ssh" | "advanced";
@@ -39,7 +43,14 @@ const TABS: { id: TabId; label: string; icon: typeof Database }[] = [
   { id: "advanced", label: "Advanced", icon: Settings },
 ];
 
-export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: Props) {
+export function ConnectionDialog({
+  isOpen,
+  onClose,
+  editProfile,
+  duplicateOf,
+  onDelete,
+  onDuplicate,
+}: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const {
     form,
@@ -173,14 +184,34 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
       )}
 
       <div className="flex items-center justify-between border-t border-[var(--color-border)] p-4">
-        <button
-          onClick={handleTest}
-          disabled={!canTest}
-          className="flex items-center gap-1.5 rounded bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
-        >
-          {testing && <Loader2 className="h-3 w-3 animate-spin" />}
-          Test Connection
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={handleTest}
+            disabled={!canTest}
+            className="flex items-center gap-1.5 rounded bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
+          >
+            {testing && <Loader2 className="h-3 w-3 animate-spin" />}
+            Test Connection
+          </button>
+          {editProfile && onDuplicate && (
+            <button
+              onClick={onDuplicate}
+              className="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+            >
+              <Copy className="h-3 w-3" />
+              Duplicate
+            </button>
+          )}
+          {editProfile && onDelete && (
+            <button
+              onClick={onDelete}
+              className="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
+            >
+              <Trash2 className="h-3 w-3" />
+              Delete
+            </button>
+          )}
+        </div>
         <div className="flex gap-2">
           <button
             onClick={onClose}
