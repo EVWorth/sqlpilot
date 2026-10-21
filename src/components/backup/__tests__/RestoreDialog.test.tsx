@@ -231,6 +231,72 @@ describe("RestoreDialog", () => {
     });
   });
 
+  describe("the result (#793)", () => {
+    /** The box the heading sits in, which carries the success/warning styling. */
+    function resultBox(text: RegExp): HTMLElement {
+      const heading = screen.getByText(text);
+      const box = heading.parentElement;
+      if (!box) throw new Error("result box not found");
+      return box;
+    }
+
+    it("is green only for a clean full run", async () => {
+      await startRestore();
+      await waitFor(() => screen.getByText(/Restore complete/));
+      expect(resultBox(/Restore complete/).className).toContain("surface-success");
+    });
+
+    it("warns rather than reassures when a cancelled restore had partly applied", async () => {
+      apiMocks.restoreDatabase.mockResolvedValueOnce({
+        ...clean,
+        cancelled: true,
+        rolledBack: true,
+        partiallyApplied: true,
+        statementsRun: 3,
+      });
+      await startRestore();
+      await waitFor(() => screen.getByText(/Restore cancelled/));
+      const box = resultBox(/Restore cancelled/);
+      expect(box.className).toContain("surface-warning");
+      expect(box.className).not.toContain("surface-success");
+    });
+
+    it("warns for a cancel even when nothing had applied", async () => {
+      apiMocks.restoreDatabase.mockResolvedValueOnce({ ...clean, cancelled: true, rolledBack: true });
+      await startRestore();
+      await waitFor(() => screen.getByText(/Restore cancelled/));
+      expect(resultBox(/Restore cancelled/).className).toContain("surface-warning");
+    });
+
+    it("does not say it stopped when Stop on error was off", async () => {
+      apiMocks.restoreDatabase.mockResolvedValueOnce({
+        ...clean,
+        statementsRun: 0,
+        statementsFailed: 3,
+        partiallyApplied: false,
+        errors: ["Statement 1: read only", "Statement 1: read only", "Statement 1: read only"],
+      });
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+      await waitFor(() => screen.getByText("testdb"));
+      fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "testdb" } });
+      fireEvent.click(screen.getByRole("checkbox", { name: /Stop on error/ }));
+      await act(async () => {
+        fireEvent.click(screen.getByText("Browse"));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByText("Restore"));
+      });
+
+      await waitFor(() => screen.getByText(/Finished with 3 error\(s\)/));
+      expect(screen.queryByText(/Stopped after/)).not.toBeInTheDocument();
+      // Identical error lines must not collide as React keys.
+      expect(screen.getAllByText("Statement 1: read only")).toHaveLength(3);
+      expect(consoleError.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+      consoleError.mockRestore();
+    });
+  });
+
   describe("options", () => {
     it("defaults to stopping on error, ignoring key order and using a transaction", async () => {
       render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);

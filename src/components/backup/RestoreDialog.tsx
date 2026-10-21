@@ -18,6 +18,15 @@ interface RestoreDialogProps {
 /** How much of a dump is read to show a preview of it. */
 const PREVIEW_BYTES = 64 * 1024;
 
+/**
+ * Whether the whole file ran and nothing failed. Only that earns the green
+ * check: a cancelled or partly applied restore has changed the database in a
+ * way the user has to look at (#793).
+ */
+function isCleanRun(summary: RestoreSummary): boolean {
+  return !summary.cancelled && !summary.partiallyApplied && summary.statementsFailed === 0;
+}
+
 export function RestoreDialog({
   isOpen,
   onClose,
@@ -48,6 +57,9 @@ export function RestoreDialog({
   const [progress, setProgress] = useState<RestoreProgress | null>(null);
   const [summary, setSummary] = useState<RestoreSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The options the finished run used. The checkboxes are live again once it
+  // ends, so reading them would word the summary by whatever is ticked now.
+  const [ranStopOnError, setRanStopOnError] = useState(true);
 
   const restoreIdRef = useRef<string | null>(null);
 
@@ -136,6 +148,7 @@ export function RestoreDialog({
     const id = crypto.randomUUID();
     restoreIdRef.current = id;
     setRestoring(true);
+    setRanStopOnError(options.stopOnError);
     setProgress(null);
     setSummary(null);
     setError(null);
@@ -364,21 +377,23 @@ export function RestoreDialog({
         }
         {summary && (
           <div
-            className={summary.statementsFailed === 0
+            className={isCleanRun(summary)
               ? "rounded border edge-success surface-success px-3 py-2 text-xs text-[var(--color-success)]"
               : "rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]"}
           >
             <div className="flex items-center gap-2">
-              {summary.statementsFailed === 0
-                ? <CheckCircle2 className="h-4 w-4" />
-                : <AlertCircle className="h-4 w-4" />}
+              {isCleanRun(summary)
+                ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                : <AlertCircle className="h-4 w-4" aria-hidden="true" />}
               {summary.cancelled
                 ? "Restore cancelled"
                 : summary.statementsFailed === 0
                 ? `Restore complete — ${summary.statementsRun.toLocaleString()} statements in ${
                   formatElapsed(summary.elapsedMs)
                 }.`
-                : `Stopped after ${summary.statementsFailed} error(s); ${summary.statementsRun} statements had run.`}
+                : ranStopOnError
+                ? `Stopped after ${summary.statementsFailed} error(s); ${summary.statementsRun} statements had run.`
+                : `Finished with ${summary.statementsFailed} error(s); ${summary.statementsRun} statements ran.`}
             </div>
             {(summary.cancelled || summary.statementsFailed > 0) && (
               <div className="mt-1 ml-6 text-[11px]">
@@ -391,7 +406,8 @@ export function RestoreDialog({
             )}
             {summary.errors.length > 0 && (
               <div className="mt-2 max-h-24 overflow-auto rounded surface-error p-2 font-mono text-[10px] text-[var(--color-error)]">
-                {summary.errors.slice(0, 10).map((err) => <div key={err}>{err}</div>)}
+                {/* Keyed by position: the same error can repeat word for word. */}
+                {summary.errors.slice(0, 10).map((err, i) => <div key={i}>{err}</div>)}
               </div>
             )}
           </div>
