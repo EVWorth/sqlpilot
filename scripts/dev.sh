@@ -1,7 +1,10 @@
 #!/bin/bash
 # Dev launcher — compiles and opens the Tauri app.
 
-export PATH="/home/linuxbrew/.linuxbrew/bin:/home/elliot/.cargo/bin:/usr/bin:/bin"
+# Keep the caller's PATH; add cargo's bin, and Linuxbrew's where it is
+# installed, for shells started without a login profile.
+export PATH="$HOME/.cargo/bin:$PATH"
+[ -d /home/linuxbrew/.linuxbrew/bin ] && export PATH="/home/linuxbrew/.linuxbrew/bin:$PATH"
 
 cd "$(dirname "$0")/.." || exit 1
 
