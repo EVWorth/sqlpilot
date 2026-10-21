@@ -56,6 +56,13 @@ export function BackupDialog({
   const [summary, setSummary] = useState<BackupSummary | null>(null);
 
   const backupIdRef = useRef<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Starting a run swaps the focused Backup button for Cancel. Without this,
+  // focus fell to <body> and the keyboard lost the dialog (#798).
+  useEffect(() => {
+    if (backing) cancelRef.current?.focus();
+  }, [backing]);
 
   // Load databases when connection changes
   useEffect(() => {
@@ -632,6 +639,7 @@ export function BackupDialog({
         {backing
           ? (
             <button
+              ref={cancelRef}
               onClick={handleCancel}
               className="rounded border edge-error surface-error px-4 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
             >

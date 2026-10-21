@@ -231,6 +231,18 @@ describe("RestoreDialog", () => {
     });
   });
 
+  it("moves focus to Cancel when the run starts (#798)", async () => {
+    // The focused Restore button turns disabled; focus must not fall to <body>.
+    let finish: (value: unknown) => void = () => {};
+    apiMocks.restoreDatabase.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    await startRestore();
+    await waitFor(() => screen.getByText("Cancel"));
+    expect(document.activeElement).toBe(screen.getByText("Cancel"));
+    await act(async () => finish({ ...clean }));
+  });
+
   describe("the result (#793)", () => {
     /** The box the heading sits in, which carries the success/warning styling. */
     function resultBox(text: RegExp): HTMLElement {

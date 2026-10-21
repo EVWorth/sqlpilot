@@ -60,6 +60,31 @@ const defaultConnState = {
   selectedConnectionId: "conn1",
 };
 
+/**
+ * Open the dialog and start a backup that does not finish until the returned
+ * function is called with its summary.
+ */
+async function startHangingBackup(onClose: () => void = vi.fn()) {
+  let resolveBackup: (value: unknown) => void = () => {};
+  apiMocks.backupDatabase.mockImplementationOnce(
+    () => new Promise((resolve) => (resolveBackup = resolve)),
+  );
+  render(<BackupDialog isOpen={true} onClose={onClose} />);
+  await waitFor(() => screen.getByText("testdb"));
+  fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "testdb" } });
+  await act(async () => {
+    fireEvent.click(screen.getByText("Browse"));
+  });
+  await waitFor(() => {
+    expect(screen.getByText("Backup").closest("button")).not.toBeDisabled();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByText("Backup"));
+  });
+  await waitFor(() => screen.getByText("Cancel"));
+  return (value: unknown) => act(async () => resolveBackup(value));
+}
+
 describe("BackupDialog", () => {
   beforeEach(() => {
     useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) => s(defaultConnState));
@@ -526,6 +551,13 @@ describe("BackupDialog", () => {
 
       // Now resolve
       resolveBackup!({ ...summary });
+    });
+
+    it("moves focus to Cancel when the run starts (#798)", async () => {
+      // The focused Backup button unmounts; focus must not fall to <body>.
+      const finish = await startHangingBackup();
+      expect(document.activeElement).toBe(screen.getByText("Cancel"));
+      await finish({ ...summary });
     });
 
     it("shows no tables selected error when backup called with none selected", async () => {

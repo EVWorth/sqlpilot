@@ -163,6 +163,23 @@ describe("ImportDialog", () => {
       expect(api.executeQuery).not.toHaveBeenCalled();
     });
 
+    it("keeps focus in the dialog when the run starts (#798)", async () => {
+      // Every control is disabled during the run, the focused one included.
+      let finish: (value: unknown) => void = () => {};
+      vi.mocked(api.restoreDatabase).mockImplementationOnce(
+        () => new Promise((resolve) => (finish = resolve)) as ReturnType<typeof api.restoreDatabase>,
+      );
+      await pickFile(["INSERT INTO t VALUES (1)"]);
+      const execute = screen.getByText("Execute SQL");
+      execute.focus();
+      await act(async () => {
+        fireEvent.click(execute);
+      });
+
+      await waitFor(() => expect(document.activeElement).toBe(screen.getByRole("status")));
+      await act(async () => finish({ ...cleanSummary }));
+    });
+
     it("passes on the user's choice to keep going past errors", async () => {
       await pickFile(["INSERT INTO t VALUES (1)"]);
       fireEvent.click(screen.getByLabelText("Stop at the first error"));

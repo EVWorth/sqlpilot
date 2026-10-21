@@ -174,4 +174,69 @@ describe("Modal", () => {
     fireEvent.mouseDown(container.firstElementChild!);
     expect(onClose).not.toHaveBeenCalled();
   });
+
+  describe("when focus has fallen out of it (#798)", () => {
+    /** What happens when the focused control unmounts mid-run. */
+    function dropFocus() {
+      (document.activeElement as HTMLElement | null)?.blur();
+      expect(document.activeElement).toBe(document.body);
+    }
+
+    it("still closes on Escape", () => {
+      const onClose = vi.fn();
+      render(<Fixture onClose={onClose} />);
+      dropFocus();
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("pulls Tab back into the panel instead of the page behind it", () => {
+      render(
+        <>
+          <button>page behind</button>
+          <Fixture />
+        </>,
+      );
+      dropFocus();
+      fireEvent.keyDown(document.body, { key: "Tab" });
+      expect(document.activeElement).toBe(screen.getByText("first"));
+
+      dropFocus();
+      fireEvent.keyDown(document.body, { key: "Tab", shiftKey: true });
+      expect(document.activeElement).toBe(screen.getByText("last"));
+    });
+
+    it("leaves a key alone when focus is somewhere on purpose", () => {
+      const onClose = vi.fn();
+      render(
+        <>
+          <button>elsewhere</button>
+          <Fixture onClose={onClose} />
+        </>,
+      );
+      const elsewhere = screen.getByText("elsewhere");
+      elsewhere.focus();
+      fireEvent.keyDown(elsewhere, { key: "Escape" });
+      expect(onClose).not.toHaveBeenCalled();
+    });
+
+    it("lets only the topmost of two stacked dialogs answer", () => {
+      const lower = vi.fn();
+      const upper = vi.fn();
+      render(
+        <>
+          <Modal isOpen onClose={lower} label="Lower">
+            <button>a</button>
+          </Modal>
+          <Modal isOpen onClose={upper} label="Upper">
+            <button>b</button>
+          </Modal>
+        </>,
+      );
+      dropFocus();
+      fireEvent.keyDown(document.body, { key: "Escape" });
+      expect(upper).toHaveBeenCalledTimes(1);
+      expect(lower).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -62,6 +62,13 @@ export function RestoreDialog({
   const [ranStopOnError, setRanStopOnError] = useState(true);
 
   const restoreIdRef = useRef<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Starting a run disables the focused Restore button. Without this, focus
+  // fell to <body> and the keyboard lost the dialog (#798).
+  useEffect(() => {
+    if (restoring) cancelRef.current?.focus();
+  }, [restoring]);
 
   // Load databases when connection changes
   useEffect(() => {
@@ -425,6 +432,7 @@ export function RestoreDialog({
       <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
         {restoring && (
           <button
+            ref={cancelRef}
             onClick={handleCancel}
             className="rounded border edge-error surface-error px-4 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
           >
