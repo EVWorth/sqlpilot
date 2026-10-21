@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
+import { useResultsFollowActiveTab } from "../../hooks/useResultsFollowActiveTab";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { AdminPanel } from "../admin/AdminPanel";
@@ -20,6 +21,7 @@ export function MainPanel() {
   const showExplain = useResultStore((s) => s.showExplain);
   const explainResult = useResultStore((s) => s.explainResult);
   const setShowExplain = useResultStore((s) => s.setShowExplain);
+  useResultsFollowActiveTab();
 
   // Narrowing on `type` is enough: the union guarantees the fields each kind
   // needs, so there is nothing left to re-check here (#449). This used to

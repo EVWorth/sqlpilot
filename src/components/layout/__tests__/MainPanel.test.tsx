@@ -57,7 +57,15 @@ vi.mock("../../../stores/editorStore", () => ({
 
 vi.mock("../../../stores/resultStore", () => ({
   useResultStore: vi.fn((s: (v: unknown) => unknown) =>
-    s({ showExplain: false, explainResult: null, setShowExplain: vi.fn(), results: [] })
+    s({
+      showExplain: false,
+      explainResult: null,
+      setShowExplain: vi.fn(),
+      results: [],
+      showTab: vi.fn(),
+      forgetTabs: vi.fn(),
+      dropForeignResults: vi.fn(),
+    })
   ),
 }));
 

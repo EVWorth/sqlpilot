@@ -101,6 +101,8 @@ describe("resultStore", () => {
       explainNotice: null,
       showExplain: false,
       confirmDialog: null,
+      viewTabId: null,
+      parked: {},
     });
     explainQueryMock.mockResolvedValue(makeExplainResponse());
     executeQueryMock.mockResolvedValue([]);
@@ -1165,5 +1167,104 @@ describe("resultStore cancel generations (#287)", () => {
     await cancelling;
 
     expect(useResultStore.getState().error).toContain("did not confirm");
+  });
+});
+
+// #842: results and run state belong to the editor tab that ran them.
+describe("per-tab results", () => {
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useResultStore.setState({
+      results: [],
+      activeResultIndex: 0,
+      isExecuting: false,
+      error: null,
+      cancelledAfterMs: null,
+      page: null,
+      resultSource: null,
+      confirmDialog: null,
+      viewTabId: null,
+      parked: {},
+    });
+    connectionStoreState = {
+      activeConnections: [{ id: "conn-1", profile_id: "p1", name: "Test DB" }],
+      profiles: [{ id: "p1", environment: "development" }],
+    };
+    useResultStore.getState().showTab("tab-1");
+  });
+
+  it("shows each tab its own results, and a fresh tab the empty state", async () => {
+    const orders = makeQueryResult({ sql: "SELECT * FROM orders", rows: [["o"]] });
+    executeQueryMock.mockResolvedValueOnce([orders]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders", undefined, "tab-1");
+
+    useResultStore.getState().showTab("tab-2");
+    expect(useResultStore.getState().results).toEqual([]);
+    expect(useResultStore.getState().resultSource).toBeNull();
+
+    useResultStore.getState().showTab("tab-1");
+    expect(useResultStore.getState().results).toEqual([orders]);
+  });
+
+  it("does not show another tab's running query as this tab's", async () => {
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const pending = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "tab-1");
+
+    useResultStore.getState().showTab("tab-2");
+    expect(useResultStore.getState().isExecuting).toBe(false);
+
+    slow.resolve([]);
+    await pending;
+  });
+
+  it("keeps a slow result in one tab when another tab runs a query", async () => {
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const first = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "tab-1");
+
+    useResultStore.getState().showTab("tab-2");
+    const customers = makeQueryResult({ sql: "SELECT * FROM customers", rows: [["c"]] });
+    executeQueryMock.mockResolvedValueOnce([customers]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM customers", undefined, "tab-2");
+
+    const sleep = makeQueryResult({ sql: "SELECT SLEEP(5)", rows: [["0"]] });
+    slow.resolve([sleep]);
+    await first;
+
+    // Tab 2 still shows its own; tab 1's result arrived and was recorded.
+    expect(useResultStore.getState().results).toEqual([customers]);
+    expect(addEntryMock).toHaveBeenCalledWith(expect.objectContaining({ sql: "SELECT SLEEP(5)" }));
+    useResultStore.getState().showTab("tab-1");
+    expect(useResultStore.getState().results).toEqual([sleep]);
+    expect(useResultStore.getState().isExecuting).toBe(false);
+  });
+
+  it("forgets a closed tab's results", async () => {
+    executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+    useResultStore.getState().showTab("tab-2");
+
+    useResultStore.getState().forgetTabs(["tab-2"]);
+
+    expect(useResultStore.getState().parked).toEqual({});
+  });
+
+  it("clears a grid read on another connection when the selection changes", async () => {
+    executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+    useResultStore.getState().dropForeignResults("conn-2");
+
+    expect(useResultStore.getState().results).toEqual([]);
+    expect(useResultStore.getState().resultSource).toBeNull();
   });
 });
