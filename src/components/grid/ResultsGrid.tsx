@@ -281,6 +281,11 @@ export function ResultsGrid() {
 
   const sortedColumnCount = sorting.length;
 
+  /** A row click, with the on-screen order so Shift ranges follow the sort (#839). */
+  const clickGridRow = useCallback((e: React.MouseEvent, dataIdx: number) => {
+    clickRow(e, dataIdx, table.getRowModel().rows.map((r) => r.index));
+  }, [clickRow, table]);
+
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
   const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
@@ -401,7 +406,7 @@ export function ResultsGrid() {
                 insertRowIndex={insertRowIndex}
                 onEditCellAt={editCellAt}
                 onStopEditing={stopEditing}
-                onClickRow={clickRow}
+                onClickRow={clickGridRow}
                 onRowContextMenu={handleRowContextMenu}
                 rowVirtualizer={rowVirtualizer}
                 rowHeight={ROW_HEIGHT}
@@ -443,7 +448,7 @@ export function ResultsGrid() {
                   insertRowIndex={insertRowIndex}
                   onEditCellAt={editCellAt}
                   onStopEditing={stopEditing}
-                  onClickRow={clickRow}
+                  onClickRow={clickGridRow}
                   onRowContextMenu={handleRowContextMenu}
                 />
               </tbody>

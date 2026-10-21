@@ -31,8 +31,9 @@ export interface GridRowsProps {
   insertRowIndex: (insertIdx: number) => number;
   onEditCellAt: (rowIndex: number, colIndex: number) => void;
   onStopEditing: () => void;
-  onClickRow: (e: React.MouseEvent, rowIdx: number) => void;
-  onRowContextMenu: (e: React.MouseEvent<HTMLElement>, rowIdx: number) => void;
+  /** Both take the row's index in the result, not its position on screen (#839). */
+  onClickRow: (e: React.MouseEvent, dataIdx: number) => void;
+  onRowContextMenu: (e: React.MouseEvent<HTMLElement>, dataIdx: number) => void;
 }
 
 export interface VirtualGridRowsProps extends GridRowsProps {
@@ -119,9 +120,13 @@ export function VirtualGridRows({
         }
 
         if (!tableRow) return null;
-        const isDeleted = editing.isRowDeleted(rowIdx);
-        const isEdited = editing.isRowEdited(rowIdx);
-        const isSelected = selection.rows.has(rowIdx);
+        // The row's index in the result, not its place on screen: once the
+        // grid is sorted or filtered the two differ, and every pending edit,
+        // delete and selection is keyed by the former (#839).
+        const dataIdx = tableRow.index;
+        const isDeleted = editing.isRowDeleted(dataIdx);
+        const isEdited = editing.isRowEdited(dataIdx);
+        const isSelected = selection.rows.has(dataIdx);
         let rowBg = "";
         if (isDeleted) rowBg = "surface-error-strong line-through opacity-60";
         else if (isEdited) rowBg = "surface-warning";
@@ -132,8 +137,8 @@ export function VirtualGridRows({
           <div
             key={tableRow.id}
             aria-selected={isSelected}
-            onClick={(e) => clickRow(e, rowIdx)}
-            onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
+            onClick={(e) => clickRow(e, dataIdx)}
+            onContextMenu={(e) => handleRowContextMenu(e, dataIdx)}
             style={{
               display: "flex",
               position: "absolute",
@@ -190,9 +195,12 @@ export function TableGridRows({
   return (
     <>
       {table.getRowModel().rows.map((row, rowIdx) => {
-        const isDeleted = editing.isRowDeleted(rowIdx);
-        const isEdited = editing.isRowEdited(rowIdx);
-        const isSelected = selection.rows.has(rowIdx);
+        // Keyed by the row's index in the result, not its place on screen,
+        // which differ once the grid is sorted or filtered (#839).
+        const dataIdx = row.index;
+        const isDeleted = editing.isRowDeleted(dataIdx);
+        const isEdited = editing.isRowEdited(dataIdx);
+        const isSelected = selection.rows.has(dataIdx);
         let rowClass = "hover:bg-[var(--color-bg-secondary)]";
         if (isDeleted) rowClass = "surface-error-strong line-through opacity-60";
         else if (isEdited) rowClass = "surface-warning";
@@ -203,8 +211,8 @@ export function TableGridRows({
             key={row.id}
             className={rowClass}
             aria-selected={isSelected}
-            onClick={(e) => clickRow(e, rowIdx)}
-            onContextMenu={(e) => handleRowContextMenu(e, rowIdx)}
+            onClick={(e) => clickRow(e, dataIdx)}
+            onContextMenu={(e) => handleRowContextMenu(e, dataIdx)}
           >
             <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
               {rowIdx + 1}
