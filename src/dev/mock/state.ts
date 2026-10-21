@@ -3,7 +3,7 @@
 // In memory, reset on reload. Handler files read and change it; nothing else
 // should, so a screen behaves the same however it was reached.
 
-import type { ConnectionInfo, ConnectionProfileSummary_Serialize } from "@/lib/bindings";
+import type { ConnectionInfo, ConnectionProfileSummary_Serialize } from "../../lib/bindings";
 import { PROFILES } from "./dataset";
 
 /**

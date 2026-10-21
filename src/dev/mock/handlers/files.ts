@@ -9,6 +9,7 @@
 // virtual clock, so the rates and "time left" read like a real dump of tables
 // this size rather than millions of rows a second.
 
+import { emit } from "@tauri-apps/api/event";
 import type {
   BackupOptions,
   BackupProgress,
@@ -19,8 +20,7 @@ import type {
   RestoreProgressEvent,
   RestoreSummary,
   SqlValue,
-} from "@/lib/bindings";
-import { emit } from "@tauri-apps/api/event";
+} from "../../../lib/bindings";
 import { DATABASES, findTable, PROFILES, rand, tableRows } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection } from "../state";

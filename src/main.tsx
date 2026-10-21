@@ -36,9 +36,10 @@ function render() {
 // UI can be used and reviewed in a browser (src/dev/mock). `DEV` is `false` in
 // a production build, so this branch and the mock module are left out of it.
 if (import.meta.env.DEV && new URLSearchParams(window.location.search).has("mock")) {
-  void import("./dev/mock").then(({ installMockBackend }) => {
+  void import("./dev/mock").then(({ installMockBackend, afterRender }) => {
     installMockBackend();
     render();
+    afterRender();
   });
 } else {
   render();

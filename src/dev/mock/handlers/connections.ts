@@ -10,11 +10,11 @@ import { emit } from "@tauri-apps/api/event";
 import type {
   ConnectionHealth,
   ConnectionInfo,
-  ConnectionProfileSummary_Serialize,
   ConnectionProfile_Deserialize,
+  ConnectionProfileSummary_Serialize,
   StartupProblem,
   TestConnectionResult,
-} from "@/lib/bindings";
+} from "../../../lib/bindings";
 import { SERVER_VERSION } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection, newId, state } from "../state";
@@ -99,6 +99,9 @@ export function scenarioConnection(): ConnectionInfo | undefined {
 }
 
 export const connectionHandlers: Handlers = {
+  // The OS keyring works, as it does on any desktop the app supports; the
+  // warning for a missing one is a separate screen to review on purpose.
+  keyring_available: () => true,
   list_connection_profiles: async (): Promise<ConnectionProfileSummary_Serialize[]> => {
     await delay(60);
     return state.profiles.map((p) => ({ ...p }));
@@ -182,12 +185,15 @@ export const connectionHandlers: Handlers = {
     refuseSsh(profile);
     await delay(profileId === SLOW_PROFILE ? 1_500 : 350);
     if (isRefused(profile)) {
-      return fail(`Connection error: Could not connect "${profile.name}". ${refusedDetail(profile.host, profile.port)}`);
+      return fail(
+        `Connection error: Could not connect "${profile.name}". ${refusedDetail(profile.host, profile.port)}`,
+      );
     }
     const info = openConnection(profile);
     // The checker's first report, so the tab's health dot fills in as it does
-    // in the app. Not awaited: the connect answer should not wait on it.
-    setTimeout(() => void emit("connection-health-event", healthy(info.id)), 50);
+    // in the app. Not awaited: the connect answer should not wait on it, and
+    // with no event bus (a unit test) there is nobody to tell.
+    setTimeout(() => emit("connection-health-event", healthy(info.id)).catch(() => {}), 50);
     return info;
   },
 

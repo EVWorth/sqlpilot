@@ -9,6 +9,7 @@
 // mentions "delete" or "update" asks the harness's own permission first and,
 // if allowed, then SQLPilot's approval — the two gates of AI_INTEGRATION §2.
 
+import { emit } from "@tauri-apps/api/event";
 import type {
   AgentAsk,
   AgentConnection_Serialize,
@@ -22,8 +23,7 @@ import type {
   SessionEvent_Serialize,
   SetupTarget,
   StartedSession,
-} from "@/lib/bindings";
-import { emit } from "@tauri-apps/api/event";
+} from "../../../lib/bindings";
 import { findTable, type MockTable } from "../dataset";
 import { type Args, delay, fail, type Handlers } from "../router";
 import { newId, state } from "../state";

@@ -4,11 +4,7 @@
 // databases and the usual system schemas. Rows are generated from a fixed
 // seed, so every screenshot of the same screen shows the same data.
 
-import type {
-  ColumnInfo,
-  ConnectionProfileSummary_Serialize,
-  SqlValue,
-} from "@/lib/bindings";
+import type { ColumnInfo, ConnectionProfileSummary_Serialize, SqlValue } from "../../lib/bindings";
 
 export interface MockColumn extends ColumnInfo {
   /** Makes the value for row `i` (0-based). */
@@ -63,13 +59,59 @@ function col(
   };
 }
 
-const id = (name = "id") =>
-  col(name, "int unsigned", (i) => i + 1, { is_primary_key: true, extra: "auto_increment" });
+const id = (name = "id") => col(name, "int unsigned", (i) => i + 1, { is_primary_key: true, extra: "auto_increment" });
 
-const FIRST = ["Ada", "Grace", "Linus", "Margaret", "Alan", "Barbara", "Dennis", "Frances", "Ken", "Radia", "Tim", "Hedy", "Edsger", "Katherine", "Donald", "Annie"];
-const LAST = ["Lovelace", "Hopper", "Torvalds", "Hamilton", "Turing", "Liskov", "Ritchie", "Allen", "Thompson", "Perlman", "Berners-Lee", "Lamarr", "Dijkstra", "Johnson", "Knuth", "Easley"];
+const FIRST = [
+  "Ada",
+  "Grace",
+  "Linus",
+  "Margaret",
+  "Alan",
+  "Barbara",
+  "Dennis",
+  "Frances",
+  "Ken",
+  "Radia",
+  "Tim",
+  "Hedy",
+  "Edsger",
+  "Katherine",
+  "Donald",
+  "Annie",
+];
+const LAST = [
+  "Lovelace",
+  "Hopper",
+  "Torvalds",
+  "Hamilton",
+  "Turing",
+  "Liskov",
+  "Ritchie",
+  "Allen",
+  "Thompson",
+  "Perlman",
+  "Berners-Lee",
+  "Lamarr",
+  "Dijkstra",
+  "Johnson",
+  "Knuth",
+  "Easley",
+];
 const CITIES = ["Lisbon", "Oslo", "Toronto", "Nairobi", "Osaka", "Austin", "Berlin", "Lima", "Perth", "Dublin"];
-const PRODUCTS = ["Mechanical keyboard", "USB-C hub", "27\" monitor", "Desk lamp", "Noise-cancelling headphones", "Laptop stand", "Webcam", "Ergonomic mouse", "Cable organiser", "Standing desk mat", "Portable SSD 1TB", "Wireless charger"];
+const PRODUCTS = [
+  "Mechanical keyboard",
+  "USB-C hub",
+  "27\" monitor",
+  "Desk lamp",
+  "Noise-cancelling headphones",
+  "Laptop stand",
+  "Webcam",
+  "Ergonomic mouse",
+  "Cable organiser",
+  "Standing desk mat",
+  "Portable SSD 1TB",
+  "Wireless charger",
+];
 const STATUSES = ["pending", "paid", "shipped", "delivered", "refunded"];
 
 export function isoDate(i: number, daysBack = 400): string {
@@ -94,10 +136,21 @@ const shop: MockDatabase = {
         id(),
         col("first_name", "varchar(64)", (i) => pick(FIRST, i, 1)),
         col("last_name", "varchar(64)", (i) => pick(LAST, i, 2)),
-        col("email", "varchar(255)", (i) => `${pick(FIRST, i, 1).toLowerCase()}.${pick(LAST, i, 2).toLowerCase().replace(/[^a-z]/g, "")}${i}@example.com`, { comment: "Unique per customer" }),
+        col(
+          "email",
+          "varchar(255)",
+          (i) =>
+            `${pick(FIRST, i, 1).toLowerCase()}.${
+              pick(LAST, i, 2).toLowerCase().replace(/[^a-z]/g, "")
+            }${i}@example.com`,
+          { comment: "Unique per customer" },
+        ),
         col("city", "varchar(64)", (i) => (rand(i, 3) < 0.08 ? null : pick(CITIES, i, 3)), { nullable: true }),
         col("is_active", "tinyint(1)", (i) => (rand(i, 4) < 0.9 ? 1 : 0), { default_value: "1" }),
-        col("created_at", "datetime", (i) => isoDate(i), { default_value: "CURRENT_TIMESTAMP", extra: "DEFAULT_GENERATED" }),
+        col("created_at", "datetime", (i) => isoDate(i), {
+          default_value: "CURRENT_TIMESTAMP",
+          extra: "DEFAULT_GENERATED",
+        }),
       ],
     },
     {
@@ -112,7 +165,14 @@ const shop: MockDatabase = {
         col("name", "varchar(128)", (i) => PRODUCTS[i % PRODUCTS.length]),
         col("price", "decimal(10,2)", (i) => (19 + Math.floor(rand(i, 5) * 480) + 0.99).toFixed(2)),
         col("stock", "int", (i) => Math.floor(rand(i, 6) * 300)),
-        col("description", "text", (i) => (rand(i, 8) < 0.3 ? null : `The ${PRODUCTS[i % PRODUCTS.length].toLowerCase()} everyone on the team ends up asking about.`), { nullable: true }),
+        col(
+          "description",
+          "text",
+          (i) => (rand(i, 8) < 0.3
+            ? null
+            : `The ${PRODUCTS[i % PRODUCTS.length].toLowerCase()} everyone on the team ends up asking about.`),
+          { nullable: true },
+        ),
       ],
     },
     {
@@ -124,10 +184,19 @@ const shop: MockDatabase = {
       columns: [
         id(),
         col("customer_id", "int unsigned", (i) => 1 + Math.floor(rand(i, 9) * 1284), { extra: "" }),
-        col("status", "enum('pending','paid','shipped','delivered','refunded')", (i) => pick(STATUSES, i, 10), { default_value: "pending" }),
+        col("status", "enum('pending','paid','shipped','delivered','refunded')", (i) => pick(STATUSES, i, 10), {
+          default_value: "pending",
+        }),
         col("total", "decimal(10,2)", (i) => (10 + rand(i, 11) * 900).toFixed(2)),
         col("placed_at", "datetime", (i) => isoDate(i, 200)),
-        col("notes", "json", (i) => (rand(i, 12) < 0.7 ? null : JSON.stringify({ gift: rand(i, 13) < 0.5, channel: pick(["web", "app", "phone"], i, 14) })), { nullable: true }),
+        col(
+          "notes",
+          "json",
+          (i) => (rand(i, 12) < 0.7
+            ? null
+            : JSON.stringify({ gift: rand(i, 13) < 0.5, channel: pick(["web", "app", "phone"], i, 14) })),
+          { nullable: true },
+        ),
       ],
     },
     {
@@ -174,8 +243,20 @@ const analytics: MockDatabase = {
       columns: [
         col("id", "bigint unsigned", (i) => 10_000_000 + i, { is_primary_key: true, extra: "auto_increment" }),
         col("user_id", "int unsigned", (i) => 1 + Math.floor(rand(i, 20) * 50_000), { nullable: true }),
-        col("name", "varchar(64)", (i) => pick(["page_view", "signup", "checkout_started", "checkout_completed", "search"], i, 21)),
-        col("properties", "json", (i) => JSON.stringify({ path: pick(["/", "/pricing", "/docs", "/cart"], i, 22), ms: Math.floor(rand(i, 23) * 900) })),
+        col(
+          "name",
+          "varchar(64)",
+          (i) => pick(["page_view", "signup", "checkout_started", "checkout_completed", "search"], i, 21),
+        ),
+        col(
+          "properties",
+          "json",
+          (i) =>
+            JSON.stringify({
+              path: pick(["/", "/pricing", "/docs", "/cart"], i, 22),
+              ms: Math.floor(rand(i, 23) * 900),
+            }),
+        ),
         col("occurred_at", "timestamp(3)", (i) => isoDate(i, 30)),
       ],
     },

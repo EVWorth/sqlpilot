@@ -25,7 +25,7 @@ import type {
   TableInfo,
   TriggerInfo,
   ViewInfo,
-} from "@/lib/bindings";
+} from "../../../lib/bindings";
 import { DATABASES, type MockDatabase, type MockTable, rand } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection } from "../state";

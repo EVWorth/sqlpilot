@@ -12,17 +12,17 @@
 // and leaving a screen that looks broken for no visible reason.
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
-import { connectionHandlers } from "./handlers/connections";
-import { queryHandlers } from "./handlers/query";
-import { schemaHandlers } from "./handlers/schema";
 import { adminHandlers } from "./handlers/admin";
+import { agentHandlers } from "./handlers/agent";
+import { connectionHandlers } from "./handlers/connections";
 import { fileHandlers } from "./handlers/files";
 import { historyHandlers } from "./handlers/history";
-import { sqliteHandlers } from "./handlers/sqlite";
-import { agentHandlers } from "./handlers/agent";
 import { pluginHandlers } from "./handlers/plugins";
+import { queryHandlers } from "./handlers/query";
+import { schemaHandlers } from "./handlers/schema";
+import { sqliteHandlers } from "./handlers/sqlite";
 import type { Handlers } from "./router";
-import { resetState, scenarioFromUrl, type Scenario } from "./state";
+import { resetState, type Scenario, scenarioFromUrl } from "./state";
 
 export const handlers: Handlers = {
   ...connectionHandlers,
@@ -51,4 +51,18 @@ export function installMockBackend(scenario: Scenario = scenarioFromUrl(window.l
     { shouldMockEvents: true },
   );
   console.info(`[mock backend] installed (scenario: ${scenario})`);
+}
+
+/**
+ * What a scenario does once the app is on screen.
+ *
+ * The app never asks the backend which connections are already live, so a
+ * connection made only inside the mock would never appear. `connected` goes
+ * through the app's own store instead, as a person clicking Connect would.
+ */
+export function afterRender(scenario: Scenario = scenarioFromUrl(window.location.search)): void {
+  if (scenario !== "connected") return;
+  void import("../../stores/connectionStore").then(({ useConnectionStore }) =>
+    useConnectionStore.getState().connect("profile-local")
+  );
 }

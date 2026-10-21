@@ -5,7 +5,7 @@
 // thread and refreshing shows it gone, as on a real server. Thread times count
 // up from when the list was first read, so auto-refresh visibly ticks.
 
-import type { PlatformInfo, ProcessInfo, ServerVariable } from "@/lib/bindings";
+import type { PlatformInfo, ProcessInfo, ServerVariable } from "../../../lib/bindings";
 import { PROFILES, SERVER_VERSION } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection } from "../state";

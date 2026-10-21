@@ -20,8 +20,8 @@
 //   1317.
 
 import type {
-  ConnectionInfo,
   ColumnMeta,
+  ConnectionInfo,
   ExplainFormat,
   ExplainResponse_Serialize,
   GridEditOutcome,
@@ -29,7 +29,7 @@ import type {
   QueryResult_Deserialize,
   QueryResult_Serialize,
   SqlValue,
-} from "@/lib/bindings";
+} from "../../../lib/bindings";
 import { DATABASES, type MockColumn, type MockTable, rand } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection, newId, state } from "../state";
@@ -119,7 +119,7 @@ export function splitStatements(sql: string): string[] {
       current += c;
       if (c === "\\" && quote !== "`") current += sql[++i] ?? "";
       else if (c === quote) quote = null;
-    } else if (c === "'" || c === '"' || c === "`") {
+    } else if (c === "'" || c === "\"" || c === "`") {
       quote = c;
       current += c;
     } else if ((c === "-" && sql[i + 1] === "-") || c === "#") {
@@ -161,7 +161,7 @@ function splitTopLevel(s: string): string[] {
     const c = s[i];
     if (quote) {
       if (c === quote) quote = null;
-    } else if (c === "'" || c === '"' || c === "`") quote = c;
+    } else if (c === "'" || c === "\"" || c === "`") quote = c;
     else if (c === "(") depth++;
     else if (c === ")") depth--;
     else if (c === "," && depth === 0) {
@@ -233,13 +233,20 @@ function wireValue(v: SqlValue, type: string): SqlValue {
  * Placeholders, as the real result metadata gives them: the backend cannot
  * read NOT NULL or PRIMARY KEY from a result set, and says so (#387).
  */
-const meta = (name: string, data_type: string): ColumnMeta => ({ name, data_type, nullable: true, is_primary_key: false });
+const meta = (name: string, data_type: string): ColumnMeta => ({
+  name,
+  data_type,
+  nullable: true,
+  is_primary_key: false,
+});
 
 /** A computed value and the type MySQL would give it. */
 function typed(v: SqlValue): { value: SqlValue; type: string } {
   if (v === null) return { value: null, type: "NULL" };
   if (typeof v === "number") {
-    return Number.isInteger(v) ? { value: String(v), type: "BIGINT" } : { value: String(+v.toFixed(4)), type: "DECIMAL" };
+    return Number.isInteger(v)
+      ? { value: String(v), type: "BIGINT" }
+      : { value: String(+v.toFixed(4)), type: "DECIMAL" };
   }
   return { value: v, type: typeof v === "boolean" ? "BOOLEAN" : "VARCHAR" };
 }
@@ -356,7 +363,8 @@ function resolveTable(raw: string, ctx: Ctx, alias?: string): Resolved | "system
   return { db: db.name, table, alias: alias ?? table.name };
 }
 
-const NOT_ALIAS = /^(where|join|left|right|inner|outer|cross|natural|on|using|order|group|having|limit|set|values|for|union|straight_join)$/i;
+const NOT_ALIAS =
+  /^(where|join|left|right|inner|outer|cross|natural|on|using|order|group|having|limit|set|values|for|union|straight_join)$/i;
 
 /** Every table a statement names in FROM, JOIN, UPDATE or INTO, in order. */
 function tablesIn(clean: string, ctx: Ctx): Resolved[] | "system" {
@@ -397,7 +405,9 @@ function projection(text: string, tables: Resolved[], ctx: Ctx): Item[] {
 
     const star = /^(?:(`[^`]+`|\w+)\.)?\*$/.exec(expr);
     if (star) {
-      const from = star[1] ? tables.filter((t) => t.alias === unquote(star[1]) || t.table.name === unquote(star[1])) : tables;
+      const from = star[1]
+        ? tables.filter((t) => t.alias === unquote(star[1]) || t.table.name === unquote(star[1]))
+        : tables;
       for (const t of from) for (const col of t.table.columns) items.push({ kind: "col", name: col.name, col });
       continue;
     }
@@ -409,7 +419,11 @@ function projection(text: string, tables: Resolved[], ctx: Ctx): Item[] {
       continue;
     }
     if (new RegExp(`^${QUALIFIED}$`).test(expr) && constant(expr, ctx) === undefined) {
-      items.push({ kind: "col", name: label ?? unquote(splitQualified(expr).pop() ?? expr), col: findColumn(expr, tables, ctx) });
+      items.push({
+        kind: "col",
+        name: label ?? unquote(splitQualified(expr).pop() ?? expr),
+        col: findColumn(expr, tables, ctx),
+      });
       continue;
     }
     const { value, type } = typed(constant(expr, ctx) ?? null);
@@ -496,7 +510,9 @@ async function select(stmt: string, clean: string, ctx: Ctx, win: RowWindow): Pr
       return result(ctx, stmt, [meta(projText, "BIGINT")], [["0"]], { execution_time_ms: Math.round(ms) });
     }
     const items = projection(projText, [], ctx);
-    return result(ctx, stmt, items.map((i) => meta(i.name, itemType(i))), [items.map((i) => (i.kind === "const" ? i.value : null))]);
+    return result(ctx, stmt, items.map((i) => meta(i.name, itemType(i))), [
+      items.map((i) => (i.kind === "const" ? i.value : null)),
+    ]);
   }
 
   const tables = tablesIn(clean, ctx);
@@ -536,7 +552,10 @@ async function select(stmt: string, clean: string, ctx: Ctx, win: RowWindow): Pr
   const rowIdx = indexes ?? Array.from({ length: take }, (_, k) => sqlOffset + skip + k);
   const types = items.map(itemType);
   const rows = rowIdx.slice(0, take).map((i) =>
-    items.map((item, c) => (item.kind === "const" ? item.value : item.kind === "col" ? wireValue(item.col.gen(i), types[c]) : null))
+    items.map((
+      item,
+      c,
+    ) => (item.kind === "const" ? item.value : item.kind === "col" ? wireValue(item.col.gen(i), types[c]) : null))
   );
   // Skipped when nothing was withheld, as serde's skip_serializing_if does;
   // when something was, the backend reports the count it kept.
@@ -555,7 +574,10 @@ const SYSTEM_VARIABLES = (version: string): [string, string][] => [
   ["collation_server", "utf8mb4_0900_ai_ci"],
   ["innodb_buffer_pool_size", "134217728"],
   ["max_connections", "151"],
-  ["sql_mode", "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION"],
+  [
+    "sql_mode",
+    "ONLY_FULL_GROUP_BY,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION",
+  ],
   ["time_zone", "SYSTEM"],
   ["version", version],
   ["wait_timeout", "28800"],
@@ -608,7 +630,11 @@ async function showCreate(stmt: string, kind: string, raw: string, ctx: Ctx): Pr
     if (r === "system") return sqlFail(1146, "42S02", `Table '${database}.${name}' doesn't exist`, ctx.index);
     const ddl = createTableDdl(r.db, r.table);
     if (r.table.table_type === "VIEW") {
-      return result(ctx, stmt, text("View", "Create View", "character_set_client", "collation_connection"), [[r.table.name, ddl, ...session]]);
+      return result(ctx, stmt, text("View", "Create View", "character_set_client", "collation_connection"), [[
+        r.table.name,
+        ddl,
+        ...session,
+      ]]);
     }
     if (kind === "VIEW") return sqlFail(1347, "HY000", `'${r.db}.${r.table.name}' is not VIEW`, ctx.index);
     return result(ctx, stmt, text("Table", "Create Table"), [[r.table.name, ddl]]);
@@ -628,7 +654,15 @@ async function showCreate(stmt: string, kind: string, raw: string, ctx: Ctx): Pr
     return result(
       ctx,
       stmt,
-      text("Trigger", "sql_mode", "SQL Original Statement", "character_set_client", "collation_connection", "Database Collation", "Created"),
+      text(
+        "Trigger",
+        "sql_mode",
+        "SQL Original Statement",
+        "character_set_client",
+        "collation_connection",
+        "Database Collation",
+        "Created",
+      ),
       [[name, SYSTEM_VARIABLES(ctx.version)[4][1], ddl, ...session, session[1], "2026-07-02 09:14:00.00"]],
     );
   }
@@ -642,7 +676,15 @@ async function showCreate(stmt: string, kind: string, raw: string, ctx: Ctx): Pr
   return result(
     ctx,
     stmt,
-    text("Event", "sql_mode", "time_zone", "Create Event", "character_set_client", "collation_connection", "Database Collation"),
+    text(
+      "Event",
+      "sql_mode",
+      "time_zone",
+      "Create Event",
+      "character_set_client",
+      "collation_connection",
+      "Database Collation",
+    ),
     [[name, SYSTEM_VARIABLES(ctx.version)[4][1], "SYSTEM", ddl, ...session, session[1]]],
   );
 }
@@ -656,20 +698,32 @@ async function show(stmt: string, clean: string, ctx: Ctx): Promise<QueryResult_
   if ((m = new RegExp(`^show\\s+(full\\s+)?tables(?:\\s+(?:from|in)\\s+(${IDENT}))?`, "i").exec(clean))) {
     const dbName = m[2] ? unquote(m[2]) : ctx.db;
     if (!dbName) return sqlFail(1046, "3D000", "No database selected", ctx.index);
-    const db = DATABASES.find((d) => d.name === dbName) ?? sqlFail(1049, "42000", `Unknown database '${dbName}'`, ctx.index);
+    const db = DATABASES.find((d) => d.name === dbName)
+      ?? sqlFail(1049, "42000", `Unknown database '${dbName}'`, ctx.index);
     const tables = [...db.tables].sort((a, b) => a.name.localeCompare(b.name));
     const cols = text(`Tables_in_${db.name}`, ...(m[1] ? ["Table_type"] : []));
     return result(ctx, stmt, cols, tables.map((t) => (m?.[1] ? [t.name, t.table_type] : [t.name])));
   }
-  if ((m = new RegExp(`^show\\s+(?:full\\s+)?(?:columns|fields)\\s+(?:from|in)\\s+(${QUALIFIED})(?:\\s+(?:from|in)\\s+(${IDENT}))?`, "i").exec(clean))) {
+  if (
+    (m = new RegExp(
+      `^show\\s+(?:full\\s+)?(?:columns|fields)\\s+(?:from|in)\\s+(${QUALIFIED})(?:\\s+(?:from|in)\\s+(${IDENT}))?`,
+      "i",
+    ).exec(clean))
+  ) {
     return describe(stmt, m[2] ? `${m[2]}.${m[1]}` : m[1], ctx);
   }
-  if ((m = new RegExp(`^show\\s+create\\s+(table|view|procedure|function|trigger|event)\\s+(${QUALIFIED})`, "i").exec(clean))) {
+  if (
+    (m = new RegExp(`^show\\s+create\\s+(table|view|procedure|function|trigger|event)\\s+(${QUALIFIED})`, "i").exec(
+      clean,
+    ))
+  ) {
     return showCreate(stmt, m[1].toUpperCase(), m[2], ctx);
   }
   if (/^show\s+(global\s+|session\s+)?variables\b/i.test(clean)) {
     const like = /\blike\s+'([^']*)'/i.exec(clean)?.[1];
-    const re = like ? new RegExp(`^${like.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`, "i") : null;
+    const re = like
+      ? new RegExp(`^${like.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/%/g, ".*").replace(/_/g, ".")}$`, "i")
+      : null;
     const rows = SYSTEM_VARIABLES(ctx.version).filter(([n]) => !re || re.test(n));
     return result(ctx, stmt, text("Variable_name", "Value"), rows);
   }
@@ -723,7 +777,15 @@ function planRows(target: string, ctx: Ctx): PlanRow[] {
     if (i === 0) {
       return byId
         ? { table: t, type: "const", key: "PRIMARY", ref: "const", rows: 1, filtered: 100, extra: notes }
-        : { table: t, type: "ALL", key: null, ref: null, rows: t.table.rowCount, filtered: where ? 10 : 100, extra: notes };
+        : {
+          table: t,
+          type: "ALL",
+          key: null,
+          ref: null,
+          rows: t.table.rowCount,
+          filtered: where ? 10 : 100,
+          extra: notes,
+        };
     }
     // A join: assume it goes through the joined table's primary key, by the
     // `<singular>_id` column convention the dataset follows.
@@ -797,16 +859,22 @@ function jsonPlan(stmt: string, target: string, ctx: Ctx): QueryResult_Serialize
 function treePlan(stmt: string, target: string, ctx: Ctx, analyzed: boolean): QueryResult_Serialize {
   const plan = planRows(target, ctx);
   const actual = (rows: number) =>
-    analyzed ? ` (actual time=${(0.02 + rand(rows, 51)).toFixed(3)}..${(rows / 900 + 0.4).toFixed(3)} rows=${rows} loops=1)` : "";
+    analyzed
+      ? ` (actual time=${(0.02 + rand(rows, 51)).toFixed(3)}..${(rows / 900 + 0.4).toFixed(3)} rows=${rows} loops=1)`
+      : "";
   const node = (p: PlanRow): string => {
     const rows = p.rows ?? 1;
     if (p.type === "const") return `-> Rows fetched before execution  (cost=0..0 rows=1)${actual(1)}`;
     if (p.type === "eq_ref") {
-      return `-> Single-row index lookup on ${p.table?.alias} using PRIMARY (id=${p.ref?.split(".").slice(1).join(".")})  (cost=0.25 rows=1)${actual(1)}`;
+      return `-> Single-row index lookup on ${p.table?.alias} using PRIMARY (id=${
+        p.ref?.split(".").slice(1).join(".")
+      })  (cost=0.25 rows=1)${actual(1)}`;
     }
     const scan = `-> Table scan on ${p.table?.alias}  (cost=${cost(rows)} rows=${rows})${actual(rows)}`;
     return p.extra?.includes("Using where")
-      ? `-> Filter: (<condition>)  (cost=${cost(rows)} rows=${Math.round(rows / 10)})${actual(Math.round(rows / 10))}\n    ${scan}`
+      ? `-> Filter: (<condition>)  (cost=${cost(rows)} rows=${Math.round(rows / 10)})${
+        actual(Math.round(rows / 10))
+      }\n    ${scan}`
       : scan;
   };
   const textPlan = plan[0].table === null
@@ -850,7 +918,14 @@ function contextFor(connectionId: unknown, database: unknown, index = 0): { ctx:
 
 /** The backend's refusal, raised before any statement of the script runs. */
 function refuseWrite(sql: string): never {
-  return fail(queryError(null, null, `Read-only connection: This connection is marked read-only, so it will not run: ${sql.slice(0, 120)}`, null));
+  return fail(
+    queryError(
+      null,
+      null,
+      `Read-only connection: This connection is marked read-only, so it will not run: ${sql.slice(0, 120)}`,
+      null,
+    ),
+  );
 }
 
 async function runStatement(stmt: string, ctx: Ctx, win: RowWindow, session: unknown): Promise<QueryResult_Serialize> {
@@ -878,7 +953,9 @@ async function runStatement(stmt: string, ctx: Ctx, win: RowWindow, session: unk
       return explainStatement(stmt, clean, ctx);
     case "USE": {
       const name = unquote(clean.slice(3));
-      if (!DATABASES.some((d) => d.name === name)) return sqlFail(1049, "42000", `Unknown database '${name}'`, ctx.index);
+      if (!DATABASES.some((d) => d.name === name)) {
+        return sqlFail(1049, "42000", `Unknown database '${name}'`, ctx.index);
+      }
       return affected(ctx, stmt, 0);
     }
     case "BEGIN":
@@ -907,7 +984,11 @@ async function runStatement(stmt: string, ctx: Ctx, win: RowWindow, session: unk
 // ---------------------------------------------------------------- export
 
 const cellText = (v: SqlValue): string =>
-  v === null || v === "Null" ? "" : Array.isArray(v) ? `0x${v.map((b) => b.toString(16).padStart(2, "0")).join("")}` : String(v);
+  v === null || v === "Null"
+    ? ""
+    : Array.isArray(v)
+    ? `0x${v.map((b) => b.toString(16).padStart(2, "0")).join("")}`
+    : String(v);
 
 const sqlLiteral = (v: SqlValue): string =>
   v === null || v === "Null"
@@ -922,8 +1003,9 @@ function exportText(r: QueryResult_Deserialize, format: string, tableName: strin
   const names = r.columns.map((c) => c.name);
   switch (format) {
     case "csv": {
-      const field = (s: string) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-      return [names, ...r.rows.map((row) => row.map(cellText))].map((line) => line.map(field).join(",")).join("\n") + "\n";
+      const field = (s: string) => (/[",\n\r]/.test(s) ? `"${s.replace(/"/g, "\"\"")}"` : s);
+      return [names, ...r.rows.map((row) => row.map(cellText))].map((line) => line.map(field).join(",")).join("\n")
+        + "\n";
     }
     case "json":
       return JSON.stringify(
@@ -933,11 +1015,13 @@ function exportText(r: QueryResult_Deserialize, format: string, tableName: strin
       );
     case "sql": {
       const cols = names.map((n) => `\`${n}\``).join(", ");
-      return r.rows.map((row) => `INSERT INTO \`${tableName}\` (${cols}) VALUES (${row.map(sqlLiteral).join(", ")});`).join("\n") + "\n";
+      return r.rows.map((row) => `INSERT INTO \`${tableName}\` (${cols}) VALUES (${row.map(sqlLiteral).join(", ")});`)
+        .join("\n") + "\n";
     }
     case "markdown": {
       const line = (cells: string[]) => `| ${cells.map((c) => c.replace(/\|/g, "\\|")).join(" | ")} |`;
-      return [line(names), line(names.map(() => "---")), ...r.rows.map((row) => line(row.map(cellText)))].join("\n") + "\n";
+      return [line(names), line(names.map(() => "---")), ...r.rows.map((row) => line(row.map(cellText)))].join("\n")
+        + "\n";
     }
     default:
       return fail(`Unknown format: ${format}`);
@@ -963,7 +1047,9 @@ export const queryHandlers: Handlers = {
       const r = await runStatement(stmt, { ...ctx, index }, win, args.session);
       // What the statement "took", spent waiting so the spinner shows; the
       // SLEEP branch has already waited its own time.
-      if (!/^select\s+sleep\s*\(/i.test(stripComments(stmt))) await busy(ctx.conn.id, Math.min(600, 60 + r.execution_time_ms), index);
+      if (!/^select\s+sleep\s*\(/i.test(stripComments(stmt))) {
+        await busy(ctx.conn.id, Math.min(600, 60 + r.execution_time_ms), index);
+      }
       results.push(r);
     }
     return results;
@@ -974,7 +1060,9 @@ export const queryHandlers: Handlers = {
     const statements = splitStatements(String(args.sql ?? "")).filter((s) => stripComments(s));
     if (statements.length === 0) return fail("Query error: Nothing to explain");
     if (statements.length > 1) {
-      return fail(`Query error: EXPLAIN supports a single statement — ${statements.length} were given. Select one statement and re-run.`);
+      return fail(
+        `Query error: EXPLAIN supports a single statement — ${statements.length} were given. Select one statement and re-run.`,
+      );
     }
     const target = statements[0];
     const analyzable = ["SELECT", "TABLE", "VALUES"].includes(verbOf(stripComments(target)));
@@ -1018,7 +1106,14 @@ export const queryHandlers: Handlers = {
         : classicPlan(stmt, target, ctx, timed);
       // ANALYZE runs the statement, so it takes about as long as the query.
       await delay(timed ? 450 : 140);
-      return { result: r, analyzed: analyze, refusal, tabular: r.columns.length > 1, format, format_fallback: fallback };
+      return {
+        result: r,
+        analyzed: analyze,
+        refusal,
+        tabular: r.columns.length > 1,
+        format,
+        format_fallback: fallback,
+      };
     } catch (e) {
       return asDriverString(e);
     }

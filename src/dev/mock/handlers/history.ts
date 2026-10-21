@@ -8,7 +8,7 @@
 // panel shows them relative ("12m ago"), so anchoring to the load is what
 // keeps a screenshot the same from one day to the next.
 
-import type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery } from "@/lib/bindings";
+import type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery } from "../../../lib/bindings";
 import { delay, type Handlers } from "../router";
 
 interface Stored extends HistoryEntry {

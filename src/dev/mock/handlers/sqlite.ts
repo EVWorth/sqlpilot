@@ -6,7 +6,13 @@
 // quirks (an INTEGER PRIMARY KEY reads as nullable) survive, and the internal
 // tables and auto-indexes are left out, as the real inspector leaves them out.
 
-import type { QueryError, SqliteColumnInfo, SqliteIndexInfo, SqliteQueryResult, SqliteTableInfo } from "@/lib/bindings";
+import type {
+  QueryError,
+  SqliteColumnInfo,
+  SqliteIndexInfo,
+  SqliteQueryResult,
+  SqliteTableInfo,
+} from "../../../lib/bindings";
 import { isoDate, rand } from "../dataset";
 import { type Args, delay, fail, type Handlers } from "../router";
 import { newId } from "../state";
