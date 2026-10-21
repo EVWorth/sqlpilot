@@ -8,8 +8,6 @@ import {
   generateUpdate,
   resolveEditTarget,
 } from "../lib/sql-generator";
-import { useConnectionStore } from "../stores/connectionStore";
-import { useEditorStore } from "../stores/editorStore";
 import { confirmDestructive } from "../stores/productionGuardStore";
 import { useResultStore } from "../stores/resultStore";
 import type { QueryResult, SqlValue } from "../types";
@@ -58,10 +56,11 @@ export function useGridSave({
   const save = useCallback(async () => {
     if (!result) return;
 
-    const editorTab = useEditorStore.getState().tabs.find(
-      (t) => t.id === useEditorStore.getState().activeTabId,
-    );
-    const sql = editorTab?.content ?? "";
+    // The statement and connection the rows were read with, never the
+    // editor's current text or connection: the user may have kept typing, or
+    // pointed the tab elsewhere, since this result arrived. Saving against
+    // either wrote the edits into whatever table the editor named now (#840).
+    const sql = result.sql ?? "";
 
     // Where the edit would land, or why it must not be attempted. The old
     // check took the first table in the FROM clause, which for a join is
@@ -74,12 +73,18 @@ export function useGridSave({
     }
     const tableName = target.table;
 
-    const connId = editorTab?.connectionId
-      ?? useConnectionStore.getState().selectedConnectionId;
-    if (!connId) {
-      onMessage("No active connection");
+    // Where the result on screen was read: the connection, the database it
+    // ran against and the tab's session. The edits are saved there and the
+    // refresh reads from there, so a result that depends on the session — a
+    // temporary table, a session variable, the tab's open transaction — is
+    // edited and re-read where it exists (#735).
+    const source = useResultStore.getState().resultSource;
+    if (!source) {
+      onMessage("Cannot save: the connection this result came from is unknown. Run the query again.");
       return;
     }
+    const connId = source.connectionId;
+    const { session, database } = source;
 
     setIsSaving(true);
     try {
@@ -116,14 +121,6 @@ export function useGridSave({
 
       let matched = 0;
       let insideTransaction = false;
-      // Where the result on screen was read: the tab's session, and the
-      // database it ran against. The edits are saved there and the refresh
-      // reads from there, so a result that depends on the session — a
-      // temporary table, a session variable, the tab's open transaction —
-      // is edited and re-read where it exists (#735).
-      const source = useResultStore.getState().resultSource;
-      const session = source?.connectionId === connId ? source.session : undefined;
-      const database = source?.connectionId === connId ? source.database : undefined;
       if (statements.length > 0) {
         // The gate lives in resultStore, which this path does not go through
         // — so until #588 a cell edit on production wrote with no

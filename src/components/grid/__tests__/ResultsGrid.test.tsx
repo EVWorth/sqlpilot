@@ -10,6 +10,8 @@ const state = {
   activeResultIndex: 0,
   isExecuting: false,
   error: null as string | null,
+  // Where the result was read, which is where a grid save writes (#840).
+  resultSource: null as { connectionId: string; database?: string; session?: string } | null,
 };
 
 vi.mock("../../../stores/resultStore", () => {
@@ -400,6 +402,7 @@ describe("saving edits safely", () => {
     }];
     editorActiveTabId = "tab-0";
     connSelectedId = "conn-1";
+    state.resultSource = { connectionId: "conn-1", database: "app" };
     mockGridEditing.updates = new Map([[0, [{ column: "name", newValue: "x" }]]]);
     mockGridEditing.hasChanges = true;
     mockGridEditing.pendingCount = 1;
