@@ -393,7 +393,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
           onKeyDown={(e) => e.key === "Escape" && setFilterText("")}
-          placeholder="Filter (Ctrl+Shift+F)"
+          placeholder="Filter (Ctrl+Shift+O)"
           className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-0.5 pl-6 pr-6 text-[11px] text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-brand-500 focus:outline-none"
         />
         {filterText && (
