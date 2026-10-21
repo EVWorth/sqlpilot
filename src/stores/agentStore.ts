@@ -66,13 +66,21 @@ interface AgentState {
    */
   proposal: Proposal | null;
   /**
-   * The change waiting to be approved.
+   * The change waiting to be approved: the head of `approvals`.
    *
    * Separate from `proposal`: one is a suggestion about text in an editor, the
    * other is a statement that has already run against a database and is
    * waiting to be kept or thrown away.
    */
   approval: PendingApproval | null;
+  /**
+   * Every change waiting to be approved, oldest first.
+   *
+   * A queue rather than a slot: a second request arriving while the dialog is
+   * open must not replace the statement the user is reading, or a click meant
+   * for one would approve the other, and the first would never be answered.
+   */
+  approvals: PendingApproval[];
 
   refresh: () => Promise<void>;
   start: () => Promise<void>;
@@ -91,8 +99,10 @@ interface AgentState {
   loadSetup: (target: SetupTarget) => Promise<void>;
   showProposal: (proposal: Proposal) => void;
   clearProposal: () => void;
+  /** Queue a change for approval, behind any already waiting. */
   showApproval: (approval: PendingApproval) => void;
-  clearApproval: () => void;
+  /** Drop an answered change (the head, if no id is given). */
+  clearApproval: (id?: string) => void;
   clearError: () => void;
 }
 
@@ -113,6 +123,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   setup: null,
   proposal: null,
   approval: null,
+  approvals: [],
 
   refresh: async () => {
     set({ loading: true });
@@ -190,9 +201,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   clearProposal: () => set({ proposal: null }),
 
-  showApproval: (approval) => set({ approval }),
+  showApproval: (approval) =>
+    set((state) => {
+      if (state.approvals.some((a) => a.id === approval.id)) return state;
+      const approvals = [...state.approvals, approval];
+      return { approvals, approval: approvals[0] ?? null };
+    }),
 
-  clearApproval: () => set({ approval: null }),
+  clearApproval: (id) =>
+    set((state) => {
+      const target = id ?? state.approvals[0]?.id;
+      const approvals = state.approvals.filter((a) => a.id !== target);
+      return { approvals, approval: approvals[0] ?? null };
+    }),
 
   clearError: () => set({ error: null }),
 }));
