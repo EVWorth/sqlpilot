@@ -119,10 +119,13 @@ export function RestoreDialog({
     // Once for the restore, not per statement (#588). A dump is the most
     // destructive thing this app runs — it typically drops and recreates
     // every table it touches — and it was the one path with no gate at all.
+    // The statements are not known until the file is read, so the gate has
+    // nothing to judge: it must ask regardless, or it never fires (#789).
     if (
       !(await confirmDestructive({
         connectionId,
         sql: [],
+        alwaysAsk: true,
         action: `Restore ${filePath.split(/[\\/]/).pop()} into \`${database}\`?`,
         detail: "A dump usually drops and recreates the objects it restores.",
       }))
