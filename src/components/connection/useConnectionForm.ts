@@ -147,6 +147,7 @@ export function useConnectionForm(
   const [testResult, setTestResult] = useState<TestConnectionResult | null>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   // What is typed in the number fields, kept apart from the form so that
   // clearing one to type a new value does not snap it back to a default
   // (#813). The form only takes the value once it parses.
@@ -166,6 +167,7 @@ export function useConnectionForm(
     setSshEnabled(!!ssh);
     setSshAuthMethod(ssh?.private_key_path ? "key" : "password");
     setTestResult(null);
+    setSaveError(null);
   }, [isOpen, editProfile, duplicateOf]);
 
   const handleChange = (
@@ -252,13 +254,16 @@ export function useConnectionForm(
 
   const handleSave = async (onDone: () => void) => {
     setSaving(true);
+    setSaveError(null);
     try {
       await saveProfile(buildProfileForSave());
+      setSaving(false);
       onDone();
     } catch (e) {
-      console.error("Save failed:", e);
+      // Stay open, so what was typed is not lost, and say why (#792).
+      setSaveError(String(e));
+      setSaving(false);
     }
-    setSaving(false);
   };
 
   return {
@@ -270,6 +275,7 @@ export function useConnectionForm(
     testResult,
     testing,
     saving,
+    saveError,
     numberText,
     numberProblems,
     canSave: !saving && !!form.name && !!form.host && numbersValid,

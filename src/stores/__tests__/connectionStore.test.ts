@@ -134,7 +134,10 @@ describe("connectionStore", () => {
     it("handles saveProfile error", async () => {
       vi.mocked(api.saveConnectionProfile).mockRejectedValue(new Error("Save failed"));
 
-      await useConnectionStore.getState().saveProfile(mockConnectionProfile);
+      // Rethrown so the dialog can stay open and say why (#792).
+      await expect(useConnectionStore.getState().saveProfile(mockConnectionProfile)).rejects.toThrow(
+        "Save failed",
+      );
 
       const state = useConnectionStore.getState();
       expect(state.error).toBe("Error: Save failed");

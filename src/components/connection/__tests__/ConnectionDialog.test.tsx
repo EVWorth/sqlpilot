@@ -1,10 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionDialog } from "../ConnectionDialog";
 
+const { saveProfileFn } = vi.hoisted(() => ({ saveProfileFn: vi.fn() }));
+
 vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: vi.fn((selector: (s: unknown) => unknown) => {
-    return selector({ saveProfile: vi.fn().mockResolvedValue(undefined) });
+    return selector({ saveProfile: saveProfileFn });
   }),
 }));
 
@@ -18,6 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  saveProfileFn.mockResolvedValue(undefined);
 });
 
 describe("ConnectionDialog", () => {
@@ -335,6 +338,32 @@ describe("ConnectionDialog", () => {
       fireEvent.change(timeout, { target: { value: "" } });
       expect(timeout.value).toBe("");
       expect(screen.getByText("Required")).toBeInTheDocument();
+    });
+  });
+
+  describe("a failed save (#792)", () => {
+    it("keeps the dialog open and shows the error", async () => {
+      saveProfileFn.mockRejectedValueOnce(new Error("keyring locked"));
+      const onClose = vi.fn();
+      render(<ConnectionDialog isOpen={true} onClose={onClose} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("keyring locked");
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByDisplayValue("Local")).toBeInTheDocument();
+    });
+
+    it("closes after a successful save", async () => {
+      const onClose = vi.fn();
+      render(<ConnectionDialog isOpen={true} onClose={onClose} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     });
   });
 });

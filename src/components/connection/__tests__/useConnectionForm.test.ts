@@ -180,6 +180,24 @@ describe("useConnectionForm (#275)", () => {
       expect(onDone).not.toHaveBeenCalled();
       expect(result.current.saving).toBe(false);
     });
+
+    it("says why a save failed, and clears it on the next try (#792)", async () => {
+      saveProfileFn.mockRejectedValueOnce(new Error("keyring locked"));
+      const { result } = renderHook(() => useConnectionForm(true));
+      act(() => result.current.handleChange("name", "Local"));
+
+      await act(async () => {
+        await result.current.handleSave(() => {});
+      });
+      expect(result.current.saveError).toContain("keyring locked");
+
+      const onDone = vi.fn();
+      await act(async () => {
+        await result.current.handleSave(onDone);
+      });
+      expect(result.current.saveError).toBeNull();
+      expect(onDone).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("starts fresh when the dialog is reopened", async () => {

@@ -50,6 +50,7 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
     testResult,
     testing,
     saving,
+    saveError,
     numberText,
     numberProblems,
     canSave,
@@ -136,6 +137,18 @@ export function ConnectionDialog({ isOpen, onClose, editProfile, duplicateOf }: 
           />
         )}
       </div>
+
+      {saveError && (
+        <div className="px-4 pb-2">
+          <div
+            role="alert"
+            className="surface-error-strong flex items-start gap-2 rounded p-2 text-xs text-[var(--color-error)]"
+          >
+            <XCircle className="h-4 w-4 shrink-0" />
+            <span className="break-words">Save failed: {saveError}</span>
+          </div>
+        </div>
+      )}
 
       {testResult && (
         <div className="px-4 pb-2">
