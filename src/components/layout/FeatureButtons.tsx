@@ -1,4 +1,5 @@
 import { Activity, HardDriveDownload, HardDriveUpload, Monitor, Moon, Sparkles, Sun, Upload } from "lucide-react";
+import { builtInTheme } from "../../lib/themes";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { type ThemeMode, themeOrder, useThemeStore } from "../../stores/themeStore";
@@ -14,8 +15,8 @@ import { type ThemeMode, themeOrder, useThemeStore } from "../../stores/themeSto
  * one appearance.
  */
 
-const themeIcons: Record<ThemeMode, typeof Sun> = { dark: Moon, light: Sun, system: Monitor };
-const themeLabels: Record<ThemeMode, string> = { dark: "Dark", light: "Light", system: "System" };
+const themeIcons: Partial<Record<ThemeMode, typeof Sun>> = { dark: Moon, light: Sun, system: Monitor };
+const themeLabels: Partial<Record<ThemeMode, string>> = { dark: "Dark", light: "Light", system: "System" };
 
 export interface FeatureButtonsProps {
   onShowImport?: () => void;
@@ -42,7 +43,16 @@ export function FeatureButtons({
 }: FeatureButtonsProps) {
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const theme = useThemeStore((s) => s.theme);
+  const effectiveTheme = useThemeStore((s) => s.effectiveTheme);
+  const customThemes = useThemeStore((s) => s.customThemes);
   const cycleTheme = useThemeStore((s) => s.cycleTheme);
+
+  // The button cycles dark, light and system, but `theme` is any theme id:
+  // Nord, Solarized Light, High Contrast or an imported one. Looked up only in
+  // the three, those had no icon, and rendering `undefined` crashed the whole
+  // window on every launch, since the choice is saved (#781).
+  const labelFor = (id: ThemeMode): string =>
+    themeLabels[id] ?? builtInTheme(id)?.name ?? customThemes?.find((t) => t.id === id)?.name ?? id;
 
   const handleOpenAdmin = () => {
     if (!selectedConnectionId) return;
@@ -51,7 +61,7 @@ export function FeatureButtons({
 
   // Everything but the theme toggle needs somewhere to act.
   const disabled = !selectedConnectionId;
-  const ThemeIcon = themeIcons[theme];
+  const ThemeIcon = themeIcons[theme] ?? (effectiveTheme === "light" ? Sun : Moon);
   // Which theme the next click lands on. "Click to cycle" told the user
   // nothing they could act on: the order is dark, light, system, so getting
   // from dark to system takes two clicks and from dark to light takes one,
@@ -116,12 +126,12 @@ export function FeatureButtons({
       */
       }
       <span aria-live="polite" className="sr-only">
-        {themeLabels[theme]} theme
+        {labelFor(theme)} theme
       </span>
       <button
         onClick={cycleTheme}
         // Not gated on a connection: the theme is the app's, not the server's.
-        title={`Theme: ${themeLabels[theme]} — click for ${themeLabels[nextTheme]}`}
+        title={`Theme: ${labelFor(theme)} — click for ${labelFor(nextTheme)}`}
         className={buttonClassName(false)}
       >
         <ThemeIcon className="h-3.5 w-3.5" />

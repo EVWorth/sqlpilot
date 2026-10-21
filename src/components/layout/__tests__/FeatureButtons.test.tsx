@@ -89,6 +89,26 @@ describe("FeatureButtons", () => {
     });
   });
 
+  // Only dark, light and system have their own icon. Every other theme the
+  // app can be set to rendered `undefined` and took the window down, on each
+  // launch after it was chosen (#781).
+  it.each(["nord", "solarized-light", "high-contrast", "an-imported-theme"])(
+    "renders with the %s theme selected",
+    (theme) => {
+      currentTheme = theme as typeof currentTheme;
+      renderButtons();
+
+      expect(screen.getByTitle(/^Theme: .+ — click for Dark$/)).toBeInTheDocument();
+    },
+  );
+
+  it("names a built-in theme by its name, not its id", () => {
+    currentTheme = "solarized-light" as typeof currentTheme;
+    renderButtons();
+
+    expect(screen.getByText("Solarized Light theme")).toBeInTheDocument();
+  });
+
   it("announces the theme to a screen reader (F20 of #322)", () => {
     // A theme change is entirely visual, so without this the button gives no
     // confirmation that it did anything at all.
