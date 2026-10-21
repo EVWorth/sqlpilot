@@ -237,6 +237,29 @@ describe("the transcript", () => {
     await waitFor(() => expect(apiMocks.answerAgentPermission).toHaveBeenCalledWith("s1", "p1", "yes"));
   });
 
+  it("shows the whole request under a permission's title", () => {
+    useAgentSessionStore.setState({
+      transcript: [{
+        kind: "permission",
+        id: "p1",
+        title: "Run run_write on Local dev: UPDATE shop.orders SET status = 'delivered'",
+        detail: "UPDATE shop.orders SET status = 'delivered'\nWHERE status = 'shipped'",
+        options: [
+          { id: "once", label: "Allow once", kind: "allow_once" },
+          { id: "always", label: "Always allow", kind: "allow_always" },
+          { id: "no", label: "Reject", kind: "reject_once" },
+        ],
+      }],
+    });
+    open();
+    expect(screen.getByText(/WHERE status = 'shipped'/)).toBeTruthy();
+    // Only the one-off choice is styled as the primary action.
+    expect(screen.getByRole("button", { name: "Allow once" }).className).toContain("bg-brand-600");
+    expect(screen.getByRole("button", { name: "Always allow" }).className).not.toContain(
+      "bg-brand-600",
+    );
+  });
+
   it("stops offering buttons once a permission is answered", () => {
     useAgentSessionStore.setState({
       transcript: [{
