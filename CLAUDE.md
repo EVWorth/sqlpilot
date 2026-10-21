@@ -281,8 +281,6 @@ Linux deps, re-tag protocol.
 - Docker doesn't survive a container restart. Start `dockerd`, then
   `just db-up`.
 - `src/__tests__/main.test.tsx` times out in the container but passes in CI.
-  The `mas-mcp` endpoint tests panic when built together with the app crate
-  (#773).
 
 ## When You're Stuck
 

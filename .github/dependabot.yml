@@ -78,6 +78,13 @@ updates:
       - dependency-name: "tauri"
       - dependency-name: "tauri-build"
       - dependency-name: "tauri-plugin-*"
+      # Held at 0.12. On 0.13, mas-mcp's test client shares the reqwest
+      # that tauri-plugin-updater builds with `rustls-no-provider`, and its
+      # endpoint tests panic for want of a crypto provider whenever they
+      # are built with the app crate. Twice bumped, twice broken (#717,
+      # #773). Lift this together with a provider installed in those tests.
+      - dependency-name: "reqwest"
+        versions: [">= 0.13"]
     groups:
       cargo:
         patterns:

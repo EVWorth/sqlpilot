@@ -368,6 +368,13 @@ jobs:
         # live harness or a database and are `#[ignore]`d or run at release.
         run: cargo test -p sqlpilot --lib
         working-directory: src-tauri
+      - name: Run MCP endpoint tests built with the app crate
+        # The steps above build mas-mcp's tests without the app crate, so
+        # feature unification with tauri-plugin-updater never happens there.
+        # Built together, a reqwest that shares the updater's
+        # `rustls-no-provider` panics on every request (#717, #773).
+        run: cargo test -p mas-mcp -p sqlpilot --test endpoint
+        working-directory: src-tauri
 
   test-frontend:
     name: Test Frontend
