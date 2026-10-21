@@ -376,7 +376,7 @@ export function ImportDialog({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       label="Import data"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       panelClassName="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"

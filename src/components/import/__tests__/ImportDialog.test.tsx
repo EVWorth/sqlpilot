@@ -180,6 +180,28 @@ describe("ImportDialog", () => {
       await act(async () => finish({ ...cleanSummary }));
     });
 
+    it("does not close on Escape or the backdrop mid-run (#803)", async () => {
+      let finish: (value: unknown) => void = () => {};
+      vi.mocked(api.restoreDatabase).mockImplementationOnce(
+        () => new Promise((resolve) => (finish = resolve)) as ReturnType<typeof api.restoreDatabase>,
+      );
+      await pickFile(["INSERT INTO t VALUES (1)"]);
+      await act(async () => {
+        fireEvent.click(screen.getByText("Execute SQL"));
+      });
+      await waitFor(() => screen.getByText("Executing..."));
+
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      const overlay = document.querySelector(".fixed.inset-0") as HTMLElement;
+      fireEvent.mouseDown(overlay);
+      expect(mockProps.onClose).not.toHaveBeenCalled();
+      await act(async () => finish({ ...cleanSummary }));
+
+      // Once it has finished, Escape closes as usual.
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+      expect(mockProps.onClose).toHaveBeenCalledTimes(1);
+    });
+
     it("passes on the user's choice to keep going past errors", async () => {
       await pickFile(["INSERT INTO t VALUES (1)"]);
       fireEvent.click(screen.getByLabelText("Stop at the first error"));

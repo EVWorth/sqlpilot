@@ -560,6 +560,48 @@ describe("BackupDialog", () => {
       await finish({ ...summary });
     });
 
+    describe("closing mid-run (#803)", () => {
+      it("names the header close button", () => {
+        render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
+        // The X is an icon alone; without a label it is announced as "button".
+        expect(document.querySelector("button[aria-label=\"Close\"]")?.querySelector(".lucide-x")).toBeTruthy();
+      });
+
+      it("asks before closing, and keeps running when told to", async () => {
+        const onClose = vi.fn();
+        const finish = await startHangingBackup(onClose);
+        fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+        expect(screen.getByText("Cancel the backup?")).toBeInTheDocument();
+        expect(onClose).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByText("Keep running"));
+        expect(screen.queryByText("Cancel the backup?")).not.toBeInTheDocument();
+        expect(apiMocks.cancelBackup).not.toHaveBeenCalled();
+        expect(onClose).not.toHaveBeenCalled();
+        await finish({ ...summary });
+      });
+
+      it("cancels the backup before closing on yes", async () => {
+        const onClose = vi.fn();
+        const finish = await startHangingBackup(onClose);
+        fireEvent.keyDown(screen.getByRole("dialog", { name: "Back up database" }), { key: "Escape" });
+        fireEvent.click(screen.getByText("Stop backup"));
+
+        expect(apiMocks.cancelBackup).toHaveBeenCalledTimes(1);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        await finish({ ...summary, cancelled: true });
+      });
+
+      it("ignores the backdrop while running", async () => {
+        const onClose = vi.fn();
+        const finish = await startHangingBackup(onClose);
+        const overlay = document.querySelector(".bg-black\\/50");
+        if (overlay) fireEvent.mouseDown(overlay);
+        expect(onClose).not.toHaveBeenCalled();
+        await finish({ ...summary });
+      });
+    });
+
     it("shows no tables selected error when backup called with none selected", async () => {
       render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
       await waitFor(() => screen.getByText("testdb"));

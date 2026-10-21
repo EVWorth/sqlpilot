@@ -243,6 +243,40 @@ describe("RestoreDialog", () => {
     await act(async () => finish({ ...clean }));
   });
 
+  describe("closing mid-run (#803)", () => {
+    async function startHanging() {
+      let finish: (value: unknown) => void = () => {};
+      apiMocks.restoreDatabase.mockImplementationOnce(
+        () => new Promise((resolve) => (finish = resolve)),
+      );
+      await startRestore();
+      await waitFor(() => screen.getByText("Cancel"));
+      return () => act(async () => finish({ ...clean, cancelled: true }));
+    }
+
+    it("disables the footer Close while running", async () => {
+      const done = await startHanging();
+      expect(screen.getByText("Close")).toBeDisabled();
+      await done();
+    });
+
+    it("asks, then cancels the restore, when Escape is pressed", async () => {
+      const done = await startHanging();
+      fireEvent.keyDown(screen.getByRole("dialog", { name: "Restore database" }), { key: "Escape" });
+      expect(screen.getByText("Cancel the restore?")).toBeInTheDocument();
+      expect(apiMocks.cancelBackup).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByText("Stop restore"));
+      expect(apiMocks.cancelBackup).toHaveBeenCalledTimes(1);
+      await done();
+    });
+
+    it("names the header close button", () => {
+      render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+      // The X is an icon alone; without a label it is announced as "button".
+      expect(document.querySelector("button[aria-label=\"Close\"]")?.querySelector(".lucide-x")).toBeTruthy();
+    });
+  });
+
   describe("the result (#793)", () => {
     /** The box the heading sits in, which carries the success/warning styling. */
     function resultBox(text: RegExp): HTMLElement {
