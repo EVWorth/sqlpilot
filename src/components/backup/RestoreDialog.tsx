@@ -225,10 +225,10 @@ export function RestoreDialog({
         closeOnBackdrop={!restoring}
         label="Restore database"
         className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-        panelClassName="relative max-h-[85vh] w-[520px] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
+        panelClassName="relative flex max-h-[85vh] w-[520px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
       >
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
           <div className="flex items-center gap-2">
             <HardDriveUpload className="h-4 w-4 text-brand-400" />
             <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
@@ -244,7 +244,8 @@ export function RestoreDialog({
           </button>
         </div>
 
-        <div className="space-y-4 p-4">
+        {/* Only the body scrolls, so Cancel stays on screen during a run (#807). */}
+        <div data-testid="dialog-body" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           {/* File picker */}
           <div>
             <label className={labelClasses}>SQL File</label>
@@ -450,7 +451,7 @@ export function RestoreDialog({
         </div>
 
         {/* Footer */}
-        <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
           {restoring && (
             <button
               ref={cancelRef}

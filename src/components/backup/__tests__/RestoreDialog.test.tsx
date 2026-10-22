@@ -114,6 +114,19 @@ describe("RestoreDialog", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("scrolls only its body, so the footer stays on screen (#807)", () => {
+    render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+    const panel = screen.getByRole("dialog", { name: "Restore database" });
+    const body = screen.getByTestId("dialog-body");
+    expect(panel.className).not.toContain("overflow-y-auto");
+    expect(panel.className).toContain("flex-col");
+    expect(body.className).toContain("overflow-y-auto");
+    // The footer buttons sit outside the scrolling region.
+    const close = screen.getAllByText("Close").find((el) => el.tagName === "BUTTON");
+    expect(close).toBeTruthy();
+    expect(body.contains(close ?? null)).toBe(false);
+  });
+
   describe("choosing a file", () => {
     it("reads only the head of it for the preview", async () => {
       // Reading a multi-gigabyte dump into the renderer to draw thirty lines
