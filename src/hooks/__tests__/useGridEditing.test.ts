@@ -772,6 +772,40 @@ describe("useGridEditing across a tab switch", () => {
     expect(renderHook(() => useGridEditing(scope)).result.current.hasChanges).toBe(false);
   });
 
+  it("drops unsaved edits and leaves Edit Mode when the tab's results change", () => {
+    // #865: the tab re-ran while its grid stayed mounted. The edits are by
+    // row index and would be saved against the new rows.
+    const grid = renderHook(({ owner }) => useGridEditing({ tab: "tab-1", owner }), {
+      initialProps: { owner: rows as unknown[] },
+    });
+    act(() => grid.result.current.toggleEditMode());
+    act(() => grid.result.current.editCell(0, "name", "ada", "grace"));
+
+    const rerun = [[2, "bob"]];
+    grid.rerender({ owner: rerun });
+
+    expect(grid.result.current.hasChanges).toBe(false);
+    expect(grid.result.current.editMode).toBe(false);
+    expect(grid.result.current.canUndo).toBe(false);
+    expect(grid.result.current.droppedEdits).toEqual({ count: 1 });
+    grid.unmount();
+    // Nor are they kept for the new results when the grid unmounts.
+    expect(recallGrid({ tab: "tab-1", owner: rerun }, "editing")).toBeUndefined();
+  });
+
+  it("stays in Edit Mode when results change with nothing pending", () => {
+    // A save clears its edits, then refreshes the results.
+    const grid = renderHook(({ owner }) => useGridEditing({ tab: "tab-1", owner }), {
+      initialProps: { owner: rows as unknown[] },
+    });
+    act(() => grid.result.current.toggleEditMode());
+
+    grid.rerender({ owner: [[1, "grace"]] });
+
+    expect(grid.result.current.editMode).toBe(true);
+    expect(grid.result.current.droppedEdits).toBeNull();
+  });
+
   it("keeps nothing for a tab that closed before its grid unmounted", () => {
     // Closing the shown tab forgets its memory first; the grid's unmount
     // cleanup then wrote the closed tab's edits and results back.

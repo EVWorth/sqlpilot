@@ -1,6 +1,6 @@
 import { type SortingState, useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useColumnFilters } from "../../hooks/useColumnFilters";
 import { useColumnLayout } from "../../hooks/useColumnLayout";
 import { useContextMenu } from "../../hooks/useContextMenu";
@@ -99,7 +99,7 @@ export function ResultsGrid() {
 
   const gridRef = useRef<HTMLDivElement | null>(null);
 
-  const editing = useGridEditing(memory);
+  const editing = useGridEditing(memory, results);
 
   const activeResult = results[activeResultIndex];
 
@@ -184,6 +184,12 @@ export function ResultsGrid() {
     () => (activeResult ? columnTypesOf(activeResult.columns) : {}),
     [activeResult],
   );
+
+  // New results arrived over unsaved edits, which were dropped (#865).
+  const { droppedEdits } = editing;
+  useEffect(() => {
+    if (droppedEdits) showToast(`Discarded ${droppedEdits.count} unsaved change(s): the results changed`);
+  }, [droppedEdits, showToast]);
 
   const { setCellNull } = useGridShortcuts({ result: activeResult, editing, editingCell });
 

@@ -92,6 +92,7 @@ const mockGridEditing = {
   editCell: vi.fn(),
   deleteRow: vi.fn(),
   editInsertCell: vi.fn(),
+  droppedEdits: null as { count: number } | null,
 };
 
 vi.mock("../../../hooks/useGridEditing", () => ({
@@ -206,6 +207,7 @@ describe("ResultsGrid", () => {
     mockGridEditing.editMode = false;
     mockGridEditing.inserts = [];
     mockGridEditing.hasChanges = false;
+    mockGridEditing.droppedEdits = null;
     mockGridEditing.pendingCount = 0;
   });
 
@@ -342,7 +344,14 @@ describe("ResultsGrid", () => {
     state.viewTabId = "tab-1";
     state.results = [{ columns: [], rows: [] }];
     render(<ResultsGrid />);
-    expect(vi.mocked(useGridEditing)).toHaveBeenLastCalledWith({ tab: "tab-1", owner: state.results });
+    expect(vi.mocked(useGridEditing)).toHaveBeenLastCalledWith({ tab: "tab-1", owner: state.results }, state.results);
+  });
+
+  it("says so when new results dropped unsaved edits (#865)", () => {
+    state.results = [{ ...baseResult }];
+    mockGridEditing.droppedEdits = { count: 2 };
+    render(<ResultsGrid />);
+    expect(screen.getByText("Discarded 2 unsaved change(s): the results changed")).toBeInTheDocument();
   });
 
   it("EditToolbar shows non-edit mode by default", () => {
