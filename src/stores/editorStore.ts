@@ -4,6 +4,33 @@ import { loadSession, maxTabCounter, saveSession } from "../lib/editor-session";
 import { buildTab, findOpenTab, type TabKind, type TabParams } from "../lib/tab-kinds";
 import type { EditorTab, RoutineKind } from "../types";
 
+/** Which close command is waiting on the user (#843). */
+export type CloseKind = "close" | "others" | "right";
+
+export interface PendingClose {
+  kind: CloseKind;
+  /** The tab the command was given on. */
+  targetId: string;
+  /** The tabs it would close that hold work, for the prompt to name. */
+  atRisk: EditorTab[];
+}
+
+/** The tabs a close command would remove. */
+export function tabsClosedBy(tabs: readonly EditorTab[], kind: CloseKind, id: string): EditorTab[] {
+  if (kind === "close") return tabs.filter((t) => t.id === id);
+  if (kind === "others") return tabs.some((t) => t.id === id) ? tabs.filter((t) => t.id !== id) : [];
+  const idx = tabs.findIndex((t) => t.id === id);
+  return idx === -1 ? [] : tabs.slice(idx + 1);
+}
+
+/**
+ * Whether closing this tab would throw work away: a query tab whose SQL was
+ * typed or edited. Its text exists nowhere else once the tab goes.
+ */
+export function holdsUnsavedWork(tab: EditorTab): boolean {
+  return tab.type === "query" && tab.isDirty && tab.content.trim().length > 0;
+}
+
 interface EditorState {
   tabs: EditorTab[];
   activeTabId: string | null;
@@ -24,6 +51,15 @@ interface EditorState {
   closeTab: (id: string) => void;
   closeOtherTabs: (id: string) => void;
   closeTabsToRight: (id: string) => void;
+  /**
+   * Close as the user asked, but ask first when a tab that would go holds
+   * unsaved SQL (#843). The plain `close*` actions above close unconditionally.
+   */
+  requestClose: (kind: CloseKind, id: string) => void;
+  /** The close waiting on the user's answer, if any. */
+  pendingClose: PendingClose | null;
+  confirmPendingClose: () => void;
+  cancelPendingClose: () => void;
   setActiveTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
   setTabConnection: (
@@ -56,6 +92,25 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   tabs: restoredSession?.tabs ?? [initialTab],
   activeTabId: restoredSession?.activeTabId ?? "tab-0",
   editorInstance: null,
+  pendingClose: null,
+
+  requestClose: (kind, id) => {
+    const atRisk = tabsClosedBy(get().tabs, kind, id).filter(holdsUnsavedWork);
+    if (atRisk.length > 0) {
+      set({ pendingClose: { kind, targetId: id, atRisk } });
+      return;
+    }
+    runClose(get(), kind, id);
+  },
+
+  confirmPendingClose: () => {
+    const pending = get().pendingClose;
+    if (!pending) return;
+    set({ pendingClose: null });
+    runClose(get(), pending.kind, pending.targetId);
+  },
+
+  cancelPendingClose: () => set({ pendingClose: null }),
 
   /**
    * Open a tab of any kind, or activate the one already open for it.
@@ -200,6 +255,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return { tabs: newTabs };
     }),
 }));
+
+function runClose(state: EditorState, kind: CloseKind, id: string) {
+  if (kind === "close") state.closeTab(id);
+  else if (kind === "others") state.closeOtherTabs(id);
+  else state.closeTabsToRight(id);
+}
 
 // Auto-save tabs and activeTabId to localStorage on change, debounced to avoid
 // writing on every keystroke. editorInstance is intentionally excluded.

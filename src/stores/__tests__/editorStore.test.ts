@@ -33,6 +33,54 @@ describe("editorStore", () => {
     });
   });
 
+  // #843: closing a tab that holds typed SQL used to discard it at once.
+  describe("requestClose", () => {
+    it("asks before closing a tab with unsaved SQL, and closes only on confirm", () => {
+      const a = useEditorStore.getState().addTab();
+      useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(a, "UPDATE t SET x = 1");
+
+      useEditorStore.getState().requestClose("close", a);
+      expect(useEditorStore.getState().tabs.some((t) => t.id === a)).toBe(true);
+      expect(useEditorStore.getState().pendingClose?.atRisk.map((t) => t.id)).toEqual([a]);
+
+      useEditorStore.getState().confirmPendingClose();
+      expect(useEditorStore.getState().tabs.some((t) => t.id === a)).toBe(false);
+      expect(useEditorStore.getState().pendingClose).toBeNull();
+    });
+
+    it("keeps the tab when the user cancels", () => {
+      const a = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(a, "SELECT 1");
+
+      useEditorStore.getState().requestClose("close", a);
+      useEditorStore.getState().cancelPendingClose();
+
+      expect(useEditorStore.getState().tabs.find((t) => t.id === a)?.content).toBe("SELECT 1");
+    });
+
+    it("closes an empty tab without asking", () => {
+      const a = useEditorStore.getState().addTab();
+      useEditorStore.getState().addTab();
+
+      useEditorStore.getState().requestClose("close", a);
+
+      expect(useEditorStore.getState().pendingClose).toBeNull();
+      expect(useEditorStore.getState().tabs.some((t) => t.id === a)).toBe(false);
+    });
+
+    it("asks when Close Others would discard another tab's SQL", () => {
+      const a = useEditorStore.getState().addTab();
+      const b = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(a, "DELETE FROM t");
+
+      useEditorStore.getState().requestClose("others", b);
+
+      expect(useEditorStore.getState().tabs).toHaveLength(2);
+      expect(useEditorStore.getState().pendingClose?.atRisk.map((t) => t.id)).toEqual([a]);
+    });
+  });
+
   describe("closeTab", () => {
     it("should close a tab when multiple tabs exist", () => {
       const id1 = useEditorStore.getState().addTab();
