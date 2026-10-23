@@ -282,6 +282,11 @@ function pickSlice(state: ResultState): TabResultSlice {
   return slice as TabResultSlice;
 }
 
+/** True when the slice shows nothing a tab that has run nothing would not. */
+function isBlank(slice: TabResultSlice): boolean {
+  return SLICE_KEYS.every((key) => key === "results" ? slice.results.length === 0 : slice[key] === EMPTY_SLICE[key]);
+}
+
 /** The key results from a run without a tab of its own are filed under. */
 const NO_TAB = "";
 
@@ -539,11 +544,26 @@ export const useResultStore = create<ResultState>((set, get) => ({
       return;
     }
     if (state.viewTabId === null) {
-      // Whatever ran before any tab was shown is the first tab's, and so is
-      // what is still running: its response would otherwise be parked under
-      // no tab, and the spinner adopted here would never stop.
-      if (tabId !== null) adoptUntabbed(tabId);
-      set({ viewTabId: tabId, runTabId });
+      // With no tab shown, the fields on screen are what ran under no tab.
+      // What ran under no tab while a designer was shown, before every tab
+      // closed, is parked there; the newer of the two is kept.
+      const live = pickSlice(state);
+      const leftover = state.parked[NO_TAB];
+      const untabbed = leftover && isBlank(live) ? leftover : live;
+      const parked = { ...state.parked };
+      delete parked[NO_TAB];
+      if (tabId !== null && isQueryTab) {
+        // Whatever ran before any query tab was shown is the first one's, and
+        // so is what is still running: its response would otherwise be parked
+        // under no tab, and the spinner adopted here would never stop.
+        adoptUntabbed(tabId);
+        set({ ...untabbed, parked, viewTabId: tabId, runTabId });
+        return;
+      }
+      // A tab without a results pane: what ran under no tab waits, parked,
+      // for the next query tab, and its runs still in flight land there.
+      if (!isBlank(untabbed)) parked[NO_TAB] = untabbed;
+      set({ ...EMPTY_SLICE, parked, viewTabId: tabId, runTabId });
       return;
     }
     const parked = { ...state.parked, [state.viewTabId]: pickSlice(state) };

@@ -1545,6 +1545,42 @@ describe("per-tab results", () => {
     expect(useResultStore.getState().results).toEqual([rows]);
   });
 
+  it("hands a run from before any tab to the first query tab, not a designer", async () => {
+    // The first tab shown being a designer took the run and its spinner, and
+    // the query tab opened next never saw either.
+    useResultStore.setState({ viewTabId: null, runTabId: null });
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const pending = useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
+
+    useResultStore.getState().showTab("designer-d", false);
+    expect(useResultStore.getState().isExecuting).toBe(false);
+    useResultStore.getState().showTab("query-b");
+    expect(useResultStore.getState().isExecuting).toBe(true);
+
+    const rows = makeQueryResult({ sql: "SELECT * FROM big" });
+    slow.resolve([rows]);
+    await pending;
+    expect(useResultStore.getState().results).toEqual([rows]);
+    expect(useResultStore.getState().isExecuting).toBe(false);
+  });
+
+  it("gives what ran under no tab to the first query tab after all tabs closed", async () => {
+    // Left parked under no tab, it attached to whichever tab opened second.
+    useResultStore.setState({ viewTabId: null, runTabId: null });
+    useResultStore.getState().showTab("designer-d", false);
+    const rows = makeQueryResult({ sql: "SELECT * FROM orders" });
+    executeQueryMock.mockResolvedValueOnce([rows]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders");
+    useResultStore.getState().showTab(null);
+    useResultStore.getState().forgetTabs([]);
+
+    useResultStore.getState().showTab("query-a");
+    expect(useResultStore.getState().results).toEqual([rows]);
+    useResultStore.getState().showTab("query-b");
+    expect(useResultStore.getState().results).toEqual([]);
+  });
+
   it("still counts a closed tab's statement as running until it settles", async () => {
     // An app update restarting now would cut the statement off mid-way.
     const slow = deferred<unknown[]>();
