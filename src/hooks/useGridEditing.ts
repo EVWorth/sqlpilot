@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { type GridMemoryScope, recallGrid, useKeepGridOnUnmount } from "../lib/grid-memory";
 import type { SqlValue } from "../types";
 
 export interface CellChange {
@@ -47,16 +48,42 @@ interface HistoryEntry {
   redo: EditAction;
 }
 
-export function useGridEditing() {
-  const [editMode, setEditMode] = useState(false);
-  const [updates, setUpdates] = useState<Map<number, CellChange[]>>(
-    () => new Map(),
-  );
-  const [inserts, setInserts] = useState<Record<string, SqlValue>[]>([]);
-  const [deletes, setDeletes] = useState<Set<number>>(() => new Set());
+/** Edit Mode and the pending edits, as kept while the grid's tab is hidden. */
+export interface EditingDraft {
+  editMode: boolean;
+  updates: Map<number, CellChange[]>;
+  inserts: Record<string, SqlValue>[];
+  deletes: Set<number>;
+  undo: HistoryEntry[];
+  redo: HistoryEntry[];
+}
 
-  const undoStack = useRef<HistoryEntry[]>([]);
-  const redoStack = useRef<HistoryEntry[]>([]);
+/**
+ * `memory` names the editor tab the grid belongs to and the results it shows.
+ * Given one, Edit Mode and the pending edits outlive the grid unmounting on a
+ * tab switch, and come back when that tab is shown again (#842).
+ */
+export function useGridEditing(memory: GridMemoryScope | null = null) {
+  // Read once, at mount: the grid is remounted per tab.
+  const [restored] = useState(() => recallGrid(memory, "editing"));
+  const [editMode, setEditMode] = useState(restored?.editMode ?? false);
+  const [updates, setUpdates] = useState<Map<number, CellChange[]>>(
+    () => restored?.updates ?? new Map(),
+  );
+  const [inserts, setInserts] = useState<Record<string, SqlValue>[]>(restored?.inserts ?? []);
+  const [deletes, setDeletes] = useState<Set<number>>(() => restored?.deletes ?? new Set());
+
+  const undoStack = useRef<HistoryEntry[]>(restored?.undo ?? []);
+  const redoStack = useRef<HistoryEntry[]>(restored?.redo ?? []);
+
+  const nothingToKeep = !editMode && updates.size === 0 && inserts.length === 0 && deletes.size === 0;
+  useKeepGridOnUnmount(
+    memory,
+    "editing",
+    nothingToKeep
+      ? undefined
+      : { editMode, updates, inserts, deletes, undo: undoStack.current, redo: redoStack.current },
+  );
   const [stackVersion, setStackVersion] = useState(0);
 
   const bumpVersion = () => setStackVersion((v) => v + 1);

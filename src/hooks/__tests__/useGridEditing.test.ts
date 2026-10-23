@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
+import { forgetGridMemory } from "../../lib/grid-memory";
 import type { SqlValue } from "../../types";
 import { useGridEditing } from "../useGridEditing";
 
@@ -702,5 +703,66 @@ describe("undo history for inserts and deletes (#404, #405)", () => {
     expect(result.current.inserts).toEqual([{}]);
     act(() => result.current.redo()); // cell back
     expect(result.current.inserts).toEqual([{ name: "A" }]);
+  });
+});
+
+// #842: the grid is remounted per editor tab. Unsaved edits and Edit Mode
+// must survive switching away and back.
+describe("useGridEditing across a tab switch", () => {
+  beforeEach(() => forgetGridMemory([]));
+
+  const rows = [[1, "ada"]];
+
+  it("gives a tab its unsaved edits and Edit Mode back when its grid remounts", () => {
+    const scope = { tab: "tab-1", owner: rows };
+    const first = renderHook(() => useGridEditing(scope));
+    act(() => first.result.current.toggleEditMode());
+    act(() => first.result.current.editCell(0, "name", "ada", "grace"));
+    act(() => first.result.current.deleteRow(0));
+    first.unmount();
+
+    const again = renderHook(() => useGridEditing(scope));
+
+    expect(again.result.current.editMode).toBe(true);
+    expect(again.result.current.getCellValue(0, "name", "ada")).toBe("grace");
+    expect(again.result.current.isRowDeleted(0)).toBe(true);
+    expect(again.result.current.canUndo).toBe(true);
+    act(() => again.result.current.undo());
+    expect(again.result.current.isRowDeleted(0)).toBe(false);
+  });
+
+  it("does not hand one tab's edits to another tab", () => {
+    const first = renderHook(() => useGridEditing({ tab: "tab-1", owner: rows }));
+    act(() => first.result.current.toggleEditMode());
+    act(() => first.result.current.editCell(0, "name", "ada", "grace"));
+    first.unmount();
+
+    const other = renderHook(() => useGridEditing({ tab: "tab-2", owner: rows }));
+
+    expect(other.result.current.editMode).toBe(false);
+    expect(other.result.current.hasChanges).toBe(false);
+  });
+
+  it("drops the edits when the tab's results changed while it was hidden", () => {
+    // Edits are by row index; on other rows they would change the wrong ones.
+    const first = renderHook(() => useGridEditing({ tab: "tab-1", owner: rows }));
+    act(() => first.result.current.toggleEditMode());
+    act(() => first.result.current.editCell(0, "name", "ada", "grace"));
+    first.unmount();
+
+    const again = renderHook(() => useGridEditing({ tab: "tab-1", owner: [[2, "bob"]] }));
+
+    expect(again.result.current.hasChanges).toBe(false);
+  });
+
+  it("forgets a closed tab's edits", () => {
+    const scope = { tab: "tab-1", owner: rows };
+    const first = renderHook(() => useGridEditing(scope));
+    act(() => first.result.current.editCell(0, "name", "ada", "grace"));
+    first.unmount();
+
+    forgetGridMemory(["tab-2"]);
+
+    expect(renderHook(() => useGridEditing(scope)).result.current.hasChanges).toBe(false);
   });
 });

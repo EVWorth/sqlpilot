@@ -14,6 +14,7 @@ import { useRowCount } from "../../hooks/useRowCount";
 import { useRowKey } from "../../hooks/useRowKey";
 import { useRowSelection } from "../../hooks/useRowSelection";
 import { gridFeatures } from "../../lib/grid-features";
+import { recallGrid, useKeepGridOnUnmount } from "../../lib/grid-memory";
 import { columnTypesOf } from "../../lib/sql-generator";
 import { isNumericSqlType } from "../../lib/sql-types";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -46,8 +47,18 @@ export function ResultsGrid() {
   const cancelledAfterMs = useResultStore((s) => s.cancelledAfterMs);
   const page = useResultStore((s) => s.page);
   const goToPage = useResultStore((s) => s.goToPage);
-  const [sorting, setSorting] = useState<SortingState>([]);
-  const [columnSizing, setColumnSizing] = useState<Record<string, number>>({});
+  // The tab this grid is mounted for; MainPanel remounts it per tab. What the
+  // grid holds that the store does not — pending edits, Edit Mode, sort and
+  // column widths — is kept for the tab while it is hidden (#842).
+  const viewTabId = useResultStore((s) => s.viewTabId);
+  const [memoryTab] = useState(viewTabId);
+  const memory = useMemo(() => (memoryTab ? { tab: memoryTab, owner: results } : null), [memoryTab, results]);
+  const [sorting, setSorting] = useState<SortingState>(() => recallGrid(memory, "sorting") ?? []);
+  const [columnSizing, setColumnSizing] = useState<Record<string, number>>(
+    () => recallGrid(memory, "columnSizing") ?? {},
+  );
+  useKeepGridOnUnmount(memory, "sorting", sorting.length > 0 ? sorting : undefined);
+  useKeepGridOnUnmount(memory, "columnSizing", Object.keys(columnSizing).length > 0 ? columnSizing : undefined);
   const [drag, setDrag] = useState<{ dragging: string | null; over: string | null }>({
     dragging: null,
     over: null,
@@ -88,7 +99,7 @@ export function ResultsGrid() {
 
   const gridRef = useRef<HTMLDivElement | null>(null);
 
-  const editing = useGridEditing();
+  const editing = useGridEditing(memory);
 
   const activeResult = results[activeResultIndex];
 

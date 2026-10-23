@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import type { ExplainFormat } from "../lib/bindings";
 import { connectionKind, dataSourceFor } from "../lib/datasource";
+import { forgetGridMemory } from "../lib/grid-memory";
 import { noteSession } from "../lib/server-sessions";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
@@ -1046,6 +1047,7 @@ function followEditor(editor: { tabs: readonly EditorTab[]; activeTabId: string 
   const active = editor.tabs.find((t) => t.id === editor.activeTabId);
   store.showTab(editor.activeTabId, active?.type === "query");
   store.forgetTabs(editor.tabs.map((t) => t.id));
+  forgetGridMemory(editor.tabs.map((t) => t.id));
   // The last query tab closed: session-less runs go to another one, if any.
   if (useResultStore.getState().runTabId === null) {
     const fallback = editor.tabs.find((t) => t.type === "query");

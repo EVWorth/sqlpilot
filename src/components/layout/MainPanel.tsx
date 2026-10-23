@@ -82,7 +82,9 @@ export function MainPanel() {
                     // Remounted per tab: the grid's pending edits and Edit
                     // Mode belong to the result they were made on, and
                     // carried over they would be saved against another
-                    // tab's rows and table (#842).
+                    // tab's rows and table (#842). The grid keeps them, with
+                    // its sort and column widths, for each tab while it is
+                    // hidden (see lib/grid-memory).
                     key={activeTabId ?? ""}
                     showExplain={showExplain}
                     explainResult={explainResult}
