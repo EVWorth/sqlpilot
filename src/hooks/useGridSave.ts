@@ -85,6 +85,10 @@ export function useGridSave({
     }
     const connId = source.connectionId;
     const { session, database } = source;
+    // The tab this grid belongs to, fixed now: the user can switch tabs while
+    // the confirmation or the save is awaited, and a refresh with no session
+    // would otherwise land in whichever query tab they moved to (#842).
+    const tabId = useResultStore.getState().viewTabId ?? undefined;
 
     setIsSaving(true);
     try {
@@ -160,7 +164,7 @@ export function useGridSave({
       }
 
       editing.discardAll();
-      await useResultStore.getState().executeQuery(connId, sql, database, session);
+      await useResultStore.getState().executeQuery(connId, sql, database, session, tabId);
 
       // A WHERE that matches nothing is not an error — the statement runs and
       // affects zero rows — so the save reported success either way (#419).

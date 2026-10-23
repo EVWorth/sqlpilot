@@ -188,8 +188,18 @@ interface ResultState {
    * `session` is the editor tab running the statement, which keeps it on that
    * tab's own server session (#731). Only the editor passes one; a caller
    * that is not an editor tab leaves it out and runs on the shared pool.
+   *
+   * `tabId` files a run with no session under that tab rather than the last
+   * query tab shown, for a caller that knew the tab before awaiting something
+   * the user could switch tabs during (#842). Ignored when `session` is set.
    */
-  executeQuery: (connectionId: string, sql: string, database?: string, session?: string) => Promise<RunOutcome>;
+  executeQuery: (
+    connectionId: string,
+    sql: string,
+    database?: string,
+    session?: string,
+    tabId?: string,
+  ) => Promise<RunOutcome>;
   executeExplain: (
     connectionId: string,
     sql: string,
@@ -553,8 +563,8 @@ export const useResultStore = create<ResultState>((set, get) => ({
     }
   },
 
-  executeQuery: async (connectionId, sql, database, session) => {
-    const target = targetFor(session);
+  executeQuery: async (connectionId, sql, database, session, tabId) => {
+    const target = targetFor(session, tabId);
     // Production safety check
     if (isProductionConnection(connectionId) && isDestructiveStatement(sql)) {
       set({

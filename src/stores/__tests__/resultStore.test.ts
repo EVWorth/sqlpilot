@@ -1471,6 +1471,20 @@ describe("per-tab results", () => {
     expect(useResultStore.getState().isExecuting).toBe(false);
   });
 
+  it("files a session-less run under the tab the caller names", async () => {
+    // A grid refresh after a save: the user may have moved to another query
+    // tab while the save was awaited.
+    useEditorStore.setState({ tabs: [queryTab("query-a"), queryTab("query-b")], activeTabId: "query-b" });
+    const rows = makeQueryResult({ sql: "SELECT * FROM users" });
+    executeQueryMock.mockResolvedValueOnce([rows]);
+
+    await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM users", "app", undefined, "query-a");
+
+    expect(useResultStore.getState().results).toEqual([]);
+    useEditorStore.getState().setActiveTab("query-a");
+    expect(useResultStore.getState().results).toEqual([rows]);
+  });
+
   it("clears a plan read on another connection along with the grid", () => {
     useResultStore.setState({
       explainResult: makeQueryResult({ query_id: "plan" }),
