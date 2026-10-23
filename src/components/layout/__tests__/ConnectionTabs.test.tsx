@@ -5,6 +5,7 @@ import { ConnectionTabs } from "../ConnectionTabs";
 
 const mockLoadProfiles = vi.fn();
 const mockCancelConnect = vi.fn();
+const mockClearError = vi.fn();
 // Hoisted, because the mock factory below runs before ordinary top-level
 // consts are initialised.
 const { setStateSpy } = vi.hoisted(() => ({ setStateSpy: vi.fn() }));
@@ -23,6 +24,9 @@ function currentState() {
     connect: vi.fn(),
     disconnect: vi.fn(),
     cancelConnect: mockCancelConnect,
+    clearError: mockClearError,
+    error: null,
+    failedProfileId: null,
     deleteProfile: vi.fn(),
     setSelectedConnection: vi.fn(),
     loadProfiles: mockLoadProfiles,
@@ -371,5 +375,48 @@ describe("deleting a profile (FR-1.1.3, #795)", () => {
 
     expect(disconnect).not.toHaveBeenCalled();
     expect(deleteProfile).toHaveBeenCalledWith("p2");
+  });
+});
+
+describe("a failed connect (#804)", () => {
+  const profiles = [{ id: "p2", name: "MariaDB sandbox", host: "localhost" }];
+  const message = "Connection error: Could not connect \"MariaDB sandbox\". Nothing is listening on "
+    + "localhost:3307. The server is stopped, or it is listening on a different port.";
+
+  it("shows the whole message under the tabs", () => {
+    storeState = { profiles, error: message, failedProfileId: "p2" };
+    render(<ConnectionTabs />);
+    const panel = screen.getByTestId("connect-failure");
+    expect(panel).toHaveTextContent("Could not connect to MariaDB sandbox");
+    expect(panel).toHaveTextContent(message);
+  });
+
+  it("retries the same profile", async () => {
+    const connect = vi.fn().mockRejectedValue(new Error("still refused"));
+    storeState = { profiles, error: message, failedProfileId: "p2", connect };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByText("Retry"));
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledWith("p2"));
+  });
+
+  it("opens the profile for editing", () => {
+    storeState = { profiles, error: message, failedProfileId: "p2" };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByText("Edit connection"));
+    expect(screen.getByTestId("connection-dialog")).toHaveAttribute("data-editing", "MariaDB sandbox");
+    expect(mockClearError).toHaveBeenCalled();
+  });
+
+  it("can be dismissed", () => {
+    storeState = { profiles, error: message, failedProfileId: "p2" };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByLabelText("Dismiss connection failure"));
+    expect(mockClearError).toHaveBeenCalled();
+  });
+
+  it("is not shown for an error that no connect produced", () => {
+    storeState = { profiles, error: "Delete failed", failedProfileId: null };
+    render(<ConnectionTabs />);
+    expect(screen.queryByTestId("connect-failure")).toBeNull();
   });
 });

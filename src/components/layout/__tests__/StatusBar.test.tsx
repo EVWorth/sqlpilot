@@ -44,6 +44,8 @@ describe("StatusBar", () => {
       ],
       selectedConnectionId: "conn-1",
       error: null,
+      failedProfileId: null,
+      connecting: [],
       profiles: [
         {
           id: "prof-1",
@@ -266,6 +268,39 @@ describe("StatusBar", () => {
 
     renderStatusBar();
     expect(screen.getByText("Connection timed out")).toBeInTheDocument();
+  });
+
+  describe("a connection error (#804)", () => {
+    const message = "Could not reconnect to 2 servers (Staging, Production). Their tabs have no live "
+      + "connection — use the connect button to retry.";
+
+    beforeEach(() => {
+      useConnectionStore.setState({ error: message, failedProfileId: null });
+    });
+
+    it("carries the whole message in its tooltip", () => {
+      renderStatusBar();
+      expect(screen.getByTitle(message)).toBeInTheDocument();
+    });
+
+    it("opens the whole message on click instead of dismissing it", () => {
+      renderStatusBar();
+      fireEvent.click(screen.getByTitle(message));
+      expect(screen.getByTestId("connection-error-details")).toHaveTextContent(message);
+      expect(useConnectionStore.getState().error).toBe(message);
+    });
+
+    it("is dismissed by its own button", () => {
+      renderStatusBar();
+      fireEvent.click(screen.getByLabelText("Dismiss connection error"));
+      expect(useConnectionStore.getState().error).toBeNull();
+    });
+
+    it("leaves a failed connect to the panel under the tabs", () => {
+      useConnectionStore.setState({ failedProfileId: "prof-1" });
+      renderStatusBar();
+      expect(screen.queryByTitle(message)).toBeNull();
+    });
   });
 
   it("says which server is being connected to, instead of Disconnected (#799)", () => {

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
+import { errorMessage } from "../lib/utils";
 import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary } from "../types";
 import { useConnectionHealthStore } from "./connectionHealthStore";
 import { useSchemaStore } from "./schemaStore";
@@ -10,6 +11,8 @@ interface ConnectionState {
   selectedConnectionId: string | null;
   loading: boolean;
   error: string | null;
+  /** The profile whose connect produced `error`, if a connect did. */
+  failedProfileId: string | null;
   /**
    * Ids that disconnect was called for before the connection existed on this
    * side — a cancel during a slow connect. Store state rather than a module
@@ -42,27 +45,28 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   selectedConnectionId: null,
   loading: false,
   error: null,
+  failedProfileId: null,
   pendingDisconnects: [],
   connecting: [],
   cancelledConnects: [],
 
   loadProfiles: async () => {
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, failedProfileId: null });
       const profiles = await api.listConnectionProfiles();
       set({ profiles, loading: false });
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
   saveProfile: async (profile) => {
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, failedProfileId: null });
       await api.saveConnectionProfile(profile);
       await get().loadProfiles();
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
       // The dialog has to know, or it closes and takes the form with it (#792).
       throw e;
     }
@@ -70,17 +74,18 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   deleteProfile: async (id) => {
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, failedProfileId: null });
       await api.deleteConnectionProfile(id);
       await get().loadProfiles();
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
   connect: async (profileId) => {
     set((state) => ({
       error: null,
+      failedProfileId: null,
       connecting: state.connecting.includes(profileId)
         ? state.connecting
         : [...state.connecting, profileId],
@@ -104,7 +109,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       // Rejected, not thrown: lint wants a `cause` on a throw inside a catch,
       // and the ES2021 target has no `cause` option.
       if (takeCancel()) return Promise.reject(new Error("Connection cancelled"));
-      set({ error: String(e) });
+      // Which profile failed, so the failure can offer Retry and Edit (#804).
+      set({ error: errorMessage(e), failedProfileId: profileId });
       throw e;
     }
     settle();
@@ -158,7 +164,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       return;
     }
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, failedProfileId: null });
       await api.disconnect(connectionId);
       // The schema is about a server this app is no longer talking to.
       // Keeping it means a reconnect shows what was true before, and means
@@ -177,10 +183,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         loading: false,
       }));
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
   setSelectedConnection: (id) => set({ selectedConnectionId: id }),
-  clearError: () => set({ error: null }),
+  clearError: () => set({ error: null, failedProfileId: null }),
 }));

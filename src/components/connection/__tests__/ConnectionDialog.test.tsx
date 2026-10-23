@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { api } from "../../../lib/tauri-api";
 import { ConnectionDialog } from "../ConnectionDialog";
 
 const { saveProfileFn } = vi.hoisted(() => ({ saveProfileFn: vi.fn() }));
@@ -402,5 +403,26 @@ describe("ConnectionDialog", () => {
       expect(screen.queryByText("Delete")).not.toBeInTheDocument();
       expect(screen.queryByText("Duplicate")).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("the test result (#804)", () => {
+  it("shows a failure in full rather than cutting it off", async () => {
+    const message = "Nothing is listening on localhost:3307. The server is stopped, or it is listening on a "
+      + "different port.";
+    vi.mocked(api.testConnection).mockResolvedValueOnce({
+      success: false,
+      message,
+      server_version: null,
+      latency_ms: 9,
+    });
+    render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+
+    fireEvent.click(screen.getByText("Test Connection"));
+
+    const text = await screen.findByText(message);
+    expect(text).not.toHaveClass("truncate");
+    expect(text).toHaveClass("break-words");
+    expect(screen.getByRole("alert")).toHaveTextContent(message);
   });
 });

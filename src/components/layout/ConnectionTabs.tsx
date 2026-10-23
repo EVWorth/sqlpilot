@@ -9,6 +9,7 @@ import { useSqliteStore } from "../../stores/sqliteStore";
 import type { ConnectionProfileSummary } from "../../types";
 import type { MenuItem } from "../common/ContextMenu";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
+import { ConnectFailure } from "./ConnectFailure";
 import { useConnectionSwitching } from "./useConnectionSwitching";
 import { useProfileDeletion } from "./useProfileDeletion";
 
@@ -35,6 +36,9 @@ export function ConnectionTabs() {
   const health = useConnectionHealthStore((s) => s.health);
   const connecting = useConnectionStore((s) => s.connecting);
   const cancelConnect = useConnectionStore((s) => s.cancelConnect);
+  const connectError = useConnectionStore((s) => s.error);
+  const failedProfileId = useConnectionStore((s) => s.failedProfileId);
+  const clearError = useConnectionStore((s) => s.clearError);
 
   /**
    * What to show on a connected tab's icon. FR-1.3.2's third state,
@@ -109,6 +113,7 @@ export function ConnectionTabs() {
       ];
 
       const failed: string[] = [];
+      const failedIds: string[] = [];
       for (const profileId of profileIds) {
         try {
           const conn = await connect(profileId);
@@ -132,12 +137,15 @@ export function ConnectionTabs() {
           const name = useConnectionStore.getState().profiles.find((p) => p.id === profileId)?.name
             ?? profileId;
           failed.push(name);
+          failedIds.push(profileId);
           console.warn(`Could not reconnect to ${name} on startup`, e);
         }
       }
 
       if (failed.length > 0) {
         useConnectionStore.setState({
+          // One failure can offer Retry and Edit for its profile (#804).
+          failedProfileId: failedIds.length === 1 ? failedIds[0] : null,
           error: failed.length === 1
             ? `Could not reconnect to ${failed[0]}. Its tabs have no live connection — use the connect button to retry.`
             : `Could not reconnect to ${failed.length} servers (${
@@ -198,7 +206,7 @@ export function ConnectionTabs() {
   };
 
   return (
-    <div className="flex h-9 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-1">
+    <div className="relative flex h-9 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-1">
       {/* Scrollable tabs area */}
       <div className="flex min-w-0 shrink items-center gap-0.5 overflow-x-auto">
         {activeConnections.map((conn) => {
@@ -492,6 +500,23 @@ export function ConnectionTabs() {
           : undefined}
         onDuplicate={editingProfile ? () => openDuplicate(editingProfile) : undefined}
       />
+      {failedProfileId && connectError && (() => {
+        const failedProfile = profiles.find((p) => p.id === failedProfileId);
+        return (
+          <ConnectFailure
+            name={failedProfile?.name || failedProfile?.host || failedProfileId}
+            message={connectError}
+            onRetry={() => void handleConnectProfile(failedProfileId)}
+            onEdit={failedProfile
+              ? () => {
+                clearError();
+                openEdit(failedProfile);
+              }
+              : undefined}
+            onDismiss={clearError}
+          />
+        );
+      })()}
       {contextMenu}
       {confirmDialog}
     </div>

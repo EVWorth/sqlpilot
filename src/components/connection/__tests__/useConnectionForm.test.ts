@@ -117,6 +117,17 @@ describe("useConnectionForm (#275)", () => {
     expect(result.current.testResult?.message).toContain("Access denied");
   });
 
+  it("reports a thrown test failure without a doubled \"Error: \" prefix (#804)", async () => {
+    apiMocks.testConnection.mockRejectedValue(new Error("SSH tunnel error: no route to bastion"));
+    const { result } = renderHook(() => useConnectionForm(true));
+
+    await act(async () => {
+      await result.current.handleTest();
+    });
+
+    expect(result.current.testResult?.message).toBe("SSH tunnel error: no route to bastion");
+  });
+
   describe("what gets stored", () => {
     const savedProfile = () => saveProfileFn.mock.calls[0][0];
 
@@ -189,7 +200,8 @@ describe("useConnectionForm (#275)", () => {
       await act(async () => {
         await result.current.handleSave(() => {});
       });
-      expect(result.current.saveError).toContain("keyring locked");
+      // The message itself, not "Error: keyring locked" (#804).
+      expect(result.current.saveError).toBe("keyring locked");
 
       const onDone = vi.fn();
       await act(async () => {

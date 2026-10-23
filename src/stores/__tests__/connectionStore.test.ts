@@ -72,6 +72,7 @@ describe("connectionStore", () => {
       pendingDisconnects: [],
       connecting: [],
       cancelledConnects: [],
+      failedProfileId: null,
     });
   });
 
@@ -104,7 +105,7 @@ describe("connectionStore", () => {
       await useConnectionStore.getState().loadProfiles();
 
       const state = useConnectionStore.getState();
-      expect(state.error).toBe("Error: API error");
+      expect(state.error).toBe("API error");
       expect(state.loading).toBe(false);
     });
 
@@ -142,7 +143,7 @@ describe("connectionStore", () => {
       );
 
       const state = useConnectionStore.getState();
-      expect(state.error).toBe("Error: Save failed");
+      expect(state.error).toBe("Save failed");
       expect(state.loading).toBe(false);
     });
   });
@@ -181,7 +182,7 @@ describe("connectionStore", () => {
 
       await useConnectionStore.getState().deleteProfile("profile-1");
 
-      expect(useConnectionStore.getState().error).toBe("Error: Delete failed");
+      expect(useConnectionStore.getState().error).toBe("Delete failed");
       expect(useConnectionStore.getState().loading).toBe(false);
     });
   });
@@ -270,8 +271,22 @@ describe("connectionStore", () => {
       );
 
       const state = useConnectionStore.getState();
-      expect(state.error).toBe("Error: Connection refused");
+      expect(state.error).toBe("Connection refused");
       expect(state.loading).toBe(false);
+    });
+
+    it("keeps the message whole and names the profile that failed (#804)", async () => {
+      vi.mocked(api.connect).mockRejectedValue(new Error("Connection error: Nothing is listening"));
+
+      await expect(useConnectionStore.getState().connect("profile-1")).rejects.toThrow();
+
+      const state = useConnectionStore.getState();
+      // Not "Error: Connection error: …".
+      expect(state.error).toBe("Connection error: Nothing is listening");
+      expect(state.failedProfileId).toBe("profile-1");
+
+      state.clearError();
+      expect(useConnectionStore.getState().failedProfileId).toBeNull();
     });
 
     it("appends to existing activeConnections", async () => {
@@ -350,7 +365,7 @@ describe("connectionStore", () => {
 
       await useConnectionStore.getState().disconnect("conn-1");
 
-      expect(useConnectionStore.getState().error).toBe("Error: Disconnect failed");
+      expect(useConnectionStore.getState().error).toBe("Disconnect failed");
     });
   });
 
@@ -427,7 +442,7 @@ describe("connectionStore", () => {
       expect(state.activeConnections).toHaveLength(1);
       expect(state.activeConnections[0].id).toBe("conn-1");
       expect(state.selectedConnectionId).toBe("conn-1");
-      expect(state.error).toBe("Error: Connection refused");
+      expect(state.error).toBe("Connection refused");
     });
   });
 

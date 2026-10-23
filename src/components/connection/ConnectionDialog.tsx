@@ -164,7 +164,8 @@ export function ConnectionDialog({
       {testResult && (
         <div className="px-4 pb-2">
           <div
-            className={`flex items-center gap-2 rounded p-2 text-xs ${
+            role={testResult.success ? "status" : "alert"}
+            className={`flex items-start gap-2 rounded p-2 text-xs ${
               testResult.success
                 ? "surface-success-strong text-[var(--color-success)]"
                 : "surface-error-strong text-[var(--color-error)]"
@@ -173,7 +174,8 @@ export function ConnectionDialog({
             {testResult.success
               ? <CheckCircle2 className="h-4 w-4 shrink-0" />
               : <XCircle className="h-4 w-4 shrink-0" />}
-            <span className="truncate">{testResult.message}</span>
+            {/* Whole, not cut off: the useful part of a failure is usually at the end (#804). */}
+            <span className="min-w-0 whitespace-normal break-words">{testResult.message}</span>
             {testResult.latency_ms > 0 && (
               <span className="ml-auto shrink-0 text-[var(--color-text-muted)]">
                 {testResult.latency_ms}ms

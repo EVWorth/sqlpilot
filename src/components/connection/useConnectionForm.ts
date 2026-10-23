@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api } from "../../lib/tauri-api";
+import { errorMessage } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type {
   ConnectionProfile,
@@ -247,7 +248,7 @@ export function useConnectionForm(
     try {
       setTestResult(await api.testConnection(buildProfileForSave()));
     } catch (e) {
-      setTestResult({ success: false, message: String(e), server_version: null, latency_ms: 0 });
+      setTestResult({ success: false, message: errorMessage(e), server_version: null, latency_ms: 0 });
     }
     setTesting(false);
   };
@@ -261,7 +262,7 @@ export function useConnectionForm(
       onDone();
     } catch (e) {
       // Stay open, so what was typed is not lost, and say why (#792).
-      setSaveError(String(e));
+      setSaveError(errorMessage(e));
       setSaving(false);
     }
   };

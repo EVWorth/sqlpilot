@@ -8,6 +8,7 @@ import {
   Loader2,
   RefreshCw,
   Terminal,
+  X,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StartupProblem } from "../../lib/bindings";
@@ -50,7 +51,9 @@ export function StatusBar() {
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
-  const connectionError = useConnectionStore((s) => s.error);
+  // A failed connect is shown in full under the tab bar, with Retry and Edit;
+  // repeating it here would only be the cut-off copy (#804).
+  const connectionError = useConnectionStore((s) => s.failedProfileId ? null : s.error);
   // Undefined until the check answers; only `false` shows the warning, so a
   // slow reply never flashes it at someone whose keyring is fine.
   const [keyringAvailable, setKeyringAvailable] = useState<boolean | undefined>();
@@ -80,6 +83,7 @@ export function StatusBar() {
   const storageErrorEntries = Object.entries(storageErrors);
 
   const [showFullError, setShowFullError] = useState(false);
+  const [showConnectionError, setShowConnectionError] = useState(false);
   const [showUpdateConfirm, setShowUpdateConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(false);
@@ -251,14 +255,39 @@ export function StatusBar() {
       </div>
       <div className="flex items-center gap-3">
         {connectionError && (
-          <button
-            onClick={clearConnectionError}
-            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
-            title="Connection error — click to dismiss"
-          >
-            <AlertCircle className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{connectionError}</span>
-          </button>
+          // Click opens the whole message; it used to dismiss it, so the part
+          // past 300px — usually the diagnosis — could never be read (#804).
+          <div className="relative flex min-h-6 max-w-[300px] items-center gap-0.5">
+            <button
+              onClick={() => setShowConnectionError((open) => !open)}
+              aria-expanded={showConnectionError}
+              className="flex min-w-0 items-center gap-1 text-[10px] text-[var(--color-error)] hover:text-[var(--color-error)] transition-colors"
+              title={connectionError}
+            >
+              <AlertCircle className="h-3 w-3 flex-shrink-0" />
+              <span className="truncate">{connectionError}</span>
+            </button>
+            <button
+              onClick={() => {
+                setShowConnectionError(false);
+                clearConnectionError();
+              }}
+              className="shrink-0 rounded p-0.5 text-[var(--color-error)] hover:bg-[var(--color-bg-tertiary)]"
+              title="Dismiss"
+              aria-label="Dismiss connection error"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+            {showConnectionError && (
+              <div
+                role="alert"
+                data-testid="connection-error-details"
+                className="absolute bottom-full right-0 z-50 mb-2 w-96 max-w-[80vw] rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 text-[11px] whitespace-pre-wrap break-words text-[var(--color-error)] shadow-lg select-text"
+              >
+                {connectionError}
+              </div>
+            )}
+          </div>
         )}
         {startupProblems
           .filter((p) => !dismissedProblems.includes(p.kind))
