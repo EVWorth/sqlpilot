@@ -23,6 +23,7 @@ import type { SqlValue } from "../../types";
 import { CellViewerModal } from "./CellViewerModal";
 import { EditToolbar } from "./EditToolbar";
 import { GridBanners } from "./GridBanners";
+import { GridCellContext, type GridCellState } from "./GridCell";
 import { GridFooter } from "./GridFooter";
 import { GridHeaderRow } from "./GridHeaderRow";
 import { GridPlaceholder } from "./GridPlaceholder";
@@ -41,6 +42,8 @@ export function ResultsGrid() {
   const activeResultIndex = useResultStore((s) => s.activeResultIndex);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const error = useResultStore((s) => s.error);
+  const executionStartedAt = useResultStore((s) => s.executionStartedAt);
+  const cancelledAfterMs = useResultStore((s) => s.cancelledAfterMs);
   const page = useResultStore((s) => s.page);
   const goToPage = useResultStore((s) => s.goToPage);
   const [sorting, setSorting] = useState<SortingState>([]);
@@ -217,15 +220,25 @@ export function ResultsGrid() {
     return lens;
   }, [activeResult]);
 
-  const columns = useGridColumns({
-    result: activeResult,
-    editing,
-    editingCell,
-    maxContentLen,
-    onEditCellAt: editCellAt,
-    onStopEditing: stopEditing,
-    onViewCell: setCellViewer,
-  });
+  const columns = useGridColumns({ result: activeResult, maxContentLen });
+
+  // What the cells need that changes from render to render. Handed down by
+  // context rather than captured in the column definitions, so the cells keep
+  // their identity across a click and a double-click can land (#841).
+  const cellState = useMemo<GridCellState | null>(
+    () =>
+      activeResult
+        ? {
+          result: activeResult,
+          editing,
+          editingCell,
+          onEditCellAt: editCellAt,
+          onStopEditing: stopEditing,
+          onViewCell: setCellViewer,
+        }
+        : null,
+    [activeResult, editing, editingCell, editCellAt, stopEditing],
+  );
 
   const data = useMemo(() => {
     if (!activeResult) return [];
@@ -279,6 +292,11 @@ export function ResultsGrid() {
 
   const sortedColumnCount = sorting.length;
 
+  /** A row click, with the on-screen order so Shift ranges follow the sort (#839). */
+  const clickGridRow = useCallback((e: React.MouseEvent, dataIdx: number) => {
+    clickRow(e, dataIdx, table.getRowModel().rows.map((r) => r.index));
+  }, [clickRow, table]);
+
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
   const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
@@ -297,7 +315,15 @@ export function ResultsGrid() {
   // Running, failed, a statement that returned a count, or nothing run yet —
   // none of which is a grid.
   if (isExecuting || error || !activeResult || activeResult.columns.length === 0) {
-    return <GridPlaceholder isExecuting={isExecuting} error={error} result={activeResult} />;
+    return (
+      <GridPlaceholder
+        isExecuting={isExecuting}
+        error={error}
+        result={activeResult}
+        startedAt={executionStartedAt}
+        cancelledAfterMs={cancelledAfterMs}
+      />
+    );
   }
 
   return (
@@ -348,66 +374,27 @@ export function ResultsGrid() {
       )}
 
       {/* Table */}
-      <div
-        ref={(node) => {
-          scrollContainerRef.current = node;
-        }}
-        className="isolate relative z-0 flex-1 overflow-auto"
-        style={{ scrollbarGutter: "stable" }}
-      >
-        {shouldVirtualize
-          ? (
-            <div style={{ height: `${totalRows * ROW_HEIGHT + ROW_HEIGHT}px`, position: "relative" }}>
-              <div className="sticky top-0 z-10 flex bg-[var(--color-bg-tertiary)] text-xs">
-                <div
-                  className="flex items-center justify-center border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]"
-                  style={{ flex: "0 0 48px" }}
-                >
-                  #
-                </div>
-                <GridHeaderRow
-                  headers={table.getFlatHeaders()}
-                  as="div"
-                  sortedColumnCount={sortedColumnCount}
-                  columnTypes={columnTypes}
-                  numericColumns={numericColumns}
-                  maxContentLen={maxContentLen}
-                  filters={filters}
-                  layout={layout}
-                  drag={drag}
-                  onDragStateChange={(next) => setDrag((prev) => ({ ...prev, ...next }))}
-                  onAutoSize={autoSizeColumn}
-                />
-              </div>
-              <VirtualGridRows
-                table={table}
-                data={data}
-                editing={editing}
-                editingCell={editingCell}
-                selection={selection}
-                orderedColumns={orderedColumns}
-                maxContentLen={maxContentLen}
-                numericColumns={numericColumns}
-                insertRowIndex={insertRowIndex}
-                onEditCellAt={editCellAt}
-                onStopEditing={stopEditing}
-                onClickRow={clickRow}
-                onRowContextMenu={handleRowContextMenu}
-                rowVirtualizer={rowVirtualizer}
-                rowHeight={ROW_HEIGHT}
-              />
-            </div>
-          )
-          : (
-            <table className="border-separate border-spacing-0 text-xs" style={{ tableLayout: "fixed", width: "100%" }}>
-              <thead className="sticky top-0 z-10 bg-[var(--color-bg-tertiary)]">
-                <tr>
-                  <th className="w-12 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]">
+      <GridCellContext.Provider value={cellState}>
+        <div
+          ref={(node) => {
+            scrollContainerRef.current = node;
+          }}
+          className="isolate relative z-0 flex-1 overflow-auto"
+          style={{ scrollbarGutter: "stable" }}
+        >
+          {shouldVirtualize
+            ? (
+              <div style={{ height: `${totalRows * ROW_HEIGHT + ROW_HEIGHT}px`, position: "relative" }}>
+                <div className="sticky top-0 z-10 flex bg-[var(--color-bg-tertiary)] text-xs">
+                  <div
+                    className="flex items-center justify-center border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]"
+                    style={{ flex: "0 0 48px" }}
+                  >
                     #
-                  </th>
+                  </div>
                   <GridHeaderRow
                     headers={table.getFlatHeaders()}
-                    as="th"
+                    as="div"
                     sortedColumnCount={sortedColumnCount}
                     columnTypes={columnTypes}
                     numericColumns={numericColumns}
@@ -418,10 +405,8 @@ export function ResultsGrid() {
                     onDragStateChange={(next) => setDrag((prev) => ({ ...prev, ...next }))}
                     onAutoSize={autoSizeColumn}
                   />
-                </tr>
-              </thead>
-              <tbody>
-                <TableGridRows
+                </div>
+                <VirtualGridRows
                   table={table}
                   data={data}
                   editing={editing}
@@ -433,13 +418,59 @@ export function ResultsGrid() {
                   insertRowIndex={insertRowIndex}
                   onEditCellAt={editCellAt}
                   onStopEditing={stopEditing}
-                  onClickRow={clickRow}
+                  onClickRow={clickGridRow}
                   onRowContextMenu={handleRowContextMenu}
+                  rowVirtualizer={rowVirtualizer}
+                  rowHeight={ROW_HEIGHT}
                 />
-              </tbody>
-            </table>
-          )}
-      </div>
+              </div>
+            )
+            : (
+              <table
+                className="border-separate border-spacing-0 text-xs"
+                style={{ tableLayout: "fixed", width: "100%" }}
+              >
+                <thead className="sticky top-0 z-10 bg-[var(--color-bg-tertiary)]">
+                  <tr>
+                    <th className="w-12 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]">
+                      #
+                    </th>
+                    <GridHeaderRow
+                      headers={table.getFlatHeaders()}
+                      as="th"
+                      sortedColumnCount={sortedColumnCount}
+                      columnTypes={columnTypes}
+                      numericColumns={numericColumns}
+                      maxContentLen={maxContentLen}
+                      filters={filters}
+                      layout={layout}
+                      drag={drag}
+                      onDragStateChange={(next) => setDrag((prev) => ({ ...prev, ...next }))}
+                      onAutoSize={autoSizeColumn}
+                    />
+                  </tr>
+                </thead>
+                <tbody>
+                  <TableGridRows
+                    table={table}
+                    data={data}
+                    editing={editing}
+                    editingCell={editingCell}
+                    selection={selection}
+                    orderedColumns={orderedColumns}
+                    maxContentLen={maxContentLen}
+                    numericColumns={numericColumns}
+                    insertRowIndex={insertRowIndex}
+                    onEditCellAt={editCellAt}
+                    onStopEditing={stopEditing}
+                    onClickRow={clickGridRow}
+                    onRowContextMenu={handleRowContextMenu}
+                  />
+                </tbody>
+              </table>
+            )}
+        </div>
+      </GridCellContext.Provider>
 
       <GridFooter
         rowsShown={activeResult.rows.length}

@@ -30,16 +30,30 @@ export function selectRow(
   current: Selection,
   index: number,
   { toggle, extend }: ClickModifiers,
+  /**
+   * Result indices in the order they are on screen. A Shift range covers
+   * what lies between the two rows *on screen*, which after a sort or filter
+   * is not the run of result indices between them (#839). Omitted, the
+   * screen is taken to be in result order.
+   */
+  order?: readonly number[],
 ): Selection {
   if (extend && current.anchor !== null) {
-    const [from, to] = current.anchor <= index
-      ? [current.anchor, index]
-      : [index, current.anchor];
     const rows = new Set<number>();
     // Ctrl+Shift extends without discarding what was already picked, which is
     // how you select two separate ranges.
     if (toggle) { for (const r of current.rows) rows.add(r); }
-    for (let i = from; i <= to; i++) rows.add(i);
+    const anchorPos = order ? order.indexOf(current.anchor) : -1;
+    const indexPos = order ? order.indexOf(index) : -1;
+    if (order && anchorPos >= 0 && indexPos >= 0) {
+      const [from, to] = anchorPos <= indexPos ? [anchorPos, indexPos] : [indexPos, anchorPos];
+      for (let i = from; i <= to; i++) rows.add(order[i]);
+    } else {
+      const [from, to] = current.anchor <= index
+        ? [current.anchor, index]
+        : [index, current.anchor];
+      for (let i = from; i <= to; i++) rows.add(i);
+    }
     // The anchor stays put, so dragging the shift-click about resizes one
     // range instead of leaving a trail of them.
     return { rows, anchor: current.anchor };

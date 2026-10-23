@@ -14,6 +14,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
 import { formatSql } from "../../lib/sql-format";
+import { sqlAtCursor } from "../../lib/statement-at-cursor";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
@@ -21,6 +22,7 @@ import { schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
+import { RowLimitInput } from "./RowLimitInput";
 
 export function QueryToolbar() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -83,14 +85,9 @@ export function QueryToolbar() {
 
   const getCurrentSql = (): string => {
     const editorInstance = useEditorStore.getState().editorInstance;
-    if (editorInstance) {
-      const selection = editorInstance.getSelection();
-      const model = editorInstance.getModel();
-      if (selection && !selection.isEmpty()) {
-        return model?.getValueInRange(selection) ?? "";
-      }
-      return model?.getValue() ?? "";
-    }
+    // The statement at the cursor, as Ctrl+Enter runs — the hint beside Run
+    // names that shortcut, and Explain cannot plan a whole script (#846).
+    if (editorInstance) return sqlAtCursor(editorInstance);
     return activeTab?.content ?? "";
   };
 
@@ -140,8 +137,8 @@ export function QueryToolbar() {
       <button
         onClick={isExecuting ? cancelActiveQuery : handleExecute}
         disabled={!isExecuting && !canExecute}
-        title={isExecuting ? "Cancel Query" : "Execute Query (Ctrl+Enter / F9)"}
-        className={`flex items-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+        title={isExecuting ? "Cancel Query" : "Run statement at cursor (Ctrl+Enter / F9); Ctrl+Shift+Enter runs all"}
+        className={`flex w-20 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
           isExecuting
             ? "bg-red-600 text-white hover:bg-red-700"
             : "bg-green-700 text-white hover:bg-green-800 disabled:hover:bg-green-700"
@@ -333,21 +330,13 @@ function RowLimit() {
         LIMIT
       </button>
       {limitEnabled && (
-        <input
-          type="number"
+        <RowLimitInput
           value={maxResultRows}
-          onChange={(e) => {
-            const val = parseInt(e.target.value, 10);
-            if (val > 0 && val <= 100000) {
-              setQuerySettings({
-                ...useSettingsStore.getState().querySettings,
-                maxResultRows: val,
-              });
-            }
-          }}
-          min={1}
-          max={100000}
-          className="min-h-6 w-16 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-xs text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+          onChange={(val) =>
+            setQuerySettings({
+              ...useSettingsStore.getState().querySettings,
+              maxResultRows: val,
+            })}
         />
       )}
     </div>

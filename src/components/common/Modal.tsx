@@ -150,6 +150,38 @@ export function Modal({
     [onClose],
   );
 
+  // The panel's own handler only hears keys while focus is inside it. A
+  // control that unmounts or turns disabled while focused — the Backup button
+  // swapped for Cancel when a run starts — drops focus to <body>, and from
+  // there Escape did nothing and Tab walked the page behind (#798). So while
+  // open, also listen on the document and pull focus back in.
+  useEffect(() => {
+    if (!isOpen) return;
+    const onDocumentKeyDown = (event: KeyboardEvent) => {
+      const root = panel.current;
+      if (!root || event.defaultPrevented) return;
+      // Only when focus has been lost, not when it sits somewhere else on
+      // purpose, such as a dialog stacked on top of this one.
+      const active = document.activeElement;
+      if (active && active !== document.body) return;
+      // And only the topmost dialog answers.
+      const dialogs = document.querySelectorAll("[role=\"dialog\"][aria-modal=\"true\"]");
+      if (dialogs[dialogs.length - 1] !== root) return;
+
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      } else if (event.key === "Tab") {
+        event.preventDefault();
+        const stops = focusableWithin(root);
+        const target = event.shiftKey ? stops[stops.length - 1] : stops[0];
+        (target ?? root).focus();
+      }
+    };
+    document.addEventListener("keydown", onDocumentKeyDown);
+    return () => document.removeEventListener("keydown", onDocumentKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (

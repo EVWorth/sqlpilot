@@ -60,6 +60,31 @@ const defaultConnState = {
   selectedConnectionId: "conn1",
 };
 
+/**
+ * Open the dialog and start a backup that does not finish until the returned
+ * function is called with its summary.
+ */
+async function startHangingBackup(onClose: () => void = vi.fn()) {
+  let resolveBackup: (value: unknown) => void = () => {};
+  apiMocks.backupDatabase.mockImplementationOnce(
+    () => new Promise((resolve) => (resolveBackup = resolve)),
+  );
+  render(<BackupDialog isOpen={true} onClose={onClose} />);
+  await waitFor(() => screen.getByText("testdb"));
+  fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "testdb" } });
+  await act(async () => {
+    fireEvent.click(screen.getByText("Browse"));
+  });
+  await waitFor(() => {
+    expect(screen.getByText("Backup").closest("button")).not.toBeDisabled();
+  });
+  await act(async () => {
+    fireEvent.click(screen.getByText("Backup"));
+  });
+  await waitFor(() => screen.getByText("Cancel"));
+  return (value: unknown) => act(async () => resolveBackup(value));
+}
+
 describe("BackupDialog", () => {
   beforeEach(() => {
     useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) => s(defaultConnState));
@@ -73,6 +98,19 @@ describe("BackupDialog", () => {
       { name: "users", table_type: "BASE TABLE", row_count: 1000 },
       { name: "orders", table_type: "BASE TABLE", row_count: 500 },
     ]);
+  });
+
+  it("scrolls only its body, so the footer stays on screen (#807)", () => {
+    render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
+    const panel = screen.getByRole("dialog", { name: "Back up database" });
+    const body = screen.getByTestId("dialog-body");
+    expect(panel.className).not.toContain("overflow-y-auto");
+    expect(panel.className).toContain("flex-col");
+    expect(body.className).toContain("overflow-y-auto");
+    // The footer buttons sit outside the scrolling region.
+    const close = screen.getAllByText("Close").find((el) => el.tagName === "BUTTON");
+    expect(close).toBeTruthy();
+    expect(body.contains(close ?? null)).toBe(false);
   });
 
   describe("visibility", () => {
@@ -526,6 +564,70 @@ describe("BackupDialog", () => {
 
       // Now resolve
       resolveBackup!({ ...summary });
+    });
+
+    it("moves focus to Cancel when the run starts (#798)", async () => {
+      // The focused Backup button unmounts; focus must not fall to <body>.
+      const finish = await startHangingBackup();
+      expect(document.activeElement).toBe(screen.getByText("Cancel"));
+      await finish({ ...summary });
+    });
+
+    describe("closing mid-run (#803)", () => {
+      it("names the header close button", () => {
+        render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
+        // The X is an icon alone; without a label it is announced as "button".
+        expect(document.querySelector("button[aria-label=\"Close\"]")?.querySelector(".lucide-x")).toBeTruthy();
+      });
+
+      it("asks before closing, and keeps running when told to", async () => {
+        const onClose = vi.fn();
+        const finish = await startHangingBackup(onClose);
+        fireEvent.click(screen.getByRole("button", { name: "Close" }));
+
+        expect(screen.getByText("Cancel the backup?")).toBeInTheDocument();
+        expect(onClose).not.toHaveBeenCalled();
+        fireEvent.click(screen.getByText("Keep running"));
+        expect(screen.queryByText("Cancel the backup?")).not.toBeInTheDocument();
+        expect(apiMocks.cancelBackup).not.toHaveBeenCalled();
+        expect(onClose).not.toHaveBeenCalled();
+        await finish({ ...summary });
+      });
+
+      it("cancels the backup before closing on yes", async () => {
+        const onClose = vi.fn();
+        const finish = await startHangingBackup(onClose);
+        fireEvent.keyDown(screen.getByRole("dialog", { name: "Back up database" }), { key: "Escape" });
+        fireEvent.click(screen.getByText("Stop backup"));
+
+        expect(apiMocks.cancelBackup).toHaveBeenCalledTimes(1);
+        expect(onClose).toHaveBeenCalledTimes(1);
+        await finish({ ...summary, cancelled: true });
+      });
+
+      it("ignores the backdrop while running", async () => {
+        const onClose = vi.fn();
+        const finish = await startHangingBackup(onClose);
+        const overlay = document.querySelector(".bg-black\\/50");
+        if (overlay) fireEvent.mouseDown(overlay);
+        expect(onClose).not.toHaveBeenCalled();
+        await finish({ ...summary });
+      });
+    });
+
+    it("says a cancelled backup was cancelled (#811)", async () => {
+      const finish = await startHangingBackup();
+      fireEvent.click(screen.getByText("Cancel"));
+      await finish({ ...summary, cancelled: true });
+      expect(screen.getByText(/Backup cancelled — the partial file was removed/)).toBeInTheDocument();
+      expect(screen.queryByText(/Backup complete/)).not.toBeInTheDocument();
+    });
+
+    it("says it has started before the first progress event (#811)", async () => {
+      const finish = await startHangingBackup();
+      expect(screen.getByRole("status")).toHaveTextContent("Starting…");
+      await finish({ ...summary });
+      expect(screen.queryByText("Starting…")).not.toBeInTheDocument();
     });
 
     it("shows no tables selected error when backup called with none selected", async () => {

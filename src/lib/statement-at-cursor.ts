@@ -1,3 +1,4 @@
+import type { editor } from "monaco-editor";
 import { splitSqlStatementRanges } from "./sql-import";
 
 /**
@@ -52,4 +53,30 @@ function offsetOf(text: string, line: number, column: number): number {
     offset += lines[i].length + 1;
   }
   return Math.min(offset + column - 1, text.length);
+}
+
+/** The parts of a Monaco editor `sqlAtCursor` reads. */
+export type CursorSource = Pick<editor.IStandaloneCodeEditor, "getModel" | "getSelection" | "getPosition">;
+
+/**
+ * What "run this" means in the editor: the selection when there is one,
+ * otherwise the statement the cursor is in.
+ *
+ * Ctrl+Enter, the toolbar Run button, Explain and Explain Analyze all read the
+ * SQL through this, so they agree on which statement they act on. Explain
+ * used to send the whole buffer, which fails on any script with two
+ * statements in it (#846).
+ */
+export function sqlAtCursor(ed: CursorSource): string {
+  const model = ed.getModel();
+  if (!model) return "";
+  const selection = ed.getSelection();
+  if (selection && !selection.isEmpty()) {
+    return model.getValueInRange(selection);
+  }
+  const full = model.getValue();
+  const line = selection?.positionLineNumber ?? ed.getPosition()?.lineNumber;
+  const column = selection?.positionColumn ?? ed.getPosition()?.column;
+  if (line === undefined || column === undefined) return full;
+  return getStatementAtCursor(full, line, column);
 }

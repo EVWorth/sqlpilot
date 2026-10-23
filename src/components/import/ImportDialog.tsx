@@ -1,5 +1,5 @@
 import { AlertCircle, AlertTriangle, CheckCircle2, FileText, Loader2, Table2, Upload, X } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { attachProgress, formatBytes } from "../../lib/backup-progress";
 import { events } from "../../lib/bindings";
 import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
@@ -56,6 +56,7 @@ export function ImportDialog({
   const [sqlPreview, setSqlPreview] = useState<string[]>([]);
   const [fileBytes, setFileBytes] = useState<number | null>(null);
   const importIdRef = useRef<string | null>(null);
+  const progressRef = useRef<HTMLDivElement>(null);
   const [destructiveStatements, setDestructiveStatements] = useState<string[]>([]);
   /** True when the file is longer than the part that was scanned for them. */
   const [scanTruncated, setScanTruncated] = useState(false);
@@ -354,6 +355,13 @@ export function ImportDialog({
     setImporting(false);
   }, [targetTable, csvHeaders, csvRows, csvBareEmpty, columnMapping, connectionId]);
 
+  // Every control is disabled during a run, including the one that started
+  // it, so focus would fall to <body> and the keyboard would lose the dialog
+  // (#798). The progress region is what there is to read meanwhile.
+  useEffect(() => {
+    if (importing) progressRef.current?.focus();
+  }, [importing]);
+
   const handleClose = useCallback(() => {
     if (!importing) {
       resetState();
@@ -368,7 +376,7 @@ export function ImportDialog({
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={handleClose}
       label="Import data"
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       panelClassName="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
@@ -660,7 +668,13 @@ export function ImportDialog({
 
         {/* Progress */}
         {progress && (
-          <div className="mt-4 space-y-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3">
+          <div
+            ref={progressRef}
+            role="status"
+            aria-live="polite"
+            tabIndex={-1}
+            className="mt-4 space-y-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3"
+          >
             <div className="flex items-center justify-between text-xs">
               <span className="text-[var(--color-text-secondary)]">
                 {progress.done

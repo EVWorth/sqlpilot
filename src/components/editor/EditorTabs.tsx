@@ -4,17 +4,19 @@ import { useContextMenu } from "../../hooks/useContextMenu";
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 
 export function EditorTabs() {
   const tabs = useEditorStore((s) => s.tabs);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
-  const closeTab = useEditorStore((s) => s.closeTab);
+  const requestClose = useEditorStore((s) => s.requestClose);
+  const closeTab = useCallback((id: string) => requestClose("close", id), [requestClose]);
   const addTab = useEditorStore((s) => s.addTab);
   const renameTab = useEditorStore((s) => s.renameTab);
   const reorderTabs = useEditorStore((s) => s.reorderTabs);
-  const closeOtherTabs = useEditorStore((s) => s.closeOtherTabs);
-  const closeTabsToRight = useEditorStore((s) => s.closeTabsToRight);
+  const closeOtherTabs = (id: string) => requestClose("others", id);
+  const closeTabsToRight = (id: string) => requestClose("right", id);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const profiles = useConnectionStore((s) => s.profiles);
   const { contextMenu, showContextMenu } = useContextMenu();
@@ -295,6 +297,27 @@ export function EditorTabs() {
         </button>
       </div>
       {contextMenu}
+      <UnsavedCloseDialog />
     </div>
+  );
+}
+
+/** Asks before a close would discard a tab's unsaved SQL (#843). */
+function UnsavedCloseDialog() {
+  const pending = useEditorStore((s) => s.pendingClose);
+  const confirm = useEditorStore((s) => s.confirmPendingClose);
+  const cancel = useEditorStore((s) => s.cancelPendingClose);
+  const names = pending?.atRisk.map((t) => `"${t.title}"`).join(", ") ?? "";
+  const one = pending?.atRisk.length === 1;
+  return (
+    <ConfirmDialog
+      isOpen={!!pending}
+      title={one ? "Close tab with unsaved SQL?" : "Close tabs with unsaved SQL?"}
+      message={`${names} ${one ? "has" : "have"} SQL that is not saved anywhere else. Closing discards it.`}
+      confirmLabel="Discard and close"
+      danger
+      onConfirm={confirm}
+      onCancel={cancel}
+    />
   );
 }

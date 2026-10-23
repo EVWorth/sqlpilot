@@ -7,7 +7,10 @@ import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useSqliteStore } from "../../stores/sqliteStore";
 import type { ConnectionProfileSummary } from "../../types";
+import type { MenuItem } from "../common/ContextMenu";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
+import { useConnectionSwitching } from "./useConnectionSwitching";
+import { useProfileDeletion } from "./useProfileDeletion";
 
 export function ConnectionTabs() {
   const profiles = useConnectionStore((s) => s.profiles);
@@ -19,7 +22,6 @@ export function ConnectionTabs() {
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
   const connect = useConnectionStore((s) => s.connect);
   const disconnect = useConnectionStore((s) => s.disconnect);
-  const deleteProfile = useConnectionStore((s) => s.deleteProfile);
   const setSelectedConnection = useConnectionStore((s) => s.setSelectedConnection);
   const loadProfiles = useConnectionStore((s) => s.loadProfiles);
 
@@ -48,6 +50,32 @@ export function ConnectionTabs() {
   const popoverRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const { contextMenu, showContextMenu } = useContextMenu();
+  const { requestDelete, confirmDialog } = useProfileDeletion();
+  const { selectConnection, attachNewConnection, attachSqliteSession } = useConnectionSwitching();
+
+  /** Edit, duplicate and delete: what a saved profile offers wherever it is listed. */
+  const profileMenuItems = (profile: ConnectionProfileSummary): MenuItem[] => [
+    {
+      label: "Edit Connection",
+      icon: <Pencil className="h-3.5 w-3.5" />,
+      onClick: () => openEdit(profile),
+    },
+    {
+      label: "Duplicate Profile",
+      icon: <Copy className="h-3.5 w-3.5" />,
+      onClick: () => openDuplicate(profile),
+    },
+    { separator: true },
+    {
+      label: "Delete Profile",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      onClick: () => {
+        setPopoverOpen(false);
+        requestDelete(profile);
+      },
+      danger: true,
+    },
+  ];
 
   const openEdit = (profile: ConnectionProfileSummary) => {
     setPopoverOpen(false);
@@ -161,11 +189,9 @@ export function ConnectionTabs() {
     try {
       const conn = await connect(profileId);
       setSelectedConnection(conn.id);
-      // Propagate the connection's auto-selected database to the active editor tab
-      const { activeTabId, setTabConnection } = useEditorStore.getState();
-      if (activeTabId) {
-        setTabConnection(activeTabId, conn.id, conn.database ?? undefined, conn.profile_id);
-      }
+      // A tab already on another server keeps it; the new one gets its own
+      // tab, so nothing is silently re-pointed (#788).
+      attachNewConnection(conn);
     } catch {
       // Error is captured in connectionStore.error and shown in StatusBar
     }
@@ -189,7 +215,7 @@ export function ConnectionTabs() {
                   ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm"
                   : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
               )}
-              onClick={() => setSelectedConnection(conn.id)}
+              onClick={() => selectConnection(conn.id)}
               onContextMenu={(e) => {
                 showContextMenu(e, [
                   {
@@ -218,12 +244,13 @@ export function ConnectionTabs() {
                   },
                   { separator: true },
                   {
+                    // Asks first, naming the profile (FR-1.1.3, #795).
                     label: "Delete Profile",
                     icon: <Trash2 className="h-3.5 w-3.5" />,
                     onClick: () => {
-                      disconnect(conn.id);
-                      if (profile) deleteProfile(profile.id);
+                      if (profile) requestDelete(profile);
                     },
+                    disabled: !profile,
                     danger: true,
                   },
                 ]);
@@ -311,7 +338,7 @@ export function ConnectionTabs() {
                   ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm"
                   : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
               )}
-              onClick={() => setSelectedConnection(session.id)}
+              onClick={() => selectConnection(session.id)}
               title={session.path}
             >
               {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}
@@ -340,7 +367,7 @@ export function ConnectionTabs() {
       <button
         onClick={() => {
           void openSqliteFile().then((session) => {
-            if (session) setSelectedConnection(session.id);
+            if (session) attachSqliteSession(session.id);
           });
         }}
         disabled={sqliteOpening}
@@ -374,10 +401,15 @@ export function ConnectionTabs() {
                   Saved Connections
                 </div>
                 {inactiveProfiles.map((profile) => (
-                  <div key={profile.id} className="group flex items-center hover:bg-[var(--color-bg-tertiary)]">
+                  <div
+                    key={profile.id}
+                    className="group flex items-center hover:bg-[var(--color-bg-tertiary)]"
+                    // A profile that is not connected has no tab to right-click,
+                    // so this is where it can be duplicated or deleted (#795).
+                    onContextMenu={(e) => showContextMenu(e, profileMenuItems(profile))}
+                  >
                     <button
-                      onClick={() =>
-                        handleConnectProfile(profile.id)}
+                      onClick={() => handleConnectProfile(profile.id)}
                       className="flex flex-1 min-w-0 items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
                     >
                       <Plug className="h-3 w-3 shrink-0 text-[var(--color-text-muted)]" />
@@ -390,8 +422,7 @@ export function ConnectionTabs() {
                       <span className="truncate">{profile.name || profile.host}</span>
                     </button>
                     <button
-                      onClick={() =>
-                        openEdit(profile)}
+                      onClick={() => openEdit(profile)}
                       className="mr-1 shrink-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-text-primary)]"
                       title="Edit connection"
                     >
@@ -421,8 +452,18 @@ export function ConnectionTabs() {
           setShowDialog(false);
           setEditingProfile(undefined);
         }}
+        onDelete={editingProfile
+          ? () => {
+            const profile = editingProfile;
+            setShowDialog(false);
+            setEditingProfile(undefined);
+            requestDelete(profile);
+          }
+          : undefined}
+        onDuplicate={editingProfile ? () => openDuplicate(editingProfile) : undefined}
       />
       {contextMenu}
+      {confirmDialog}
     </div>
   );
 }

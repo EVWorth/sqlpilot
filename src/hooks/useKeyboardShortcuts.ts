@@ -79,7 +79,7 @@ export function useKeyboardShortcuts(
         e.preventDefault();
         const { activeTabId } = useEditorStore.getState();
         if (activeTabId) {
-          useEditorStore.getState().closeTab(activeTabId);
+          useEditorStore.getState().requestClose("close", activeTabId);
         }
         return;
       }

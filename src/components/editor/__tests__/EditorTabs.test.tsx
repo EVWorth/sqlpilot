@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PendingClose } from "../../../stores/editorStore";
 import { EditorTabs } from "../EditorTabs";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -19,7 +20,10 @@ global.ResizeObserver = class ResizeObserver {
 Element.prototype.scrollIntoView = vi.fn();
 
 const mockSetActiveTab = vi.fn();
-const mockCloseTab = vi.fn();
+const mockRequestClose = vi.fn();
+const mockConfirmPendingClose = vi.fn();
+const mockCancelPendingClose = vi.fn();
+let currentPendingClose: PendingClose | null = null;
 const mockAddTab = vi.fn();
 const mockRenameTab = vi.fn();
 const mockReorderTabs = vi.fn();
@@ -37,7 +41,10 @@ vi.mock("../../../stores/editorStore", () => ({
       tabs: currentTabs,
       activeTabId: currentActiveTabId,
       setActiveTab: mockSetActiveTab,
-      closeTab: mockCloseTab,
+      requestClose: mockRequestClose,
+      pendingClose: currentPendingClose,
+      confirmPendingClose: mockConfirmPendingClose,
+      cancelPendingClose: mockCancelPendingClose,
       addTab: mockAddTab,
       renameTab: mockRenameTab,
       reorderTabs: mockReorderTabs,
@@ -84,12 +91,28 @@ vi.mock("../../../stores/connectionStore", () => ({
 describe("EditorTabs", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    currentPendingClose = null;
     currentActiveTabId = "tab-0";
     currentTabs = [
       { id: "tab-0", title: "Untitled Query", content: "", type: "query" as const, isDirty: false },
       { id: "tab-1", title: "Second Query", content: "SELECT 1", type: "query" as const, isDirty: true },
       { id: "tab-2", title: "Structure Tab", content: "", type: "structure" as const, isDirty: false },
     ];
+  });
+
+  // #843: a close that would discard typed SQL asks first.
+  it("asks before discarding a tab's unsaved SQL", () => {
+    currentPendingClose = { kind: "close", targetId: "tab-1", atRisk: [currentTabs[1]] };
+    render(<EditorTabs />);
+
+    expect(screen.getByText("Close tab with unsaved SQL?")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Discard and close"));
+    expect(mockConfirmPendingClose).toHaveBeenCalled();
+  });
+
+  it("shows no prompt when nothing is waiting", () => {
+    render(<EditorTabs />);
+    expect(screen.queryByText("Discard and close")).not.toBeInTheDocument();
   });
 
   it("renders all tabs", () => {
@@ -155,7 +178,7 @@ describe("EditorTabs", () => {
     const tab = screen.getByText("Second Query");
     fireEvent.mouseDown(tab, { button: 1 });
 
-    expect(mockCloseTab).toHaveBeenCalledWith("tab-1");
+    expect(mockRequestClose).toHaveBeenCalledWith("close", "tab-1");
   });
 
   it("calls renameTab on double-click + enter", () => {
@@ -284,7 +307,7 @@ describe("EditorTabs", () => {
     const closeBtn = xSvgs[0].closest("button")!;
     fireEvent.click(closeBtn);
 
-    expect(mockCloseTab).toHaveBeenCalled();
+    expect(mockRequestClose).toHaveBeenCalled();
   });
 
   it("sets edit value via onChange", () => {
@@ -335,7 +358,7 @@ describe("EditorTabs", () => {
     it("closes the focused tab with Delete", () => {
       render(<EditorTabs />);
       fireEvent.keyDown(tabAt("Second Query"), { key: "Delete" });
-      expect(mockCloseTab).toHaveBeenCalledWith("tab-1");
+      expect(mockRequestClose).toHaveBeenCalledWith("close", "tab-1");
     });
 
     it("renames with F2, like the double-click", () => {
@@ -370,7 +393,7 @@ describe("EditorTabs", () => {
       render(<EditorTabs />);
       const close = screen.getByRole("button", { name: "Close Second Query" });
       fireEvent.click(close);
-      expect(mockCloseTab).toHaveBeenCalledWith("tab-1");
+      expect(mockRequestClose).toHaveBeenCalledWith("close", "tab-1");
     });
   });
 });

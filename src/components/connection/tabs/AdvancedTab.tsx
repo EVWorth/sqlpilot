@@ -1,5 +1,6 @@
 import type { ConnectionProfileInput } from "../../../types";
 import { Field } from "../../common/Field";
+import type { NumberField } from "../useConnectionForm";
 
 interface AdvancedTabProps {
   form: ConnectionProfileInput;
@@ -7,6 +8,10 @@ interface AdvancedTabProps {
     field: keyof ConnectionProfileInput,
     value: string | number | boolean | undefined,
   ) => void;
+  /** What is typed in the number fields, which may not parse yet (#813). */
+  numberText: Record<NumberField, string>;
+  numberProblems: Partial<Record<NumberField, string>>;
+  onNumberChange: (field: NumberField, text: string) => void;
 }
 
 /**
@@ -16,7 +21,13 @@ interface AdvancedTabProps {
  * backup has a connection of its own, and what is left is a small fixed set
  * for schema browsing (#731). No other client asks its users to size a pool.
  */
-export function AdvancedTab({ form, onChange: handleChange }: AdvancedTabProps) {
+export function AdvancedTab({
+  form,
+  onChange: handleChange,
+  numberText,
+  numberProblems,
+  onNumberChange,
+}: AdvancedTabProps) {
   return (
     <div className="space-y-3">
       <label className="flex cursor-pointer items-center gap-2">
@@ -33,15 +44,17 @@ export function AdvancedTab({ form, onChange: handleChange }: AdvancedTabProps) 
       <div className="grid grid-cols-2 gap-3">
         <Field
           label="Connect Timeout (s)"
-          value={String(form.connect_timeout_secs ?? 10)}
-          onChange={(v) => handleChange("connect_timeout_secs", parseInt(v) || 10)}
+          value={numberText.connect_timeout_secs}
+          onChange={(v) => onNumberChange("connect_timeout_secs", v)}
+          problem={numberProblems.connect_timeout_secs}
           type="number"
           placeholder="10"
         />
         <Field
           label="Query Timeout (s, 0=unlimited)"
-          value={String(form.query_timeout_secs ?? 0)}
-          onChange={(v) => handleChange("query_timeout_secs", parseInt(v) || 0)}
+          value={numberText.query_timeout_secs}
+          onChange={(v) => onNumberChange("query_timeout_secs", v)}
+          problem={numberProblems.query_timeout_secs}
           type="number"
           placeholder="0"
         />

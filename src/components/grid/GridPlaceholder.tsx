@@ -1,4 +1,5 @@
-import { AlertCircle, Loader2 } from "lucide-react";
+import { AlertCircle, CircleSlash, Loader2 } from "lucide-react";
+import { useEffect, useState } from "react";
 import type { QueryResult } from "../../types";
 
 /**
@@ -14,6 +15,25 @@ export interface GridPlaceholderProps {
   isExecuting: boolean;
   error: string | null;
   result: QueryResult | undefined;
+  /** When the running statement started; drives the elapsed-time counter. */
+  startedAt?: number | null;
+  /** Set when the user cancelled the last run (#850). */
+  cancelledAfterMs?: number | null;
+}
+
+/** Seconds with one decimal: "1.2 s". */
+export function formatElapsed(ms: number): string {
+  return `${(ms / 1000).toFixed(1)} s`;
+}
+
+/** Ticks while a statement runs, so a slow query visibly is one. */
+function Elapsed({ startedAt }: { startedAt: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 100);
+    return () => clearInterval(id);
+  }, []);
+  return <span className="tabular-nums">{formatElapsed(Math.max(0, now - startedAt))}</span>;
 }
 
 /**
@@ -25,12 +45,28 @@ export function GridPlaceholder({
   isExecuting,
   error,
   result,
+  startedAt,
+  cancelledAfterMs,
 }: GridPlaceholderProps) {
   if (isExecuting) {
     return (
       <div className="flex h-full items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
         <Loader2 className="h-4 w-4 animate-spin" />
         Executing query...
+        {typeof startedAt === "number" && <Elapsed startedAt={startedAt} />}
+      </div>
+    );
+  }
+
+  // The user's own cancel is what they asked for, not a failure (#850).
+  if (typeof cancelledAfterMs === "number" && !error) {
+    return (
+      <div
+        role="status"
+        className="flex h-full items-center justify-center gap-2 text-sm text-[var(--color-text-secondary)]"
+      >
+        <CircleSlash className="h-4 w-4" />
+        Cancelled after {formatElapsed(cancelledAfterMs)}
       </div>
     );
   }

@@ -51,6 +51,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       await get().loadProfiles();
     } catch (e) {
       set({ error: String(e), loading: false });
+      // The dialog has to know, or it closes and takes the form with it (#792).
+      throw e;
     }
   },
 

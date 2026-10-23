@@ -2,6 +2,7 @@ import { AlertCircle, CheckCircle2, FolderOpen, HardDriveDownload, Loader2, X } 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   attachProgress,
+  backupFraction,
   defaultBackupOptions,
   formatBytes,
   formatElapsed,
@@ -12,6 +13,7 @@ import { type BackupOptions, type BackupProgress, type BackupSummary, events } f
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type { DatabaseInfo, TableInfo } from "../../types";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Modal } from "../common/Modal";
 
 interface BackupDialogProps {
@@ -49,13 +51,25 @@ export function BackupDialog({
   const [filePath, setFilePath] = useState<string | null>(null);
   const [backing, setBacking] = useState(false);
   const [progress, setProgress] = useState<BackupProgress | null>(null);
+  // `rowsExported` counts every table so far; this is where the current
+  // table's rows began, so the bar and the estimate can use its own rows.
+  const [tableStartRows, setTableStartRows] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // A cancelled run used to drop back to the plain form, saying nothing (#811).
+  const [cancelled, setCancelled] = useState(false);
 
   const [warnings, setWarnings] = useState<string[]>([]);
   const [summary, setSummary] = useState<BackupSummary | null>(null);
 
   const backupIdRef = useRef<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Starting a run swaps the focused Backup button for Cancel. Without this,
+  // focus fell to <body> and the keyboard lost the dialog (#798).
+  useEffect(() => {
+    if (backing) cancelRef.current?.focus();
+  }, [backing]);
 
   // Load databases when connection changes
   useEffect(() => {
@@ -99,6 +113,7 @@ export function BackupDialog({
       );
       setDatabase(preSelectedDatabase ?? "");
       setDone(false);
+      setCancelled(false);
       setError(null);
       setBacking(false);
       setProgress(null);
@@ -158,14 +173,27 @@ export function BackupDialog({
     setBacking(true);
     setError(null);
     setDone(false);
+    setCancelled(false);
     setProgress(null);
     setWarnings([]);
 
     // A progress listener that cannot attach is not a reason to refuse to
     // run: the work still happens, the bar just does not move.
+    let table = 0;
+    let startRows = 0;
+    let lastRows = 0;
+    setTableStartRows(0);
     const unlisten = await attachProgress(() =>
       events.backupProgressEvent.listen((e) => {
-        if (e.payload.backupId === id) setProgress(e.payload.progress);
+        if (e.payload.backupId !== id) return;
+        const next = e.payload.progress;
+        if (next.currentTable !== table) {
+          table = next.currentTable;
+          startRows = lastRows;
+        }
+        lastRows = next.rowsExported;
+        setProgress(next);
+        setTableStartRows(startRows);
       })
     );
 
@@ -180,7 +208,9 @@ export function BackupDialog({
       );
       setWarnings(summary.warnings);
       // A cancelled backup leaves no file, so it is not a completed one.
-      if (!summary.cancelled) {
+      if (summary.cancelled) {
+        setCancelled(true);
+      } else {
         setSummary(summary);
         setDone(true);
       }
@@ -209,6 +239,23 @@ export function BackupDialog({
     if (id) void api.cancelBackup(id).catch(() => {});
   }, []);
 
+  // Closing mid-run used to hide the dialog and leave the backup running
+  // with nothing on screen to say so (#803). Ask, and cancel it on yes.
+  const [confirmingClose, setConfirmingClose] = useState(false);
+  const requestClose = useCallback(() => {
+    if (backing) setConfirmingClose(true);
+    else onClose();
+  }, [backing, onClose]);
+  const confirmClose = useCallback(() => {
+    setConfirmingClose(false);
+    handleCancel();
+    onClose();
+  }, [handleCancel, onClose]);
+  // A run that ends while the question is open has made it moot.
+  useEffect(() => {
+    if (!backing) setConfirmingClose(false);
+  }, [backing]);
+
   if (!isOpen) return null;
 
   const selectClasses =
@@ -217,448 +264,484 @@ export function BackupDialog({
   const checkboxLabelClasses = "flex items-center gap-2 text-xs text-[var(--color-text-secondary)] cursor-pointer";
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      label="Back up database"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      panelClassName="relative max-h-[85vh] w-[560px] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <HardDriveDownload className="h-4 w-4 text-brand-400" />
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            Backup Database
-          </h2>
-        </div>
-        <button
-          onClick={onClose}
-          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="space-y-4 p-4">
-        {/* Connection + Database */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelClasses}>Connection</label>
-            <select
-              className={selectClasses}
-              value={connectionId}
-              onChange={(e) => {
-                setConnectionId(e.target.value);
-                setDatabase("");
-              }}
-              disabled={backing}
-            >
-              <option value="">Select connection...</option>
-              {activeConnections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={requestClose}
+        closeOnBackdrop={!backing}
+        label="Back up database"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        panelClassName="relative flex max-h-[85vh] w-[560px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
+      >
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+          <div className="flex items-center gap-2">
+            <HardDriveDownload className="h-4 w-4 text-brand-400" />
+            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+              Backup Database
+            </h2>
           </div>
-          <div>
-            <label className={labelClasses}>Database</label>
-            <select
-              className={selectClasses}
-              value={database}
-              onChange={(e) => setDatabase(e.target.value)}
-              disabled={!connectionId || backing}
-            >
-              <option value="">Select database...</option>
-              {databases.map((db) => (
-                <option key={db.name} value={db.name}>
-                  {db.name}
-                </option>
-              ))}
-            </select>
-          </div>
+          <button
+            onClick={requestClose}
+            aria-label="Close"
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
+          >
+            <X className="h-4 w-4" />
+          </button>
         </div>
 
-        {/* Table selection */}
-        {database && tables.length > 0 && (
+        {/* Only the body scrolls, so Cancel stays on screen during a run (#807). */}
+        <div data-testid="dialog-body" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+          {/* Connection + Database */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClasses}>Connection</label>
+              <select
+                className={selectClasses}
+                value={connectionId}
+                onChange={(e) => {
+                  setConnectionId(e.target.value);
+                  setDatabase("");
+                }}
+                disabled={backing}
+              >
+                <option value="">Select connection...</option>
+                {activeConnections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClasses}>Database</label>
+              <select
+                className={selectClasses}
+                value={database}
+                onChange={(e) => setDatabase(e.target.value)}
+                disabled={!connectionId || backing}
+              >
+                <option value="">Select database...</option>
+                {databases.map((db) => (
+                  <option key={db.name} value={db.name}>
+                    {db.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Table selection */}
+          {database && tables.length > 0 && (
+            <div>
+              <label className={labelClasses}>Tables</label>
+              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2">
+                <label className={checkboxLabelClasses + " mb-2"}>
+                  <input
+                    type="checkbox"
+                    checked={allTables}
+                    onChange={(e) => {
+                      setAllTables(e.target.checked);
+                      if (e.target.checked) {
+                        setSelectedTables(new Set(tables.map((t) => t.name)));
+                      }
+                    }}
+                    disabled={backing}
+                    className="accent-brand-500"
+                  />
+                  All Tables ({tables.length})
+                </label>
+                {!allTables && (
+                  <div className="max-h-32 overflow-y-auto space-y-0.5 ml-4">
+                    {tables.map((t) => (
+                      <label
+                        key={t.name}
+                        className={checkboxLabelClasses}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selectedTables.has(t.name)}
+                          onChange={(e) => {
+                            const next = new Set(selectedTables);
+                            if (e.target.checked) next.add(t.name);
+                            else next.delete(t.name);
+                            setSelectedTables(next);
+                          }}
+                          disabled={backing}
+                          className="accent-brand-500"
+                        />
+                        {t.name}
+                        {t.row_count != null && (
+                          <span className="text-[10px] text-[var(--color-text-muted)]">
+                            ({t.row_count.toLocaleString()} rows)
+                          </span>
+                        )}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Content type */}
           <div>
-            <label className={labelClasses}>Tables</label>
-            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2">
-              <label className={checkboxLabelClasses + " mb-2"}>
+            <label className={labelClasses}>Content</label>
+            <div className="flex gap-4">
+              {(
+                [
+                  ["structure_data", "Structure + Data"],
+                  ["structure_only", "Structure Only"],
+                  ["data_only", "Data Only"],
+                ] as const
+              ).map(([val, label]) => (
+                <label key={val} className={checkboxLabelClasses}>
+                  <input
+                    type="radio"
+                    name="backupContent"
+                    value={val}
+                    checked={content === val}
+                    onChange={() => setContent(val)}
+                    disabled={backing}
+                    className="accent-brand-500"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          {/* Options */}
+          <div>
+            <label className={labelClasses}>Options</label>
+            <div className="grid grid-cols-2 gap-2">
+              <label className={checkboxLabelClasses}>
                 <input
                   type="checkbox"
-                  checked={allTables}
-                  onChange={(e) => {
-                    setAllTables(e.target.checked);
-                    if (e.target.checked) {
-                      setSelectedTables(new Set(tables.map((t) => t.name)));
-                    }
-                  }}
+                  checked={options.dropTableIfExists}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      dropTableIfExists: e.target.checked,
+                    }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
-                All Tables ({tables.length})
+                DROP TABLE IF EXISTS
               </label>
-              {!allTables && (
-                <div className="max-h-32 overflow-y-auto space-y-0.5 ml-4">
-                  {tables.map((t) => (
-                    <label
-                      key={t.name}
-                      className={checkboxLabelClasses}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedTables.has(t.name)}
-                        onChange={(e) => {
-                          const next = new Set(selectedTables);
-                          if (e.target.checked) next.add(t.name);
-                          else next.delete(t.name);
-                          setSelectedTables(next);
-                        }}
-                        disabled={backing}
-                        className="accent-brand-500"
-                      />
-                      {t.name}
-                      {t.row_count != null && (
-                        <span className="text-[10px] text-[var(--color-text-muted)]">
-                          ({t.row_count.toLocaleString()} rows)
-                        </span>
-                      )}
-                    </label>
-                  ))}
-                </div>
-              )}
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="checkbox"
+                  checked={options.includeCreateDatabase}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      includeCreateDatabase: e.target.checked,
+                    }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                Include CREATE DATABASE
+              </label>
+              <label
+                className={checkboxLabelClasses}
+                title="Read every table inside one transaction, so the file is the database as it was at one instant. InnoDB only."
+              >
+                <input
+                  type="checkbox"
+                  checked={options.consistentSnapshot}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      consistentSnapshot: e.target.checked,
+                    }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                Consistent snapshot
+              </label>
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="checkbox"
+                  checked={options.addTableLocks}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      addTableLocks: e.target.checked,
+                    }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                Add table locks
+              </label>
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="checkbox"
+                  checked={options.includeAutoIncrement}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      includeAutoIncrement: e.target.checked,
+                    }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                AUTO_INCREMENT values
+              </label>
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="checkbox"
+                  checked={options.includeViews}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      includeViews: e.target.checked,
+                    }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                Include views
+              </label>
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="checkbox"
+                  checked={options.includeRoutines}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      includeRoutines: e.target.checked,
+                    }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                Include procedures/functions
+              </label>
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="checkbox"
+                  checked={options.includeTriggers}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      includeTriggers: e.target.checked,
+                    }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                Include triggers
+              </label>
             </div>
           </div>
-        )}
 
-        {/* Content type */}
-        <div>
-          <label className={labelClasses}>Content</label>
-          <div className="flex gap-4">
-            {(
-              [
-                ["structure_data", "Structure + Data"],
-                ["structure_only", "Structure Only"],
-                ["data_only", "Data Only"],
-              ] as const
-            ).map(([val, label]) => (
-              <label key={val} className={checkboxLabelClasses}>
+          {/* Insert format */}
+          <div>
+            <label className={labelClasses}>Insert Format</label>
+            <div className="flex items-center gap-4">
+              <label className={checkboxLabelClasses}>
                 <input
                   type="radio"
-                  name="backupContent"
-                  value={val}
-                  checked={content === val}
-                  onChange={() => setContent(val)}
+                  name="insertFormat"
+                  checked={!options.multiRowInserts}
+                  onChange={() => setOptions((o) => ({ ...o, multiRowInserts: false }))}
                   disabled={backing}
                   className="accent-brand-500"
                 />
-                {label}
+                Single row
               </label>
-            ))}
-          </div>
-        </div>
-
-        {/* Options */}
-        <div>
-          <label className={labelClasses}>Options</label>
-          <div className="grid grid-cols-2 gap-2">
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={options.dropTableIfExists}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    dropTableIfExists: e.target.checked,
-                  }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              DROP TABLE IF EXISTS
-            </label>
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={options.includeCreateDatabase}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    includeCreateDatabase: e.target.checked,
-                  }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              Include CREATE DATABASE
-            </label>
-            <label
-              className={checkboxLabelClasses}
-              title="Read every table inside one transaction, so the file is the database as it was at one instant. InnoDB only."
-            >
-              <input
-                type="checkbox"
-                checked={options.consistentSnapshot}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    consistentSnapshot: e.target.checked,
-                  }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              Consistent snapshot
-            </label>
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={options.addTableLocks}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    addTableLocks: e.target.checked,
-                  }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              Add table locks
-            </label>
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={options.includeAutoIncrement}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    includeAutoIncrement: e.target.checked,
-                  }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              AUTO_INCREMENT values
-            </label>
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={options.includeViews}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    includeViews: e.target.checked,
-                  }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              Include views
-            </label>
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={options.includeRoutines}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    includeRoutines: e.target.checked,
-                  }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              Include procedures/functions
-            </label>
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={options.includeTriggers}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    includeTriggers: e.target.checked,
-                  }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              Include triggers
-            </label>
-          </div>
-        </div>
-
-        {/* Insert format */}
-        <div>
-          <label className={labelClasses}>Insert Format</label>
-          <div className="flex items-center gap-4">
-            <label className={checkboxLabelClasses}>
-              <input
-                type="radio"
-                name="insertFormat"
-                checked={!options.multiRowInserts}
-                onChange={() => setOptions((o) => ({ ...o, multiRowInserts: false }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              Single row
-            </label>
-            <label className={checkboxLabelClasses}>
-              <input
-                type="radio"
-                name="insertFormat"
-                checked={options.multiRowInserts}
-                onChange={() => setOptions((o) => ({ ...o, multiRowInserts: true }))}
-                disabled={backing}
-                className="accent-brand-500"
-              />
-              Multi-row, batch size:
-            </label>
-            {options.multiRowInserts && (
-              <input
-                type="number"
-                min={1}
-                max={10000}
-                value={options.insertBatchSize}
-                onChange={(e) =>
-                  setOptions((o) => ({
-                    ...o,
-                    insertBatchSize: Math.max(
-                      1,
-                      parseInt(e.target.value) || 100,
-                    ),
-                  }))}
-                disabled={backing}
-                className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs text-[var(--color-text-primary)]"
-              />
-            )}
-          </div>
-        </div>
-
-        {/* Output file */}
-        <div>
-          <label className={labelClasses}>Output File</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              readOnly
-              value={filePath ?? ""}
-              placeholder="Choose a file location..."
-              className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
-            />
-            <button
-              onClick={handlePickSavePath}
-              disabled={backing}
-              className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] disabled:opacity-50"
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              Browse
-            </button>
-          </div>
-        </div>
-
-        {/* Progress */}
-        {backing && progress && (
-          <div
-            className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
-            role="status"
-            aria-live="polite"
-          >
-            <div className="mb-2 flex items-center justify-between text-xs text-[var(--color-text-secondary)]">
-              <span>{progress.phase}</span>
-              {progress.totalTables > 0 && (
-                <span>
-                  {progress.currentTable} / {progress.totalTables}
-                </span>
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="radio"
+                  name="insertFormat"
+                  checked={options.multiRowInserts}
+                  onChange={() => setOptions((o) => ({ ...o, multiRowInserts: true }))}
+                  disabled={backing}
+                  className="accent-brand-500"
+                />
+                Multi-row, batch size:
+              </label>
+              {options.multiRowInserts && (
+                <input
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={options.insertBatchSize}
+                  onChange={(e) =>
+                    setOptions((o) => ({
+                      ...o,
+                      insertBatchSize: Math.max(
+                        1,
+                        parseInt(e.target.value) || 100,
+                      ),
+                    }))}
+                  disabled={backing}
+                  className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 py-1 text-xs text-[var(--color-text-primary)]"
+                />
               )}
             </div>
-            {progress.totalTables > 0 && (
-              <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
-                <div
-                  className="h-full rounded-full bg-brand-500 transition-all"
-                  style={{
-                    width: `${(progress.currentTable / progress.totalTables) * 100}%`,
-                  }}
-                />
-              </div>
-            )}
-            <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--color-text-muted)]">
-              {progress.tableName && <span>Table: {progress.tableName}</span>}
-              {progress.rowsExported > 0 && <span>{progress.rowsExported.toLocaleString()} rows</span>}
-              {/* What tells a slow dump from a stuck one. */}
-              {formatRate(progress.rowsPerSecond) && <span>{formatRate(progress.rowsPerSecond)}</span>}
-              {formatRemaining(progress) && <span>~{formatRemaining(progress)} left in this table</span>}
-              {progress.bytesWritten > 0 && <span>{formatBytes(progress.bytesWritten)}</span>}
-              <span>{formatElapsed(progress.elapsedMs)} elapsed</span>
+          </div>
+
+          {/* Output file */}
+          <div>
+            <label className={labelClasses}>Output File</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                value={filePath ?? ""}
+                placeholder="Choose a file location..."
+                className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
+              />
+              <button
+                onClick={handlePickSavePath}
+                disabled={backing}
+                className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] disabled:opacity-50"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                Browse
+              </button>
             </div>
           </div>
-        )}
 
-        {/* Done message */}
-        {done && summary && (
-          <div className="rounded border edge-success surface-success px-3 py-2 text-xs text-[var(--color-success)]">
-            <div className="flex items-center gap-2">
-              <CheckCircle2 className="h-4 w-4" />
-              Backup complete — {summary.rowsExported.toLocaleString()} rows from {summary.tables.toLocaleString()}{" "}
-              {summary.tables === 1 ? "table" : "tables"}, {formatBytes(summary.bytesWritten)} in{" "}
-              {formatElapsed(summary.elapsedMs)}.
-            </div>
-          </div>
-        )}
-
-        {
-          /* Whatever the dump could not read. The file says so too, but
-              nobody should have to open it to find out something is missing. */
-        }
-        {warnings.length > 0 && (
-          <div className="rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]">
-            <div className="mb-1 flex items-center gap-2 font-medium">
-              <AlertCircle className="h-4 w-4" />
-              {warnings.length === 1
-                ? "One thing was left out"
-                : `${warnings.length} things were left out`}
-            </div>
-            <ul className="ml-6 list-disc space-y-0.5">
-              {warnings.map((w) => <li key={w}>{w}</li>)}
-            </ul>
-          </div>
-        )}
-
-        {/* Error message */}
-        {error && (
-          <div className="flex items-center gap-2 rounded border edge-error surface-error px-3 py-2 text-xs text-[var(--color-error)]">
-            <AlertCircle className="h-4 w-4" />
-            {error}
-          </div>
-        )}
-      </div>
-
-      {/* Footer */}
-      <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
-        {backing
-          ? (
-            <button
-              onClick={handleCancel}
-              className="rounded border edge-error surface-error px-4 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
+          {/* Between the click and the first progress event, say it has started. */}
+          {backing && !progress && (
+            <div
+              className="flex items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-secondary)]"
+              role="status"
+              aria-live="polite"
             >
-              Cancel
-            </button>
-          )
-          : (
-            <>
-              <button
-                onClick={onClose}
-                className="rounded border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
-              >
-                Close
-              </button>
-              <button
-                onClick={handleBackup}
-                disabled={!connectionId || !database || !filePath}
-                className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
-              >
-                {backing
-                  ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  : <HardDriveDownload className="h-3.5 w-3.5" />}
-                Backup
-              </button>
-            </>
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              Starting…
+            </div>
           )}
-      </div>
-    </Modal>
+
+          {/* Progress */}
+          {backing && progress && (
+            <div
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="mb-2 flex items-center justify-between text-xs text-[var(--color-text-secondary)]">
+                <span>{progress.phase}</span>
+                {progress.totalTables > 0 && (
+                  <span>
+                    {progress.currentTable} / {progress.totalTables}
+                  </span>
+                )}
+              </div>
+              {progress.totalTables > 0 && (
+                <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
+                  <div
+                    className="h-full rounded-full bg-brand-500 transition-all"
+                    style={{
+                      width: `${backupFraction(progress, tableStartRows) * 100}%`,
+                    }}
+                  />
+                </div>
+              )}
+              <div className="flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-[var(--color-text-muted)]">
+                {progress.tableName && <span>Table: {progress.tableName}</span>}
+                {progress.rowsExported > 0 && <span>{progress.rowsExported.toLocaleString()} rows</span>}
+                {/* What tells a slow dump from a stuck one. */}
+                {formatRate(progress.rowsPerSecond) && <span>{formatRate(progress.rowsPerSecond)}</span>}
+                {formatRemaining(progress, tableStartRows) && (
+                  <span>~{formatRemaining(progress, tableStartRows)} left in this table</span>
+                )}
+                {progress.bytesWritten > 0 && <span>{formatBytes(progress.bytesWritten)}</span>}
+                <span>{formatElapsed(progress.elapsedMs)} elapsed</span>
+              </div>
+            </div>
+          )}
+
+          {cancelled && (
+            <div className="flex items-center gap-2 rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]">
+              <AlertCircle className="h-4 w-4" aria-hidden="true" />
+              Backup cancelled — the partial file was removed.
+            </div>
+          )}
+
+          {/* Done message */}
+          {done && summary && (
+            <div className="rounded border edge-success surface-success px-3 py-2 text-xs text-[var(--color-success)]">
+              <div className="flex items-center gap-2">
+                <CheckCircle2 className="h-4 w-4" />
+                Backup complete — {summary.rowsExported.toLocaleString()} rows from {summary.tables.toLocaleString()}
+                {" "}
+                {summary.tables === 1 ? "table" : "tables"}, {formatBytes(summary.bytesWritten)} in{" "}
+                {formatElapsed(summary.elapsedMs)}.
+              </div>
+            </div>
+          )}
+
+          {
+            /* Whatever the dump could not read. The file says so too, but
+              nobody should have to open it to find out something is missing. */
+          }
+          {warnings.length > 0 && (
+            <div className="rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]">
+              <div className="mb-1 flex items-center gap-2 font-medium">
+                <AlertCircle className="h-4 w-4" />
+                {warnings.length === 1
+                  ? "One thing was left out"
+                  : `${warnings.length} things were left out`}
+              </div>
+              <ul className="ml-6 list-disc space-y-0.5">
+                {warnings.map((w) => <li key={w}>{w}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {/* Error message */}
+          {error && (
+            <div className="flex items-center gap-2 rounded border edge-error surface-error px-3 py-2 text-xs text-[var(--color-error)]">
+              <AlertCircle className="h-4 w-4" />
+              {error}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex shrink-0 justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
+          {backing
+            ? (
+              <button
+                ref={cancelRef}
+                onClick={handleCancel}
+                className="rounded border edge-error surface-error px-4 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
+              >
+                Cancel
+              </button>
+            )
+            : (
+              <>
+                <button
+                  onClick={onClose}
+                  className="rounded border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                >
+                  Close
+                </button>
+                <button
+                  onClick={handleBackup}
+                  disabled={!connectionId || !database || !filePath}
+                  className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
+                >
+                  <HardDriveDownload className="h-3.5 w-3.5" />
+                  Backup
+                </button>
+              </>
+            )}
+        </div>
+      </Modal>
+      <ConfirmDialog
+        isOpen={confirmingClose}
+        title="Cancel the backup?"
+        message="Closing this dialog stops the backup."
+        confirmLabel="Stop backup"
+        cancelLabel="Keep running"
+        danger
+        onConfirm={confirmClose}
+        onCancel={() => setConfirmingClose(false)}
+      />
+    </>
   );
 }

@@ -4,7 +4,7 @@ import { useKeyboardShortcuts } from "../useKeyboardShortcuts";
 
 const mockSetActiveTab = vi.fn();
 const mockAddTab = vi.fn();
-const mockCloseTab = vi.fn();
+const mockRequestClose = vi.fn();
 
 vi.mock("../../stores/editorStore", () => ({
   useEditorStore: {
@@ -87,7 +87,7 @@ beforeEach(() => {
     activeTabId: "tab-0",
     setActiveTab: mockSetActiveTab,
     addTab: mockAddTab.mockReturnValue("tab-1"),
-    closeTab: mockCloseTab,
+    requestClose: mockRequestClose,
   });
 
   getConnectionState.mockReturnValue({
@@ -293,7 +293,7 @@ describe("useKeyboardShortcuts", () => {
         ],
         activeTabId: "tab-0",
         addTab: mockAddTab,
-        closeTab: mockCloseTab,
+        requestClose: mockRequestClose,
       });
 
       renderHook(() => useKeyboardShortcuts());
@@ -303,7 +303,7 @@ describe("useKeyboardShortcuts", () => {
       window.dispatchEvent(event);
 
       expect(preventDefaultSpy).toHaveBeenCalled();
-      expect(mockCloseTab).toHaveBeenCalledWith("tab-0");
+      expect(mockRequestClose).toHaveBeenCalledWith("close", "tab-0");
     });
 
     it("does nothing when no active tab", () => {
@@ -311,7 +311,7 @@ describe("useKeyboardShortcuts", () => {
         tabs: [],
         activeTabId: null,
         addTab: mockAddTab,
-        closeTab: mockCloseTab,
+        requestClose: mockRequestClose,
       });
 
       renderHook(() => useKeyboardShortcuts());
@@ -319,7 +319,7 @@ describe("useKeyboardShortcuts", () => {
       const event = createKeyboardEvent("w", { ctrlKey: true });
       window.dispatchEvent(event);
 
-      expect(mockCloseTab).not.toHaveBeenCalled();
+      expect(mockRequestClose).not.toHaveBeenCalled();
     });
   });
 

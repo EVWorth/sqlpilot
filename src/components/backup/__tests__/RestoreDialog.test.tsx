@@ -46,7 +46,7 @@ import { RestoreDialog } from "../RestoreDialog";
 
 /** Pick a file and start a restore, which is the preamble to most of these. */
 async function startRestore() {
-  render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+  const view = render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
   await waitFor(() => screen.getByText("testdb"));
   fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "testdb" } });
 
@@ -59,6 +59,7 @@ async function startRestore() {
   await act(async () => {
     fireEvent.click(screen.getByText("Restore"));
   });
+  return view;
 }
 
 describe("RestoreDialog", () => {
@@ -112,6 +113,19 @@ describe("RestoreDialog", () => {
     render(<RestoreDialog isOpen={true} onClose={onClose} />);
     fireEvent.click(screen.getByText("Close"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("scrolls only its body, so the footer stays on screen (#807)", () => {
+    render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+    const panel = screen.getByRole("dialog", { name: "Restore database" });
+    const body = screen.getByTestId("dialog-body");
+    expect(panel.className).not.toContain("overflow-y-auto");
+    expect(panel.className).toContain("flex-col");
+    expect(body.className).toContain("overflow-y-auto");
+    // The footer buttons sit outside the scrolling region.
+    const close = screen.getAllByText("Close").find((el) => el.tagName === "BUTTON");
+    expect(close).toBeTruthy();
+    expect(body.contains(close ?? null)).toBe(false);
   });
 
   describe("choosing a file", () => {
@@ -228,6 +242,133 @@ describe("RestoreDialog", () => {
       await waitFor(() => {
         expect(screen.getByText(/Restore cancelled/)).toBeInTheDocument();
       });
+    });
+  });
+
+  it("keeps running when the selected connection changes mid-restore", async () => {
+    apiMocks.restoreDatabase.mockImplementationOnce(() => new Promise(() => {}));
+    const { rerender } = await startRestore();
+    await waitFor(() => screen.getByText("Cancel"));
+
+    // Switching editor tabs selects their server (#788); that must not reset
+    // the dialog under a running restore.
+    useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+      s({ activeConnections: [], selectedConnectionId: "conn2" })
+    );
+    rerender(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
+  });
+
+  it("moves focus to Cancel when the run starts (#798)", async () => {
+    // The focused Restore button turns disabled; focus must not fall to <body>.
+    let finish: (value: unknown) => void = () => {};
+    apiMocks.restoreDatabase.mockImplementationOnce(
+      () => new Promise((resolve) => (finish = resolve)),
+    );
+    await startRestore();
+    await waitFor(() => screen.getByText("Cancel"));
+    expect(document.activeElement).toBe(screen.getByText("Cancel"));
+    await act(async () => finish({ ...clean }));
+  });
+
+  describe("closing mid-run (#803)", () => {
+    async function startHanging() {
+      let finish: (value: unknown) => void = () => {};
+      apiMocks.restoreDatabase.mockImplementationOnce(
+        () => new Promise((resolve) => (finish = resolve)),
+      );
+      await startRestore();
+      await waitFor(() => screen.getByText("Cancel"));
+      return () => act(async () => finish({ ...clean, cancelled: true }));
+    }
+
+    it("disables the footer Close while running", async () => {
+      const done = await startHanging();
+      expect(screen.getByText("Close")).toBeDisabled();
+      await done();
+    });
+
+    it("asks, then cancels the restore, when Escape is pressed", async () => {
+      const done = await startHanging();
+      fireEvent.keyDown(screen.getByRole("dialog", { name: "Restore database" }), { key: "Escape" });
+      expect(screen.getByText("Cancel the restore?")).toBeInTheDocument();
+      expect(apiMocks.cancelBackup).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByText("Stop restore"));
+      expect(apiMocks.cancelBackup).toHaveBeenCalledTimes(1);
+      await done();
+    });
+
+    it("names the header close button", () => {
+      render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+      // The X is an icon alone; without a label it is announced as "button".
+      expect(document.querySelector("button[aria-label=\"Close\"]")?.querySelector(".lucide-x")).toBeTruthy();
+    });
+  });
+
+  describe("the result (#793)", () => {
+    /** The box the heading sits in, which carries the success/warning styling. */
+    function resultBox(text: RegExp): HTMLElement {
+      const heading = screen.getByText(text);
+      const box = heading.parentElement;
+      if (!box) throw new Error("result box not found");
+      return box;
+    }
+
+    it("is green only for a clean full run", async () => {
+      await startRestore();
+      await waitFor(() => screen.getByText(/Restore complete/));
+      expect(resultBox(/Restore complete/).className).toContain("surface-success");
+    });
+
+    it("warns rather than reassures when a cancelled restore had partly applied", async () => {
+      apiMocks.restoreDatabase.mockResolvedValueOnce({
+        ...clean,
+        cancelled: true,
+        rolledBack: true,
+        partiallyApplied: true,
+        statementsRun: 3,
+      });
+      await startRestore();
+      await waitFor(() => screen.getByText(/Restore cancelled/));
+      const box = resultBox(/Restore cancelled/);
+      expect(box.className).toContain("surface-warning");
+      expect(box.className).not.toContain("surface-success");
+    });
+
+    it("warns for a cancel even when nothing had applied", async () => {
+      apiMocks.restoreDatabase.mockResolvedValueOnce({ ...clean, cancelled: true, rolledBack: true });
+      await startRestore();
+      await waitFor(() => screen.getByText(/Restore cancelled/));
+      expect(resultBox(/Restore cancelled/).className).toContain("surface-warning");
+    });
+
+    it("does not say it stopped when Stop on error was off", async () => {
+      apiMocks.restoreDatabase.mockResolvedValueOnce({
+        ...clean,
+        statementsRun: 0,
+        statementsFailed: 3,
+        partiallyApplied: false,
+        errors: ["Statement 1: read only", "Statement 1: read only", "Statement 1: read only"],
+      });
+      const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+      render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+      await waitFor(() => screen.getByText("testdb"));
+      fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "testdb" } });
+      fireEvent.click(screen.getByRole("checkbox", { name: /Stop on error/ }));
+      await act(async () => {
+        fireEvent.click(screen.getByText("Browse"));
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByText("Restore"));
+      });
+
+      await waitFor(() => screen.getByText(/Finished with 3 error\(s\)/));
+      expect(screen.queryByText(/Stopped after/)).not.toBeInTheDocument();
+      // Identical error lines must not collide as React keys.
+      expect(screen.getAllByText("Statement 1: read only")).toHaveLength(3);
+      expect(consoleError.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+      consoleError.mockRestore();
     });
   });
 

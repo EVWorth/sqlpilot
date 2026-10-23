@@ -6,6 +6,7 @@ import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import type { DatabaseInfo } from "../../types";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Modal } from "../common/Modal";
 
 interface RestoreDialogProps {
@@ -17,6 +18,15 @@ interface RestoreDialogProps {
 
 /** How much of a dump is read to show a preview of it. */
 const PREVIEW_BYTES = 64 * 1024;
+
+/**
+ * Whether the whole file ran and nothing failed. Only that earns the green
+ * check: a cancelled or partly applied restore has changed the database in a
+ * way the user has to look at (#793).
+ */
+function isCleanRun(summary: RestoreSummary): boolean {
+  return !summary.cancelled && !summary.partiallyApplied && summary.statementsFailed === 0;
+}
 
 export function RestoreDialog({
   isOpen,
@@ -48,8 +58,18 @@ export function RestoreDialog({
   const [progress, setProgress] = useState<RestoreProgress | null>(null);
   const [summary, setSummary] = useState<RestoreSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The options the finished run used. The checkboxes are live again once it
+  // ends, so reading them would word the summary by whatever is ticked now.
+  const [ranStopOnError, setRanStopOnError] = useState(true);
 
   const restoreIdRef = useRef<string | null>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // Starting a run disables the focused Restore button. Without this, focus
+  // fell to <body> and the keyboard lost the dialog (#798).
+  useEffect(() => {
+    if (restoring) cancelRef.current?.focus();
+  }, [restoring]);
 
   // Load databases when connection changes
   useEffect(() => {
@@ -66,9 +86,14 @@ export function RestoreDialog({
       });
   }, [connectionId]);
 
-  // Reset on open
+  // Reset when the dialog opens. Only then: the selected connection can
+  // change while a restore runs (switching editor tabs selects their
+  // server), and resetting on that hid Cancel mid-run.
+  const wasOpen = useRef(false);
   useEffect(() => {
-    if (isOpen) {
+    const opening = isOpen && !wasOpen.current;
+    wasOpen.current = isOpen;
+    if (opening) {
       setConnectionId(
         preSelectedConnectionId ?? selectedStoreConnectionId ?? "",
       );
@@ -119,10 +144,13 @@ export function RestoreDialog({
     // Once for the restore, not per statement (#588). A dump is the most
     // destructive thing this app runs — it typically drops and recreates
     // every table it touches — and it was the one path with no gate at all.
+    // The statements are not known until the file is read, so the gate has
+    // nothing to judge: it must ask regardless, or it never fires (#789).
     if (
       !(await confirmDestructive({
         connectionId,
         sql: [],
+        alwaysAsk: true,
         action: `Restore ${filePath.split(/[\\/]/).pop()} into \`${database}\`?`,
         detail: "A dump usually drops and recreates the objects it restores.",
       }))
@@ -133,6 +161,7 @@ export function RestoreDialog({
     const id = crypto.randomUUID();
     restoreIdRef.current = id;
     setRestoring(true);
+    setRanStopOnError(options.stopOnError);
     setProgress(null);
     setSummary(null);
     setError(null);
@@ -163,6 +192,23 @@ export function RestoreDialog({
     if (id) void api.cancelBackup(id).catch(() => {});
   }, []);
 
+  // Closing mid-run used to hide the dialog and leave the restore running
+  // with nothing on screen to say so (#803). Ask, and cancel it on yes.
+  const [confirmingClose, setConfirmingClose] = useState(false);
+  const requestClose = useCallback(() => {
+    if (restoring) setConfirmingClose(true);
+    else onClose();
+  }, [restoring, onClose]);
+  const confirmClose = useCallback(() => {
+    setConfirmingClose(false);
+    handleCancel();
+    onClose();
+  }, [handleCancel, onClose]);
+  // A run that ends while the question is open has made it moot.
+  useEffect(() => {
+    if (!restoring) setConfirmingClose(false);
+  }, [restoring]);
+
   if (!isOpen) return null;
 
   const selectClasses =
@@ -177,256 +223,276 @@ export function RestoreDialog({
     : 0;
 
   return (
-    <Modal
-      isOpen={isOpen}
-      onClose={onClose}
-      label="Restore database"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      panelClassName="relative max-h-[85vh] w-[520px] overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <HardDriveUpload className="h-4 w-4 text-brand-400" />
-          <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
-            Restore Database
-          </h2>
-        </div>
-        <button
-          onClick={onClose}
-          className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-        >
-          <X className="h-4 w-4" />
-        </button>
-      </div>
-
-      <div className="space-y-4 p-4">
-        {/* File picker */}
-        <div>
-          <label className={labelClasses}>SQL File</label>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              readOnly
-              value={filePath ?? ""}
-              placeholder="Select a SQL backup file..."
-              className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
-            />
-            <button
-              onClick={handlePickFile}
-              disabled={restoring}
-              className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] disabled:opacity-50"
-            >
-              <FolderOpen className="h-3.5 w-3.5" />
-              Browse
-            </button>
+    <>
+      <Modal
+        isOpen={isOpen}
+        onClose={requestClose}
+        closeOnBackdrop={!restoring}
+        label="Restore database"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+        panelClassName="relative flex max-h-[85vh] w-[520px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-primary)] shadow-xl"
+      >
+        {/* Header */}
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+          <div className="flex items-center gap-2">
+            <HardDriveUpload className="h-4 w-4 text-brand-400" />
+            <h2 className="text-sm font-semibold text-[var(--color-text-primary)]">
+              Restore Database
+            </h2>
           </div>
-        </div>
-
-        {/* File info */}
-        {filePath && (
-          <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
-            <div className="flex items-center gap-2 mb-2">
-              <FileText className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
-              <span className="text-xs text-[var(--color-text-secondary)]">
-                File size: {fileBytes === null ? "unknown" : formatBytes(fileBytes)}
-              </span>
-            </div>
-            {preview.length > 0 && (
-              <pre className="max-h-24 overflow-auto rounded bg-[var(--color-bg-primary)] p-2 text-[10px] text-[var(--color-text-muted)] font-mono">
-                  {preview.join("\n")}
-              </pre>
-            )}
-          </div>
-        )}
-
-        {/* Connection + Database */}
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className={labelClasses}>Connection</label>
-            <select
-              className={selectClasses}
-              value={connectionId}
-              onChange={(e) => {
-                setConnectionId(e.target.value);
-                setDatabase("");
-              }}
-              disabled={restoring}
-            >
-              <option value="">Select connection...</option>
-              {activeConnections.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className={labelClasses}>Database</label>
-            <select
-              className={selectClasses}
-              value={database}
-              onChange={(e) => setDatabase(e.target.value)}
-              disabled={!connectionId || restoring}
-            >
-              <option value="">Select database...</option>
-              {databases.map((db) => (
-                <option key={db.name} value={db.name}>
-                  {db.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        {/* Options */}
-        <div>
-          <label className={labelClasses}>Options</label>
-          <div className="space-y-1.5">
-            <label className={checkboxLabelClasses}>
-              <input
-                type="checkbox"
-                checked={options.stopOnError}
-                onChange={(e) => setOptions((o) => ({ ...o, stopOnError: e.target.checked }))}
-                disabled={restoring}
-                className="accent-brand-500"
-              />
-              Stop on error
-            </label>
-            <label
-              className={checkboxLabelClasses}
-              title="A file whose tables are in the wrong order restores anyway. Turned back on when the restore ends."
-            >
-              <input
-                type="checkbox"
-                checked={options.disableForeignKeyChecks}
-                onChange={(e) => setOptions((o) => ({ ...o, disableForeignKeyChecks: e.target.checked }))}
-                disabled={restoring}
-                className="accent-brand-500"
-              />
-              Ignore foreign-key order
-            </label>
-            <label
-              className={checkboxLabelClasses}
-              title="Makes a data-only file all-or-nothing. It cannot make a file containing CREATE or DROP atomic: MySQL commits before every DDL statement."
-            >
-              <input
-                type="checkbox"
-                checked={options.wrapInTransaction}
-                onChange={(e) => setOptions((o) => ({ ...o, wrapInTransaction: e.target.checked }))}
-                disabled={restoring}
-                className="accent-brand-500"
-              />
-              Run in a transaction
-            </label>
-          </div>
-        </div>
-
-        {/* Progress */}
-        {progress && !summary && (
-          <div
-            className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
-            role="status"
-            aria-live="polite"
+          <button
+            onClick={requestClose}
+            aria-label="Close"
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
           >
-            <div className="mb-2 flex items-center justify-between text-xs text-[var(--color-text-secondary)]">
-              <span>Restoring…</span>
-              <span>{Math.round(progressPct)}%</span>
-            </div>
-            <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
-              <div
-                className="h-full rounded-full bg-brand-500 transition-all"
-                style={{ width: `${progressPct}%` }}
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        {/* Only the body scrolls, so Cancel stays on screen during a run (#807). */}
+        <div data-testid="dialog-body" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+          {/* File picker */}
+          <div>
+            <label className={labelClasses}>SQL File</label>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                readOnly
+                value={filePath ?? ""}
+                placeholder="Select a SQL backup file..."
+                className="flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
               />
-            </div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
-              <span className="text-[var(--color-success)]">✓ {progress.statementsRun} statements</span>
-              {progress.statementsFailed > 0 && (
-                <span className="text-[var(--color-error)]">✗ {progress.statementsFailed} failed</span>
-              )}
-              <span className="text-[var(--color-text-muted)]">
-                {formatBytes(progress.bytesRead)} of {formatBytes(progress.totalBytes)}
-              </span>
-              <span className="text-[var(--color-text-muted)]">
-                {formatElapsed(progress.elapsedMs)} elapsed
-              </span>
+              <button
+                onClick={handlePickFile}
+                disabled={restoring}
+                className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] disabled:opacity-50"
+              >
+                <FolderOpen className="h-3.5 w-3.5" />
+                Browse
+              </button>
             </div>
           </div>
-        )}
 
-        {
-          /* What happened. The old dialog said "completed" or "completed
+          {/* File info */}
+          {filePath && (
+            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3">
+              <div className="flex items-center gap-2 mb-2">
+                <FileText className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
+                <span className="text-xs text-[var(--color-text-secondary)]">
+                  File size: {fileBytes === null ? "unknown" : formatBytes(fileBytes)}
+                </span>
+              </div>
+              {preview.length > 0 && (
+                <pre className="max-h-24 overflow-auto rounded bg-[var(--color-bg-primary)] p-2 text-[10px] text-[var(--color-text-muted)] font-mono">
+                  {preview.join("\n")}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* Connection + Database */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className={labelClasses}>Connection</label>
+              <select
+                className={selectClasses}
+                value={connectionId}
+                onChange={(e) => {
+                  setConnectionId(e.target.value);
+                  setDatabase("");
+                }}
+                disabled={restoring}
+              >
+                <option value="">Select connection...</option>
+                {activeConnections.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className={labelClasses}>Database</label>
+              <select
+                className={selectClasses}
+                value={database}
+                onChange={(e) => setDatabase(e.target.value)}
+                disabled={!connectionId || restoring}
+              >
+                <option value="">Select database...</option>
+                {databases.map((db) => (
+                  <option key={db.name} value={db.name}>
+                    {db.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* Options */}
+          <div>
+            <label className={labelClasses}>Options</label>
+            <div className="space-y-1.5">
+              <label className={checkboxLabelClasses}>
+                <input
+                  type="checkbox"
+                  checked={options.stopOnError}
+                  onChange={(e) => setOptions((o) => ({ ...o, stopOnError: e.target.checked }))}
+                  disabled={restoring}
+                  className="accent-brand-500"
+                />
+                Stop on error
+              </label>
+              <label
+                className={checkboxLabelClasses}
+                title="A file whose tables are in the wrong order restores anyway. Turned back on when the restore ends."
+              >
+                <input
+                  type="checkbox"
+                  checked={options.disableForeignKeyChecks}
+                  onChange={(e) => setOptions((o) => ({ ...o, disableForeignKeyChecks: e.target.checked }))}
+                  disabled={restoring}
+                  className="accent-brand-500"
+                />
+                Ignore foreign-key order
+              </label>
+              <label
+                className={checkboxLabelClasses}
+                title="Makes a data-only file all-or-nothing. It cannot make a file containing CREATE or DROP atomic: MySQL commits before every DDL statement."
+              >
+                <input
+                  type="checkbox"
+                  checked={options.wrapInTransaction}
+                  onChange={(e) => setOptions((o) => ({ ...o, wrapInTransaction: e.target.checked }))}
+                  disabled={restoring}
+                  className="accent-brand-500"
+                />
+                Run in a transaction
+              </label>
+            </div>
+          </div>
+
+          {/* Progress */}
+          {progress && !summary && (
+            <div
+              className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3"
+              role="status"
+              aria-live="polite"
+            >
+              <div className="mb-2 flex items-center justify-between text-xs text-[var(--color-text-secondary)]">
+                <span>Restoring…</span>
+                <span>{Math.round(progressPct)}%</span>
+              </div>
+              <div className="mb-2 h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-bg-tertiary)]">
+                <div
+                  className="h-full rounded-full bg-brand-500 transition-all"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+                <span className="text-[var(--color-success)]">✓ {progress.statementsRun} statements</span>
+                {progress.statementsFailed > 0 && (
+                  <span className="text-[var(--color-error)]">✗ {progress.statementsFailed} failed</span>
+                )}
+                <span className="text-[var(--color-text-muted)]">
+                  {formatBytes(progress.bytesRead)} of {formatBytes(progress.totalBytes)}
+                </span>
+                <span className="text-[var(--color-text-muted)]">
+                  {formatElapsed(progress.elapsedMs)} elapsed
+                </span>
+              </div>
+            </div>
+          )}
+
+          {
+            /* What happened. The old dialog said "completed" or "completed
               with N errors" and never said whether the database had been
               changed, which is the thing a user has to know. */
-        }
-        {summary && (
-          <div
-            className={summary.statementsFailed === 0
-              ? "rounded border edge-success surface-success px-3 py-2 text-xs text-[var(--color-success)]"
-              : "rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]"}
-          >
-            <div className="flex items-center gap-2">
-              {summary.statementsFailed === 0
-                ? <CheckCircle2 className="h-4 w-4" />
-                : <AlertCircle className="h-4 w-4" />}
-              {summary.cancelled
-                ? "Restore cancelled"
-                : summary.statementsFailed === 0
-                ? `Restore complete — ${summary.statementsRun.toLocaleString()} statements in ${
-                  formatElapsed(summary.elapsedMs)
-                }.`
-                : `Stopped after ${summary.statementsFailed} error(s); ${summary.statementsRun} statements had run.`}
+          }
+          {summary && (
+            <div
+              className={isCleanRun(summary)
+                ? "rounded border edge-success surface-success px-3 py-2 text-xs text-[var(--color-success)]"
+                : "rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]"}
+            >
+              <div className="flex items-center gap-2">
+                {isCleanRun(summary)
+                  ? <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
+                  : <AlertCircle className="h-4 w-4" aria-hidden="true" />}
+                {summary.cancelled
+                  ? "Restore cancelled"
+                  : summary.statementsFailed === 0
+                  ? `Restore complete — ${summary.statementsRun.toLocaleString()} statements in ${
+                    formatElapsed(summary.elapsedMs)
+                  }.`
+                  : ranStopOnError
+                  ? `Stopped after ${summary.statementsFailed} error(s); ${summary.statementsRun} statements had run.`
+                  : `Finished with ${summary.statementsFailed} error(s); ${summary.statementsRun} statements ran.`}
+              </div>
+              {(summary.cancelled || summary.statementsFailed > 0) && (
+                <div className="mt-1 ml-6 text-[11px]">
+                  {summary.partiallyApplied
+                    ? summary.rolledBack
+                      ? "Rolled back, but part of the file had already been applied: MySQL commits before every CREATE, DROP or ALTER, so the structural changes stand."
+                      : "The database has been partly changed. Check it before running the file again."
+                    : "Rolled back — the database is as it was."}
+                </div>
+              )}
+              {summary.errors.length > 0 && (
+                <div className="mt-2 max-h-24 overflow-auto rounded surface-error p-2 font-mono text-[10px] text-[var(--color-error)]">
+                  {/* Keyed by position: the same error can repeat word for word. */}
+                  {summary.errors.slice(0, 10).map((err, i) => <div key={i}>{err}</div>)}
+                </div>
+              )}
             </div>
-            {(summary.cancelled || summary.statementsFailed > 0) && (
-              <div className="mt-1 ml-6 text-[11px]">
-                {summary.partiallyApplied
-                  ? summary.rolledBack
-                    ? "Rolled back, but part of the file had already been applied: MySQL commits before every CREATE, DROP or ALTER, so the structural changes stand."
-                    : "The database has been partly changed. Check it before running the file again."
-                  : "Rolled back — the database is as it was."}
-              </div>
-            )}
-            {summary.errors.length > 0 && (
-              <div className="mt-2 max-h-24 overflow-auto rounded surface-error p-2 font-mono text-[10px] text-[var(--color-error)]">
-                {summary.errors.slice(0, 10).map((err) => <div key={err}>{err}</div>)}
-              </div>
-            )}
-          </div>
-        )}
+          )}
 
-        {error && (
-          <div className="flex items-center gap-2 rounded border edge-error surface-error px-3 py-2 text-xs text-[var(--color-error)]">
-            <AlertCircle className="h-4 w-4" />
-            {error}
-          </div>
-        )}
-      </div>
+          {error && (
+            <div className="flex items-center gap-2 rounded border edge-error surface-error px-3 py-2 text-xs text-[var(--color-error)]">
+              <AlertCircle className="h-4 w-4" />
+              {error}
+            </div>
+          )}
+        </div>
 
-      {/* Footer */}
-      <div className="flex justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
-        {restoring && (
+        {/* Footer */}
+        <div className="flex shrink-0 justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
+          {restoring && (
+            <button
+              ref={cancelRef}
+              onClick={handleCancel}
+              className="rounded border edge-error surface-error px-4 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
+            >
+              Cancel
+            </button>
+          )}
           <button
-            onClick={handleCancel}
-            className="rounded border edge-error surface-error px-4 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
+            onClick={onClose}
+            disabled={restoring}
+            className="rounded border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] disabled:opacity-50"
           >
-            Cancel
+            Close
           </button>
-        )}
-        <button
-          onClick={onClose}
-          className="rounded border border-[var(--color-border)] px-4 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
-        >
-          Close
-        </button>
-        <button
-          onClick={handleRestore}
-          disabled={!connectionId || !database || !filePath || restoring}
-          className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
-        >
-          {restoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <HardDriveUpload className="h-3.5 w-3.5" />}
-          {restoring ? "Restoring..." : "Restore"}
-        </button>
-      </div>
-    </Modal>
+          <button
+            onClick={handleRestore}
+            disabled={!connectionId || !database || !filePath || restoring}
+            className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
+          >
+            {restoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <HardDriveUpload className="h-3.5 w-3.5" />}
+            {restoring ? "Restoring..." : "Restore"}
+          </button>
+        </div>
+      </Modal>
+      <ConfirmDialog
+        isOpen={confirmingClose}
+        title="Cancel the restore?"
+        message="Closing this dialog stops the restore."
+        confirmLabel="Stop restore"
+        cancelLabel="Keep running"
+        danger
+        onConfirm={confirmClose}
+        onCancel={() => setConfirmingClose(false)}
+      />
+    </>
   );
 }

@@ -1,10 +1,12 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ConnectionDialog } from "../ConnectionDialog";
 
+const { saveProfileFn } = vi.hoisted(() => ({ saveProfileFn: vi.fn() }));
+
 vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: vi.fn((selector: (s: unknown) => unknown) => {
-    return selector({ saveProfile: vi.fn().mockResolvedValue(undefined) });
+    return selector({ saveProfile: saveProfileFn });
   }),
 }));
 
@@ -18,6 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  saveProfileFn.mockResolvedValue(undefined);
 });
 
 describe("ConnectionDialog", () => {
@@ -300,6 +303,104 @@ describe("ConnectionDialog", () => {
       fireEvent.click(screen.getByLabelText?.("Enable SSH Tunnel") ?? screen.getByText("Enable SSH Tunnel"));
 
       expect(screen.getByTestId("ssh-unsupported")).toBeInTheDocument();
+    });
+  });
+
+  describe("number fields (#813)", () => {
+    it("lets the port be cleared and retyped without snapping back", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      const port = screen.getByLabelText("Port") as HTMLInputElement;
+
+      fireEvent.change(port, { target: { value: "" } });
+      expect(port.value).toBe("");
+
+      fireEvent.change(port, { target: { value: "3307" } });
+      expect(port.value).toBe("3307");
+    });
+
+    it("flags an out-of-range port and disables Save and Test", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+      expect(screen.getByText("Save").closest("button")?.disabled).toBe(false);
+
+      fireEvent.change(screen.getByLabelText("Port"), { target: { value: "33063307" } });
+
+      expect(screen.getByText("Must be between 1 and 65535")).toBeInTheDocument();
+      expect(screen.getByText("Save").closest("button")?.disabled).toBe(true);
+      expect(screen.getByText("Test Connection").closest("button")?.disabled).toBe(true);
+    });
+
+    it("lets the connect timeout be cleared without snapping back to 10", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByText("Advanced"));
+      const timeout = screen.getByLabelText("Connect Timeout (s)") as HTMLInputElement;
+
+      fireEvent.change(timeout, { target: { value: "" } });
+      expect(timeout.value).toBe("");
+      expect(screen.getByText("Required")).toBeInTheDocument();
+    });
+  });
+
+  describe("a failed save (#792)", () => {
+    it("keeps the dialog open and shows the error", async () => {
+      saveProfileFn.mockRejectedValueOnce(new Error("keyring locked"));
+      const onClose = vi.fn();
+      render(<ConnectionDialog isOpen={true} onClose={onClose} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      const alert = await screen.findByRole("alert");
+      expect(alert.textContent).toContain("keyring locked");
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByDisplayValue("Local")).toBeInTheDocument();
+    });
+
+    it("closes after a successful save", async () => {
+      const onClose = vi.fn();
+      render(<ConnectionDialog isOpen={true} onClose={onClose} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    });
+  });
+
+  describe("delete and duplicate in the footer (#795)", () => {
+    const saved = {
+      id: "p1",
+      name: "Existing DB",
+      host: "db.example.com",
+      port: 3306,
+      username: "admin",
+      read_only: false,
+      created_at: "2023-01-01",
+      updated_at: "2023-01-01",
+    } as never;
+
+    it("offers them when editing", () => {
+      const onDelete = vi.fn();
+      const onDuplicate = vi.fn();
+      render(
+        <ConnectionDialog
+          isOpen={true}
+          onClose={vi.fn()}
+          editProfile={saved}
+          onDelete={onDelete}
+          onDuplicate={onDuplicate}
+        />,
+      );
+      fireEvent.click(screen.getByText("Delete"));
+      fireEvent.click(screen.getByText("Duplicate"));
+      expect(onDelete).toHaveBeenCalledTimes(1);
+      expect(onDuplicate).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not offer them for a new profile", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} onDelete={vi.fn()} onDuplicate={vi.fn()} />);
+      expect(screen.queryByText("Delete")).not.toBeInTheDocument();
+      expect(screen.queryByText("Duplicate")).not.toBeInTheDocument();
     });
   });
 });

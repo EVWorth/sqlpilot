@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getStatementAtCursor } from "../statement-at-cursor";
+import { getStatementAtCursor, sqlAtCursor } from "../statement-at-cursor";
+import type { CursorSource } from "../statement-at-cursor";
 
 const text = `
 select * from job_search.scrape_log
@@ -132,5 +133,33 @@ describe("getStatementAtCursor", () => {
   it("falls back to the statement before the cursor when it is between two", () => {
     const sql = "select 1;\n\n\nselect 2;";
     expect(getStatementAtCursor(sql, 3, 1)).toBe("select 1;");
+  });
+});
+
+describe("sqlAtCursor (#846)", () => {
+  const script = "SELECT * FROM products;\nSELECT * FROM orders;";
+
+  function fakeEditor(selection: { empty: boolean; line?: number; column?: number }) {
+    return {
+      getModel: () => ({
+        getValue: () => script,
+        getValueInRange: () => "SELECT 1",
+      }),
+      getSelection: () => ({
+        isEmpty: () => selection.empty,
+        positionLineNumber: selection.line,
+        positionColumn: selection.column,
+      }),
+      getPosition: () => null,
+    } as unknown as CursorSource;
+  }
+
+  it("returns the statement the cursor is in, not the whole script", () => {
+    expect(sqlAtCursor(fakeEditor({ empty: true, line: 1, column: 5 }))).toBe("SELECT * FROM products;");
+    expect(sqlAtCursor(fakeEditor({ empty: true, line: 2, column: 5 }))).toBe("SELECT * FROM orders;");
+  });
+
+  it("prefers a selection", () => {
+    expect(sqlAtCursor(fakeEditor({ empty: false, line: 1, column: 1 }))).toBe("SELECT 1");
   });
 });

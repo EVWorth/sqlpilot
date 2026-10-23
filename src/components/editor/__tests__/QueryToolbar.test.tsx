@@ -248,6 +248,29 @@ describe("QueryToolbar", () => {
     expect(mockExecuteExplain).toHaveBeenCalledWith("SELECT * FROM users");
   });
 
+  // #846: with two statements in the buffer, Run and Explain act on the one
+  // the cursor is in, as Ctrl+Enter does, rather than the whole script.
+  it("runs and explains only the statement at the cursor", () => {
+    const script = "SELECT * FROM products;\nSELECT * FROM orders;";
+    mockEditorInstance.getModel = vi.fn().mockReturnValue({
+      getValue: vi.fn().mockReturnValue(script),
+      setValue: vi.fn(),
+      getValueInRange: vi.fn(),
+    });
+    mockEditorInstance.getSelection = vi.fn().mockReturnValue({
+      isEmpty: vi.fn().mockReturnValue(true),
+      positionLineNumber: 2,
+      positionColumn: 3,
+    });
+    render(<QueryToolbar />);
+
+    fireEvent.click(screen.getByText("Run"));
+    expect(mockExecuteQuery).toHaveBeenCalledWith("SELECT * FROM orders;");
+
+    fireEvent.click(screen.getByText("Explain"));
+    expect(mockExecuteExplain).toHaveBeenCalledWith("SELECT * FROM orders;");
+  });
+
   it("shows explain dropdown when chevron is clicked", () => {
     render(<QueryToolbar />);
 

@@ -15,7 +15,11 @@ export default defineConfig({
     },
     browser: {
       enabled: true,
-      provider: playwright(),
+      // CHROMIUM_PATH for a machine whose Chromium is not the build this
+      // Playwright release expects (a CI image, a cloud container).
+      provider: playwright({
+        launchOptions: { executablePath: process.env.CHROMIUM_PATH || undefined },
+      }),
       headless: true,
       // A desktop window, because that is what this app is. The default is
       // 414×896 — a phone — which put the title bar's window controls at

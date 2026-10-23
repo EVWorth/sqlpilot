@@ -38,11 +38,15 @@ vi.mock("../../../stores/connectionStore", () => {
   return { useConnectionStore: hook };
 });
 
-vi.mock("../../../stores/editorStore", () => ({
-  useEditorStore: {
-    getState: vi.fn(() => ({ tabs: [], activeTabId: null, addTab: vi.fn(), setTabConnection: vi.fn() })),
-  },
-}));
+vi.mock("../../../stores/editorStore", () => {
+  const state = () => ({ tabs: [], activeTabId: null, addTab: vi.fn(), setTabConnection: vi.fn() });
+  const hook = vi.fn((s: (v: unknown) => unknown) => s(state())) as unknown as {
+    (s: (v: unknown) => unknown): unknown;
+    getState: () => unknown;
+  };
+  hook.getState = vi.fn(state);
+  return { useEditorStore: hook };
+});
 
 /** Captures the items a right-click would offer, so they can be invoked. */
 const { menuItems, showContextMenu } = vi.hoisted(() => {
@@ -232,5 +236,97 @@ describe("duplicating a profile (FR-1.1.4)", () => {
     const dialog = screen.getByTestId("connection-dialog");
     expect(dialog).toHaveAttribute("data-editing", "prod-eu");
     expect(dialog).toHaveAttribute("data-duplicating", "");
+  });
+});
+
+describe("deleting a profile (FR-1.1.3, #795)", () => {
+  const conn = { id: "c1", profile_id: "p1", name: "prod", database: "app" };
+  const profiles = [
+    { id: "p1", name: "prod-eu", host: "db" },
+    { id: "p2", name: "sandbox", host: "nowhere" },
+  ];
+
+  const setup = ({ disconnectFails = false } = {}) => {
+    // Like the store: a disconnect that works takes the connection out of
+    // activeConnections; one that fails reports it and leaves it there.
+    const disconnect = vi.fn(async (id: string) => {
+      if (disconnectFails) return;
+      storeState = {
+        ...storeState,
+        activeConnections: (storeState.activeConnections as { id: string }[]).filter((c) => c.id !== id),
+      };
+    });
+    const deleteProfile = vi.fn().mockResolvedValue(undefined);
+    storeState = { profiles, activeConnections: [conn], disconnect, deleteProfile };
+    render(<ConnectionTabs />);
+    return { disconnect, deleteProfile };
+  };
+
+  const choose = (label: string) => act(() => menuItems.find((i) => i.label === label)!.onClick!());
+
+  it("asks before deleting a connected profile, naming it", () => {
+    const { disconnect, deleteProfile } = setup();
+    fireEvent.contextMenu(screen.getByText("prod-eu"));
+    choose("Delete Profile");
+
+    const dialog = screen.getByRole("dialog");
+    expect(dialog.textContent).toContain("prod-eu");
+    expect(dialog.textContent).toContain("disconnected");
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(deleteProfile).not.toHaveBeenCalled();
+  });
+
+  it("does nothing when the confirmation is cancelled", () => {
+    const { disconnect, deleteProfile } = setup();
+    fireEvent.contextMenu(screen.getByText("prod-eu"));
+    choose("Delete Profile");
+    fireEvent.click(screen.getByText("Cancel"));
+
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(deleteProfile).not.toHaveBeenCalled();
+  });
+
+  it("disconnects and deletes once confirmed", async () => {
+    const { disconnect, deleteProfile } = setup();
+    fireEvent.contextMenu(screen.getByText("prod-eu"));
+    choose("Delete Profile");
+    await act(async () => {
+      fireEvent.click(screen.getByText("Delete"));
+    });
+
+    expect(disconnect).toHaveBeenCalledWith("c1");
+    expect(deleteProfile).toHaveBeenCalledWith("p1");
+  });
+
+  it("keeps the profile when its connection fails to close", async () => {
+    const { disconnect, deleteProfile } = setup({ disconnectFails: true });
+    fireEvent.contextMenu(screen.getByText("prod-eu"));
+    choose("Delete Profile");
+    await act(async () => {
+      fireEvent.click(screen.getByText("Delete"));
+    });
+
+    expect(disconnect).toHaveBeenCalledWith("c1");
+    expect(deleteProfile).not.toHaveBeenCalled();
+  });
+
+  it("offers delete and duplicate for a profile that is not connected", async () => {
+    const { disconnect, deleteProfile } = setup();
+    fireEvent.click(screen.getByTitle("Connect to a server"));
+    fireEvent.contextMenu(screen.getByText("sandbox"));
+
+    expect(menuItems.map((i) => i.label)).toEqual(
+      expect.arrayContaining(["Edit Connection", "Duplicate Profile", "Delete Profile"]),
+    );
+
+    choose("Delete Profile");
+    expect(screen.getByRole("dialog").textContent).toContain("sandbox");
+    await act(async () => {
+      fireEvent.click(screen.getByText("Delete"));
+    });
+
+    expect(disconnect).not.toHaveBeenCalled();
+    expect(deleteProfile).toHaveBeenCalledWith("p2");
   });
 });

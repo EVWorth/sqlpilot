@@ -68,6 +68,25 @@ describe("useConnectionForm (#275)", () => {
     expect(result.current.canSave).toBe(false);
   });
 
+  it("saves the port only once it parses (#813)", () => {
+    const { result } = renderHook(() => useConnectionForm(true));
+    act(() => result.current.handleChange("name", "Local"));
+
+    act(() => result.current.handleNumberChange("port", ""));
+    expect(result.current.numberText.port).toBe("");
+    expect(result.current.form.port).toBe(3306);
+    expect(result.current.canSave).toBe(false);
+
+    act(() => result.current.handleNumberChange("port", "3307"));
+    expect(result.current.form.port).toBe(3307);
+    expect(result.current.canSave).toBe(true);
+
+    act(() => result.current.handleNumberChange("port", "70000"));
+    expect(result.current.numberProblems.port).toBeDefined();
+    expect(result.current.canSave).toBe(false);
+    expect(result.current.canTest).toBe(false);
+  });
+
   it("starts an edited profile with its password blank", () => {
     // A saved profile's password is never sent back, and an empty one means
     // "keep the stored password" when it goes the other way.
@@ -160,6 +179,24 @@ describe("useConnectionForm (#275)", () => {
       // Closing on a failed save loses what the user typed.
       expect(onDone).not.toHaveBeenCalled();
       expect(result.current.saving).toBe(false);
+    });
+
+    it("says why a save failed, and clears it on the next try (#792)", async () => {
+      saveProfileFn.mockRejectedValueOnce(new Error("keyring locked"));
+      const { result } = renderHook(() => useConnectionForm(true));
+      act(() => result.current.handleChange("name", "Local"));
+
+      await act(async () => {
+        await result.current.handleSave(() => {});
+      });
+      expect(result.current.saveError).toContain("keyring locked");
+
+      const onDone = vi.fn();
+      await act(async () => {
+        await result.current.handleSave(onDone);
+      });
+      expect(result.current.saveError).toBeNull();
+      expect(onDone).toHaveBeenCalledTimes(1);
     });
   });
 

@@ -67,6 +67,7 @@ export function StatusBar() {
   const results = useResultStore((s) => s.results);
   const activeResultIndex = useResultStore((s) => s.activeResultIndex);
   const error = useResultStore((s) => s.error);
+  const cancelledAfterMs = useResultStore((s) => s.cancelledAfterMs);
   // Derived in the selector, not from the whole array. Reading `tabs` meant a
   // new array identity on every keystroke-debounced content write re-rendered
   // this 400-line component and reflowed its update overlay, for a value that
@@ -282,6 +283,10 @@ export function StatusBar() {
               {error}
             </span>
           </button>
+        )}
+        {cancelledAfterMs !== null && !error && !isExecuting && (
+          // Neutral: the user stopped it on purpose (#850).
+          <span className="text-[10px] text-[var(--color-text-muted)]">Cancelled</span>
         )}
         {warningsCount > 0 && !isExecuting && (
           <div className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-warning)]">

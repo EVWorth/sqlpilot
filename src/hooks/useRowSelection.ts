@@ -12,7 +12,11 @@ import { NO_SELECTION, selectAll, type Selection, selectRow } from "../lib/grid-
 export interface RowSelection {
   selection: Selection;
   /** Click a row: plain picks it, Ctrl adds, Shift extends (FR-3.3.1). */
-  clickRow: (e: React.MouseEvent, rowIdx: number) => void;
+  /**
+   * `rowIdx` is the row's index in the result; `order` lists result indices
+   * as they are on screen, so Shift extends over what the user sees (#839).
+   */
+  clickRow: (e: React.MouseEvent, rowIdx: number, order?: readonly number[]) => void;
   clear: () => void;
 }
 
@@ -40,8 +44,9 @@ export function useRowSelection(
     return () => window.removeEventListener("keydown", handler);
   }, [rowCount, gridRef]);
 
-  const clickRow = useCallback((e: React.MouseEvent, rowIdx: number) => {
-    setSelection((prev) => selectRow(prev, rowIdx, { toggle: e.ctrlKey || e.metaKey, extend: e.shiftKey }));
+  const clickRow = useCallback((e: React.MouseEvent, rowIdx: number, order?: readonly number[]) => {
+    const modifiers = { toggle: e.ctrlKey || e.metaKey, extend: e.shiftKey };
+    setSelection((prev) => selectRow(prev, rowIdx, modifiers, order));
   }, []);
 
   const clear = useCallback(() => setSelection(NO_SELECTION), []);

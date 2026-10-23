@@ -19,7 +19,9 @@ vi.mock("../../stores/editorStore", () => ({
   useEditorStore: {
     getState: () => ({
       activeTabId: "tab-1",
-      tabs: [{ id: "tab-1", content: "SELECT * FROM users", connectionId: "conn-1" }],
+      // Moved on since the result was read: another statement, another
+      // connection. A save must follow the result, not the editor (#840).
+      tabs: [{ id: "tab-1", content: "SELECT * FROM customers", connectionId: "conn-9" }],
     }),
   },
 }));
@@ -40,6 +42,7 @@ vi.mock("../../lib/run-statement", () => ({
 const result = {
   columns: [{ name: "id" }, { name: "name" }],
   rows: [[1, "ada"]],
+  sql: "SELECT * FROM users",
 } as unknown as QueryResult;
 
 function renderSave(onMessage = vi.fn()) {
@@ -126,15 +129,30 @@ describe("useGridSave", () => {
     expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", undefined);
   });
 
-  it("does not borrow a session from a result on another connection", async () => {
+  it("saves where the result was read, not where the editor points now (#840)", async () => {
     resultSource = { connectionId: "conn-2", database: "other", session: "tab-9" };
-    vi.mocked(runStatement).mockResolvedValue([{ rows_affected: 1 }] as never);
+    vi.mocked(runGridEdits).mockResolvedValue({ rows_affected: [1], transaction: "none" });
     const { save } = renderSave();
 
     await save();
 
+    const call = vi.mocked(runGridEdits).mock.calls[0][0];
+    expect(call.connectionId).toBe("conn-2");
+    expect(call.session).toBe("tab-9");
+    expect(call.database).toBe("other");
+    expect(call.statements[0]).toMatch(/^UPDATE `users` SET `name` = 'grace' WHERE `id` = 1/);
+    expect(executeQuery).toHaveBeenCalledWith("conn-2", "SELECT * FROM users", "other", "tab-9");
+  });
+
+  it("refuses when it cannot tell where the result came from", async () => {
+    resultSource = null;
+    const { save, onMessage } = renderSave();
+
+    await save();
+
     expect(runGridEdits).not.toHaveBeenCalled();
-    expect(vi.mocked(runStatement).mock.calls[0][0].database).toBeUndefined();
+    expect(runStatement).not.toHaveBeenCalled();
+    expect(onMessage).toHaveBeenCalledWith(expect.stringMatching(/^Cannot save: /));
   });
 
   it("reports a failed save and does not refresh", async () => {

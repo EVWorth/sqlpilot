@@ -193,8 +193,11 @@ vi.mock("../../../stores/connectionStore", () => ({
       return selector ? selector(state) : state;
     }),
     {
+      // conn-1 is live, so Run and Explain go to the tab's own connection
+      // (#788).
       getState: vi.fn(() => ({
         selectedConnectionId: "conn-1",
+        activeConnections: [{ id: "conn-1" }],
       })),
     },
   ),
@@ -310,13 +313,14 @@ describe("SQLEditor (browser)", () => {
     });
     const action = m.capturedActions.find((a) => a.id === "explain-analyze")!;
     // Monaco hands the editor to run(); with an empty selection the action
-    // should fall back to the whole model's SQL.
+    // explains the statement at the cursor (#846), here the only one.
     await action.run({
       getModel: () => ({
         getValue: () => "SELECT 1",
         getValueInRange: () => "SELECT 1 FROM users",
       }),
       getSelection: () => ({ isEmpty: () => true }),
+      getPosition: () => ({ lineNumber: 1, column: 1 }),
     });
     // No format of its own (the store's default), and the active query tab's
     // id as its session, so the plan sees what that tab set up (#731).

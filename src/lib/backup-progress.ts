@@ -39,16 +39,38 @@ export function formatRate(rowsPerSecond: number | null): string | null {
 }
 
 /**
+ * How far through the whole backup it is, from 0 to 1.
+ *
+ * `currentTable` is 1-based and counts the table in progress, so dividing it
+ * by the total put a one-table backup at 100% before a row was read (#811).
+ * Tables already finished count whole; the one in progress counts by its rows
+ * against the server's estimate, and as nothing when there is no estimate.
+ *
+ * `rowsExported` is the total over every table so far, so `tableStartRows`
+ * says where the current table's rows began.
+ */
+export function backupFraction(progress: BackupProgress, tableStartRows = 0): number {
+  const { currentTable, totalTables, rowsExported, estimatedRows } = progress;
+  if (totalTables <= 0) return 0;
+  const finished = Math.max(0, currentTable - 1);
+  const inTable = Math.max(0, rowsExported - tableStartRows);
+  const partial = estimatedRows && estimatedRows > 0
+    ? Math.min(1, inTable / estimatedRows)
+    : 0;
+  return Math.min(1, (finished + partial) / totalTables);
+}
+
+/**
  * How long the current table has left, from the server's row estimate.
  *
  * Null rather than a guess when there is nothing to divide by. An estimate
  * that is wrong in the first second is worse than no estimate: people stop
- * believing the next one.
+ * believing the next one. `tableStartRows` is as for `backupFraction`.
  */
-export function formatRemaining(progress: BackupProgress): string | null {
+export function formatRemaining(progress: BackupProgress, tableStartRows = 0): string | null {
   const { estimatedRows, rowsExported, rowsPerSecond } = progress;
   if (!estimatedRows || !rowsPerSecond || rowsPerSecond <= 0) return null;
-  const left = estimatedRows - rowsExported;
+  const left = estimatedRows - Math.max(0, rowsExported - tableStartRows);
   // The estimate is `information_schema`'s, which for InnoDB is a sample and
   // can be under the real count. Past it, say nothing rather than "-3s".
   if (left <= 0) return null;
