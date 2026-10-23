@@ -539,6 +539,7 @@ describe("Sidebar (browser)", () => {
         database: "testdb",
         objectName: "before_insert_users",
         objectType: "TRIGGER",
+        profileId: "p1",
       });
       expect(resultStore.executeQuery).not.toHaveBeenCalled();
     });

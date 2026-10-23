@@ -147,6 +147,7 @@ let connectionState = {
   activeConnections: [] as any[],
   disconnect: vi.fn(),
   profiles: [] as any[],
+  connecting: [] as string[],
 };
 
 vi.mock("../../../stores/connectionStore", () => ({
@@ -205,6 +206,7 @@ describe("AppLayout", () => {
       activeConnections: [],
       disconnect: vi.fn(),
       profiles: [],
+      connecting: [],
     };
     resultState = {
       confirmDialog: null,

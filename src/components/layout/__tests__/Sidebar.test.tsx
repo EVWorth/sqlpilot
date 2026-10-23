@@ -474,6 +474,7 @@ describe("Sidebar", () => {
         database: "testdb",
         objectName: "trg_insert",
         objectType: "TRIGGER",
+        profileId: "p1",
       });
       expect(resultStore.executeQuery).not.toHaveBeenCalled();
     });

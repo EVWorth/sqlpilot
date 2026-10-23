@@ -130,6 +130,7 @@ let connectionState = {
   activeConnections: [] as Array<{ id: string; profile_id: string; host: string; port: number; database?: string }>,
   disconnect: vi.fn(),
   profiles: [] as any[],
+  connecting: [] as string[],
 };
 
 let resultState = {
@@ -177,6 +178,7 @@ describe("AppLayout (browser)", () => {
       activeConnections: [],
       disconnect: vi.fn(),
       profiles: [],
+      connecting: [],
     };
     resultState = {
       confirmDialog: null,
