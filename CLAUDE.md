@@ -287,7 +287,6 @@ Linux deps, re-tag protocol.
   `src-tauri/target/debug/deps`, and run with `CARGO_INCREMENTAL=0`.
 - Docker doesn't survive a container restart. Start `dockerd`, then
   `just db-up`.
-- `src/__tests__/main.test.tsx` times out in the container but passes in CI.
 - Parallel subagents each get their own `git worktree`. Tell them never to
   use `git stash`: the stash list is shared by every worktree, so one agent's
   `stash pop` takes another agent's changes. To test that a fix is needed,

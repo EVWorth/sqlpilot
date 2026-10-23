@@ -17,6 +17,14 @@ vi.mock("monaco-editor", () => ({
   default: { languages: {}, editor: {} },
 }));
 
+// main.tsx imports Monaco by these deep paths, not the barrel above. Left
+// real, they load the whole editor into jsdom, which takes most of the
+// hook's 10 s and times it out on a slow runner.
+vi.mock("monaco-editor/esm/vs/editor/editor.all.js", () => ({}));
+vi.mock("monaco-editor/esm/vs/editor/editor.api.js", () => ({ languages: {}, editor: {} }));
+vi.mock("monaco-editor/esm/vs/basic-languages/sql/sql.contribution.js", () => ({}));
+vi.mock("monaco-editor/esm/vs/basic-languages/mysql/mysql.contribution.js", () => ({}));
+
 vi.mock("monaco-editor/esm/vs/editor/editor.worker?worker", () => ({
   default: class {},
 }));
