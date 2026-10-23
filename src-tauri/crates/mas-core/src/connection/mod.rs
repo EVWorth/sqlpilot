@@ -206,13 +206,16 @@ pub fn test_connection_success_message(server_version: &str) -> String {
 /// be MySQL and keeps its version as reported, distro suffix and all.
 pub fn describe_server_version(version: &str) -> String {
     let version = version.trim();
-    match version.to_lowercase().find("-mariadb") {
+    // ASCII-only lowering keeps byte offsets, so `at` can slice `version`.
+    // `to_lowercase` can change a non-ASCII string's length and panic here.
+    let lowered = version.to_ascii_lowercase();
+    match lowered.find("-mariadb") {
         Some(at) => {
             let number = &version[..at];
             let number = number.strip_prefix("5.5.5-").unwrap_or(number);
             format!("MariaDB {number}")
         }
-        None if version.to_lowercase().contains("mariadb") => format!("MariaDB {version}"),
+        None if lowered.contains("mariadb") => format!("MariaDB {version}"),
         None => format!("MySQL {version}"),
     }
 }
@@ -443,6 +446,12 @@ mod tests {
         assert_eq!(
             test_connection_success_message("8.0.39-0ubuntu0.22.04.1"),
             "Connected to MySQL 8.0.39-0ubuntu0.22.04.1"
+        );
+        // Lowercasing "İ" grows it by a byte; slicing the original at the
+        // lowered string's offset kept the dash ("MariaDB 10İ-").
+        assert_eq!(
+            test_connection_success_message("10İ-MariaDB"),
+            "Connected to MariaDB 10İ"
         );
     }
 
