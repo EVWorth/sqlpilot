@@ -22,6 +22,7 @@ import { schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
+import { RowLimitInput } from "./RowLimitInput";
 
 export function QueryToolbar() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -329,21 +330,13 @@ function RowLimit() {
         LIMIT
       </button>
       {limitEnabled && (
-        <input
-          type="number"
+        <RowLimitInput
           value={maxResultRows}
-          onChange={(e) => {
-            const val = parseInt(e.target.value, 10);
-            if (val > 0 && val <= 100000) {
-              setQuerySettings({
-                ...useSettingsStore.getState().querySettings,
-                maxResultRows: val,
-              });
-            }
-          }}
-          min={1}
-          max={100000}
-          className="min-h-6 w-16 rounded border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-xs text-[var(--color-text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--color-accent)]"
+          onChange={(val) =>
+            setQuerySettings({
+              ...useSettingsStore.getState().querySettings,
+              maxResultRows: val,
+            })}
         />
       )}
     </div>
