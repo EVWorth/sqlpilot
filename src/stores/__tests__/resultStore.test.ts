@@ -21,6 +21,7 @@ vi.mock("../../lib/tauri-api", () => ({
     executeQuery: executeQueryMock,
     explainQuery: explainQueryMock,
     cancelQuery: cancelQueryMock,
+    closeSession: vi.fn().mockResolvedValue(undefined),
   },
   // Stands in for the real class so `instanceof` in the store resolves against
   // the same constructor the tests throw.
@@ -57,7 +58,8 @@ vi.mock("../settingsStore", () => ({
   },
 }));
 
-import type { QueryResult } from "../../types";
+import type { EditorTab, QueryResult } from "../../types";
+import { useEditorStore } from "../editorStore";
 import { useResultStore } from "../resultStore";
 
 function makeExplainResponse(overrides: Partial<any> = {}) {
@@ -465,7 +467,7 @@ describe("resultStore", () => {
 
       expect(executeQueryMock).not.toHaveBeenCalled();
       const dialog = useResultStore.getState().confirmDialog;
-      expect(dialog).toEqual({
+      expect(dialog).toMatchObject({
         isOpen: true,
         kind: "query",
         connectionId: "conn-1",
@@ -485,7 +487,7 @@ describe("resultStore", () => {
       await useResultStore.getState().executeQuery("conn-1", "DELETE FROM users", "mydb");
 
       const dialog = useResultStore.getState().confirmDialog;
-      expect(dialog).toEqual({
+      expect(dialog).toMatchObject({
         isOpen: true,
         kind: "query",
         connectionId: "conn-1",
@@ -1192,13 +1194,29 @@ describe("per-tab results", () => {
       resultSource: null,
       confirmDialog: null,
       viewTabId: null,
+      runTabId: null,
       parked: {},
+      explainResult: null,
+      explainRequest: null,
+      showExplain: false,
     });
     connectionStoreState = {
       activeConnections: [{ id: "conn-1", profile_id: "p1", name: "Test DB" }],
       profiles: [{ id: "p1", environment: "development" }],
     };
     useResultStore.getState().showTab("tab-1");
+  });
+
+  const queryTab = (id: string): EditorTab => ({ id, title: id, content: "", type: "query", isDirty: false });
+  const designerTab = (id: string): EditorTab => ({
+    id,
+    title: id,
+    content: "",
+    type: "designer",
+    connectionId: "conn-1",
+    database: "shop",
+    tableName: "orders",
+    isDirty: false,
   });
 
   it("shows each tab its own results, and a fresh tab the empty state", async () => {
@@ -1266,5 +1284,144 @@ describe("per-tab results", () => {
 
     expect(useResultStore.getState().results).toEqual([]);
     expect(useResultStore.getState().resultSource).toBeNull();
+  });
+
+  it("follows the editor's active tab as soon as it changes", async () => {
+    // Show DDL opens a tab and runs in it in one go. Following the tab in an
+    // effect after render filed the run under the tab shown before.
+    useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
+    const ddl = makeQueryResult({ sql: "SHOW CREATE TABLE t" });
+    executeQueryMock.mockResolvedValueOnce([ddl]);
+
+    const opened = useEditorStore.getState().addTab();
+    await useResultStore.getState().executeQuery("conn-1", "SHOW CREATE TABLE t");
+
+    expect(useResultStore.getState().viewTabId).toBe(opened);
+    expect(useResultStore.getState().results).toEqual([ddl]);
+    useEditorStore.getState().setActiveTab("query-a");
+    expect(useResultStore.getState().results).toEqual([]);
+  });
+
+  it("files a run with no session under the last query tab, not a designer tab", async () => {
+    // A designer tab has no results pane; what the schema tree or the
+    // designer runs belongs in the query tab the user last looked at.
+    useEditorStore.setState({ tabs: [queryTab("query-a"), designerTab("designer-d")], activeTabId: "query-a" });
+    useEditorStore.getState().setActiveTab("designer-d");
+    const rows = makeQueryResult({ sql: "SELECT * FROM orders" });
+    executeQueryMock.mockResolvedValueOnce([rows]);
+
+    await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders");
+
+    expect(useResultStore.getState().results).toEqual([]);
+    useEditorStore.getState().setActiveTab("query-a");
+    expect(useResultStore.getState().results).toEqual([rows]);
+  });
+
+  it("runs a confirmed statement into the tab it was asked in", async () => {
+    connectionStoreState.profiles = [{ id: "p1", environment: "production" }];
+    useEditorStore.setState({ tabs: [queryTab("query-a"), queryTab("query-b")], activeTabId: "query-a" });
+    await useResultStore.getState().executeQuery("conn-1", "DELETE FROM orders");
+    useEditorStore.getState().setActiveTab("query-b");
+    const deleted = makeQueryResult({ sql: "DELETE FROM orders", rows: [] });
+    executeQueryMock.mockResolvedValueOnce([deleted]);
+
+    await useResultStore.getState().confirmExecution();
+
+    expect(useResultStore.getState().results).toEqual([]);
+    useEditorStore.getState().setActiveTab("query-a");
+    expect(useResultStore.getState().results).toEqual([deleted]);
+  });
+
+  it("returns the run's own outcome, not the shown tab's error", async () => {
+    // The designer and the routine viewer read `error` after awaiting; after
+    // a tab switch mid-run that was another tab's.
+    useEditorStore.setState({ tabs: [queryTab("query-a"), queryTab("query-b")], activeTabId: "query-a" });
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const pending = useResultStore.getState().executeQuery("conn-1", "ALTER TABLE t ADD c INT");
+    useEditorStore.getState().setActiveTab("query-b");
+    useResultStore.setState({ error: "tab 2's own failure" });
+
+    const ddl = makeQueryResult({ sql: "ALTER TABLE t ADD c INT", rows: [] });
+    slow.resolve([ddl]);
+
+    await expect(pending).resolves.toEqual({ status: "succeeded", results: [ddl] });
+  });
+
+  it("reports a failure as the outcome even when the tab is not shown", async () => {
+    useEditorStore.setState({ tabs: [queryTab("query-a"), queryTab("query-b")], activeTabId: "query-a" });
+    executeQueryMock.mockRejectedValueOnce(new Error("Duplicate column name 'c'"));
+    const pending = useResultStore.getState().executeQuery("conn-1", "ALTER TABLE t ADD c INT");
+    useEditorStore.getState().setActiveTab("query-b");
+
+    await expect(pending).resolves.toEqual({ status: "failed", error: "Error: Duplicate column name 'c'" });
+    expect(useResultStore.getState().error).toBeNull();
+  });
+
+  it("records a statement whose tab closed while it ran", async () => {
+    // It ran, and may have written; dropping it from history because nobody
+    // was left to show it to hid that.
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const pending = useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
+    useResultStore.getState().showTab("tab-2");
+    useResultStore.getState().forgetTabs(["tab-2"]);
+
+    slow.resolve([makeQueryResult({ sql: "UPDATE t SET a = 1", rows: [] })]);
+    await pending;
+
+    expect(addEntryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sql: "UPDATE t SET a = 1", status: "success" }),
+    );
+    expect(useResultStore.getState().parked).toEqual({});
+  });
+
+  it("records a failure whose tab closed while it ran", async () => {
+    let reject!: (e: unknown) => void;
+    executeQueryMock.mockReturnValueOnce(new Promise((_, rej) => (reject = rej)));
+    const pending = useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
+    useResultStore.getState().showTab("tab-2");
+    useResultStore.getState().forgetTabs(["tab-2"]);
+
+    reject(new Error("Lock wait timeout exceeded"));
+    await pending;
+
+    expect(addEntryMock).toHaveBeenCalledWith(
+      expect.objectContaining({ sql: "UPDATE t SET a = 1", status: "error" }),
+    );
+  });
+
+  it("still keeps a cancelled run's interrupt error out of history", async () => {
+    let reject!: (e: unknown) => void;
+    executeQueryMock.mockReturnValueOnce(new Promise((_, rej) => (reject = rej)));
+    const pending = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "tab-1");
+    await useResultStore.getState().cancelActiveQuery();
+
+    reject(new Error("Query execution was interrupted"));
+
+    await expect(pending).resolves.toEqual({ status: "cancelled" });
+    expect(addEntryMock).not.toHaveBeenCalled();
+  });
+
+  it("clears a plan read on another connection along with the grid", () => {
+    useResultStore.setState({
+      explainResult: makeQueryResult({ query_id: "plan" }),
+      explainRequest: { connectionId: "conn-1", sql: "SELECT 1", analyze: false },
+      showExplain: true,
+    });
+
+    useResultStore.getState().dropForeignResults("conn-2");
+
+    expect(useResultStore.getState().explainResult).toBeNull();
+    expect(useResultStore.getState().showExplain).toBe(false);
+  });
+
+  it("keeps what was read on the tab's own connection", async () => {
+    executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+    useResultStore.getState().dropForeignResults("conn-1");
+
+    expect(useResultStore.getState().results).toHaveLength(1);
   });
 });

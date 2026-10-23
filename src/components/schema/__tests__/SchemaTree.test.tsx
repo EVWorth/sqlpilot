@@ -11,6 +11,8 @@ vi.mock("../../../lib/tauri-api", () => ({
     getRoutines: vi.fn(),
     getTriggers: vi.fn(),
     getEvents: vi.fn(),
+    executeQuery: vi.fn(async () => []),
+    closeSession: vi.fn(async () => undefined),
   },
 }));
 
@@ -38,6 +40,7 @@ vi.mock("../../../lib/run-statement", () => ({
 
 vi.mock("../../../stores/productionGuardStore", () => ({
   confirmDestructive: vi.fn(async () => true),
+  isProductionConnection: vi.fn(() => false),
 }));
 
 import { runStatement } from "../../../lib/run-statement";
@@ -645,6 +648,34 @@ describe("SchemaTree menus (#293)", () => {
     "Drop Table",
   ])("offers %s on a table", async (label) => {
     expect(item(await openTableMenu(), label)).toBeDefined();
+  });
+
+  it("shows the DDL in the tab it opens, not the one shown before", async () => {
+    // #842: the run was filed under the tab shown when it started, which was
+    // still the old one, so the new tab came up empty and the old one showed
+    // the DDL.
+    setupStores({ activeTabId: "tab-a" });
+    const stats = {
+      query_id: "s",
+      statement_index: 0,
+      sql: "SELECT ...",
+      columns: [],
+      rows: [["app_db"]],
+      rows_affected: 0,
+      execution_time_ms: 1,
+      warnings: [],
+    };
+    vi.mocked(api.executeQuery).mockResolvedValueOnce([stats] as never);
+
+    item(await openDatabaseMenu(), "Statistics")?.onClick?.();
+
+    const newTab = useEditorStore.getState().activeTabId;
+    expect(newTab).not.toBe("tab-a");
+    await waitFor(() => expect(useResultStore.getState().results).toEqual([stats]));
+    expect(useResultStore.getState().viewTabId).toBe(newTab);
+
+    useEditorStore.getState().setActiveTab("tab-a");
+    expect(useResultStore.getState().results).toEqual([]);
   });
 
   it.each([
