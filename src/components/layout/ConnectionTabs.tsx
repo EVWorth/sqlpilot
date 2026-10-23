@@ -1,6 +1,7 @@
 import { Copy, Database, FileText, Loader2, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { CONNECT_PROFILE_EVENT, NEW_CONNECTION_EVENT } from "../../lib/connect-request";
 import { cn } from "../../lib/utils";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -160,8 +161,21 @@ export function ConnectionTabs() {
   // Listen for "open-new-connection" from menu bar
   useEffect(() => {
     const handler = () => openNew();
-    window.addEventListener("open-new-connection", handler);
-    return () => window.removeEventListener("open-new-connection", handler);
+    window.addEventListener(NEW_CONNECTION_EVENT, handler);
+    return () => window.removeEventListener(NEW_CONNECTION_EVENT, handler);
+  }, []);
+
+  // A connect asked for elsewhere — the menu bar, the palette, the sidebar —
+  // runs through the same flow as one from the `+` menu (#817). Through a ref,
+  // so the listener always calls this render's handler.
+  const connectProfileRef = useRef<(profileId: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const profileId = (e as CustomEvent<string>).detail;
+      if (typeof profileId === "string") void connectProfileRef.current(profileId);
+    };
+    window.addEventListener(CONNECT_PROFILE_EVENT, handler);
+    return () => window.removeEventListener(CONNECT_PROFILE_EVENT, handler);
   }, []);
 
   // Close popover on outside click
@@ -204,6 +218,8 @@ export function ConnectionTabs() {
       // Error is captured in connectionStore.error and shown in StatusBar
     }
   };
+
+  connectProfileRef.current = handleConnectProfile;
 
   return (
     <div className="relative flex h-9 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-1">
@@ -421,10 +437,14 @@ export function ConnectionTabs() {
         <button
           ref={addButtonRef}
           onClick={togglePopover}
-          className="flex h-6 w-6 items-center justify-center rounded text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+          className="flex h-7 items-center gap-1 rounded px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
           title="Connect to a server"
+          aria-haspopup="menu"
+          aria-expanded={popoverOpen}
         >
           <Plus className="h-3.5 w-3.5" />
+          {/* A visible word, not just a 24px "+" (#817). */}
+          Connect
         </button>
 
         {popoverOpen && (

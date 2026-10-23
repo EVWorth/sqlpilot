@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type Action, runAction, search } from "../../lib/actions";
+import { type Action, ACTIONS, profileActions, runAction, search } from "../../lib/actions";
+import { useConnectionStore } from "../../stores/connectionStore";
 import { Modal } from "./Modal";
 
 /**
@@ -40,7 +41,23 @@ export function CommandPalette({ isOpen, onOpen, onClose }: CommandPaletteProps)
   const input = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
 
-  const matches = useMemo(() => search(query), [query]);
+  const profiles = useConnectionStore((s) => s.profiles);
+  const activeConnections = useConnectionStore((s) => s.activeConnections);
+
+  /**
+   * The fixed actions plus "Connect: <name>" per saved profile not already
+   * open, and no "Disconnect" when there is nothing to disconnect — it used
+   * to be the first answer to "conn" on a fresh start (#817).
+   */
+  const actions = useMemo(() => {
+    const open = new Set(activeConnections.map((c) => c.profile_id));
+    return [
+      ...ACTIONS.filter((action) => action.id !== "disconnect" || activeConnections.length > 0),
+      ...profileActions(profiles.filter((p) => !open.has(p.id))),
+    ];
+  }, [profiles, activeConnections]);
+
+  const matches = useMemo(() => search(query, actions), [query, actions]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {

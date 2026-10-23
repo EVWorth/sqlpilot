@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useState } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useConnectionStore } from "../../../stores/connectionStore";
 import { CommandPalette } from "../CommandPalette";
 
 /**
@@ -169,5 +170,54 @@ describe("CommandPalette", () => {
     openPalette();
     type("new query");
     expect(screen.getAllByRole("option")[0].textContent).toContain("Ctrl+T");
+  });
+});
+
+describe("saved profiles in the palette (#817)", () => {
+  const staging = {
+    id: "p-stg",
+    name: "Staging",
+    host: "stg",
+    port: 3306,
+    username: "app",
+    pool_min: 1,
+    pool_max: 5,
+    read_only: false,
+    created_at: "2026-01-01T00:00:00Z",
+    updated_at: "2026-01-01T00:00:00Z",
+  } as never;
+
+  beforeEach(() => {
+    useConnectionStore.setState({ profiles: [staging], activeConnections: [] });
+  });
+
+  it("lists \"Connect: <name>\" first for \"conn\" and runs it", async () => {
+    const seen = listenForActions();
+    render(<Host />);
+    openPalette();
+    type("conn");
+
+    const options = screen.getAllByRole("option");
+    expect(options[0]).toHaveTextContent("Connect: Staging");
+    fireEvent.click(options[0]);
+    await waitFor(() => expect(seen).toContain("connect:p-stg"));
+  });
+
+  it("does not offer Disconnect when nothing is connected", () => {
+    render(<Host />);
+    openPalette();
+    type("disconnect");
+    expect(screen.queryByRole("option", { name: /^Connection\s*Disconnect/ })).toBeNull();
+  });
+
+  it("drops a profile that is already open", () => {
+    useConnectionStore.setState({
+      activeConnections: [{ id: "c1", profile_id: "p-stg" }] as never,
+    });
+    render(<Host />);
+    openPalette();
+    type("staging");
+    expect(screen.queryByText("Connect: Staging")).toBeNull();
+    useConnectionStore.setState({ activeConnections: [] });
   });
 });

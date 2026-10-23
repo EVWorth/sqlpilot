@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { actionById, ACTIONS, MENUS, score, search } from "../actions";
+import { actionById, ACTIONS, connectTarget, MENUS, profileActions, score, search } from "../actions";
 
 /**
  * The registry has to stay honest about three things: that every action it
@@ -114,5 +114,34 @@ describe("searching", () => {
     // the bottom of the list instead of leaving them out.
     const action = ACTIONS.find((a) => a.id === "quit")!;
     expect(score(action, "zzzz")).toBeNull();
+  });
+});
+
+describe("connecting to a saved profile (#817)", () => {
+  const profiles = [
+    { id: "p-stg", name: "Staging", host: "stg.internal", username: "app" },
+    { id: "p-local", name: "", host: "localhost" },
+  ];
+
+  it("offers one action per profile, routed by its id", () => {
+    const actions = profileActions(profiles);
+    expect(actions.map((a) => a.label)).toEqual(["Connect: Staging", "Connect: localhost"]);
+    expect(actions.every((a) => a.category === "Connection")).toBe(true);
+    expect(actions.map((a) => connectTarget(a.id))).toEqual(["p-stg", "p-local"]);
+    expect(connectTarget("disconnect")).toBeUndefined();
+  });
+
+  it("ranks the profiles first for \"conn\"", () => {
+    const results = search("conn", [...ACTIONS, ...profileActions(profiles)]);
+    expect(results[0].label).toMatch(/^Connect: /);
+  });
+
+  it("finds a profile by its host", () => {
+    expect(search("stg.internal", profileActions(profiles))[0].label).toBe("Connect: Staging");
+  });
+
+  it("puts a Connect to submenu in the Connection menu", () => {
+    const connection = MENUS.find((m) => m.label === "Connection");
+    expect(connection?.entries).toContainEqual({ type: "connect-to" });
   });
 });

@@ -16,6 +16,7 @@ const sidebarState = {
     environment?: string;
   }>,
   selectedConnectionId: null as string | null,
+  connecting: [] as string[],
 };
 
 const editorState = {
@@ -156,8 +157,15 @@ describe("Sidebar (browser)", () => {
 
   // ─── No connection state ───
   it("shows 'No connection selected' when no connection", () => {
+    sidebarState.profiles = [{ id: "p1", name: "Local" }];
     render(<Sidebar />);
     expect(screen.getByText("No connection selected")).toBeInTheDocument();
+    expect(screen.getByLabelText("Connect to Local")).toBeInTheDocument();
+  });
+
+  it("prompts for a first connection when nothing is saved (#817)", () => {
+    render(<Sidebar />);
+    expect(screen.getByText("Create your first connection")).toBeInTheDocument();
   });
 
   it("renders Favorites and History section buttons", () => {

@@ -420,3 +420,22 @@ describe("a failed connect (#804)", () => {
     expect(screen.queryByTestId("connect-failure")).toBeNull();
   });
 });
+
+describe("connecting from elsewhere (#817)", () => {
+  it("labels the connect button with a word, not only a +", () => {
+    render(<ConnectionTabs />);
+    expect(screen.getByTitle("Connect to a server")).toHaveTextContent("Connect");
+  });
+
+  it("connects when the menu bar, palette or sidebar asks", async () => {
+    const connect = vi.fn().mockResolvedValue({ id: "c2", profile_id: "p2", database: null });
+    storeState = { profiles: [{ id: "p2", name: "Staging", host: "stg" }], connect };
+    render(<ConnectionTabs />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("connect-profile", { detail: "p2" }));
+    });
+
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledWith("p2"));
+  });
+});
