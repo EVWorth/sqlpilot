@@ -25,8 +25,14 @@ interface ConnectionState {
    * reading it painted every tab "Connecting" for any of them (#799).
    */
   connecting: string[];
-  /** Profiles whose in-flight connect the user cancelled. */
-  cancelledConnects: string[];
+  /**
+   * The attempt token of each profile's in-flight connect. Per attempt, not
+   * per profile: after a cancel the user can connect again while the
+   * cancelled attempt is still running, and the two must not be confused.
+   */
+  connectAttempts: Record<string, number>;
+  /** Attempt tokens of in-flight connects the user cancelled. */
+  cancelledConnects: number[];
 
   loadProfiles: () => Promise<void>;
   saveProfile: (profile: ConnectionProfileInput) => Promise<void>;
@@ -39,6 +45,14 @@ interface ConnectionState {
   clearError: () => void;
 }
 
+/** Source of attempt tokens; only ever compared for equality. */
+let nextConnectAttempt = 0;
+
+/** `attempts` without `profileId`'s entry. */
+function withoutAttempt(attempts: Record<string, number>, profileId: string): Record<string, number> {
+  return Object.fromEntries(Object.entries(attempts).filter(([id]) => id !== profileId));
+}
+
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
   profiles: [],
   activeConnections: [],
@@ -48,6 +62,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   failedProfileId: null,
   pendingDisconnects: [],
   connecting: [],
+  connectAttempts: {},
   cancelledConnects: [],
 
   loadProfiles: async () => {
@@ -83,19 +98,32 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   connect: async (profileId) => {
+    const attempt = ++nextConnectAttempt;
     set((state) => ({
       error: null,
       failedProfileId: null,
       connecting: state.connecting.includes(profileId)
         ? state.connecting
         : [...state.connecting, profileId],
+      connectAttempts: { ...state.connectAttempts, [profileId]: attempt },
     }));
-    const settle = () => set((state) => ({ connecting: state.connecting.filter((id) => id !== profileId) }));
-    /** Whether the user cancelled this connect; consumes the request. */
+    /**
+     * This attempt is over. Only clears the placeholder if it is still this
+     * attempt's: a cancelled attempt finishing late must not remove a retry's.
+     */
+    const settle = () =>
+      set((state) => {
+        if (state.connectAttempts[profileId] !== attempt) return {};
+        return {
+          connecting: state.connecting.filter((id) => id !== profileId),
+          connectAttempts: withoutAttempt(state.connectAttempts, profileId),
+        };
+      });
+    /** Whether the user cancelled this attempt; consumes the request. */
     const takeCancel = () => {
-      if (!get().cancelledConnects.includes(profileId)) return false;
+      if (!get().cancelledConnects.includes(attempt)) return false;
       set((state) => ({
-        cancelledConnects: state.cancelledConnects.filter((id) => id !== profileId),
+        cancelledConnects: state.cancelledConnects.filter((t) => t !== attempt),
       }));
       return true;
     };
@@ -140,12 +168,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   cancelConnect: (profileId) => {
-    if (!get().connecting.includes(profileId)) return;
+    const attempt = get().connectAttempts[profileId];
+    if (attempt === undefined || !get().connecting.includes(profileId)) return;
     set((state) => ({
       connecting: state.connecting.filter((id) => id !== profileId),
-      cancelledConnects: state.cancelledConnects.includes(profileId)
-        ? state.cancelledConnects
-        : [...state.cancelledConnects, profileId],
+      connectAttempts: withoutAttempt(state.connectAttempts, profileId),
+      cancelledConnects: [...state.cancelledConnects, attempt],
     }));
   },
 

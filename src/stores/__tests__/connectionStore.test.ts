@@ -71,6 +71,7 @@ describe("connectionStore", () => {
       error: null,
       pendingDisconnects: [],
       connecting: [],
+      connectAttempts: {},
       cancelledConnects: [],
       failedProfileId: null,
     });
@@ -249,6 +250,54 @@ describe("connectionStore", () => {
       expect(state.activeConnections).toEqual([]);
       expect(state.cancelledConnects).toEqual([]);
       expect(state.error).toBeNull();
+    });
+
+    it("keeps a retry made after a cancel, and closes the cancelled attempt", async () => {
+      const cancelled = deferred<ConnectionInfo>();
+      const retry = deferred<ConnectionInfo>();
+      vi.mocked(api.connect)
+        .mockReturnValueOnce(cancelled.promise)
+        .mockReturnValueOnce(retry.promise);
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+      const oldConn = { ...mockConnectionInfo, id: "conn-old" };
+      const newConn = { ...mockConnectionInfo, id: "conn-new" };
+
+      const first = useConnectionStore.getState().connect("profile-1");
+      useConnectionStore.getState().cancelConnect("profile-1");
+      const second = useConnectionStore.getState().connect("profile-1");
+
+      // The retry lands first: it is the one the user is waiting for.
+      retry.resolve(newConn);
+      await expect(second).resolves.toEqual(newConn);
+      cancelled.resolve(oldConn);
+      await expect(first).rejects.toThrow(/cancelled/i);
+
+      const state = useConnectionStore.getState();
+      expect(state.activeConnections.map((c) => c.id)).toEqual(["conn-new"]);
+      expect(api.disconnect).toHaveBeenCalledWith("conn-old");
+      expect(api.disconnect).not.toHaveBeenCalledWith("conn-new");
+      expect(state.cancelledConnects).toEqual([]);
+    });
+
+    it("keeps a retry's placeholder when the cancelled attempt finishes", async () => {
+      const cancelled = deferred<ConnectionInfo>();
+      const retry = deferred<ConnectionInfo>();
+      vi.mocked(api.connect)
+        .mockReturnValueOnce(cancelled.promise)
+        .mockReturnValueOnce(retry.promise);
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+
+      const first = useConnectionStore.getState().connect("profile-1");
+      useConnectionStore.getState().cancelConnect("profile-1");
+      const second = useConnectionStore.getState().connect("profile-1");
+
+      cancelled.resolve({ ...mockConnectionInfo, id: "conn-old" });
+      await expect(first).rejects.toThrow(/cancelled/i);
+      expect(useConnectionStore.getState().connecting).toEqual(["profile-1"]);
+
+      retry.resolve(mockConnectionInfo);
+      await second;
+      expect(useConnectionStore.getState().connecting).toEqual([]);
     });
 
     it("does not report the failure of a cancelled connect (#799)", async () => {
