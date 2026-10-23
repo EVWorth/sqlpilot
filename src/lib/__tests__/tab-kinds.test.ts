@@ -14,6 +14,7 @@ const PARAMS: { [K in keyof TabParams]: TabParams[K] } = {
     routineType: "PROCEDURE",
   },
   designer: { connectionId: "c1", database: "shop", tableName: "orders" },
+  ddl: { connectionId: "c1", database: "shop", objectName: "orders", objectType: "TABLE" },
 };
 
 describe("tab-kinds (#286)", () => {
@@ -39,7 +40,7 @@ describe("tab-kinds (#286)", () => {
   describe("finding an open tab", () => {
     const open = (kind: keyof TabParams) => buildTab("existing", kind, PARAMS[kind] as never);
 
-    it.each(["structure", "admin", "routine", "designer"] as const)(
+    it.each(["structure", "admin", "routine", "designer", "ddl"] as const)(
       "%s reopens the tab already showing it",
       (kind) => {
         const tabs = [open(kind)];
@@ -76,6 +77,12 @@ describe("tab-kinds (#286)", () => {
       const tabs = [open("routine")];
       expect(findOpenTab(tabs, "routine", { ...PARAMS.routine, routineType: "FUNCTION" }))
         .toBeUndefined();
+    });
+
+    it("tells a table's DDL from a trigger's of the same name (#800)", () => {
+      const tabs = [open("ddl")];
+      expect(findOpenTab(tabs, "ddl", { ...PARAMS.ddl, objectType: "TRIGGER" })).toBeUndefined();
+      expect(findOpenTab(tabs, "structure", PARAMS.structure)).toBeUndefined();
     });
 
     it("keeps one admin tab per connection, whatever else is open", () => {
@@ -117,6 +124,10 @@ describe("tab-kinds (#286)", () => {
       expect(fn).toContain("recalc");
     });
 
+    it("names a DDL tab after its object (#800)", () => {
+      expect(buildTab("t", "ddl", PARAMS.ddl).title).toContain("orders");
+    });
+
     it("says a designer tab with no table is a new one", () => {
       expect(buildTab("t", "designer", { connectionId: "c1", database: "shop" }).title)
         .toContain("New Table");
@@ -125,7 +136,7 @@ describe("tab-kinds (#286)", () => {
 
   it("lists every kind, so adding one without a spec fails here", () => {
     expect(TAB_KINDS.sort()).toEqual(
-      ["admin", "designer", "query", "routine", "structure"],
+      ["admin", "ddl", "designer", "query", "routine", "structure"],
     );
   });
 });

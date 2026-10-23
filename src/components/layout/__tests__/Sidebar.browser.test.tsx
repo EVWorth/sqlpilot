@@ -25,6 +25,7 @@ const editorState = {
   addTab: vi.fn(() => "tab-1"),
   addStructureTab: vi.fn(),
   addRoutineTab: vi.fn(),
+  openTab: vi.fn(() => "tab-2"),
   addDesignerTab: vi.fn(),
   updateTabContent: vi.fn(),
   setTabConnection: vi.fn(),
@@ -145,6 +146,7 @@ describe("Sidebar (browser)", () => {
       addTab: vi.fn(() => "tab-1"),
       addStructureTab: vi.fn(),
       addRoutineTab: vi.fn(),
+      openTab: vi.fn(() => "tab-2"),
       addDesignerTab: vi.fn(),
       updateTabContent: vi.fn(),
       setTabConnection: vi.fn(),
@@ -521,7 +523,7 @@ describe("Sidebar (browser)", () => {
       );
     });
 
-    it("clicking a trigger opens DDL tab with SHOW CREATE TRIGGER", async () => {
+    it("clicking a trigger opens its DDL tab", async () => {
       const user = userEvent.setup();
       render(<Sidebar />);
       await waitFor(() => screen.getByText("testdb"));
@@ -530,15 +532,14 @@ describe("Sidebar (browser)", () => {
       await user.click(screen.getByText("Triggers"));
       await waitFor(() => screen.getByText("before_insert_users"));
       await user.click(screen.getByText("before_insert_users"));
-      expect(editorState.addTab).toHaveBeenCalledWith("conn1", "testdb");
-      expect(editorState.updateTabContent).toHaveBeenCalledWith(
-        "tab-1",
-        "SHOW CREATE TRIGGER `testdb`.`before_insert_users`",
-      );
-      expect(resultStore.executeQuery).toHaveBeenCalledWith(
-        "conn1",
-        "SHOW CREATE TRIGGER `testdb`.`before_insert_users`",
-      );
+      // Its own DDL tab, not a SHOW CREATE run into the grid (#800).
+      expect(editorState.openTab).toHaveBeenCalledWith("ddl", {
+        connectionId: "conn1",
+        database: "testdb",
+        objectName: "before_insert_users",
+        objectType: "TRIGGER",
+      });
+      expect(resultStore.executeQuery).not.toHaveBeenCalled();
     });
 
     // ─── Filter input ───

@@ -639,6 +639,31 @@ describe("SchemaTree menus (#293)", () => {
     expect(item(await openDatabaseMenu(), label)).toBeDefined();
   });
 
+  it("shows a table's DDL in one reused DDL tab, not as a query (#800)", async () => {
+    const executeQuery = vi.fn();
+    useResultStore.setState({ executeQuery } as never);
+    useEditorStore.setState({ tabs: [], activeTabId: null });
+
+    item(await openTableMenu(), "Show DDL")?.onClick?.();
+    shownMenus.length = 0;
+    fireEvent.contextMenu(screen.getByText("users"));
+    item(shownMenus.at(-1) ?? [], "Show DDL")?.onClick?.();
+
+    const { tabs, activeTabId } = useEditorStore.getState();
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]).toMatchObject({
+      type: "ddl",
+      connectionId: "conn-1",
+      database: "app_db",
+      objectName: "users",
+      objectType: "TABLE",
+      isDirty: false,
+    });
+    expect(tabs[0].title).toContain("users");
+    expect(activeTabId).toBe(tabs[0].id);
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
   describe("destructive operations", () => {
     it("asks before truncating, and says it cannot be undone", async () => {
       const menu = await openTableMenu();

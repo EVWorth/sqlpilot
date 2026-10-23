@@ -14,6 +14,7 @@ const editorState = {
   addTab: vi.fn(() => "tab-1"),
   addStructureTab: vi.fn(),
   addRoutineTab: vi.fn(),
+  openTab: vi.fn(() => "tab-2"),
   addDesignerTab: vi.fn(),
   updateTabContent: vi.fn(),
   setTabConnection: vi.fn(),
@@ -120,6 +121,7 @@ describe("Sidebar", () => {
       addTab: vi.fn(() => "tab-1"),
       addStructureTab: vi.fn(),
       addRoutineTab: vi.fn(),
+      openTab: vi.fn(() => "tab-2"),
       addDesignerTab: vi.fn(),
       updateTabContent: vi.fn(),
       setTabConnection: vi.fn(),
@@ -466,15 +468,14 @@ describe("Sidebar", () => {
       await waitFor(() => screen.getByText("trg_insert"));
       fireEvent.click(screen.getByText("trg_insert"));
 
-      expect(editorState.addTab).toHaveBeenCalledWith("conn1", "testdb");
-      expect(editorState.updateTabContent).toHaveBeenCalledWith(
-        "tab-1",
-        "SHOW CREATE TRIGGER `testdb`.`trg_insert`",
-      );
-      expect(resultStore.executeQuery).toHaveBeenCalledWith(
-        "conn1",
-        "SHOW CREATE TRIGGER `testdb`.`trg_insert`",
-      );
+      // Its own DDL tab, not a SHOW CREATE run into the grid (#800).
+      expect(editorState.openTab).toHaveBeenCalledWith("ddl", {
+        connectionId: "conn1",
+        database: "testdb",
+        objectName: "trg_insert",
+        objectType: "TRIGGER",
+      });
+      expect(resultStore.executeQuery).not.toHaveBeenCalled();
     });
 
     it("shows filter input and clears on Escape", async () => {

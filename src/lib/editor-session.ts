@@ -86,6 +86,23 @@ export function parsePersistedTab(raw: unknown): EditorTab | null {
         routineType,
       };
     }
+    case "ddl": {
+      const objectName = str("objectName");
+      const objectType = str("objectType");
+      if (!base.connectionId || !base.database || !objectName) return null;
+      if (
+        objectType !== "TABLE" && objectType !== "VIEW" && objectType !== "PROCEDURE"
+        && objectType !== "FUNCTION" && objectType !== "TRIGGER"
+      ) return null;
+      return {
+        ...base,
+        type: "ddl",
+        connectionId: base.connectionId,
+        database: base.database,
+        objectName,
+        objectType,
+      };
+    }
     default:
       // A kind this build does not know — `compare` was one, before it was
       // cut. Dropping it beats rendering a tab nothing can display.

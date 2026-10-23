@@ -50,6 +50,7 @@ import { confirmDestructive } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
 import { loadKey, type SchemaFolder, schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import type { DdlObjectType } from "../../types";
 import { FolderNode } from "./FolderNode";
 import { HighlightedName } from "./HighlightedName";
 
@@ -98,6 +99,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const addTab = useEditorStore((s) => s.addTab);
   const addStructureTab = useEditorStore((s) => s.addStructureTab);
   const addRoutineTab = useEditorStore((s) => s.addRoutineTab);
+  const openTab = useEditorStore((s) => s.openTab);
   const addDesignerTab = useEditorStore((s) => s.addDesignerTab);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
   const setTabConnection = useEditorStore((s) => s.setTabConnection);
@@ -244,6 +246,16 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     const tabId = addTab(connectionId, dbName);
     updateTabContent(tabId, ddlQuery);
     executeQuery(connectionId, ddlQuery);
+  };
+
+  /**
+   * The object's DDL in its own read-only tab, reused on repeat. Running
+   * `SHOW CREATE` instead left it ellipsized in one grid cell and opened a new
+   * dirty query tab per click (#800). Events have no DDL command yet, so they
+   * still go through `openDdlTab`.
+   */
+  const openDdlView = (dbName: string, objectName: string, objectType: DdlObjectType) => {
+    openTab("ddl", { connectionId, database: dbName, objectName, objectType });
   };
 
   /**
@@ -638,12 +650,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             {
                               label: "Show DDL",
                               icon: <FileText className="h-3.5 w-3.5" />,
-                              onClick: () =>
-                                openDdlTab(
-                                  db.name,
-                                  t.name,
-                                  `SHOW CREATE TABLE \`${db.name}\`.\`${t.name}\``,
-                                ),
+                              onClick: () => openDdlView(db.name, t.name, "TABLE"),
                             },
                             {
                               // Opened rather than run: an INSERT with every
@@ -790,7 +797,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Show DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              openDdlTab(db.name, v.name, `SHOW CREATE VIEW \`${db.name}\`.\`${v.name}\``);
+                              openDdlView(db.name, v.name, "VIEW");
                             },
                           },
                           { separator: true },
@@ -864,7 +871,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "View DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              openDdlTab(db.name, r.name, `SHOW CREATE PROCEDURE \`${db.name}\`.\`${r.name}\``);
+                              openDdlView(db.name, r.name, "PROCEDURE");
                             },
                           },
                           { separator: true },
@@ -940,7 +947,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "View DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              openDdlTab(db.name, r.name, `SHOW CREATE FUNCTION \`${db.name}\`.\`${r.name}\``);
+                              openDdlView(db.name, r.name, "FUNCTION");
                             },
                           },
                           { separator: true },
@@ -995,7 +1002,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       key={t.name}
                       draggable
                       onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${t.name}\``)}
-                      onClick={() => openDdlTab(db.name, t.name, `SHOW CREATE TRIGGER \`${db.name}\`.\`${t.name}\``)}
+                      onClick={() => openDdlView(db.name, t.name, "TRIGGER")}
                       onContextMenu={(e) => {
                         showContextMenu(e, [
                           {
@@ -1009,7 +1016,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Show DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              openDdlTab(db.name, t.name, `SHOW CREATE TRIGGER \`${db.name}\`.\`${t.name}\``);
+                              openDdlView(db.name, t.name, "TRIGGER");
                             },
                           },
                           { separator: true },

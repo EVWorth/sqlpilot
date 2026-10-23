@@ -47,6 +47,14 @@ describe("parsePersistedTab (#449)", () => {
     ).toBeNull();
   });
 
+  it("keeps a DDL tab, and drops one whose object type is unknown (#800)", () => {
+    const ddl = { ...base, type: "ddl", connectionId: "c", database: "d", objectName: "o" };
+    expect(parsePersistedTab({ ...ddl, objectType: "VIEW" }))
+      .toMatchObject({ type: "ddl", objectName: "o", objectType: "VIEW" });
+    expect(parsePersistedTab({ ...ddl, objectType: "EVENT" })).toBeNull();
+    expect(parsePersistedTab({ ...ddl, objectName: undefined, objectType: "VIEW" })).toBeNull();
+  });
+
   it("drops a structure tab with no database", () => {
     expect(
       parsePersistedTab({ ...base, type: "structure", connectionId: "c", tableName: "t" }),
