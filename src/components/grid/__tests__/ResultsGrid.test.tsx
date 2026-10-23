@@ -344,7 +344,26 @@ describe("ResultsGrid", () => {
     state.viewTabId = "tab-1";
     state.results = [{ columns: [], rows: [] }];
     render(<ResultsGrid />);
-    expect(vi.mocked(useGridEditing)).toHaveBeenLastCalledWith({ tab: "tab-1", owner: state.results }, state.results);
+    expect(vi.mocked(useGridEditing)).toHaveBeenLastCalledWith(
+      { tab: "tab-1", owner: state.results[0] },
+      state.results[0],
+    );
+  });
+
+  it("ties its edits to the result set on screen, not the whole run (#869)", () => {
+    // Edits are by row index. Switching to another of the run's result sets
+    // must not carry them over to its rows, so the owner is the set shown.
+    state.viewTabId = "tab-1";
+    const first = { ...baseResult, query_id: "q1" };
+    const second = { ...baseResult, query_id: "q2" };
+    state.results = [first, second];
+    state.activeResultIndex = 0;
+    const { rerender } = render(<ResultsGrid />);
+    expect(vi.mocked(useGridEditing)).toHaveBeenLastCalledWith({ tab: "tab-1", owner: first }, first);
+
+    state.activeResultIndex = 1;
+    rerender(<ResultsGrid />);
+    expect(vi.mocked(useGridEditing)).toHaveBeenLastCalledWith({ tab: "tab-1", owner: second }, second);
   });
 
   it("says so when new results dropped unsaved edits (#865)", () => {

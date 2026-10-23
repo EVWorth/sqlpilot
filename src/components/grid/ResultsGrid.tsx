@@ -52,7 +52,11 @@ export function ResultsGrid() {
   // column widths — is kept for the tab while it is hidden (#842).
   const viewTabId = useResultStore((s) => s.viewTabId);
   const [memoryTab] = useState(viewTabId);
-  const memory = useMemo(() => (memoryTab ? { tab: memoryTab, owner: results } : null), [memoryTab, results]);
+  // Edits are keyed by row index within one result set, so they belong to the
+  // set on screen, not the whole run: switching to another of the run's sets
+  // must not carry them over to its rows, or its table (#869).
+  const editOwner = results[activeResultIndex] ?? results;
+  const memory = useMemo(() => (memoryTab ? { tab: memoryTab, owner: editOwner } : null), [memoryTab, editOwner]);
   const [sorting, setSorting] = useState<SortingState>(() => recallGrid(memory, "sorting") ?? []);
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>(
     () => recallGrid(memory, "columnSizing") ?? {},
@@ -99,7 +103,7 @@ export function ResultsGrid() {
 
   const gridRef = useRef<HTMLDivElement | null>(null);
 
-  const editing = useGridEditing(memory, results);
+  const editing = useGridEditing(memory, editOwner);
 
   const activeResult = results[activeResultIndex];
 
