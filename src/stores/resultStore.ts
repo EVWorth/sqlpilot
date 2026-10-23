@@ -31,6 +31,11 @@ interface ConfirmDialogState {
    * after switching tabs still files the results under that tab (#842).
    */
   tabKey?: string;
+  /**
+   * The plan format asked for, for `explain-analyze`. Kept here rather than
+   * read back from the store on approval, where it is the shown tab's.
+   */
+  format?: ExplainFormat;
 }
 
 /**
@@ -628,7 +633,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
         true,
         target,
         dialog.database,
-        get().explainRequestedFormat,
+        dialog.format,
         dialog.session,
       );
       return;
@@ -761,6 +766,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
           database,
           session,
           tabKey: targetFor(session).tab,
+          format,
         },
       });
       return;

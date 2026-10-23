@@ -777,6 +777,20 @@ describe("resultStore", () => {
       expect(useResultStore.getState().explainAnalyze).toBe(true);
     });
 
+    it("analyzes in the format asked for once confirmed", async () => {
+      // Read back from the store on approval it was the shown tab's format,
+      // and the one passed in was dropped.
+      connectionStoreState.activeConnections = [{ id: "conn-1", profile_id: "p1" }];
+      connectionStoreState.profiles = [{ id: "p1", environment: "production" }];
+      useResultStore.setState({ explainRequestedFormat: "classic" });
+      explainQueryMock.mockResolvedValue(makeExplainResponse({ analyzed: true }));
+
+      await useResultStore.getState().executeExplainAnalyze("conn-1", "SELECT 1", "shop", "tree");
+      await useResultStore.getState().confirmExecution();
+
+      expect(explainQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", true, "shop", "tree", undefined);
+    });
+
     it("runs nothing when the production confirmation is declined", async () => {
       connectionStoreState.activeConnections = [{ id: "conn-1", profile_id: "p1" }];
       connectionStoreState.profiles = [{ id: "p1", environment: "production" }];
