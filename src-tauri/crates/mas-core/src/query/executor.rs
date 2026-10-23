@@ -78,19 +78,35 @@ impl QueryExecutor {
     /// `KILL QUERY` terminates the statement but leaves the session alive, so
     /// the pool connection stays usable. A no-op when nothing is in flight.
     ///
-    /// Cancels every statement in flight on the connection, because the caller
-    /// asks by connection and the executor has no way to tell which of several
-    /// concurrent statements the user meant.
+    /// With a `session`, only the statements running on that editor tab's own
+    /// session ([`Route::Session`]) are killed. Tabs run concurrently, so
+    /// cancelling by connection alone would also interrupt every other tab's
+    /// query on it. Without one, every statement in flight on the connection
+    /// is killed, which is what session-less callers (the schema tree, admin,
+    /// agents) rely on.
     #[tracing::instrument(skip(self))]
-    pub async fn cancel(&self, connection_id: &str) -> Result<(), CoreError> {
-        let thread_ids: Vec<u64> = self
-            .in_flight
-            .iter()
-            .filter(|entry| entry.value().0 == connection_id)
-            .map(|entry| *entry.key())
-            .collect();
+    pub async fn cancel(
+        &self,
+        connection_id: &str,
+        session: Option<&str>,
+    ) -> Result<(), CoreError> {
+        let thread_ids = threads_to_cancel(
+            self.in_flight.iter().map(|entry| {
+                (
+                    *entry.key(),
+                    entry.value().0.clone(),
+                    entry.value().1.clone(),
+                )
+            }),
+            connection_id,
+            session,
+        );
         if thread_ids.is_empty() {
-            tracing::debug!(connection_id, "Cancel requested with no query in flight");
+            tracing::debug!(
+                connection_id,
+                session,
+                "Cancel requested with no query in flight"
+            );
             return Ok(());
         }
         let pool = self.connection_manager.get_pool(connection_id)?;
@@ -1132,9 +1148,75 @@ impl MemoryGuard {
     }
 }
 
+/// The server threads a cancel should kill, from `(thread id, connection id,
+/// route)` for every statement in flight.
+///
+/// Every thread on `connection_id` when `session` is `None`; otherwise only
+/// those running on that editor tab's [`Route::Session`].
+fn threads_to_cancel(
+    in_flight: impl IntoIterator<Item = (u64, String, Route)>,
+    connection_id: &str,
+    session: Option<&str>,
+) -> Vec<u64> {
+    in_flight
+        .into_iter()
+        .filter(|(_, conn, route)| {
+            conn == connection_id
+                && match session {
+                    None => true,
+                    Some(wanted) => matches!(route, Route::Session(s) if s == wanted),
+                }
+        })
+        .map(|(thread_id, _, _)| thread_id)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_in_flight() -> Vec<(u64, String, Route)> {
+        vec![
+            (1, "c1".into(), Route::Session("tab-a".into())),
+            (2, "c1".into(), Route::Session("tab-b".into())),
+            (3, "c1".into(), Route::Interactive),
+            (4, "c1".into(), Route::Agent("tab-a".into())),
+            (5, "c2".into(), Route::Session("tab-a".into())),
+        ]
+    }
+
+    fn sorted(mut ids: Vec<u64>) -> Vec<u64> {
+        ids.sort_unstable();
+        ids
+    }
+
+    #[test]
+    fn cancel_without_session_kills_everything_on_the_connection() {
+        let ids = threads_to_cancel(sample_in_flight(), "c1", None);
+        assert_eq!(sorted(ids), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn cancel_with_session_kills_only_that_tab() {
+        let ids = threads_to_cancel(sample_in_flight(), "c1", Some("tab-a"));
+        assert_eq!(
+            ids,
+            vec![1],
+            "other tabs, the interactive lane and agents are spared"
+        );
+    }
+
+    #[test]
+    fn cancel_with_session_stays_on_its_connection() {
+        let ids = threads_to_cancel(sample_in_flight(), "c2", Some("tab-a"));
+        assert_eq!(ids, vec![5]);
+    }
+
+    #[test]
+    fn cancel_for_an_idle_session_kills_nothing() {
+        assert!(threads_to_cancel(sample_in_flight(), "c1", Some("tab-z")).is_empty());
+        assert!(threads_to_cancel(sample_in_flight(), "c3", None).is_empty());
+    }
 
     #[test]
     fn test_split_simple_statements() {

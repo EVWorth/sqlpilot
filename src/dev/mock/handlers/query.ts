@@ -71,16 +71,21 @@ function asDriverString(e: unknown): never {
 
 // ---------------------------------------------------------------- sessions and cancel
 
-/** Pending waits per connection, so cancel_query can interrupt them. */
-const inFlight = new Map<string, Set<() => void>>();
+/**
+ * Pending waits per connection, each with the editor tab session it runs on
+ * (null for session-less runs), so cancel_query can interrupt them.
+ */
+const inFlight = new Map<string, Map<() => void, string | null>>();
 /** `connectionId/session` of editor tabs inside BEGIN ... COMMIT. */
 const openTransactions = new Set<string>();
+/** The tab session a command names, or null when it names none. */
+const tabSession = (session: unknown): string | null => (typeof session === "string" ? session : null);
 const sessionKey = (connectionId: string, session: unknown) => `${connectionId}/${String(session)}`;
 
 /** A wait the way a running statement waits: until done, or killed. */
-function busy(connectionId: string, ms: number, index: number): Promise<void> {
+function busy(connectionId: string, session: string | null, ms: number, index: number): Promise<void> {
   return new Promise((resolve, reject) => {
-    const waits = inFlight.get(connectionId) ?? new Set();
+    const waits = inFlight.get(connectionId) ?? new Map<() => void, string | null>();
     inFlight.set(connectionId, waits);
     const kill = () => {
       clearTimeout(timer);
@@ -93,7 +98,7 @@ function busy(connectionId: string, ms: number, index: number): Promise<void> {
       waits.delete(kill);
       resolve();
     }, ms);
-    waits.add(kill);
+    waits.set(kill, session);
   });
 }
 
@@ -286,6 +291,8 @@ interface Ctx {
   version: string;
   username: string;
   index: number;
+  /** The editor tab session the statement runs on, if any. */
+  session?: string | null;
 }
 
 /** A constant expression's value, or undefined when it is not one. */
@@ -506,7 +513,7 @@ async function select(stmt: string, clean: string, ctx: Ctx, win: RowWindow): Pr
     const sleep = /^sleep\s*\(\s*([\d.]+)\s*\)$/i.exec(projText);
     if (sleep) {
       const ms = Math.min(Number(sleep[1]) * 1000, MAX_SLEEP_MS);
-      await busy(ctx.conn.id, ms, ctx.index);
+      await busy(ctx.conn.id, ctx.session ?? null, ms, ctx.index);
       return result(ctx, stmt, [meta(projText, "BIGINT")], [["0"]], { execution_time_ms: Math.round(ms) });
     }
     const items = projection(projText, [], ctx);
@@ -1044,11 +1051,11 @@ export const queryHandlers: Handlers = {
     };
     const results: QueryResult_Serialize[] = [];
     for (const [index, stmt] of statements.entries()) {
-      const r = await runStatement(stmt, { ...ctx, index }, win, args.session);
+      const r = await runStatement(stmt, { ...ctx, index, session: tabSession(args.session) }, win, args.session);
       // What the statement "took", spent waiting so the spinner shows; the
       // SLEEP branch has already waited its own time.
       if (!/^select\s+sleep\s*\(/i.test(stripComments(stmt))) {
-        await busy(ctx.conn.id, Math.min(600, 60 + r.execution_time_ms), index);
+        await busy(ctx.conn.id, tabSession(args.session), Math.min(600, 60 + r.execution_time_ms), index);
       }
       results.push(r);
     }
@@ -1120,9 +1127,13 @@ export const queryHandlers: Handlers = {
   },
 
   cancel_query: async (args): Promise<null> => {
+    // With a session, only that tab's statements stop, as on the server.
+    const session = tabSession(args.session);
     const waits = inFlight.get(String(args.connectionId));
     await delay(40);
-    for (const kill of [...(waits ?? [])]) kill();
+    for (const [kill, owner] of [...(waits ?? [])]) {
+      if (session === null || owner === session) kill();
+    }
     return null;
   },
 

@@ -297,7 +297,7 @@ async fn cancel_still_stops_what_the_agent_is_running() {
     tokio::time::sleep(Duration::from_millis(700)).await;
 
     let started = Instant::now();
-    executor.cancel(&id).await.expect("cancel is issued");
+    executor.cancel(&id, None).await.expect("cancel is issued");
     let _ = tokio::time::timeout(Duration::from_secs(5), running)
         .await
         .expect("the agent's query stopped when cancelled");

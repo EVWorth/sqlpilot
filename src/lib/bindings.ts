@@ -41,12 +41,16 @@ export const commands = {
  */
 "tree" | null, session: string | null) => typedError<ExplainResponse_Serialize, string>(__TAURI_INVOKE("explain_query", { connectionId, sql, database, analyze, format, session })),
 	/**
-	 *  Stop whatever is running on this connection.
+	 *  Stop what is running on this connection.
+	 * 
+	 *  With `session` (an editor tab's id), only that tab's statements are
+	 *  stopped, so cancelling one tab leaves the others running. Without it,
+	 *  everything in flight on the connection is stopped.
 	 * 
 	 *  Issues `KILL QUERY` server-side — dropping the client future alone would
 	 *  leave the statement running to completion (#420).
 	 */
-	cancelQuery: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("cancel_query", { connectionId })),
+	cancelQuery: (connectionId: string, session: string | null) => typedError<null, string>(__TAURI_INVOKE("cancel_query", { connectionId, session })),
 	/**
 	 *  Close an editor tab's session.
 	 * 

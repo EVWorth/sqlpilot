@@ -413,7 +413,10 @@ async fn cancel_stops_a_running_query() {
     let started = Instant::now();
     tokio::time::sleep(std::time::Duration::from_millis(750)).await;
 
-    executor.cancel(&info.id).await.expect("cancel should work");
+    executor
+        .cancel(&info.id, None)
+        .await
+        .expect("cancel should work");
     let result = runner.await.unwrap();
 
     // MySQL does not fail an interrupted SLEEP — it returns 1 early — so the
@@ -443,7 +446,10 @@ async fn cancel_is_a_no_op_when_idle() {
     let executor = QueryExecutor::new(manager.clone());
     let info = manager.connect(&test_profile()).await.unwrap();
 
-    executor.cancel(&info.id).await.expect("should not error");
+    executor
+        .cancel(&info.id, None)
+        .await
+        .expect("should not error");
 
     manager.disconnect(&info.id).await.unwrap();
 }

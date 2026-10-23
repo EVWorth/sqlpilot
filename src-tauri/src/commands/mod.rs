@@ -412,17 +412,25 @@ pub async fn explain_query(
     })
 }
 
-/// Stop whatever is running on this connection.
+/// Stop what is running on this connection.
+///
+/// With `session` (an editor tab's id), only that tab's statements are
+/// stopped, so cancelling one tab leaves the others running. Without it,
+/// everything in flight on the connection is stopped.
 ///
 /// Issues `KILL QUERY` server-side — dropping the client future alone would
 /// leave the statement running to completion (#420).
 #[tauri::command]
 #[tracing::instrument(skip(state))]
 #[specta::specta]
-pub async fn cancel_query(state: State<'_, AppState>, connection_id: String) -> Result<(), String> {
+pub async fn cancel_query(
+    state: State<'_, AppState>,
+    connection_id: String,
+    session: Option<String>,
+) -> Result<(), String> {
     state
         .query_executor
-        .cancel(&connection_id)
+        .cancel(&connection_id, session.as_deref())
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Cancel failed");

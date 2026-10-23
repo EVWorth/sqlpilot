@@ -294,7 +294,10 @@ async fn cancel_stops_a_statement_running_on_a_tab() {
     };
     tokio::time::sleep(Duration::from_millis(700)).await;
 
-    executor.cancel(&id).await.expect("cancel is issued");
+    executor
+        .cancel(&id, Some("tab-1"))
+        .await
+        .expect("cancel is issued");
     tokio::time::timeout(Duration::from_secs(5), running)
         .await
         .expect("the tab's statement stopped when cancelled")
@@ -355,4 +358,38 @@ async fn sessions_are_known_as_the_apps_own_and_close_on_disconnect() {
         session.is_closed(),
         "a tab's session outlived its connection"
     );
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn cancelling_one_tab_leaves_another_tab_running() {
+    // Tabs run concurrently on the same connection. Cancelling tab 1 used to
+    // KILL QUERY every thread on the connection, so tab 2's statement came
+    // back "Query execution was interrupted" too.
+    let (_manager, executor, id) = connect(5).await;
+    let spawn = |tab: &'static str, sql: &'static str| {
+        let executor = executor.clone();
+        let id = id.clone();
+        tokio::spawn(async move { run(&executor, &id, tab, sql).await })
+    };
+    let first = spawn("tab-1", "SELECT SLEEP(20)");
+    let second = spawn("tab-2", "SELECT SLEEP(2)");
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    executor
+        .cancel(&id, Some("tab-1"))
+        .await
+        .expect("cancel is issued");
+    tokio::time::timeout(Duration::from_secs(5), first)
+        .await
+        .expect("tab 1 stopped when cancelled")
+        .unwrap()
+        .ok();
+
+    let results = tokio::time::timeout(Duration::from_secs(5), second)
+        .await
+        .expect("tab 2 finishes on its own")
+        .unwrap()
+        .expect("tab 2 was not interrupted");
+    assert_eq!(scalar(&results), "0", "SLEEP ran to completion");
 }
