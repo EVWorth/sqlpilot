@@ -60,7 +60,7 @@ vi.mock("../settingsStore", () => ({
 
 import type { EditorTab, QueryResult } from "../../types";
 import { useEditorStore } from "../editorStore";
-import { anyTabExecuting, useResultStore } from "../resultStore";
+import { anyTabExecuting, followEditorStore, useResultStore } from "../resultStore";
 
 function makeExplainResponse(overrides: Partial<any> = {}) {
   return {
@@ -1581,5 +1581,20 @@ describe("per-tab results", () => {
     useResultStore.getState().dropForeignResults("conn-1");
 
     expect(useResultStore.getState().results).toHaveLength(1);
+  });
+});
+
+describe("following the editor store", () => {
+  it("drops its subscription when Vite hot-reloads the module", () => {
+    // Without it every edit to this file in dev stacked another listener.
+    const unsub = vi.fn();
+    const subscribe = vi.spyOn(useEditorStore, "subscribe").mockReturnValue(unsub);
+    let dispose: (() => void) | undefined;
+
+    followEditorStore({ dispose: (cb) => (dispose = cb) });
+    subscribe.mockRestore();
+    dispose?.();
+
+    expect(unsub).toHaveBeenCalledTimes(1);
   });
 });

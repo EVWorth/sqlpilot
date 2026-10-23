@@ -1053,13 +1053,30 @@ function followEditor(editor: { tabs: readonly EditorTab[]; activeTabId: string 
   }
 }
 
-// A test that replaces the editor store with a bare mock has nothing to follow.
-if (typeof useEditorStore.subscribe === "function" && typeof useEditorStore.getState === "function") {
+/** The part of Vite's HMR handle this module uses. */
+interface HotHandle {
+  dispose: (cb: () => void) => void;
+}
+
+/**
+ * Follow the editor store from now on. Returns the unsubscribe, which is also
+ * handed to `hot` so a hot reload of this module drops the old subscription
+ * rather than stacking a second one beside the new module's.
+ */
+export function followEditorStore(hot: HotHandle | undefined = import.meta.hot): (() => void) | undefined {
+  // A test that replaces the editor store with a bare mock has nothing to follow.
+  if (typeof useEditorStore.subscribe !== "function" || typeof useEditorStore.getState !== "function") {
+    return undefined;
+  }
   let seen = useEditorStore.getState();
   followEditor(seen);
-  useEditorStore.subscribe((editor) => {
+  const unsub = useEditorStore.subscribe((editor) => {
     if (editor.tabs === seen.tabs && editor.activeTabId === seen.activeTabId) return;
     seen = editor;
     followEditor(editor);
   });
+  hot?.dispose(unsub);
+  return unsub;
 }
+
+followEditorStore();
