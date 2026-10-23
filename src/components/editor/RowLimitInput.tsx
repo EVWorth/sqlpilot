@@ -41,9 +41,12 @@ export function RowLimitInput({ value, onChange }: RowLimitInputProps) {
   const rangeText = `Allowed range: ${MIN_ROW_LIMIT.toLocaleString("en-US")}–${MAX_ROW_LIMIT.toLocaleString("en-US")}`;
 
   const commit = () => {
-    const n = parseInt(draft, 10);
+    // Only a whole number is clamped. `type="number"` also accepts `1e3` and
+    // `2.5`, which parseInt would read as 1 and 2; those revert instead.
     let next = value;
-    if (!Number.isNaN(n)) next = Math.min(MAX_ROW_LIMIT, Math.max(MIN_ROW_LIMIT, n));
+    if (/^\s*-?\d+\s*$/.test(draft)) {
+      next = Math.min(MAX_ROW_LIMIT, Math.max(MIN_ROW_LIMIT, parseInt(draft, 10)));
+    }
     setDraft(String(next));
     if (next !== value) onChange(next);
   };

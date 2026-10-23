@@ -86,9 +86,14 @@ export function RestoreDialog({
       });
   }, [connectionId]);
 
-  // Reset on open
+  // Reset when the dialog opens. Only then: the selected connection can
+  // change while a restore runs (switching editor tabs selects their
+  // server), and resetting on that hid Cancel mid-run.
+  const wasOpen = useRef(false);
   useEffect(() => {
-    if (isOpen) {
+    const opening = isOpen && !wasOpen.current;
+    wasOpen.current = isOpen;
+    if (opening) {
       setConnectionId(
         preSelectedConnectionId ?? selectedStoreConnectionId ?? "",
       );

@@ -246,8 +246,16 @@ describe("deleting a profile (FR-1.1.3, #795)", () => {
     { id: "p2", name: "sandbox", host: "nowhere" },
   ];
 
-  const setup = () => {
-    const disconnect = vi.fn().mockResolvedValue(undefined);
+  const setup = ({ disconnectFails = false } = {}) => {
+    // Like the store: a disconnect that works takes the connection out of
+    // activeConnections; one that fails reports it and leaves it there.
+    const disconnect = vi.fn(async (id: string) => {
+      if (disconnectFails) return;
+      storeState = {
+        ...storeState,
+        activeConnections: (storeState.activeConnections as { id: string }[]).filter((c) => c.id !== id),
+      };
+    });
     const deleteProfile = vi.fn().mockResolvedValue(undefined);
     storeState = { profiles, activeConnections: [conn], disconnect, deleteProfile };
     render(<ConnectionTabs />);
@@ -289,6 +297,18 @@ describe("deleting a profile (FR-1.1.3, #795)", () => {
 
     expect(disconnect).toHaveBeenCalledWith("c1");
     expect(deleteProfile).toHaveBeenCalledWith("p1");
+  });
+
+  it("keeps the profile when its connection fails to close", async () => {
+    const { disconnect, deleteProfile } = setup({ disconnectFails: true });
+    fireEvent.contextMenu(screen.getByText("prod-eu"));
+    choose("Delete Profile");
+    await act(async () => {
+      fireEvent.click(screen.getByText("Delete"));
+    });
+
+    expect(disconnect).toHaveBeenCalledWith("c1");
+    expect(deleteProfile).not.toHaveBeenCalled();
   });
 
   it("offers delete and duplicate for a profile that is not connected", async () => {

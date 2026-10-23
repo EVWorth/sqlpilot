@@ -31,6 +31,12 @@ export function useProfileDeletion() {
     for (const conn of open) {
       await disconnect(conn.id);
     }
+    // disconnect reports its own failure. A connection still open must not
+    // outlive its profile, so stop rather than delete under it.
+    const stillOpen = useConnectionStore.getState().activeConnections.some(
+      (c) => c.profile_id === profile.id,
+    );
+    if (stillOpen) return;
     await deleteProfile(profile.id);
   };
 

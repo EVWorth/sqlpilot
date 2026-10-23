@@ -56,6 +56,17 @@ describe("RowLimitInput", () => {
     expect(input.value).toBe("100000");
   });
 
+  it("reverts a number that is not whole instead of truncating it", async () => {
+    const { input, onChange, user } = setup();
+
+    await user.clear(input);
+    await user.type(input, "2.5");
+    await user.tab();
+
+    expect(onChange).not.toHaveBeenCalled();
+    expect(input.value).toBe("1000");
+  });
+
   it("reverts an empty box on blur", async () => {
     const { input, onChange, user } = setup();
 

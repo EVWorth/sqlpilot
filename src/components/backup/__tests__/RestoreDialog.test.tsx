@@ -46,7 +46,7 @@ import { RestoreDialog } from "../RestoreDialog";
 
 /** Pick a file and start a restore, which is the preamble to most of these. */
 async function startRestore() {
-  render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+  const view = render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
   await waitFor(() => screen.getByText("testdb"));
   fireEvent.change(screen.getAllByRole("combobox")[1], { target: { value: "testdb" } });
 
@@ -59,6 +59,7 @@ async function startRestore() {
   await act(async () => {
     fireEvent.click(screen.getByText("Restore"));
   });
+  return view;
 }
 
 describe("RestoreDialog", () => {
@@ -242,6 +243,21 @@ describe("RestoreDialog", () => {
         expect(screen.getByText(/Restore cancelled/)).toBeInTheDocument();
       });
     });
+  });
+
+  it("keeps running when the selected connection changes mid-restore", async () => {
+    apiMocks.restoreDatabase.mockImplementationOnce(() => new Promise(() => {}));
+    const { rerender } = await startRestore();
+    await waitFor(() => screen.getByText("Cancel"));
+
+    // Switching editor tabs selects their server (#788); that must not reset
+    // the dialog under a running restore.
+    useConnectionStoreFn.mockImplementation((s: (v: unknown) => unknown) =>
+      s({ activeConnections: [], selectedConnectionId: "conn2" })
+    );
+    rerender(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+
+    expect(screen.getByText("Cancel")).toBeInTheDocument();
   });
 
   it("moves focus to Cancel when the run starts (#798)", async () => {
