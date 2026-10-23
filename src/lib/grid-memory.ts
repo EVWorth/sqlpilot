@@ -1,6 +1,7 @@
 import type { SortingState } from "@tanstack/react-table";
 import { useEffect, useRef } from "react";
 import type { EditingDraft } from "../hooks/useGridEditing";
+import { useEditorStore } from "../stores/editorStore";
 
 /**
  * What a results grid keeps of itself while its tab is not shown (#842).
@@ -46,13 +47,24 @@ export function recallGrid<K extends keyof GridMemorySlots>(
   return entry.slots[slot];
 }
 
+/** True when the editor no longer has this tab open. */
+function tabClosed(tab: string): boolean {
+  // A test that replaces the editor store with a bare mock has no tabs to ask.
+  if (typeof useEditorStore.getState !== "function") return false;
+  const tabs: unknown = useEditorStore.getState()?.tabs;
+  return Array.isArray(tabs) && !tabs.some((t: { id?: unknown }) => t.id === tab);
+}
+
 /** Keep `value` for this tab's grid; undefined forgets the slot. */
 export function keepGrid<K extends keyof GridMemorySlots>(
   scope: GridMemoryScope | null,
   slot: K,
   value: GridMemorySlots[K] | undefined,
 ) {
-  if (!scope) return;
+  // Closing the shown tab forgets its memory before React unmounts its grid,
+  // whose cleanup would otherwise keep the closed tab's state, and its
+  // results, for good.
+  if (!scope || tabClosed(scope.tab)) return;
   let entry = memory.get(scope.tab);
   if (!entry || entry.owner !== scope.owner) {
     entry = { owner: scope.owner, slots: {} };

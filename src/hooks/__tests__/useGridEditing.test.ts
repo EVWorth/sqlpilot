@@ -1,7 +1,8 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
-import { forgetGridMemory } from "../../lib/grid-memory";
-import type { SqlValue } from "../../types";
+import { forgetGridMemory, recallGrid } from "../../lib/grid-memory";
+import { useEditorStore } from "../../stores/editorStore";
+import type { EditorTab, SqlValue } from "../../types";
 import { useGridEditing } from "../useGridEditing";
 
 beforeEach(() => {
@@ -709,7 +710,12 @@ describe("undo history for inserts and deletes (#404, #405)", () => {
 // #842: the grid is remounted per editor tab. Unsaved edits and Edit Mode
 // must survive switching away and back.
 describe("useGridEditing across a tab switch", () => {
-  beforeEach(() => forgetGridMemory([]));
+  const queryTab = (id: string): EditorTab => ({ id, title: id, content: "", type: "query", isDirty: false });
+
+  beforeEach(() => {
+    forgetGridMemory([]);
+    useEditorStore.setState({ tabs: [queryTab("tab-1"), queryTab("tab-2")], activeTabId: "tab-1" });
+  });
 
   const rows = [[1, "ada"]];
 
@@ -764,5 +770,19 @@ describe("useGridEditing across a tab switch", () => {
     forgetGridMemory(["tab-2"]);
 
     expect(renderHook(() => useGridEditing(scope)).result.current.hasChanges).toBe(false);
+  });
+
+  it("keeps nothing for a tab that closed before its grid unmounted", () => {
+    // Closing the shown tab forgets its memory first; the grid's unmount
+    // cleanup then wrote the closed tab's edits and results back.
+    const scope = { tab: "tab-1", owner: rows };
+    const grid = renderHook(() => useGridEditing(scope));
+    act(() => grid.result.current.editCell(0, "name", "ada", "grace"));
+
+    useEditorStore.setState({ tabs: [queryTab("tab-2")], activeTabId: "tab-2" });
+    forgetGridMemory(["tab-2"]);
+    grid.unmount();
+
+    expect(recallGrid(scope, "editing")).toBeUndefined();
   });
 });
