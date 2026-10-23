@@ -1403,6 +1403,74 @@ describe("per-tab results", () => {
     expect(addEntryMock).not.toHaveBeenCalled();
   });
 
+  it("does not let a session-less run take over a tab's own run in flight", async () => {
+    // A long SELECT runs in query-a; the user saves in a designer tab, whose
+    // ALTER is filed under query-a. The SELECT's response must still land,
+    // and Ctrl+. in query-a must still stop the SELECT, not the ALTER.
+    useEditorStore.setState({ tabs: [queryTab("query-a"), designerTab("designer-d")], activeTabId: "query-a" });
+    connectionStoreState.activeConnections.push({ id: "conn-2", profile_id: "p1", name: "Other" });
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const select = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "query-a");
+
+    useEditorStore.getState().setActiveTab("designer-d");
+    const alter = makeQueryResult({ sql: "ALTER TABLE orders ADD c INT", rows: [] });
+    const slowAlter = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slowAlter.promise);
+    const altering = useResultStore.getState().executeQuery("conn-2", "ALTER TABLE orders ADD c INT");
+    useEditorStore.getState().setActiveTab("query-a");
+
+    await useResultStore.getState().cancelActiveQuery();
+    expect(cancelQueryMock).toHaveBeenCalledWith("conn-1");
+    slowAlter.resolve([alter]);
+    await expect(altering).resolves.toEqual({ status: "succeeded", results: [alter] });
+    slow.resolve([]);
+    await select;
+  });
+
+  it("shows a tab's own response when a session-less run started after it", async () => {
+    useEditorStore.setState({ tabs: [queryTab("query-a"), designerTab("designer-d")], activeTabId: "query-a" });
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const select = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "query-a");
+
+    useEditorStore.getState().setActiveTab("designer-d");
+    const alter = makeQueryResult({ sql: "ALTER TABLE orders ADD c INT", rows: [] });
+    executeQueryMock.mockResolvedValueOnce([alter]);
+    await useResultStore.getState().executeQuery("conn-1", "ALTER TABLE orders ADD c INT");
+    useEditorStore.getState().setActiveTab("query-a");
+    // The ALTER is shown, as the latest thing run here, but the SELECT is
+    // still running.
+    expect(useResultStore.getState().results).toEqual([alter]);
+    expect(useResultStore.getState().isExecuting).toBe(true);
+
+    const sleep = makeQueryResult({ sql: "SELECT SLEEP(5)", rows: [["0"]] });
+    slow.resolve([sleep]);
+    await select;
+
+    expect(useResultStore.getState().results).toEqual([sleep]);
+    expect(useResultStore.getState().isExecuting).toBe(false);
+  });
+
+  it("does not file a session-less response over a newer run of the tab's own", async () => {
+    useEditorStore.setState({ tabs: [queryTab("query-a"), designerTab("designer-d")], activeTabId: "designer-d" });
+    useResultStore.setState({ runTabId: "query-a" });
+    const slowAlter = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slowAlter.promise);
+    const altering = useResultStore.getState().executeQuery("conn-1", "ALTER TABLE orders ADD c INT");
+
+    useEditorStore.getState().setActiveTab("query-a");
+    const mine = makeQueryResult({ sql: "SELECT 1", rows: [["1"]] });
+    executeQueryMock.mockResolvedValueOnce([mine]);
+    await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "query-a");
+
+    slowAlter.resolve([makeQueryResult({ sql: "ALTER TABLE orders ADD c INT", rows: [] })]);
+    await altering;
+
+    expect(useResultStore.getState().results).toEqual([mine]);
+    expect(useResultStore.getState().isExecuting).toBe(false);
+  });
+
   it("clears a plan read on another connection along with the grid", () => {
     useResultStore.setState({
       explainResult: makeQueryResult({ query_id: "plan" }),

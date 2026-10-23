@@ -270,26 +270,71 @@ function pickSlice(state: ResultState): TabResultSlice {
 const NO_TAB = "";
 
 /**
- * Per tab, which run is the current one. A response whose generation is not
- * current any more is not shown: it was cancelled, the same tab started
+ * Per run key, which run is the current one. A response whose generation is
+ * not current any more is not shown: it was cancelled, the same tab started
  * another run since, or the tab has closed. Kept per tab so a run in one tab
  * does not discard the response another tab is waiting for (#842).
+ *
+ * A tab's own runs — the ones on its session — share the tab's key. A run
+ * with no session gets a key of its own (see `sideKey`), so it never bumps the
+ * generation of the tab it is filed under and so never discards, or takes the
+ * cancel slot of, that tab's own run still in flight.
  */
 const generations = new Map<string, number>();
 
+/** Separates a tab id from the run counter in a session-less run's key. */
+const SIDE_SEPARATOR = "\u0000";
+
+let sideRuns = 0;
+
+/** A fresh key for one session-less run filed under `tab`. */
+function sideKey(tab: string): string {
+  sideRuns += 1;
+  return `${tab}${SIDE_SEPARATOR}${sideRuns}`;
+}
+
+/** The tab a run key belongs to. */
+function tabOfKey(key: string): string {
+  const at = key.indexOf(SIDE_SEPARATOR);
+  return at < 0 ? key : key.slice(0, at);
+}
+
+/** Where a run is filed, and whether it is the tab's own. */
+interface RunTarget {
+  /** The tab whose results the run is filed under. */
+  tab: string;
+  /**
+   * True for a run on the tab's own session, or on the grid it shows (paging,
+   * a plan in another format). False for a run that names no session and only
+   * borrows the tab's results pane: the schema tree, the designer, a refresh.
+   */
+  own: boolean;
+}
+
 /** One run, from start to response. */
-interface Execution {
+interface Execution extends RunTarget {
+  /** What its generation is counted under: the tab, or a key of its own. */
   key: string;
   generation: number;
+  /**
+   * When it started, relative to every other run. A session-less run shows
+   * its response only if nothing has started in its tab since.
+   */
+  seq: number;
   connectionId: string;
+  /** The editor tab session it runs on; absent on the shared pool. */
+  session?: string;
   /** Set when the user cancelled it, so its interrupt error is not a failure. */
   cancelled: boolean;
+  /** Set when its tab closed, so nothing is written for it any more. */
+  orphaned: boolean;
 }
 
 /**
- * Per tab, the execution cancel would act on, so it knows which connection to
- * tell the server about. Module-level rather than store state because it is
- * bookkeeping, not something a component renders.
+ * Every execution in flight, by run key, which is what cancel acts on and how
+ * it knows which connection to tell the server about. Module-level rather
+ * than store state because it is bookkeeping, not something a component
+ * renders.
  *
  * A slower execution finishing must not clear the entry a newer one has
  * already installed, or cancel would find nothing and silently leave the
@@ -297,8 +342,13 @@ interface Execution {
  */
 const activeExecutions = new Map<string, Execution>();
 
+/** Per tab, the `seq` of the last run started in it. */
+const latestStart = new Map<string, number>();
+
+let runCount = 0;
+
 /** The tab the last run started in; what cancel acts on before any tab is shown. */
-let lastStartedKey = NO_TAB;
+let lastStartedTab = NO_TAB;
 
 function bumpGeneration(key: string): number {
   const generation = (generations.get(key) ?? 0) + 1;
@@ -306,21 +356,67 @@ function bumpGeneration(key: string): number {
   return generation;
 }
 
-function startExecution(key: string, connectionId: string): Execution {
-  const run = { key, generation: bumpGeneration(key), connectionId, cancelled: false };
+function startExecution(target: RunTarget, connectionId: string, session?: string): Execution {
+  const key = target.own ? target.tab : sideKey(target.tab);
+  runCount += 1;
+  const run: Execution = {
+    ...target,
+    key,
+    generation: bumpGeneration(key),
+    seq: runCount,
+    connectionId,
+    session,
+    cancelled: false,
+    orphaned: false,
+  };
   activeExecutions.set(key, run);
-  lastStartedKey = key;
+  latestStart.set(target.tab, run.seq);
+  lastStartedTab = target.tab;
   return run;
 }
 
-/** True while this run's response is still the one its tab is waiting for. */
-function isCurrent(run: Pick<Execution, "key" | "generation">): boolean {
-  return generations.get(run.key) === run.generation;
+/**
+ * True while this run's response is still the one its tab is waiting for.
+ *
+ * A tab's own run stays current until the tab runs something else of its own
+ * or cancels it. A session-less run is current only while nothing at all has
+ * started in the tab since: it may not replace a newer run's results, but no
+ * run replaces the tab's own one still in flight either.
+ */
+function isCurrent(run: Execution): boolean {
+  if (run.orphaned || generations.get(run.key) !== run.generation) return false;
+  return run.own || latestStart.get(run.tab) === run.seq;
 }
 
-/** Release the slot only if this execution still owns it. */
-function endExecution(run: Execution) {
+/** True when a run other than `except` is still in flight in this tab. */
+function tabBusy(tab: string, except?: Execution): boolean {
+  for (const run of activeExecutions.values()) {
+    if (run !== except && run.tab === tab && !run.cancelled) return true;
+  }
+  return false;
+}
+
+/** What cancel acts on in a tab: its own run, else its latest session-less one. */
+function cancellableIn(tab: string): Execution | undefined {
+  const own = activeExecutions.get(tab);
+  if (own) return own;
+  let latest: Execution | undefined;
+  for (const run of activeExecutions.values()) {
+    if (run.tab === tab && !run.cancelled && (!latest || run.seq > latest.seq)) latest = run;
+  }
+  return latest;
+}
+
+/**
+ * Release the slot only if this execution still owns it, and stop the tab's
+ * spinner if this was the last run in it and its response was not shown.
+ */
+function endExecution(run: Execution, shown: boolean) {
   if (activeExecutions.get(run.key) === run) activeExecutions.delete(run.key);
+  if (!run.own) generations.delete(run.key);
+  if (!shown && !run.orphaned && !tabBusy(run.tab)) {
+    tabWriter(run.tab)({ isExecuting: false, executionStartedAt: null });
+  }
 }
 
 /**
@@ -331,6 +427,12 @@ function tabKeyFor(session: string | undefined): string {
   if (session) return session;
   const { runTabId, viewTabId } = useResultStore.getState();
   return runTabId ?? viewTabId ?? NO_TAB;
+}
+
+/** Where a run that names `session`, or none, is filed. */
+function targetFor(session: string | undefined, tab?: string): RunTarget {
+  if (session) return { tab: session, own: true };
+  return { tab: tab ?? tabKeyFor(undefined), own: false };
 }
 
 type SliceWriter = (partial: Partial<TabResultSlice>) => void;
@@ -402,13 +504,20 @@ export const useResultStore = create<ResultState>((set, get) => ({
 
   forgetTabs: (liveTabIds) => {
     const live = new Set(liveTabIds);
-    for (const key of [...generations.keys()]) {
-      if (key !== NO_TAB && !live.has(key) && key !== get().viewTabId) {
-        // A response still on its way for a closed tab has nowhere to be
-        // shown. It is still recorded in history (see doExecuteQuery).
-        generations.delete(key);
+    const closed = (tab: string) => tab !== NO_TAB && !live.has(tab) && tab !== get().viewTabId;
+    // A response still on its way for a closed tab has nowhere to be shown.
+    // It is still recorded in history (see doExecuteQuery).
+    for (const [key, run] of [...activeExecutions]) {
+      if (closed(run.tab)) {
+        run.orphaned = true;
         activeExecutions.delete(key);
       }
+    }
+    for (const key of [...generations.keys()]) {
+      if (closed(tabOfKey(key))) generations.delete(key);
+    }
+    for (const tab of [...latestStart.keys()]) {
+      if (closed(tab)) latestStart.delete(tab);
     }
     const { parked, runTabId } = get();
     const kept = Object.fromEntries(Object.entries(parked).filter(([id]) => live.has(id)));
@@ -445,26 +554,28 @@ export const useResultStore = create<ResultState>((set, get) => ({
   },
 
   executeQuery: async (connectionId, sql, database, session) => {
-    const tabKey = tabKeyFor(session);
+    const target = targetFor(session);
     // Production safety check
     if (isProductionConnection(connectionId) && isDestructiveStatement(sql)) {
-      set({ confirmDialog: { isOpen: true, kind: "query", connectionId, sql, database, session, tabKey } });
+      set({
+        confirmDialog: { isOpen: true, kind: "query", connectionId, sql, database, session, tabKey: target.tab },
+      });
       return { status: "awaiting-confirmation" };
     }
-    return doExecuteQuery(connectionId, sql, tabKey, database, undefined, session);
+    return doExecuteQuery(connectionId, sql, target, database, undefined, session);
   },
 
   confirmExecution: async () => {
     const dialog = get().confirmDialog;
     if (!dialog) return;
     set({ confirmDialog: null });
-    const tabKey = dialog.tabKey ?? tabKeyFor(dialog.session);
+    const target = targetFor(dialog.session, dialog.tabKey);
     if (dialog.kind === "explain-analyze") {
       await doExplain(
         dialog.connectionId,
         dialog.sql,
         true,
-        tabKey,
+        target,
         dialog.database,
         get().explainRequestedFormat,
         dialog.session,
@@ -474,7 +585,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
     await doExecuteQuery(
       dialog.connectionId,
       dialog.sql,
-      tabKey,
+      target,
       dialog.database,
       undefined,
       dialog.session,
@@ -492,18 +603,23 @@ export const useResultStore = create<ResultState>((set, get) => ({
     // Bumping the generation only makes this client ignore the response. The
     // statement keeps running — and holding locks — until the server is told to
     // stop, which is what cancelQuery does (#420).
-    // The shown tab's run; another tab's query keeps running (#842).
-    const key = get().viewTabId ?? lastStartedKey;
-    const running = activeExecutions.get(key);
-    if (running) running.cancelled = true;
-    const myGeneration = bumpGeneration(key);
+    // The shown tab's run; another tab's query keeps running (#842). Its own
+    // run when it has one in flight, not a session-less one filed under it.
+    const tab = get().viewTabId ?? lastStartedTab;
+    const running = cancellableIn(tab);
+    if (running) {
+      running.cancelled = true;
+      bumpGeneration(running.key);
+      activeExecutions.delete(running.key);
+    }
     const connectionId = running?.connectionId ?? null;
-    activeExecutions.delete(key);
+    const cancelledAt = latestStart.get(tab);
     const startedAt = get().executionStartedAt;
     // What was on screen came from the query before, and leaving it there
     // read as that query's row count and timing (#850).
     set({
-      isExecuting: false,
+      // Still spinning if something else runs in the tab; Ctrl+. again stops it.
+      isExecuting: tabBusy(tab),
       executionStartedAt: null,
       error: null,
       cancelledAfterMs: startedAt === null ? 0 : Math.max(0, Date.now() - startedAt),
@@ -514,14 +630,16 @@ export const useResultStore = create<ResultState>((set, get) => ({
     });
     if (!connectionId) return;
     try {
+      // Session: `running.session` — the tab session the run is on, absent
+      // for a run on the shared pool.
       await api.cancelQuery(connectionId);
     } catch (e) {
       // Only while this cancel is still what the user is looking at. Telling
       // the server to stop can outlast the query it was about, and reporting
       // its failure over a query that started since would replace that
       // query's state with a message about one already gone (#287).
-      if (!isCurrent({ key, generation: myGeneration })) return;
-      tabWriter(key)({
+      if (latestStart.get(tab) !== cancelledAt) return;
+      tabWriter(tab)({
         cancelledAfterMs: null,
         error: `Query cancelled, but the server did not confirm: ${String(e)}`,
       });
@@ -537,7 +655,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       page.connectionId,
       page.sql,
       // The grid paging is the shown tab's.
-      get().viewTabId ?? tabKeyFor(page.session),
+      { tab: get().viewTabId ?? tabKeyFor(page.session), own: true },
       page.database,
       { index, size: page.size },
       page.session,
@@ -555,7 +673,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       request.connectionId,
       request.sql,
       request.analyze,
-      get().viewTabId ?? tabKeyFor(request.session),
+      { tab: get().viewTabId ?? tabKeyFor(request.session), own: true },
       request.database,
       format,
       request.session,
@@ -576,7 +694,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
   clearError: () => set({ error: null }),
 
   executeExplain: async (connectionId, sql, database, format, session) => {
-    await doExplain(connectionId, sql, false, tabKeyFor(session), database, format, session);
+    await doExplain(connectionId, sql, false, targetFor(session), database, format, session);
   },
 
   executeExplainAnalyze: async (connectionId, sql, database, format, session) => {
@@ -591,12 +709,12 @@ export const useResultStore = create<ResultState>((set, get) => ({
           sql,
           database,
           session,
-          tabKey: tabKeyFor(session),
+          tabKey: targetFor(session).tab,
         },
       });
       return;
     }
-    await doExplain(connectionId, sql, true, tabKeyFor(session), database, format, session);
+    await doExplain(connectionId, sql, true, targetFor(session), database, format, session);
   },
 }));
 
@@ -605,12 +723,12 @@ async function doExplain(
   sql: string,
   analyze: boolean,
   /** The tab the plan belongs to (#842). */
-  key: string,
+  target: RunTarget,
   database?: string,
   format: ExplainFormat = "classic",
   session?: string,
 ) {
-  const set = tabWriter(key);
+  const set = tabWriter(target.tab);
   // The explain command is MySQL-only. Saying so beats letting the backend
   // answer "connection not found", which describes an internal detail rather
   // than the situation.
@@ -619,7 +737,8 @@ async function doExplain(
     return;
   }
 
-  const run = startExecution(key, connectionId);
+  const run = startExecution(target, connectionId, session);
+  let shown = false;
 
   try {
     set({
@@ -638,6 +757,7 @@ async function doExplain(
     const response = await api.explainQuery(connectionId, sql, analyze, database, format, session);
     if (!isCurrent(run)) return;
 
+    shown = true;
     set({
       explainResult: response.result,
       explainAnalyze: response.analyzed,
@@ -652,16 +772,17 @@ async function doExplain(
         ? FALLBACK_COPY[response.format_fallback] ?? null
         : null,
       showExplain: true,
-      isExecuting: false,
+      isExecuting: tabBusy(run.tab, run),
     });
   } catch (e) {
     // A cancel kills the statement server-side, so the in-flight call rejects
     // with the server's interrupt error. Reporting it would overwrite the
     // "cancelled" message the user just asked for.
     if (!isCurrent(run)) return;
-    set({ error: String(e), isExecuting: false });
+    shown = true;
+    set({ error: String(e), isExecuting: tabBusy(run.tab, run) });
   } finally {
-    endExecution(run);
+    endExecution(run, shown);
   }
 }
 
@@ -669,14 +790,14 @@ async function doExecuteQuery(
   connectionId: string,
   sql: string,
   /** The tab the results belong to (#842). */
-  key: string,
+  target: RunTarget,
   database?: string,
   /** Set when this run is a page change rather than a fresh execution. */
   paging?: { index: number; size: number },
   /** The editor tab whose session this runs on (#731). */
   session?: string,
 ): Promise<RunOutcome> {
-  const set = tabWriter(key);
+  const set = tabWriter(target.tab);
   const startTime = Date.now();
   const connState = useConnectionStore.getState();
   const conn = connState.activeConnections.find(
@@ -697,7 +818,8 @@ async function doExecuteQuery(
   const rowLimit = paging?.size ?? (limitEnabled ? maxResultRows : undefined);
   const offset = paging ? paging.index * paging.size : undefined;
 
-  const run = startExecution(key, connectionId);
+  const run = startExecution(target, connectionId, session);
+  let shown = false;
 
   try {
     set({ isExecuting: true, executionStartedAt: Date.now(), error: null, cancelledAfterMs: null });
@@ -733,10 +855,11 @@ async function doExecuteQuery(
     const filled = rowLimit !== undefined
       && results.some((r) => r.rows.length >= rowLimit);
     const pageIndex = paging?.index ?? 0;
+    shown = true;
     set({
       results,
       activeResultIndex: 0,
-      isExecuting: false,
+      isExecuting: tabBusy(run.tab, run),
       // Only a MySQL tab has a session of its own to come back to.
       resultSource: {
         connectionId,
@@ -789,11 +912,12 @@ async function doExecuteQuery(
     }
 
     if (isCurrent(run)) {
-      set({ error: String(e), isExecuting: false, results: [], page: null, resultSource: null });
+      shown = true;
+      set({ error: String(e), isExecuting: tabBusy(run.tab, run), results: [], page: null, resultSource: null });
     }
     return { status: "failed", error: String(e) };
   } finally {
-    endExecution(run);
+    endExecution(run, shown);
   }
 }
 
