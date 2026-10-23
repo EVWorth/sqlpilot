@@ -3,7 +3,7 @@ use mas_core::connection::manager::{AGENT_SESSION_MAX, INTERACTIVE_LANE_MAX};
 use mas_core::connection::{ConnectionManager, Route};
 use mas_core::error::CoreError;
 use mas_core::models::ConnectionProfile;
-use mas_core::query::QueryExecutor;
+use mas_core::query::{CancelScope, QueryExecutor};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -279,9 +279,9 @@ async fn disconnect_closes_agent_and_job_connections() {
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn cancel_still_stops_what_the_agent_is_running() {
-    // The agent has its own connections but not its own executor, so the
-    // user's Cancel still reaches it: stopping an agent's runaway query from
-    // the app has to keep working.
+    // The agent has its own connections but not its own executor, so a
+    // cancel of everything on the connection still reaches it. The user's
+    // Cancel in the editor is scoped to a tab or the shared pool and does not.
     let (manager, id) = connect().await;
     let executor = Arc::new(QueryExecutor::new(manager.clone()));
 
@@ -297,7 +297,10 @@ async fn cancel_still_stops_what_the_agent_is_running() {
     tokio::time::sleep(Duration::from_millis(700)).await;
 
     let started = Instant::now();
-    executor.cancel(&id, None).await.expect("cancel is issued");
+    executor
+        .cancel(&id, CancelScope::All)
+        .await
+        .expect("cancel is issued");
     let _ = tokio::time::timeout(Duration::from_secs(5), running)
         .await
         .expect("the agent's query stopped when cancelled");

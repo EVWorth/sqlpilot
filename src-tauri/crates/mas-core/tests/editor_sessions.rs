@@ -1,7 +1,7 @@
 use chrono::Utc;
 use mas_core::connection::{ConnectionManager, Route};
 use mas_core::models::{ConnectionProfile, SqlValue};
-use mas_core::query::{explain_in, ExplainFormat, QueryExecutor};
+use mas_core::query::{explain_in, CancelScope, ExplainFormat, QueryExecutor};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -295,7 +295,7 @@ async fn cancel_stops_a_statement_running_on_a_tab() {
     tokio::time::sleep(Duration::from_millis(700)).await;
 
     executor
-        .cancel(&id, Some("tab-1"))
+        .cancel(&id, CancelScope::Session("tab-1".to_string()))
         .await
         .expect("cancel is issued");
     tokio::time::timeout(Duration::from_secs(5), running)
@@ -377,7 +377,7 @@ async fn cancelling_one_tab_leaves_another_tab_running() {
     tokio::time::sleep(Duration::from_millis(700)).await;
 
     executor
-        .cancel(&id, Some("tab-1"))
+        .cancel(&id, CancelScope::Session("tab-1".to_string()))
         .await
         .expect("cancel is issued");
     tokio::time::timeout(Duration::from_secs(5), first)
@@ -391,5 +391,52 @@ async fn cancelling_one_tab_leaves_another_tab_running() {
         .expect("tab 2 finishes on its own")
         .unwrap()
         .expect("tab 2 was not interrupted");
+    assert_eq!(scalar(&results), "0", "SLEEP ran to completion");
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_session_less_cancel_leaves_a_tab_running() {
+    // Cancelling a run on the shared pool (a designer ALTER, a grid refresh)
+    // sends no session. That used to KILL QUERY every thread on the
+    // connection, so a tab's statement came back interrupted too.
+    let (_manager, executor, id) = connect(5).await;
+    let tab = {
+        let executor = executor.clone();
+        let id = id.clone();
+        tokio::spawn(async move { run(&executor, &id, "tab-1", "SELECT SLEEP(2)").await })
+    };
+    let shared = {
+        let executor = executor.clone();
+        let id = id.clone();
+        tokio::spawn(async move {
+            executor
+                .execute(
+                    &id,
+                    "SELECT SLEEP(20)",
+                    Some("test_db".to_string()),
+                    None,
+                    None,
+                )
+                .await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    executor
+        .cancel(&id, CancelScope::Interactive)
+        .await
+        .expect("cancel is issued");
+    tokio::time::timeout(Duration::from_secs(5), shared)
+        .await
+        .expect("the shared pool's statement stopped when cancelled")
+        .unwrap()
+        .ok();
+
+    let results = tokio::time::timeout(Duration::from_secs(5), tab)
+        .await
+        .expect("the tab finishes on its own")
+        .unwrap()
+        .expect("the tab was not interrupted");
     assert_eq!(scalar(&results), "0", "SLEEP ran to completion");
 }

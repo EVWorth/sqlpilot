@@ -1127,12 +1127,13 @@ export const queryHandlers: Handlers = {
   },
 
   cancel_query: async (args): Promise<null> => {
-    // With a session, only that tab's statements stop, as on the server.
+    // Only the run asked about stops, as on the server: with a session, that
+    // tab's statements; without one, only the session-less runs, never a tab.
     const session = tabSession(args.session);
     const waits = inFlight.get(String(args.connectionId));
     await delay(40);
     for (const [kill, owner] of [...(waits ?? [])]) {
-      if (session === null || owner === session) kill();
+      if (owner === session) kill();
     }
     return null;
   },

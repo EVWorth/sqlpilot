@@ -10,7 +10,9 @@ use mas_core::history::{
 use mas_core::models::{
     ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, TestConnectionResult,
 };
-use mas_core::query::{ExplainFormat, ExplainResponse, GridEditOutcome, QueryExecutor};
+use mas_core::query::{
+    CancelScope, ExplainFormat, ExplainResponse, GridEditOutcome, QueryExecutor,
+};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, EventInfo, ForeignKeyInfo, IndexInfo, PartitionInfo, RoutineInfo,
     TableInfo, TriggerInfo, ViewInfo,
@@ -414,9 +416,13 @@ pub async fn explain_query(
 
 /// Stop what is running on this connection.
 ///
-/// With `session` (an editor tab's id), only that tab's statements are
-/// stopped, so cancelling one tab leaves the others running. Without it,
-/// everything in flight on the connection is stopped.
+/// Only ever the run the user is looking at. With `session` (an editor tab's
+/// id), only that tab's statements are stopped, so cancelling one tab leaves
+/// the others running. Without it, only the shared pool's statements are
+/// stopped, which is where every session-less run goes (the table designer,
+/// the schema tree, grid refreshes, paging): editor tabs and agents keep
+/// running. An agent's turn is stopped from the agent panel instead
+/// (`cancel_agent_turn`).
 ///
 /// Issues `KILL QUERY` server-side — dropping the client future alone would
 /// leave the statement running to completion (#420).
@@ -430,12 +436,20 @@ pub async fn cancel_query(
 ) -> Result<(), String> {
     state
         .query_executor
-        .cancel(&connection_id, session.as_deref())
+        .cancel(&connection_id, cancel_scope(session))
         .await
         .map_err(|e| {
             tracing::error!(error = %e, "Cancel failed");
             e.to_string()
         })
+}
+
+/// What a user's Cancel stops: their tab's session, or the shared pool.
+fn cancel_scope(session: Option<String>) -> CancelScope {
+    match session {
+        Some(session) => CancelScope::Session(session),
+        None => CancelScope::Interactive,
+    }
 }
 
 /// Close an editor tab's session.
@@ -1162,6 +1176,25 @@ pub async fn pick_save_file(
             tracing::info!("Save file pick cancelled");
             Ok(None)
         }
+    }
+}
+
+#[cfg(test)]
+mod cancel_scope_tests {
+    use super::{cancel_scope, CancelScope};
+
+    #[test]
+    fn a_tabs_cancel_stops_only_that_tab() {
+        assert_eq!(
+            cancel_scope(Some("tab-1".to_string())),
+            CancelScope::Session("tab-1".to_string())
+        );
+    }
+
+    #[test]
+    fn a_session_less_cancel_stops_only_the_shared_pool() {
+        // Never `All`: that would stop every tab and agent on the connection.
+        assert_eq!(cancel_scope(None), CancelScope::Interactive);
     }
 }
 
