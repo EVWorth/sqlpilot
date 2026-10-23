@@ -246,6 +246,9 @@ export const useResultStore = create<ResultState>((set, get) => ({
   },
 
   cancelActiveQuery: async () => {
+    // Ctrl+. reaches here whether or not anything is running. With nothing to
+    // stop, going on would wipe the results on screen as "Cancelled".
+    if (!get().isExecuting) return;
     // Bumping the generation only makes this client ignore the response. The
     // statement keeps running — and holding locks — until the server is told to
     // stop, which is what cancelQuery does (#420).

@@ -826,8 +826,20 @@ describe("resultStore", () => {
       }
     });
 
-    it("clears the cancelled state when the next query starts", async () => {
+    it("leaves an idle tab's results alone", async () => {
+      useResultStore.setState({ isExecuting: false, results: [makeQueryResult({ rows: [["kept"]] })] as any });
+
       await useResultStore.getState().cancelActiveQuery();
+
+      const state = useResultStore.getState();
+      expect(state.results).toHaveLength(1);
+      expect(state.cancelledAfterMs).toBeNull();
+    });
+
+    it("clears the cancelled state when the next query starts", async () => {
+      useResultStore.setState({ isExecuting: true, executionStartedAt: Date.now() });
+      await useResultStore.getState().cancelActiveQuery();
+      expect(useResultStore.getState().cancelledAfterMs).not.toBeNull();
       executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
