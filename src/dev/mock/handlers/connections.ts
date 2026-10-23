@@ -25,6 +25,12 @@ const SCENARIO_PROFILE = "profile-local";
 /** What a profile's server is, for one the dataset does not list. */
 const versionOf = (profileId: string): string => SERVER_VERSION[profileId] ?? "8.0.39";
 
+/** The server named the way the backend's Test Connection names it. */
+const productOf = (version: string): string => {
+  const at = version.toLowerCase().indexOf("-mariadb");
+  return at >= 0 ? `MariaDB ${version.slice(0, at).replace(/^5\.5\.5-/, "")}` : `MySQL ${version}`;
+};
+
 /**
  * Whether connecting to this address is refused.
  *
@@ -165,13 +171,18 @@ export const connectionHandlers: Handlers = {
       // A failed test is a result, not an error: the dialog shows it inline.
       return {
         success: false,
-        message: "Connection failed: error communicating with database: Connection refused (os error 111)",
+        message: `Connection failed. ${refusedDetail(profile.host, profile.port)}`,
         server_version: null,
         latency_ms: latency,
       };
     }
     const version = versionOf(profile.id);
-    return { success: true, message: `Connected to MySQL ${version}`, server_version: version, latency_ms: latency };
+    return {
+      success: true,
+      message: `Connected to ${productOf(version)}`,
+      server_version: version,
+      latency_ms: latency,
+    };
   },
 
   connect: async (args): Promise<ConnectionInfo> => {

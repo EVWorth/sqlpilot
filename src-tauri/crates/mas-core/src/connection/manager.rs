@@ -469,12 +469,11 @@ impl ConnectionManager {
 
         tracing::debug!("Testing connection");
 
+        let timeout_secs = profile.connect_timeout_secs.unwrap_or(10) as u64;
         match MySqlPoolOptions::new()
             .max_connections(1)
-            .acquire_timeout(std::time::Duration::from_secs(
-                profile.connect_timeout_secs.unwrap_or(10) as u64,
-            ))
-            .connect_with(options)
+            .acquire_timeout(std::time::Duration::from_secs(timeout_secs))
+            .connect_with(options.clone())
             .await
         {
             Ok(pool) => {
@@ -487,7 +486,7 @@ impl ConnectionManager {
                         tracing::info!(version = %v, latency_ms = latency, "Test connection succeeded");
                         Ok(TestConnectionResult {
                             success: true,
-                            message: format!("Connected to MySQL {}", v),
+                            message: super::test_connection_success_message(&v),
                             server_version: Some(v),
                             latency_ms: latency,
                         })
@@ -504,11 +503,22 @@ impl ConnectionManager {
                 }
             }
             Err(e) => {
+                tracing::warn!(error = %e, "Test connection failed");
+                // The same diagnosis connect gives, pool-timeout probe
+                // included (#809). Latency is taken before the probe: it is
+                // how long the test's own attempt took, not the follow-up.
                 let latency = start.elapsed().as_millis() as u64;
-                tracing::warn!(error = %e, latency_ms = latency, "Test connection failed");
+                let detail = super::first_connect_failure_detail(
+                    &e,
+                    &options,
+                    &profile.host,
+                    profile.port,
+                    timeout_secs,
+                )
+                .await;
                 Ok(TestConnectionResult {
                     success: false,
-                    message: format!("Connection failed: {}", e),
+                    message: super::test_connection_failure_message(&detail),
                     server_version: None,
                     latency_ms: latency,
                 })
