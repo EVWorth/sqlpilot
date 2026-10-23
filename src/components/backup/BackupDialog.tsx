@@ -51,6 +51,9 @@ export function BackupDialog({
   const [filePath, setFilePath] = useState<string | null>(null);
   const [backing, setBacking] = useState(false);
   const [progress, setProgress] = useState<BackupProgress | null>(null);
+  // `rowsExported` counts every table so far; this is where the current
+  // table's rows began, so the bar and the estimate can use its own rows.
+  const [tableStartRows, setTableStartRows] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
   // A cancelled run used to drop back to the plain form, saying nothing (#811).
@@ -176,9 +179,21 @@ export function BackupDialog({
 
     // A progress listener that cannot attach is not a reason to refuse to
     // run: the work still happens, the bar just does not move.
+    let table = 0;
+    let startRows = 0;
+    let lastRows = 0;
+    setTableStartRows(0);
     const unlisten = await attachProgress(() =>
       events.backupProgressEvent.listen((e) => {
-        if (e.payload.backupId === id) setProgress(e.payload.progress);
+        if (e.payload.backupId !== id) return;
+        const next = e.payload.progress;
+        if (next.currentTable !== table) {
+          table = next.currentTable;
+          startRows = lastRows;
+        }
+        lastRows = next.rowsExported;
+        setProgress(next);
+        setTableStartRows(startRows);
       })
     );
 
@@ -619,7 +634,7 @@ export function BackupDialog({
                   <div
                     className="h-full rounded-full bg-brand-500 transition-all"
                     style={{
-                      width: `${backupFraction(progress) * 100}%`,
+                      width: `${backupFraction(progress, tableStartRows) * 100}%`,
                     }}
                   />
                 </div>
@@ -629,7 +644,9 @@ export function BackupDialog({
                 {progress.rowsExported > 0 && <span>{progress.rowsExported.toLocaleString()} rows</span>}
                 {/* What tells a slow dump from a stuck one. */}
                 {formatRate(progress.rowsPerSecond) && <span>{formatRate(progress.rowsPerSecond)}</span>}
-                {formatRemaining(progress) && <span>~{formatRemaining(progress)} left in this table</span>}
+                {formatRemaining(progress, tableStartRows) && (
+                  <span>~{formatRemaining(progress, tableStartRows)} left in this table</span>
+                )}
                 {progress.bytesWritten > 0 && <span>{formatBytes(progress.bytesWritten)}</span>}
                 <span>{formatElapsed(progress.elapsedMs)} elapsed</span>
               </div>

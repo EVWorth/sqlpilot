@@ -84,6 +84,14 @@ describe("backup progress (#361)", () => {
       expect(backupFraction(progress({ currentTable: 1, totalTables: 4, rowsExported: 0 }))).toBe(0);
     });
 
+    it("counts only the current table's own rows", () => {
+      // rowsExported is the total over every table: 900 rows from the first
+      // two, then 50 of the third's 100. The third table is half done.
+      const p = progress({ currentTable: 3, totalTables: 4, rowsExported: 950, estimatedRows: 100 });
+      expect(backupFraction(p, 900)).toBeCloseTo(2.5 / 4);
+      expect(formatRemaining({ ...p, rowsPerSecond: 10 }, 900)).toBe("5s");
+    });
+
     it("counts the current table as nothing without an estimate", () => {
       expect(backupFraction(progress({ currentTable: 2, totalTables: 4, estimatedRows: null }))).toBe(0.25);
     });
