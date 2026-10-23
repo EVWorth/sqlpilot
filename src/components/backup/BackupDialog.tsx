@@ -2,6 +2,7 @@ import { AlertCircle, CheckCircle2, FolderOpen, HardDriveDownload, Loader2, X } 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   attachProgress,
+  backupFraction,
   defaultBackupOptions,
   formatBytes,
   formatElapsed,
@@ -52,6 +53,8 @@ export function BackupDialog({
   const [progress, setProgress] = useState<BackupProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // A cancelled run used to drop back to the plain form, saying nothing (#811).
+  const [cancelled, setCancelled] = useState(false);
 
   const [warnings, setWarnings] = useState<string[]>([]);
   const [summary, setSummary] = useState<BackupSummary | null>(null);
@@ -107,6 +110,7 @@ export function BackupDialog({
       );
       setDatabase(preSelectedDatabase ?? "");
       setDone(false);
+      setCancelled(false);
       setError(null);
       setBacking(false);
       setProgress(null);
@@ -166,6 +170,7 @@ export function BackupDialog({
     setBacking(true);
     setError(null);
     setDone(false);
+    setCancelled(false);
     setProgress(null);
     setWarnings([]);
 
@@ -188,7 +193,9 @@ export function BackupDialog({
       );
       setWarnings(summary.warnings);
       // A cancelled backup leaves no file, so it is not a completed one.
-      if (!summary.cancelled) {
+      if (summary.cancelled) {
+        setCancelled(true);
+      } else {
         setSummary(summary);
         setDone(true);
       }
@@ -580,6 +587,18 @@ export function BackupDialog({
             </div>
           </div>
 
+          {/* Between the click and the first progress event, say it has started. */}
+          {backing && !progress && (
+            <div
+              className="flex items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 text-xs text-[var(--color-text-secondary)]"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+              Starting…
+            </div>
+          )}
+
           {/* Progress */}
           {backing && progress && (
             <div
@@ -600,7 +619,7 @@ export function BackupDialog({
                   <div
                     className="h-full rounded-full bg-brand-500 transition-all"
                     style={{
-                      width: `${(progress.currentTable / progress.totalTables) * 100}%`,
+                      width: `${backupFraction(progress) * 100}%`,
                     }}
                   />
                 </div>
@@ -614,6 +633,13 @@ export function BackupDialog({
                 {progress.bytesWritten > 0 && <span>{formatBytes(progress.bytesWritten)}</span>}
                 <span>{formatElapsed(progress.elapsedMs)} elapsed</span>
               </div>
+            </div>
+          )}
+
+          {cancelled && (
+            <div className="flex items-center gap-2 rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]">
+              <AlertCircle className="h-4 w-4" aria-hidden="true" />
+              Backup cancelled — the partial file was removed.
             </div>
           )}
 
@@ -682,9 +708,7 @@ export function BackupDialog({
                   disabled={!connectionId || !database || !filePath}
                   className="flex items-center gap-1.5 rounded bg-brand-600 px-4 py-1.5 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
                 >
-                  {backing
-                    ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                    : <HardDriveDownload className="h-3.5 w-3.5" />}
+                  <HardDriveDownload className="h-3.5 w-3.5" />
                   Backup
                 </button>
               </>

@@ -39,6 +39,24 @@ export function formatRate(rowsPerSecond: number | null): string | null {
 }
 
 /**
+ * How far through the whole backup it is, from 0 to 1.
+ *
+ * `currentTable` is 1-based and counts the table in progress, so dividing it
+ * by the total put a one-table backup at 100% before a row was read (#811).
+ * Tables already finished count whole; the one in progress counts by its rows
+ * against the server's estimate, and as nothing when there is no estimate.
+ */
+export function backupFraction(progress: BackupProgress): number {
+  const { currentTable, totalTables, rowsExported, estimatedRows } = progress;
+  if (totalTables <= 0) return 0;
+  const finished = Math.max(0, currentTable - 1);
+  const partial = estimatedRows && estimatedRows > 0
+    ? Math.min(1, rowsExported / estimatedRows)
+    : 0;
+  return Math.min(1, (finished + partial) / totalTables);
+}
+
+/**
  * How long the current table has left, from the server's row estimate.
  *
  * Null rather than a guess when there is nothing to divide by. An estimate

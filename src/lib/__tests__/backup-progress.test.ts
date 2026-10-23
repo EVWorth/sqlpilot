@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { defaultBackupOptions, formatBytes, formatElapsed, formatRate, formatRemaining } from "../backup-progress";
+import {
+  backupFraction,
+  defaultBackupOptions,
+  formatBytes,
+  formatElapsed,
+  formatRate,
+  formatRemaining,
+} from "../backup-progress";
 import type { BackupProgress } from "../bindings";
 
 const progress = (over: Partial<BackupProgress> = {}): BackupProgress => ({
@@ -61,6 +68,30 @@ describe("backup progress (#361)", () => {
     it("says nothing before there is a rate to divide by", () => {
       expect(formatRemaining(progress({ rowsPerSecond: 0 }))).toBeNull();
       expect(formatRemaining(progress({ rowsPerSecond: null }))).toBeNull();
+    });
+  });
+
+  describe("the bar (#811)", () => {
+    it("is not full for a one-table backup that has barely started", () => {
+      // 214 of 1,304 rows: the bar used to read 1 / 1 = 100%.
+      expect(backupFraction(progress({ currentTable: 1, totalTables: 1, rowsExported: 214, estimatedRows: 1304 })))
+        .toBeCloseTo(214 / 1304);
+    });
+
+    it("counts finished tables whole and the current one by its rows", () => {
+      expect(backupFraction(progress({ currentTable: 3, totalTables: 4, rowsExported: 50, estimatedRows: 100 })))
+        .toBeCloseTo(2.5 / 4);
+      expect(backupFraction(progress({ currentTable: 1, totalTables: 4, rowsExported: 0 }))).toBe(0);
+    });
+
+    it("counts the current table as nothing without an estimate", () => {
+      expect(backupFraction(progress({ currentTable: 2, totalTables: 4, estimatedRows: null }))).toBe(0.25);
+    });
+
+    it("never passes full when the estimate is low", () => {
+      expect(backupFraction(progress({ currentTable: 1, totalTables: 1, rowsExported: 5000, estimatedRows: 3000 })))
+        .toBe(1);
+      expect(backupFraction(progress({ totalTables: 0 }))).toBe(0);
     });
   });
 

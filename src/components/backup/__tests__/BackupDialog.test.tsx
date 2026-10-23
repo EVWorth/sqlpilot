@@ -615,6 +615,21 @@ describe("BackupDialog", () => {
       });
     });
 
+    it("says a cancelled backup was cancelled (#811)", async () => {
+      const finish = await startHangingBackup();
+      fireEvent.click(screen.getByText("Cancel"));
+      await finish({ ...summary, cancelled: true });
+      expect(screen.getByText(/Backup cancelled — the partial file was removed/)).toBeInTheDocument();
+      expect(screen.queryByText(/Backup complete/)).not.toBeInTheDocument();
+    });
+
+    it("says it has started before the first progress event (#811)", async () => {
+      const finish = await startHangingBackup();
+      expect(screen.getByRole("status")).toHaveTextContent("Starting…");
+      await finish({ ...summary });
+      expect(screen.queryByText("Starting…")).not.toBeInTheDocument();
+    });
+
     it("shows no tables selected error when backup called with none selected", async () => {
       render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
       await waitFor(() => screen.getByText("testdb"));
