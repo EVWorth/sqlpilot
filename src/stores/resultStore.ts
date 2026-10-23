@@ -490,9 +490,14 @@ function tabWriter(key: string): SliceWriter {
   };
 }
 
-/** True when any tab, shown or parked, has a statement running. */
+/**
+ * True when any tab, shown or parked, has a statement running — including a
+ * tab that has closed while its statement was still on the server.
+ */
 export function anyTabExecuting(state: ResultState): boolean {
-  return state.isExecuting || Object.values(state.parked).some((slice) => slice.isExecuting);
+  return state.isExecuting
+    || Object.values(state.parked).some((slice) => slice.isExecuting)
+    || [...activeExecutions.values()].some((run) => !run.cancelled);
 }
 
 export const useResultStore = create<ResultState>((set, get) => ({
@@ -551,12 +556,11 @@ export const useResultStore = create<ResultState>((set, get) => ({
     const live = new Set(liveTabIds);
     const closed = (tab: string) => tab !== NO_TAB && !live.has(tab) && tab !== get().viewTabId;
     // A response still on its way for a closed tab has nowhere to be shown.
-    // It is still recorded in history (see doExecuteQuery).
-    for (const [key, run] of [...activeExecutions]) {
-      if (closed(run.tab)) {
-        run.orphaned = true;
-        activeExecutions.delete(key);
-      }
+    // It is still recorded in history (see doExecuteQuery). The execution
+    // itself stays listed until it settles: the statement is still running on
+    // the server, which is what anyTabExecuting is asked about.
+    for (const run of activeExecutions.values()) {
+      if (closed(run.tab)) run.orphaned = true;
     }
     for (const key of [...generations.keys()]) {
       if (closed(tabOfKey(key))) generations.delete(key);

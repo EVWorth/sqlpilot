@@ -60,7 +60,7 @@ vi.mock("../settingsStore", () => ({
 
 import type { EditorTab, QueryResult } from "../../types";
 import { useEditorStore } from "../editorStore";
-import { useResultStore } from "../resultStore";
+import { anyTabExecuting, useResultStore } from "../resultStore";
 
 function makeExplainResponse(overrides: Partial<any> = {}) {
   return {
@@ -1529,6 +1529,22 @@ describe("per-tab results", () => {
 
     useEditorStore.setState({ tabs: [designerTab("designer-d"), queryTab("query-b")], activeTabId: "query-b" });
     expect(useResultStore.getState().results).toEqual([rows]);
+  });
+
+  it("still counts a closed tab's statement as running until it settles", async () => {
+    // An app update restarting now would cut the statement off mid-way.
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const pending = useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
+    useResultStore.getState().showTab("tab-2");
+    useResultStore.getState().forgetTabs(["tab-2"]);
+
+    expect(anyTabExecuting(useResultStore.getState())).toBe(true);
+
+    slow.resolve([makeQueryResult({ sql: "UPDATE t SET a = 1", rows: [] })]);
+    await pending;
+    expect(anyTabExecuting(useResultStore.getState())).toBe(false);
+    expect(useResultStore.getState().parked).toEqual({});
   });
 
   it("clears a plan read on another connection along with the grid", () => {
