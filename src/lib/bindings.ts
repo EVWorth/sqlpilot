@@ -43,9 +43,13 @@ export const commands = {
 	/**
 	 *  Stop what is running on this connection.
 	 * 
-	 *  With `session` (an editor tab's id), only that tab's statements are
-	 *  stopped, so cancelling one tab leaves the others running. Without it,
-	 *  everything in flight on the connection is stopped.
+	 *  Only ever the run the user is looking at. With `session` (an editor tab's
+	 *  id), only that tab's statements are stopped, so cancelling one tab leaves
+	 *  the others running. Without it, only the shared pool's statements are
+	 *  stopped, which is where every session-less run goes (the table designer,
+	 *  the schema tree, grid refreshes, paging): editor tabs and agents keep
+	 *  running. An agent's turn is stopped from the agent panel instead
+	 *  (`cancel_agent_turn`).
 	 * 
 	 *  Issues `KILL QUERY` server-side — dropping the client future alone would
 	 *  leave the statement running to completion (#420).
