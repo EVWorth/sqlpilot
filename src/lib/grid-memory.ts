@@ -43,7 +43,13 @@ export function recallGrid<K extends keyof GridMemorySlots>(
 ): GridMemorySlots[K] | undefined {
   if (!scope) return undefined;
   const entry = memory.get(scope.tab);
-  if (!entry || entry.owner !== scope.owner) return undefined;
+  if (!entry) return undefined;
+  if (entry.owner !== scope.owner) {
+    // Kept on results the tab no longer shows: never handed back, so not
+    // worth holding those results for.
+    memory.delete(scope.tab);
+    return undefined;
+  }
   return entry.slots[slot];
 }
 
@@ -72,6 +78,13 @@ export function keepGrid<K extends keyof GridMemorySlots>(
   }
   if (value === undefined) delete entry.slots[slot];
   else entry.slots[slot] = value;
+  // Nothing left to hand back: an empty entry would only hold the results.
+  if (Object.keys(entry.slots).length === 0) memory.delete(scope.tab);
+}
+
+/** The tabs anything is kept for, which is what holds their results alive. */
+export function keptGridTabs(): string[] {
+  return [...memory.keys()];
 }
 
 /** Drop what closed tabs' grids kept. */
