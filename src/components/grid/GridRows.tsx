@@ -38,6 +38,7 @@ export interface GridRowsProps {
 
 export interface VirtualGridRowsProps extends GridRowsProps {
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
+  /** Also the sticky header's height, which every row is offset by. */
   rowHeight: number;
 }
 
@@ -56,6 +57,7 @@ export function VirtualGridRows({
   onClickRow: clickRow,
   onRowContextMenu: handleRowContextMenu,
   rowVirtualizer,
+  rowHeight,
 }: VirtualGridRowsProps) {
   return (
     <>
@@ -74,7 +76,7 @@ export function VirtualGridRows({
               style={{
                 display: "flex",
                 position: "absolute",
-                top: 0,
+                top: rowHeight,
                 left: 0,
                 width: "100%",
                 transform: `translateY(${virtualRow.start}px)`,
@@ -142,7 +144,9 @@ export function VirtualGridRows({
             style={{
               display: "flex",
               position: "absolute",
-              top: 0,
+              // Below the sticky header, which is the container's first
+              // child and one row tall; at 0 it covered row 1 (#847).
+              top: rowHeight,
               left: 0,
               width: "100%",
               transform: `translateY(${virtualRow.start}px)`,
