@@ -288,6 +288,10 @@ Linux deps, re-tag protocol.
 - Docker doesn't survive a container restart. Start `dockerd`, then
   `just db-up`.
 - `src/__tests__/main.test.tsx` times out in the container but passes in CI.
+- Parallel subagents each get their own `git worktree`. Tell them never to
+  use `git stash`: the stash list is shared by every worktree, so one agent's
+  `stash pop` takes another agent's changes. To test that a fix is needed,
+  save a patch with `git diff > file` and reverse-apply it instead.
 
 ## When You're Stuck
 
