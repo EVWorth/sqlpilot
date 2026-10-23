@@ -138,6 +138,11 @@ export function StatusBar() {
     (c) => c.id === selectedConnectionId,
   );
   const profiles = useConnectionStore((s) => s.profiles);
+  const connecting = useConnectionStore((s) => s.connecting);
+  const connectingNames = connecting.map((id) => {
+    const profile = profiles.find((p) => p.id === id);
+    return profile?.name || profile?.host || id;
+  });
   const activeProfile = activeConn
     ? profiles.find((p) => p.id === activeConn.profile_id)
     : undefined;
@@ -228,6 +233,15 @@ export function StatusBar() {
                 </span>
               )}
             </>
+          )
+          : connectingNames.length > 0
+          ? (
+            // The first connect used to leave this on "Disconnected" for the
+            // whole wait (#799).
+            <span className="flex items-center gap-1 text-[10px] text-[var(--color-text-secondary)]">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Connecting to {connectingNames.join(", ")}…
+            </span>
           )
           : (
             <span className="text-[10px] text-[var(--color-text-muted)]">

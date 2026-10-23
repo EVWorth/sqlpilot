@@ -268,6 +268,22 @@ describe("StatusBar", () => {
     expect(screen.getByText("Connection timed out")).toBeInTheDocument();
   });
 
+  it("says which server is being connected to, instead of Disconnected (#799)", () => {
+    useConnectionStore.setState({
+      activeConnections: [],
+      selectedConnectionId: null,
+      connecting: ["prof-2"],
+      profiles: [{ id: "prof-2", name: "Staging", host: "stg" }],
+    } as never);
+
+    renderStatusBar();
+    expect(screen.getByText("Connecting to Staging…")).toBeInTheDocument();
+    expect(screen.queryByText("Disconnected")).toBeNull();
+
+    act(() => useConnectionStore.setState({ connecting: [] }));
+    expect(screen.getByText("Disconnected")).toBeInTheDocument();
+  });
+
   it("renders result stats when results exist", () => {
     useResultStore.setState({
       isExecuting: false,

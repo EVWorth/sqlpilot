@@ -1,4 +1,4 @@
-import { Copy, Database, FileText, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
+import { Copy, Database, FileText, Loader2, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { cn } from "../../lib/utils";
@@ -33,18 +33,16 @@ export function ConnectionTabs() {
     ConnectionProfileSummary | undefined
   >();
   const health = useConnectionHealthStore((s) => s.health);
-  const connecting = useConnectionStore((s) => s.loading);
+  const connecting = useConnectionStore((s) => s.connecting);
+  const cancelConnect = useConnectionStore((s) => s.cancelConnect);
 
   /**
-   * What to show on a tab's icon: FR-1.3.2's three states.
-   *
-   * "Connecting" is the store's own in-flight flag rather than a per-tab one,
-   * so it shows while any connect is running — which is when the user is
-   * waiting on one.
+   * What to show on a connected tab's icon. FR-1.3.2's third state,
+   * "Connecting", belongs to the placeholder tab of the profile being opened,
+   * not to every tab that already works (#799).
    */
   const connectionState = (connectionId: string) => {
     if (health[connectionId] && !health[connectionId].healthy) return "Disconnected";
-    if (connecting) return "Connecting";
     return "Connected";
   };
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -125,6 +123,8 @@ export function ConnectionTabs() {
             setSelectedConnection(conn.id);
           }
         } catch (e) {
+          // Cancelled from its placeholder tab: the user knows.
+          if (e instanceof Error && e.message === "Connection cancelled") continue;
           // Leaving the tab without a live connection is right; saying nothing
           // about it is not. The tab looked normal and the first query failed
           // with "Connection not found", which describes neither what happened
@@ -182,7 +182,7 @@ export function ConnectionTabs() {
   };
 
   const activeProfileIds = new Set(activeConnections.map((c) => c.profile_id));
-  const inactiveProfiles = profiles.filter((p) => !activeProfileIds.has(p.id));
+  const inactiveProfiles = profiles.filter((p) => !activeProfileIds.has(p.id) && !connecting.includes(p.id));
 
   const handleConnectProfile = async (profileId: string) => {
     setPopoverOpen(false);
@@ -261,8 +261,8 @@ export function ConnectionTabs() {
 
               {
                 /* Green while the server answers, red once the health checker
-                  says it does not, amber while a connect is in flight — which
-                  is FR-1.3.2's three states. It was green whatever was true
+                  says it does not; the third FR-1.3.2 state, connecting, is
+                  the placeholder tab below. It was green whatever was true
                   (#294). */
               }
               <Database
@@ -272,8 +272,6 @@ export function ConnectionTabs() {
                   "h-3 w-3 shrink-0",
                   connectionState(conn.id) === "Disconnected"
                     ? "text-[var(--color-error)]"
-                    : connectionState(conn.id) === "Connecting"
-                    ? "animate-pulse text-[var(--color-warning)]"
                     : "text-[var(--color-success)]",
                 )}
               />
@@ -355,6 +353,38 @@ export function ConnectionTabs() {
                   void closeSqlite(session.id);
                 }}
                 title="Close database"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          );
+        })}
+
+        {
+          /* A tab for each connect in flight, from the moment it starts, so
+            the wait shows where the connection will appear (#799). */
+        }
+        {connecting.map((profileId) => {
+          const profile = profiles.find((p) => p.id === profileId);
+          const label = profile?.name || profile?.host || profileId;
+          return (
+            <div
+              key={`connecting-${profileId}`}
+              data-testid="connecting-tab"
+              className="flex h-7 min-w-0 max-w-[180px] shrink-0 items-center gap-1.5 rounded px-2 text-xs text-[var(--color-text-secondary)] select-none"
+              title={`Connecting to ${label}…`}
+            >
+              <Loader2
+                role="img"
+                aria-label="Connecting"
+                className="h-3 w-3 shrink-0 animate-spin text-[var(--color-warning)]"
+              />
+              <span className="truncate">{label}</span>
+              <button
+                className="ml-0.5 shrink-0 rounded p-0.5 hover:bg-[var(--color-bg-tertiary)]"
+                onClick={() => cancelConnect(profileId)}
+                title={`Cancel connecting to ${label}`}
+                aria-label={`Cancel connecting to ${label}`}
               >
                 <X className="h-2.5 w-2.5" />
               </button>

@@ -4,6 +4,7 @@ import { useEditorStore } from "../../../stores/editorStore";
 import { ConnectionTabs } from "../ConnectionTabs";
 
 const mockLoadProfiles = vi.fn();
+const mockCancelConnect = vi.fn();
 // Hoisted, because the mock factory below runs before ordinary top-level
 // consts are initialised.
 const { setStateSpy } = vi.hoisted(() => ({ setStateSpy: vi.fn() }));
@@ -18,8 +19,10 @@ function currentState() {
     profiles: [],
     activeConnections: [],
     selectedConnectionId: null,
+    connecting: [],
     connect: vi.fn(),
     disconnect: vi.fn(),
+    cancelConnect: mockCancelConnect,
     deleteProfile: vi.fn(),
     setSelectedConnection: vi.fn(),
     loadProfiles: mockLoadProfiles,
@@ -168,6 +171,8 @@ describe("startup reconnect (#276)", () => {
   });
 });
 
+const staging = { id: "p2", name: "Staging", host: "stg" };
+
 describe("connection state on the tab (FR-1.3.2)", () => {
   const conn = { id: "c1", profile_id: "p1", name: "prod", database: "app" };
   const profiles = [{ id: "p1", name: "prod", host: "db" }];
@@ -187,17 +192,55 @@ describe("connection state on the tab (FR-1.3.2)", () => {
     expect(screen.getByLabelText("Disconnected").getAttribute("class")).toContain("--color-error");
   });
 
-  it("is amber while a connect is in flight", () => {
-    storeState = { profiles, activeConnections: [conn], loading: true };
+  it("shows a lost connection as lost even while another is connecting", () => {
+    healthState = { c1: { connectionId: "c1", healthy: false, consecutiveFailures: 1 } };
+    storeState = { profiles: [...profiles, staging], activeConnections: [conn], connecting: ["p2"] };
     render(<ConnectionTabs />);
+    expect(screen.getByLabelText("Disconnected")).toBeInTheDocument();
+  });
+});
+
+describe("a connect in flight (#799)", () => {
+  const conn = { id: "c1", profile_id: "p1", name: "prod", database: "app" };
+  const profiles = [{ id: "p1", name: "prod-eu", host: "db" }, staging];
+
+  it("gets a placeholder tab, named, from the moment it starts", () => {
+    // Nothing changed for the whole wait: a tab existed only once the
+    // connect had succeeded.
+    storeState = { profiles, activeConnections: [], connecting: ["p2"] };
+    render(<ConnectionTabs />);
+    const tab = screen.getByTestId("connecting-tab");
+    expect(tab).toHaveTextContent("Staging");
     expect(screen.getByLabelText("Connecting").getAttribute("class")).toContain("--color-warning");
   });
 
-  it("shows a lost connection as lost even while another is connecting", () => {
-    healthState = { c1: { connectionId: "c1", healthy: false, consecutiveFailures: 1 } };
+  it("leaves the tabs that already work green", () => {
+    // The shared loading flag pulsed every existing tab amber.
+    storeState = { profiles, activeConnections: [conn], connecting: ["p2"], loading: true };
+    render(<ConnectionTabs />);
+    expect(screen.getByLabelText("Connected")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Connecting")).toHaveLength(1);
+  });
+
+  it("does not show a profile saving or loading as connecting", () => {
     storeState = { profiles, activeConnections: [conn], loading: true };
     render(<ConnectionTabs />);
-    expect(screen.getByLabelText("Disconnected")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Connecting")).toBeNull();
+  });
+
+  it("can be cancelled from its placeholder", () => {
+    storeState = { profiles, activeConnections: [], connecting: ["p2"] };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByLabelText("Cancel connecting to Staging"));
+    expect(mockCancelConnect).toHaveBeenCalledWith("p2");
+  });
+
+  it("is not offered again in the connect menu while it is opening", () => {
+    storeState = { profiles, activeConnections: [], connecting: ["p2"] };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByTitle("Connect to a server"));
+    expect(screen.getByText("prod-eu")).toBeInTheDocument();
+    expect(screen.getAllByText("Staging")).toHaveLength(1);
   });
 });
 

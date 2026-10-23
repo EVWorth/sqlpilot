@@ -16,12 +16,22 @@ interface ConnectionState {
    * variable so it resets with everything else.
    */
   pendingDisconnects: string[];
+  /**
+   * Profiles with a connect in flight, so each can show its own placeholder
+   * tab. `loading` is shared with loading, saving and deleting profiles, so
+   * reading it painted every tab "Connecting" for any of them (#799).
+   */
+  connecting: string[];
+  /** Profiles whose in-flight connect the user cancelled. */
+  cancelledConnects: string[];
 
   loadProfiles: () => Promise<void>;
   saveProfile: (profile: ConnectionProfileInput) => Promise<void>;
   deleteProfile: (id: string) => Promise<void>;
   connect: (profileId: string) => Promise<ConnectionInfo>;
   disconnect: (connectionId: string) => Promise<void>;
+  /** Abandon the in-flight connect for a profile; its result is closed on arrival. */
+  cancelConnect: (profileId: string) => void;
   setSelectedConnection: (id: string | null) => void;
   clearError: () => void;
 }
@@ -33,6 +43,8 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   loading: false,
   error: null,
   pendingDisconnects: [],
+  connecting: [],
+  cancelledConnects: [],
 
   loadProfiles: async () => {
     try {
@@ -67,37 +79,68 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   },
 
   connect: async (profileId) => {
-    try {
-      set({ loading: true, error: null });
-      const info = await api.connect(profileId);
-
-      // Disconnect may have been asked for while this was in flight, before
-      // there was anything client-side to remove. Dropping the reference is
-      // not enough: the pool exists on the server, so it has to be closed
-      // there too, or it lives on with nothing able to reach it (#280).
-      if (get().pendingDisconnects.includes(info.id)) {
-        set((state) => ({
-          pendingDisconnects: state.pendingDisconnects.filter((id) => id !== info.id),
-        }));
-        try {
-          await api.disconnect(info.id);
-        } catch {
-          // Best effort — the reference is being discarded regardless.
-        }
-        set({ loading: false });
-        throw new Error("Connection cancelled");
-      }
-
+    set((state) => ({
+      error: null,
+      connecting: state.connecting.includes(profileId)
+        ? state.connecting
+        : [...state.connecting, profileId],
+    }));
+    const settle = () => set((state) => ({ connecting: state.connecting.filter((id) => id !== profileId) }));
+    /** Whether the user cancelled this connect; consumes the request. */
+    const takeCancel = () => {
+      if (!get().cancelledConnects.includes(profileId)) return false;
       set((state) => ({
-        activeConnections: [...state.activeConnections, info],
-        selectedConnectionId: info.id,
-        loading: false,
+        cancelledConnects: state.cancelledConnects.filter((id) => id !== profileId),
       }));
-      return info;
+      return true;
+    };
+
+    let info: ConnectionInfo;
+    try {
+      info = await api.connect(profileId);
     } catch (e) {
-      set({ error: String(e), loading: false });
+      settle();
+      // A failure nobody is waiting for any more is not worth reporting.
+      // Rejected, not thrown: lint wants a `cause` on a throw inside a catch,
+      // and the ES2021 target has no `cause` option.
+      if (takeCancel()) return Promise.reject(new Error("Connection cancelled"));
+      set({ error: String(e) });
       throw e;
     }
+    settle();
+
+    // Disconnect may have been asked for while this was in flight, before
+    // there was anything client-side to remove. Dropping the reference is
+    // not enough: the pool exists on the server, so it has to be closed
+    // there too, or it lives on with nothing able to reach it (#280).
+    const cancelled = takeCancel();
+    if (cancelled || get().pendingDisconnects.includes(info.id)) {
+      set((state) => ({
+        pendingDisconnects: state.pendingDisconnects.filter((id) => id !== info.id),
+      }));
+      try {
+        await api.disconnect(info.id);
+      } catch {
+        // Best effort — the reference is being discarded regardless.
+      }
+      throw new Error("Connection cancelled");
+    }
+
+    set((state) => ({
+      activeConnections: [...state.activeConnections, info],
+      selectedConnectionId: info.id,
+    }));
+    return info;
+  },
+
+  cancelConnect: (profileId) => {
+    if (!get().connecting.includes(profileId)) return;
+    set((state) => ({
+      connecting: state.connecting.filter((id) => id !== profileId),
+      cancelledConnects: state.cancelledConnects.includes(profileId)
+        ? state.cancelledConnects
+        : [...state.cancelledConnects, profileId],
+    }));
   },
 
   disconnect: async (connectionId) => {
