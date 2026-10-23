@@ -1,6 +1,8 @@
 import { render, screen } from "@testing-library/react";
+import { useEffect } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { EditorTab } from "../../../types";
+import { ResultsGrid } from "../../grid/ResultsGrid";
 import { TableStructure } from "../../schema/TableStructure";
 import { MainPanel } from "../MainPanel";
 
@@ -106,6 +108,29 @@ describe("MainPanel", () => {
   it("has full height container", () => {
     const { container } = render(<MainPanel />);
     expect(container.firstElementChild).toHaveClass("h-full", "flex-col");
+  });
+
+  it("gives each tab a fresh results grid", () => {
+    // #842: the grid's edit state (pending edits, Edit Mode) lives in the
+    // component. Kept across a tab switch, tab A's edits were saved against
+    // tab B's rows and table.
+    let mounts = 0;
+    vi.mocked(ResultsGrid).mockImplementation(function CountingGrid() {
+      useEffect(() => {
+        mounts++;
+      }, []);
+      return <div data-testid="results-grid">ResultsGrid</div>;
+    });
+    const query = (id: string): EditorTab => ({ id, title: id, content: "", type: "query", isDirty: false });
+    const tabs = [query("tab1"), query("tab2")];
+    Object.assign(globalThis, { __mainPanelEditorState: { tabs, activeTabId: "tab1" } });
+    const { rerender } = render(<MainPanel />);
+    expect(mounts).toBe(1);
+
+    Object.assign(globalThis, { __mainPanelEditorState: { tabs, activeTabId: "tab2" } });
+    rerender(<MainPanel />);
+
+    expect(mounts).toBe(2);
   });
 
   describe("renders the right panel for every tab kind", () => {

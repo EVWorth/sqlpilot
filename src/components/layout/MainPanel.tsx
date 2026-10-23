@@ -79,6 +79,11 @@ export function MainPanel() {
                 className="relative z-10 h-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500 after:absolute after:inset-x-0 after:-top-2.5 after:-bottom-2.5 after:content-['']" />
                 <Panel defaultSize="50%" minSize="20%">
                   <ResultsPanel
+                    // Remounted per tab: the grid's pending edits and Edit
+                    // Mode belong to the result they were made on, and
+                    // carried over they would be saved against another
+                    // tab's rows and table (#842).
+                    key={activeTabId ?? ""}
                     showExplain={showExplain}
                     explainResult={explainResult}
                     setShowExplain={setShowExplain}
