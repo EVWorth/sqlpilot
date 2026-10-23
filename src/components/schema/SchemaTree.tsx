@@ -163,6 +163,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         await store.ensureViews(connectionId, db.name);
         await store.ensureRoutines(connectionId, db.name);
         await store.ensureTriggers(connectionId, db.name);
+        await store.ensureEvents(connectionId, db.name);
       }
     })();
     return () => {
@@ -367,6 +368,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
 
   // Show all DBs while filtering; hide only those whose data IS loaded and has no matches
   const isDbVisible = (dbName: string) => !isFiltering || tables[dbName] === undefined || dbHasMatches(dbName);
+  const visibleDatabases = databases.filter((db) => isDbVisible(db.name));
 
   // Auto-expand when matches found; also respect manual toggles while filtering
   const isDbExpanded = (dbName: string) =>
@@ -426,7 +428,17 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         </label>
       )}
 
-      {databases.filter((db) => isDbVisible(db.name)).map((db) => (
+      {
+        /* Without this a filter that hides everything left a blank tree, which
+          reads as "still loading" (#806). */
+      }
+      {isFiltering && databases.length > 0 && visibleDatabases.length === 0 && (
+        <p role="status" className="px-2 py-1 text-[11px] text-[var(--color-text-muted)]">
+          No objects match '{filterText.trim()}'
+        </p>
+      )}
+
+      {visibleDatabases.map((db) => (
         <div key={db.name} role="treeitem" aria-expanded={isDbExpanded(db.name)} aria-label={db.name}>
           <button
             onKeyDown={(e) => {

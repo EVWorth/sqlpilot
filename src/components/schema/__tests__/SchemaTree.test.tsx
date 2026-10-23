@@ -258,6 +258,48 @@ describe("SchemaTree", () => {
       expect(named("users")).toHaveLength(0);
     });
 
+    it("finds events in databases that were never opened (#806)", async () => {
+      vi.mocked(api.getEvents).mockImplementation((_cid: string, db: string) =>
+        Promise.resolve(
+          db === "logs"
+            ? [{
+              name: "purge_old_events",
+              event_type: "RECURRING",
+              status: "ENABLED",
+              definer: "root@%",
+              interval: "1 DAY",
+              comment: "",
+            }]
+            : [],
+        )
+      );
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+
+      await user.type(screen.getByPlaceholderText(/Filter/), "purge");
+
+      await waitFor(() => expect(api.getEvents).toHaveBeenCalledWith("conn-1", "logs"));
+      await waitFor(() =>
+        expect(
+          screen.queryAllByText((_t, node) => node?.textContent === "purge_old_events" && node.tagName === "SPAN")
+            .length,
+        ).toBeGreaterThan(0)
+      );
+      expect(screen.queryByText("app_db")).toBeNull();
+    });
+
+    it("says so when the filter matches nothing (#806)", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+
+      await user.type(screen.getByPlaceholderText(/Filter/), "zzz");
+
+      await waitFor(() => expect(screen.getByText("No objects match 'zzz'")).toBeInTheDocument());
+      expect(screen.queryByText("app_db")).toBeNull();
+    });
+
     it("Escape key clears the filter input", async () => {
       const user = userEvent.setup({ applyAccept: false });
       render(<SchemaTree connectionId="conn-1" />);
