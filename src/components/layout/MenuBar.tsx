@@ -10,6 +10,7 @@ export function MenuBar() {
   const profiles = useConnectionStore((s) => s.profiles);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const openProfileIds = new Set(activeConnections.map((c) => c.profile_id));
+  const connecting = useConnectionStore((s) => s.connecting);
   const barRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -91,16 +92,20 @@ export function MenuBar() {
                           )}
                           {profiles.map((profile) => {
                             const isOpen = openProfileIds.has(profile.id);
+                            const isOpening = connecting.includes(profile.id);
                             return (
                               <button
                                 key={profile.id}
                                 role="menuitem"
-                                disabled={isOpen}
+                                disabled={isOpen || isOpening}
                                 onClick={() => handleConnect(profile.id)}
                                 className="flex w-full items-center justify-between gap-4 px-3 py-1 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-tertiary)] disabled:opacity-50 disabled:hover:bg-transparent"
                               >
                                 <span className="truncate">{profile.name || profile.host}</span>
                                 {isOpen && <span className="shrink-0 text-[var(--color-text-muted)]">connected</span>}
+                                {!isOpen && isOpening && (
+                                  <span className="shrink-0 text-[var(--color-text-muted)]">connecting</span>
+                                )}
                               </button>
                             );
                           })}

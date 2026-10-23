@@ -220,4 +220,13 @@ describe("saved profiles in the palette (#817)", () => {
     expect(screen.queryByText("Connect: Staging")).toBeNull();
     useConnectionStore.setState({ activeConnections: [] });
   });
+
+  it("drops a profile that is still connecting", () => {
+    useConnectionStore.setState({ connecting: ["p-stg"] });
+    render(<Host />);
+    openPalette();
+    type("staging");
+    expect(screen.queryByText("Connect: Staging")).toBeNull();
+    useConnectionStore.setState({ connecting: [] });
+  });
 });

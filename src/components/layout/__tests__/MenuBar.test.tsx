@@ -186,6 +186,21 @@ describe("Connection → Connect to (#817)", () => {
     expect(screen.queryByText("Connect to")).toBeNull();
   });
 
+  it("does not offer a profile that is still connecting", () => {
+    useConnectionStore.setState({
+      profiles: [profile("p1", "Local dev"), profile("p2", "Staging")],
+      activeConnections: [],
+      connecting: ["p2"],
+    });
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Connection"));
+    fireEvent.click(screen.getByText("Connect to"));
+    expect(screen.getByRole("menuitem", { name: /Staging/ })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: /Local dev/ })).toBeEnabled();
+    useConnectionStore.setState({ connecting: [] });
+  });
+
   it("says when there is nothing to connect to", () => {
     useConnectionStore.setState({ profiles: [], activeConnections: [] });
     render(<MenuBar />);

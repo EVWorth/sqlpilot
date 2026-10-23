@@ -438,4 +438,36 @@ describe("connecting from elsewhere (#817)", () => {
 
     await vi.waitFor(() => expect(connect).toHaveBeenCalledWith("p2"));
   });
+
+  it("does not connect a profile a second time while it is opening", async () => {
+    const connect = vi.fn().mockResolvedValue({ id: "c2", profile_id: "p2", database: null });
+    storeState = { profiles: [{ id: "p2", name: "Staging", host: "stg" }], connecting: ["p2"], connect };
+    render(<ConnectionTabs />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("connect-profile", { detail: "p2" }));
+    });
+
+    await Promise.resolve();
+    expect(connect).not.toHaveBeenCalledWith("p2");
+  });
+
+  it("selects a profile that is already open instead of connecting it again", async () => {
+    const connect = vi.fn().mockResolvedValue({ id: "c3", profile_id: "p2", database: null });
+    const setSelectedConnection = vi.fn();
+    storeState = {
+      profiles: [{ id: "p2", name: "Staging", host: "stg" }],
+      activeConnections: [{ id: "c2", profile_id: "p2", database: null }],
+      connect,
+      setSelectedConnection,
+    };
+    render(<ConnectionTabs />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("connect-profile", { detail: "p2" }));
+    });
+
+    await vi.waitFor(() => expect(setSelectedConnection).toHaveBeenCalledWith("c2"));
+    expect(connect).not.toHaveBeenCalledWith("p2");
+  });
 });

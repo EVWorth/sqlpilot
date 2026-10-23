@@ -208,6 +208,18 @@ export function ConnectionTabs() {
 
   const handleConnectProfile = async (profileId: string) => {
     setPopoverOpen(false);
+    // The menu bar, the palette and the sidebar can all ask for a profile
+    // that is opening or already open. A second `api.connect` would make a
+    // second live connection, and its settle would drop the first one's
+    // placeholder tab. Read the store, not this render: two requests can
+    // arrive before React re-renders.
+    const { connecting: inFlight, activeConnections: open } = useConnectionStore.getState();
+    if (inFlight.includes(profileId)) return;
+    const existing = open.find((c) => c.profile_id === profileId);
+    if (existing) {
+      selectConnection(existing.id);
+      return;
+    }
     try {
       const conn = await connect(profileId);
       setSelectedConnection(conn.id);
