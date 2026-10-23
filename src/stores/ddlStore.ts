@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { dataSourceFor } from "../lib/datasource";
 import { api } from "../lib/tauri-api";
+import { errorMessage } from "../lib/utils";
 import type { DdlObjectType } from "../types";
 
 /**
@@ -69,7 +70,7 @@ export const useDdlStore = create<DdlState>((set) => ({
       const ddl = await fetchDdl(target);
       put({ ddl, loading: false });
     } catch (e) {
-      put({ error: String(e), loading: false });
+      put({ error: errorMessage(e), loading: false });
     }
   },
 }));

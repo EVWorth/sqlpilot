@@ -27,7 +27,7 @@ import {
 import { foreignKeyTypeProblem } from "../../lib/fk-compat";
 import { DEFAULT_TABLE_OPTIONS, parseTableOptions } from "../../lib/table-options";
 import { api } from "../../lib/tauri-api";
-import { cn } from "../../lib/utils";
+import { cn, errorMessage } from "../../lib/utils";
 import { useResultStore } from "../../stores/resultStore";
 import type { ColumnInfo, ForeignKeyInfo, IndexInfo, TableInfo } from "../../types";
 import { SQLPreviewDialog } from "../common/SQLPreviewDialog";
@@ -197,7 +197,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           return rest;
         });
       } catch (e) {
-        setRefColumnErrors((prev) => ({ ...prev, [table]: String(e) }));
+        setRefColumnErrors((prev) => ({ ...prev, [table]: errorMessage(e) }));
       }
     },
     [connectionId, database, refTableColumns],
