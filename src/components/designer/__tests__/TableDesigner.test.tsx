@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { TableDesigner } from "../TableDesigner";
 
@@ -710,6 +710,40 @@ describe("TableDesigner", () => {
       });
 
       expect(screen.getByTestId("fk-problem").textContent).toContain("same kind of type");
+    });
+
+    it("keeps the referenced column and says why when its table's columns fail (#810)", async () => {
+      // The load error was swallowed, so the card showed the table and no
+      // chips at all: the key's target could be neither seen nor changed.
+      vi.mocked(api.getForeignKeys).mockResolvedValue([existingFk] as never);
+      vi.mocked(api.getColumns).mockImplementation(
+        ((_c: string, _d: string, table: string) =>
+          table === "users" ? Promise.reject("access denied") : Promise.resolve(mockColumns)) as never,
+      );
+
+      render(<TableDesigner connectionId="conn-1" database="testdb" tableName="orders" />);
+      await screen.findByDisplayValue("orders");
+      await act(async () => {
+        fireEvent.click(screen.getByText("Foreign Keys"));
+      });
+
+      expect(screen.getByRole("alert").textContent)
+        .toContain("Couldn't load columns of users: access denied");
+      // The first "id" chip is the local column list; the second is the
+      // reference side, which must still be there and selected.
+      const row = screen.getByTestId("fk-row");
+      const idChips = within(row).getAllByRole("button", { name: "id" });
+      expect(idChips).toHaveLength(2);
+      expect(idChips[1].className).toContain("border-brand-500");
+      expect(within(row).getAllByRole("button", { name: "name" })).toHaveLength(1);
+
+      vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+      });
+
+      expect(screen.queryByRole("alert")).toBeNull();
+      expect(within(row).getAllByRole("button", { name: "name" })).toHaveLength(2);
     });
   });
 });
