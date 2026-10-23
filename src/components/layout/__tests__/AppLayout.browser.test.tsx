@@ -155,6 +155,8 @@ vi.mock("../../../stores/connectionStore", () => ({
 }));
 vi.mock("../../../stores/resultStore", () => ({
   useResultStore: vi.fn((selector: (s: unknown) => unknown) => selector(resultState)),
+  // The update guard asks every tab whether a query is running (#842).
+  anyTabExecuting: vi.fn(() => false),
 }));
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(

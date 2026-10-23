@@ -9,10 +9,11 @@ import { useGridSave } from "../useGridSave";
 // session, inside its transaction when one is open (#735).
 
 let resultSource: ResultSource | null = null;
+let viewTabId: string | null = "tab-1";
 const executeQuery = vi.fn();
 
 vi.mock("../../stores/resultStore", () => ({
-  useResultStore: { getState: () => ({ resultSource, executeQuery }) },
+  useResultStore: { getState: () => ({ resultSource, executeQuery, viewTabId }) },
 }));
 
 vi.mock("../../stores/editorStore", () => ({
@@ -30,9 +31,9 @@ vi.mock("../../stores/connectionStore", () => ({
   useConnectionStore: { getState: () => ({ selectedConnectionId: "conn-1" }) },
 }));
 
-vi.mock("../../stores/productionGuardStore", () => ({
-  confirmDestructive: vi.fn(async () => true),
-}));
+const confirmDestructive = vi.hoisted(() => vi.fn(async () => true));
+
+vi.mock("../../stores/productionGuardStore", () => ({ confirmDestructive }));
 
 vi.mock("../../lib/run-statement", () => ({
   runGridEdits: vi.fn(),
@@ -72,6 +73,8 @@ beforeEach(() => {
   vi.mocked(runGridEdits).mockReset();
   vi.mocked(runStatement).mockReset();
   executeQuery.mockReset();
+  viewTabId = "tab-1";
+  confirmDestructive.mockImplementation(async () => true);
 });
 
 describe("useGridSave", () => {
@@ -89,7 +92,7 @@ describe("useGridSave", () => {
       statements: [expect.stringContaining("UPDATE")],
     });
     expect(runStatement).not.toHaveBeenCalled();
-    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", "tab-1");
+    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", "tab-1", "tab-1");
     expect(onMessage).toHaveBeenCalledWith("Applied 1 change(s)");
   });
 
@@ -126,7 +129,23 @@ describe("useGridSave", () => {
 
     expect(runGridEdits).not.toHaveBeenCalled();
     expect(runStatement).toHaveBeenCalledTimes(1);
-    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", undefined);
+    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", undefined, "tab-1");
+  });
+
+  it("refreshes in the grid's own tab when the user switched tabs during the save", async () => {
+    // A schema-tree Select rows, or any SQLite result: no session to say
+    // which tab the refresh is for, so it has to be fixed before the awaits.
+    resultSource = { connectionId: "conn-1", database: "app" };
+    vi.mocked(runStatement).mockResolvedValue([{ rows_affected: 1 }] as never);
+    confirmDestructive.mockImplementation(async () => {
+      viewTabId = "tab-2";
+      return true;
+    });
+    const { save } = renderSave();
+
+    await save();
+
+    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", undefined, "tab-1");
   });
 
   it("saves where the result was read, not where the editor points now (#840)", async () => {
@@ -141,7 +160,7 @@ describe("useGridSave", () => {
     expect(call.session).toBe("tab-9");
     expect(call.database).toBe("other");
     expect(call.statements[0]).toMatch(/^UPDATE `users` SET `name` = 'grace' WHERE `id` = 1/);
-    expect(executeQuery).toHaveBeenCalledWith("conn-2", "SELECT * FROM users", "other", "tab-9");
+    expect(executeQuery).toHaveBeenCalledWith("conn-2", "SELECT * FROM users", "other", "tab-9", "tab-1");
   });
 
   it("refuses when it cannot tell where the result came from", async () => {

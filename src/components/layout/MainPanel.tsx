@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Group, Panel, Separator } from "react-resizable-panels";
+import { useResultsFollowActiveTab } from "../../hooks/useResultsFollowActiveTab";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { AdminPanel } from "../admin/AdminPanel";
@@ -20,6 +21,7 @@ export function MainPanel() {
   const showExplain = useResultStore((s) => s.showExplain);
   const explainResult = useResultStore((s) => s.explainResult);
   const setShowExplain = useResultStore((s) => s.setShowExplain);
+  useResultsFollowActiveTab();
 
   // Narrowing on `type` is enough: the union guarantees the fields each kind
   // needs, so there is nothing left to re-check here (#449). This used to
@@ -77,6 +79,13 @@ export function MainPanel() {
                 className="relative z-10 h-1 bg-[var(--color-border)] transition-colors hover:bg-brand-500 after:absolute after:inset-x-0 after:-top-2.5 after:-bottom-2.5 after:content-['']" />
                 <Panel defaultSize="50%" minSize="20%">
                   <ResultsPanel
+                    // Remounted per tab: the grid's pending edits and Edit
+                    // Mode belong to the result they were made on, and
+                    // carried over they would be saved against another
+                    // tab's rows and table (#842). The grid keeps them, with
+                    // its sort and column widths, for each tab while it is
+                    // hidden (see lib/grid-memory).
+                    key={activeTabId ?? ""}
                     showExplain={showExplain}
                     explainResult={explainResult}
                     setShowExplain={setShowExplain}

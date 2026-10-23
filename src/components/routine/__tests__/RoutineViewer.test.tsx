@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RoutineViewer } from "../RoutineViewer";
 
@@ -58,7 +58,7 @@ describe("RoutineViewer", () => {
       closeTab: vi.fn(),
     });
     vi.mocked(useResultStore.getState).mockReturnValue({
-      executeQuery: vi.fn().mockResolvedValue(undefined),
+      executeQuery: vi.fn().mockResolvedValue({ status: "succeeded", results: [] }),
       error: null,
       confirmDialog: null,
     } as never);
@@ -181,7 +181,7 @@ describe("dropping a routine", () => {
     // A fresh one per test: the store's getState is mocked, so a shared
     // executeQuery would carry the previous test's calls into this one.
     vi.mocked(useResultStore.getState).mockReturnValue({
-      executeQuery: vi.fn().mockResolvedValue(undefined),
+      executeQuery: vi.fn().mockResolvedValue({ status: "succeeded", results: [] }),
       error: null,
       confirmDialog: null,
     } as never);
@@ -248,7 +248,7 @@ describe("dropping a routine", () => {
       closeTab,
     } as never);
     vi.mocked(useResultStore.getState).mockReturnValue({
-      executeQuery: vi.fn().mockResolvedValue(undefined),
+      executeQuery: vi.fn().mockResolvedValue({ status: "awaiting-confirmation" }),
       error: null,
       confirmDialog: { isOpen: true, kind: "query", connectionId: "conn-1", sql: "DROP ..." },
     } as never);
@@ -257,6 +257,28 @@ describe("dropping a routine", () => {
 
     // Closing it now would take away what the dialog is asking about.
     expect(closeTab).not.toHaveBeenCalled();
+  });
+
+  it("goes by its own drop's outcome, not the error on screen", async () => {
+    // #842: the store's `error` is the shown tab's. Another tab's failure
+    // there kept the tab of a routine that was dropped fine.
+    const closeTab = vi.fn();
+    vi.mocked(useEditorStore.getState).mockReturnValue({
+      addTab: vi.fn(),
+      updateTabContent: vi.fn(),
+      tabs: [{ id: "t1", type: "routine", routineName: "test_sp", database: "testdb" }],
+      closeTab,
+    } as never);
+    vi.mocked(useResultStore.getState).mockReturnValue({
+      executeQuery: vi.fn().mockResolvedValue({ status: "succeeded", results: [] }),
+      error: "another tab's failure",
+      confirmDialog: null,
+    } as never);
+
+    await renderAndDrop();
+
+    await waitFor(() => expect(closeTab).toHaveBeenCalledWith("t1"));
+    expect(screen.queryByText("another tab's failure")).toBeNull();
   });
 });
 
@@ -271,7 +293,7 @@ describe("RoutineViewer parameters", () => {
       closeTab: vi.fn(),
     } as never);
     vi.mocked(useResultStore.getState).mockReturnValue({
-      executeQuery: vi.fn().mockResolvedValue(undefined),
+      executeQuery: vi.fn().mockResolvedValue({ status: "succeeded", results: [] }),
       error: null,
       confirmDialog: null,
     } as never);

@@ -78,19 +78,29 @@ impl QueryExecutor {
     /// `KILL QUERY` terminates the statement but leaves the session alive, so
     /// the pool connection stays usable. A no-op when nothing is in flight.
     ///
-    /// Cancels every statement in flight on the connection, because the caller
-    /// asks by connection and the executor has no way to tell which of several
-    /// concurrent statements the user meant.
+    /// `scope` says which of the connection's statements to stop; see
+    /// [`CancelScope`]. Tabs, the shared pool and agents run concurrently on
+    /// one connection, so cancelling by connection alone would interrupt
+    /// work the caller never asked to stop.
     #[tracing::instrument(skip(self))]
-    pub async fn cancel(&self, connection_id: &str) -> Result<(), CoreError> {
-        let thread_ids: Vec<u64> = self
-            .in_flight
-            .iter()
-            .filter(|entry| entry.value().0 == connection_id)
-            .map(|entry| *entry.key())
-            .collect();
+    pub async fn cancel(&self, connection_id: &str, scope: CancelScope) -> Result<(), CoreError> {
+        let thread_ids = threads_to_cancel(
+            self.in_flight.iter().map(|entry| {
+                (
+                    *entry.key(),
+                    entry.value().0.clone(),
+                    entry.value().1.clone(),
+                )
+            }),
+            connection_id,
+            &scope,
+        );
         if thread_ids.is_empty() {
-            tracing::debug!(connection_id, "Cancel requested with no query in flight");
+            tracing::debug!(
+                connection_id,
+                ?scope,
+                "Cancel requested with no query in flight"
+            );
             return Ok(());
         }
         let pool = self.connection_manager.get_pool(connection_id)?;
@@ -152,8 +162,10 @@ impl QueryExecutor {
     /// An agent runs its statements here on [`Route::Agent`], its own
     /// connections, so however much it runs it cannot take the editor's or
     /// another agent's (#731). It stays on this executor rather than getting
-    /// its own so that cancel still reaches it: the user's Cancel stops what
-    /// the agent is running too.
+    /// its own so that its statements share the one set of timeouts and stay
+    /// within reach of [`CancelScope::All`]. The user's Cancel in the editor
+    /// does not reach them: it is scoped to the tab's session or to the shared
+    /// pool, never to an agent's connections.
     pub async fn execute_in(
         &self,
         route: Route,
@@ -1132,9 +1144,112 @@ impl MemoryGuard {
     }
 }
 
+/// Which of a connection's in-flight statements a cancel stops.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CancelScope {
+    /// Everything on the connection: the shared pool, every editor tab's
+    /// session and every agent's connections. For internal callers only; a
+    /// user's Cancel means the one run they are looking at.
+    All,
+    /// Only the shared pool ([`Route::Interactive`]), where session-less runs
+    /// go: the schema tree, the table designer, grid refreshes and paging.
+    /// Editor tabs and agents keep running.
+    Interactive,
+    /// Only the statements on this editor tab's own session
+    /// ([`Route::Session`]).
+    Session(String),
+}
+
+/// The server threads a cancel should kill, from `(thread id, connection id,
+/// route)` for every statement in flight on any connection.
+fn threads_to_cancel(
+    in_flight: impl IntoIterator<Item = (u64, String, Route)>,
+    connection_id: &str,
+    scope: &CancelScope,
+) -> Vec<u64> {
+    in_flight
+        .into_iter()
+        .filter(|(_, conn, route)| {
+            conn == connection_id
+                && match scope {
+                    CancelScope::All => true,
+                    CancelScope::Interactive => *route == Route::Interactive,
+                    CancelScope::Session(wanted) => {
+                        matches!(route, Route::Session(s) if s == wanted)
+                    }
+                }
+        })
+        .map(|(thread_id, _, _)| thread_id)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn sample_in_flight() -> Vec<(u64, String, Route)> {
+        vec![
+            (1, "c1".into(), Route::Session("tab-a".into())),
+            (2, "c1".into(), Route::Session("tab-b".into())),
+            (3, "c1".into(), Route::Interactive),
+            (4, "c1".into(), Route::Agent("tab-a".into())),
+            (5, "c2".into(), Route::Session("tab-a".into())),
+        ]
+    }
+
+    fn sorted(mut ids: Vec<u64>) -> Vec<u64> {
+        ids.sort_unstable();
+        ids
+    }
+
+    fn session(tab: &str) -> CancelScope {
+        CancelScope::Session(tab.to_string())
+    }
+
+    #[test]
+    fn cancel_all_kills_everything_on_the_connection() {
+        let ids = threads_to_cancel(sample_in_flight(), "c1", &CancelScope::All);
+        assert_eq!(sorted(ids), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn cancel_interactive_kills_only_the_shared_pool() {
+        let ids = threads_to_cancel(sample_in_flight(), "c1", &CancelScope::Interactive);
+        assert_eq!(ids, vec![3], "editor tabs and agents are spared");
+    }
+
+    #[test]
+    fn cancel_interactive_stays_on_its_connection() {
+        let mut in_flight = sample_in_flight();
+        in_flight.push((6, "c2".into(), Route::Interactive));
+        in_flight.push((7, "c2".into(), Route::Job("backup".into())));
+        let ids = threads_to_cancel(in_flight, "c2", &CancelScope::Interactive);
+        assert_eq!(ids, vec![6]);
+    }
+
+    #[test]
+    fn cancel_with_session_kills_only_that_tab() {
+        let ids = threads_to_cancel(sample_in_flight(), "c1", &session("tab-a"));
+        assert_eq!(
+            ids,
+            vec![1],
+            "other tabs, the interactive lane and agents are spared, \
+             including an agent whose session id matches the tab's"
+        );
+    }
+
+    #[test]
+    fn cancel_with_session_stays_on_its_connection() {
+        let ids = threads_to_cancel(sample_in_flight(), "c2", &session("tab-a"));
+        assert_eq!(ids, vec![5]);
+    }
+
+    #[test]
+    fn cancel_with_nothing_in_scope_kills_nothing() {
+        assert!(threads_to_cancel(sample_in_flight(), "c1", &session("tab-z")).is_empty());
+        assert!(threads_to_cancel(sample_in_flight(), "c2", &CancelScope::Interactive).is_empty());
+        assert!(threads_to_cancel(sample_in_flight(), "c3", &CancelScope::All).is_empty());
+    }
 
     #[test]
     fn test_split_simple_statements() {

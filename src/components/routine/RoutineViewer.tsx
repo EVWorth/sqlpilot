@@ -180,19 +180,20 @@ export function RoutineViewer({
     // straight to the IPC layer skipped it, so dropping a routine on
     // production was one unstyled browser prompt away (#393).
     try {
-      await useResultStore.getState().executeQuery(
+      // The outcome of this run, not the store's `error`: that is the shown
+      // tab's, and another tab's run may have set it meanwhile (#842).
+      const outcome = await useResultStore.getState().executeQuery(
         connectionId,
         buildDropRoutine(routineType, database, routineName),
         database,
       );
-      const { error } = useResultStore.getState();
-      if (error) {
-        setExecError(error);
+      if (outcome.status === "failed") {
+        setExecError(outcome.error);
         return;
       }
-      // Still open when the production gate is waiting on the user. Closing
-      // the tab now would hide the dialog's subject.
-      if (useResultStore.getState().confirmDialog) return;
+      // Still open when the production gate is waiting on the user, or when
+      // the drop was cancelled. Closing the tab now would hide its subject.
+      if (outcome.status !== "succeeded") return;
       const tabId = useEditorStore
         .getState()
         .tabs.find(

@@ -1,5 +1,5 @@
 import { useEditorStore } from "../stores/editorStore";
-import { useResultStore } from "../stores/resultStore";
+import { anyTabExecuting, useResultStore } from "../stores/resultStore";
 
 /**
  * Why it would be a bad moment to restart into a new version.
@@ -16,7 +16,8 @@ import { useResultStore } from "../stores/resultStore";
 export function updateBlockers(): string[] {
   const reasons: string[] = [];
 
-  if (useResultStore.getState().isExecuting) {
+  // Any tab, not only the one on screen: results are per tab (#842).
+  if (anyTabExecuting(useResultStore.getState())) {
     reasons.push("a query is still running");
   }
 

@@ -3,7 +3,7 @@ pub mod explain;
 pub mod grid_edits;
 pub mod staged;
 pub mod statement;
-pub use executor::{split_statements, QueryExecutor};
+pub use executor::{split_statements, CancelScope, QueryExecutor};
 pub use explain::{
     explain, explain_in, AnalyzeRefusal, ExplainFormat, ExplainResponse, FormatFallback,
 };

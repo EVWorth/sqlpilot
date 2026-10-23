@@ -372,15 +372,20 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
       // marked production raises the app's confirmation first — and where
       // history entries are written, so a schema change is recorded like any
       // other statement (#379).
-      await useResultStore.getState().executeQuery(connectionId, sql, database);
-      const { error: runError, confirmDialog } = useResultStore.getState();
-      if (runError) {
-        setError(`Failed to execute: ${runError}`);
+      // The outcome of this run, not the store's `error`: that is the shown
+      // tab's, and another tab's run may have set it meanwhile (#842).
+      const outcome = await useResultStore.getState().executeQuery(connectionId, sql, database);
+      if (outcome.status === "failed") {
+        setError(`Failed to execute: ${outcome.error}`);
+        return;
+      }
+      if (outcome.status === "cancelled") {
+        setError("Cancelled before the change was confirmed. Reload the table to see what was applied.");
         return;
       }
       // Waiting on the production dialog. Nothing has run, so the baseline
       // must not move and success must not be claimed.
-      if (confirmDialog) return;
+      if (outcome.status === "awaiting-confirmation") return;
       setSuccess("Table saved successfully!");
       setTimeout(() => setSuccess(null), 3000);
       if (isAlter) {

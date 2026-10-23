@@ -205,7 +205,12 @@ export const api = {
         ),
     ),
 
-  cancelQuery: (connectionId: string) => unwrap("cancel_query", () => commands.cancelQuery(connectionId)),
+  /**
+   * Stop what is running. With `session` (an editor tab's id) only that tab's
+   * statements are killed; without it, everything on the connection is.
+   */
+  cancelQuery: (connectionId: string, session?: string) =>
+    unwrap("cancel_query", () => commands.cancelQuery(connectionId, orNull(session))),
 
   /** End an editor tab's server session, rolling back anything it left open. */
   closeSession: (connectionId: string, session: string) =>

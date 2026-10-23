@@ -250,7 +250,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const openDdlTab = (dbName: string, _objectName: string, ddlQuery: string) => {
     const tabId = addTab(connectionId, dbName);
     updateTabContent(tabId, ddlQuery);
-    executeQuery(connectionId, ddlQuery);
+    // On the new tab's session, so its results are filed under it, as a run
+    // from its own editor would be (#842).
+    void executeQuery(connectionId, ddlQuery, undefined, tabId);
   };
 
   /**

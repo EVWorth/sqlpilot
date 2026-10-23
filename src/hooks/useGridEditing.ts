@@ -1,4 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from "react";
+import { type GridMemoryScope, recallGrid, useKeepGridOnUnmount } from "../lib/grid-memory";
 import type { SqlValue } from "../types";
 
 export interface CellChange {
@@ -47,17 +48,71 @@ interface HistoryEntry {
   redo: EditAction;
 }
 
-export function useGridEditing() {
-  const [editMode, setEditMode] = useState(false);
-  const [updates, setUpdates] = useState<Map<number, CellChange[]>>(
-    () => new Map(),
-  );
-  const [inserts, setInserts] = useState<Record<string, SqlValue>[]>([]);
-  const [deletes, setDeletes] = useState<Set<number>>(() => new Set());
+/** Edit Mode and the pending edits, as kept while the grid's tab is hidden. */
+export interface EditingDraft {
+  editMode: boolean;
+  updates: Map<number, CellChange[]>;
+  inserts: Record<string, SqlValue>[];
+  deletes: Set<number>;
+  undo: HistoryEntry[];
+  redo: HistoryEntry[];
+}
 
-  const undoStack = useRef<HistoryEntry[]>([]);
-  const redoStack = useRef<HistoryEntry[]>([]);
+/**
+ * `memory` names the editor tab the grid belongs to and the results it shows.
+ * Given one, Edit Mode and the pending edits outlive the grid unmounting on a
+ * tab switch, and come back when that tab is shown again (#842).
+ *
+ * `owner` is the results the edits are made on, by identity. When it changes
+ * while the grid stays mounted — the tab re-ran its query, or ran another —
+ * the pending edits are dropped and Edit Mode is left: they are by row index,
+ * and saved against the new rows they would change the wrong ones (#865).
+ */
+export function useGridEditing(memory: GridMemoryScope | null = null, owner: unknown = memory?.owner) {
+  // Read once, at mount: the grid is remounted per tab.
+  const [restored] = useState(() => recallGrid(memory, "editing"));
+  const [editMode, setEditMode] = useState(restored?.editMode ?? false);
+  const [updates, setUpdates] = useState<Map<number, CellChange[]>>(
+    () => restored?.updates ?? new Map(),
+  );
+  const [inserts, setInserts] = useState<Record<string, SqlValue>[]>(restored?.inserts ?? []);
+  const [deletes, setDeletes] = useState<Set<number>>(() => restored?.deletes ?? new Set());
+
+  const undoStack = useRef<HistoryEntry[]>(restored?.undo ?? []);
+  const redoStack = useRef<HistoryEntry[]>(restored?.redo ?? []);
+
+  const nothingToKeep = !editMode && updates.size === 0 && inserts.length === 0 && deletes.size === 0;
+  useKeepGridOnUnmount(
+    memory,
+    "editing",
+    nothingToKeep
+      ? undefined
+      : { editMode, updates, inserts, deletes, undo: undoStack.current, redo: redoStack.current },
+  );
   const [stackVersion, setStackVersion] = useState(0);
+
+  // Set during render rather than in an effect, so no render pairs the old
+  // edits with the new rows and an unmount in between cannot keep them for
+  // the new results.
+  const [editedOn, setEditedOn] = useState(owner);
+  const [droppedEdits, setDroppedEdits] = useState<{ count: number } | null>(null);
+  if (owner !== editedOn) {
+    setEditedOn(owner);
+    const pending = updates.size + inserts.length + deletes.size;
+    if (pending > 0) {
+      setUpdates(new Map());
+      setInserts([]);
+      setDeletes(new Set());
+      setEditMode(false);
+      undoStack.current = [];
+      redoStack.current = [];
+      setStackVersion((v) => v + 1);
+      // A new object each time, so the same count dropped twice is told twice.
+      setDroppedEdits({ count: pending });
+    }
+    // A save clears its edits before its refresh lands, so a refresh keeps
+    // Edit Mode and reports nothing.
+  }
 
   const bumpVersion = () => setStackVersion((v) => v + 1);
 
@@ -330,5 +385,7 @@ export function useGridEditing() {
     isCellEdited,
     isRowEdited,
     isRowDeleted,
+    /** How many unsaved edits the last change of results dropped, if it dropped any. */
+    droppedEdits,
   };
 }

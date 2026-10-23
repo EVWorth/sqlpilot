@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useGridEditing } from "../../../hooks/useGridEditing";
 import { generateUpdate, resolveEditTarget } from "../../../lib/sql-generator";
 import { api } from "../../../lib/tauri-api";
 import { useProductionGuardStore } from "../../../stores/productionGuardStore";
@@ -12,6 +13,7 @@ const state = {
   error: null as string | null,
   // Where the result was read, which is where a grid save writes (#840).
   resultSource: null as { connectionId: string; database?: string; session?: string } | null,
+  viewTabId: null as string | null,
 };
 
 vi.mock("../../../stores/resultStore", () => {
@@ -90,6 +92,7 @@ const mockGridEditing = {
   editCell: vi.fn(),
   deleteRow: vi.fn(),
   editInsertCell: vi.fn(),
+  droppedEdits: null as { count: number } | null,
 };
 
 vi.mock("../../../hooks/useGridEditing", () => ({
@@ -195,6 +198,7 @@ describe("ResultsGrid", () => {
     state.activeResultIndex = 0;
     state.isExecuting = false;
     state.error = null;
+    state.viewTabId = null;
     tableRows = [];
     tableHeaders = [];
     editorTabs = [];
@@ -203,6 +207,7 @@ describe("ResultsGrid", () => {
     mockGridEditing.editMode = false;
     mockGridEditing.inserts = [];
     mockGridEditing.hasChanges = false;
+    mockGridEditing.droppedEdits = null;
     mockGridEditing.pendingCount = 0;
   });
 
@@ -333,6 +338,20 @@ describe("ResultsGrid", () => {
     render(<ResultsGrid />);
     const toolbar = screen.getByTestId("edit-toolbar");
     expect(toolbar.getAttribute("data-edit-mode")).toBe("true");
+  });
+
+  it("keeps its edits for the tab it is mounted for (#842)", () => {
+    state.viewTabId = "tab-1";
+    state.results = [{ columns: [], rows: [] }];
+    render(<ResultsGrid />);
+    expect(vi.mocked(useGridEditing)).toHaveBeenLastCalledWith({ tab: "tab-1", owner: state.results }, state.results);
+  });
+
+  it("says so when new results dropped unsaved edits (#865)", () => {
+    state.results = [{ ...baseResult }];
+    mockGridEditing.droppedEdits = { count: 2 };
+    render(<ResultsGrid />);
+    expect(screen.getByText("Discarded 2 unsaved change(s): the results changed")).toBeInTheDocument();
   });
 
   it("EditToolbar shows non-edit mode by default", () => {

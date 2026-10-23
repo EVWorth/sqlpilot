@@ -72,6 +72,8 @@ function mockResultState(state: {
       explainResult: null,
       setShowExplain: vi.fn(),
       results: [],
+      // The results pane drops a grid read on another connection (#842).
+      dropForeignResults: vi.fn(),
       ...state,
     })
   );
