@@ -166,3 +166,29 @@ describe("after a sort, the row acted on is the row clicked (#839)", () => {
     expect(selected).toEqual(["true", "true", "false"]);
   });
 });
+
+describe("cells keep their DOM node across a row click (#841)", () => {
+  it("survives the first click of a double-click outside edit mode", () => {
+    render(<ResultsGrid />);
+    const cell = screen.getByText("ada");
+
+    fireEvent.click(bodyRows()[1]);
+
+    expect(bodyRows()[1].getAttribute("aria-selected")).toBe("true");
+    expect(cell.isConnected).toBe(true);
+  });
+
+  it("opens the editor on a double-click in edit mode", () => {
+    render(<ResultsGrid />);
+    fireEvent.click(screen.getByRole("button", { name: /edit mode/i }));
+    const cell = screen.getByText("ada");
+
+    // The first click selects the row and re-renders the grid; the second
+    // must land on the same element for the browser to fire dblclick.
+    fireEvent.click(cell);
+    expect(cell.isConnected).toBe(true);
+    fireEvent.doubleClick(cell);
+
+    expect(screen.getByDisplayValue("ada")).toBeDefined();
+  });
+});
