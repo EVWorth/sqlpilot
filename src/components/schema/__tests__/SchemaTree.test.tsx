@@ -681,6 +681,14 @@ describe("SchemaTree menus (#293)", () => {
     expect(executeQuery).not.toHaveBeenCalled();
   });
 
+  it("gives a DDL tab its profile, so a restored one reconnects", async () => {
+    useEditorStore.setState({ tabs: [], activeTabId: null });
+
+    item(await openTableMenu(), "Show DDL")?.onClick?.();
+
+    expect(useEditorStore.getState().tabs[0]).toMatchObject({ type: "ddl", profileId: "prof-1" });
+  });
+
   describe("destructive operations", () => {
     it("asks before truncating, and says it cannot be undone", async () => {
       const menu = await openTableMenu();

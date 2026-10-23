@@ -260,7 +260,11 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
    * still go through `openDdlTab`.
    */
   const openDdlView = (dbName: string, objectName: string, objectType: DdlObjectType) => {
-    openTab("ddl", { connectionId, database: dbName, objectName, objectType });
+    // With its profile, like a query tab: the startup reconnect re-points only
+    // tabs that carry one, so without it a restored DDL tab kept the old
+    // session's connection id and said "Connection not found".
+    const profileId = activeConnections.find((c) => c.id === connectionId)?.profile_id;
+    openTab("ddl", { connectionId, database: dbName, objectName, objectType, profileId });
   };
 
   /**

@@ -124,6 +124,11 @@ describe("tab-kinds (#286)", () => {
       expect(fn).toContain("recalc");
     });
 
+    it("carries a DDL tab's profile only when it has one", () => {
+      expect(buildTab("t", "ddl", { ...PARAMS.ddl, profileId: "p1" }).profileId).toBe("p1");
+      expect(buildTab("t", "ddl", PARAMS.ddl)).not.toHaveProperty("profileId");
+    });
+
     it("names a DDL tab after its object (#800)", () => {
       expect(buildTab("t", "ddl", PARAMS.ddl).title).toContain("orders");
     });

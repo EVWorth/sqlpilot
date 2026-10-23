@@ -31,6 +31,8 @@ export interface TabParams {
     database: string;
     objectName: string;
     objectType: DdlObjectType;
+    /** The connection's saved profile, so a restored tab can be re-pointed on reconnect. */
+    profileId?: string;
   };
 }
 
@@ -133,6 +135,7 @@ const SPECS: { [K in TabKind]: TabSpec<K> } = {
       database: p.database,
       objectName: p.objectName,
       objectType: p.objectType,
+      ...(p.profileId !== undefined && { profileId: p.profileId }),
     }),
   },
 };
