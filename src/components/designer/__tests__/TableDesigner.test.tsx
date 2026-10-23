@@ -70,7 +70,7 @@ describe("TableDesigner", () => {
       "CREATE TABLE `users` (\n  `id` int NOT NULL\n) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci",
     );
     vi.mocked(useResultStore.getState).mockReturnValue({
-      executeQuery: vi.fn().mockResolvedValue(undefined),
+      executeQuery: vi.fn().mockResolvedValue({ status: "succeeded", results: [] }),
       error: null,
       confirmDialog: null,
     } as never);
@@ -197,8 +197,8 @@ describe("TableDesigner", () => {
       // The store reports a failed statement through its own error field
       // rather than by rejecting.
       vi.mocked(useResultStore.getState).mockReturnValue({
-        executeQuery: vi.fn().mockResolvedValue(undefined),
-        error: "SQL error",
+        executeQuery: vi.fn().mockResolvedValue({ status: "failed", error: "SQL error" }),
+        error: null,
         confirmDialog: null,
       } as never);
 
@@ -433,7 +433,7 @@ describe("TableDesigner", () => {
 
     it("claims nothing while the production dialog is still open", async () => {
       vi.mocked(useResultStore.getState).mockReturnValue({
-        executeQuery: vi.fn().mockResolvedValue(undefined),
+        executeQuery: vi.fn().mockResolvedValue({ status: "awaiting-confirmation" }),
         error: null,
         confirmDialog: { isOpen: true, kind: "query", connectionId: "conn-1", sql: "ALTER ..." },
       } as never);
@@ -446,8 +446,8 @@ describe("TableDesigner", () => {
 
     it("reports a failure from the store rather than reporting success", async () => {
       vi.mocked(useResultStore.getState).mockReturnValue({
-        executeQuery: vi.fn().mockResolvedValue(undefined),
-        error: "Duplicate column name 'added'",
+        executeQuery: vi.fn().mockResolvedValue({ status: "failed", error: "Duplicate column name 'added'" }),
+        error: null,
         confirmDialog: null,
       } as never);
 
@@ -455,6 +455,34 @@ describe("TableDesigner", () => {
 
       expect(screen.getByText(/Duplicate column name/)).toBeDefined();
       expect(screen.queryByText("Table saved successfully!")).toBeNull();
+    });
+
+    it("claims nothing for a cancelled save", async () => {
+      vi.mocked(useResultStore.getState).mockReturnValue({
+        executeQuery: vi.fn().mockResolvedValue({ status: "cancelled" }),
+        error: null,
+        confirmDialog: null,
+      } as never);
+
+      await editAndSave();
+
+      expect(screen.getByText(/Cancelled before the change was confirmed/)).toBeDefined();
+      expect(screen.queryByText("Table saved successfully!")).toBeNull();
+    });
+
+    it("goes by its own run's outcome, not the error on screen", async () => {
+      // #842: the store's `error` is the shown tab's, so another tab's
+      // failure there was reported as this save's.
+      vi.mocked(useResultStore.getState).mockReturnValue({
+        executeQuery: vi.fn().mockResolvedValue({ status: "succeeded", results: [] }),
+        error: "another tab's failure",
+        confirmDialog: null,
+      } as never);
+
+      await editAndSave();
+
+      expect(await screen.findByText("Table saved successfully!")).toBeDefined();
+      expect(screen.queryByText(/another tab's failure/)).toBeNull();
     });
   });
 
