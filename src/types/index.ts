@@ -139,6 +139,9 @@ export const SqlValueGuard = {
 /** What a routine tab is showing. The server has no third kind. */
 export type RoutineKind = "PROCEDURE" | "FUNCTION";
 
+/** The objects whose DDL the schema API can return, for the DDL tab (#800). */
+export type DdlObjectType = "TABLE" | "VIEW" | RoutineKind | "TRIGGER";
+
 /** Fields every tab has, whatever it shows. */
 interface EditorTabBase {
   id: string;
@@ -185,4 +188,11 @@ export type EditorTab =
     database: string;
     routineName: string;
     routineType: RoutineKind;
+  })
+  | (EditorTabBase & {
+    type: "ddl";
+    connectionId: string;
+    database: string;
+    objectName: string;
+    objectType: DdlObjectType;
   });

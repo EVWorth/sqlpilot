@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useConnectionStore } from "../../../stores/connectionStore";
 import { MenuBar } from "../MenuBar";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -158,5 +159,53 @@ describe("MenuBar", () => {
     expect(dispatchSpy).toHaveBeenCalledWith(
       expect.objectContaining({ detail: "cycle-theme" }),
     );
+  });
+});
+
+describe("Connection → Connect to (#817)", () => {
+  const profile = (id: string, name: string) => ({ id, name, host: "h" }) as never;
+
+  it("lists the saved profiles and connects to the one chosen", () => {
+    useConnectionStore.setState({
+      profiles: [profile("p1", "Local dev"), profile("p2", "Staging")],
+      activeConnections: [{ id: "c1", profile_id: "p1" }] as never,
+    });
+    const seen: string[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener("connect-profile", listener);
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Connection"));
+    fireEvent.click(screen.getByText("Connect to"));
+    // Already connected: shown, not offered.
+    expect(screen.getByRole("menuitem", { name: /Local dev/ })).toBeDisabled();
+    fireEvent.click(screen.getByRole("menuitem", { name: /Staging/ }));
+
+    window.removeEventListener("connect-profile", listener);
+    expect(seen).toEqual(["p2"]);
+    expect(screen.queryByText("Connect to")).toBeNull();
+  });
+
+  it("does not offer a profile that is still connecting", () => {
+    useConnectionStore.setState({
+      profiles: [profile("p1", "Local dev"), profile("p2", "Staging")],
+      activeConnections: [],
+      connecting: ["p2"],
+    });
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Connection"));
+    fireEvent.click(screen.getByText("Connect to"));
+    expect(screen.getByRole("menuitem", { name: /Staging/ })).toBeDisabled();
+    expect(screen.getByRole("menuitem", { name: /Local dev/ })).toBeEnabled();
+    useConnectionStore.setState({ connecting: [] });
+  });
+
+  it("says when there is nothing to connect to", () => {
+    useConnectionStore.setState({ profiles: [], activeConnections: [] });
+    render(<MenuBar />);
+    fireEvent.click(screen.getByText("Connection"));
+    fireEvent.click(screen.getByText("Connect to"));
+    expect(screen.getByText("No saved connections")).toBeInTheDocument();
   });
 });

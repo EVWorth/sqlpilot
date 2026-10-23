@@ -16,6 +16,7 @@ const sidebarState = {
     environment?: string;
   }>,
   selectedConnectionId: null as string | null,
+  connecting: [] as string[],
 };
 
 const editorState = {
@@ -24,6 +25,7 @@ const editorState = {
   addTab: vi.fn(() => "tab-1"),
   addStructureTab: vi.fn(),
   addRoutineTab: vi.fn(),
+  openTab: vi.fn(() => "tab-2"),
   addDesignerTab: vi.fn(),
   updateTabContent: vi.fn(),
   setTabConnection: vi.fn(),
@@ -100,6 +102,7 @@ vi.mock("../../../lib/tauri-api", async (importOriginal) => ({
       { name: "before_insert_users", timing: "BEFORE", event: "INSERT" },
       { name: "after_update_orders", timing: "AFTER", event: "UPDATE" },
     ]),
+    getEvents: vi.fn().mockResolvedValue([]),
   },
 }));
 
@@ -144,6 +147,7 @@ describe("Sidebar (browser)", () => {
       addTab: vi.fn(() => "tab-1"),
       addStructureTab: vi.fn(),
       addRoutineTab: vi.fn(),
+      openTab: vi.fn(() => "tab-2"),
       addDesignerTab: vi.fn(),
       updateTabContent: vi.fn(),
       setTabConnection: vi.fn(),
@@ -156,8 +160,15 @@ describe("Sidebar (browser)", () => {
 
   // ─── No connection state ───
   it("shows 'No connection selected' when no connection", () => {
+    sidebarState.profiles = [{ id: "p1", name: "Local" }];
     render(<Sidebar />);
     expect(screen.getByText("No connection selected")).toBeInTheDocument();
+    expect(screen.getByLabelText("Connect to Local")).toBeInTheDocument();
+  });
+
+  it("prompts for a first connection when nothing is saved (#817)", () => {
+    render(<Sidebar />);
+    expect(screen.getByText("Create your first connection")).toBeInTheDocument();
   });
 
   it("renders Favorites and History section buttons", () => {
@@ -513,7 +524,7 @@ describe("Sidebar (browser)", () => {
       );
     });
 
-    it("clicking a trigger opens DDL tab with SHOW CREATE TRIGGER", async () => {
+    it("clicking a trigger opens its DDL tab", async () => {
       const user = userEvent.setup();
       render(<Sidebar />);
       await waitFor(() => screen.getByText("testdb"));
@@ -522,15 +533,15 @@ describe("Sidebar (browser)", () => {
       await user.click(screen.getByText("Triggers"));
       await waitFor(() => screen.getByText("before_insert_users"));
       await user.click(screen.getByText("before_insert_users"));
-      expect(editorState.addTab).toHaveBeenCalledWith("conn1", "testdb");
-      expect(editorState.updateTabContent).toHaveBeenCalledWith(
-        "tab-1",
-        "SHOW CREATE TRIGGER `testdb`.`before_insert_users`",
-      );
-      expect(resultStore.executeQuery).toHaveBeenCalledWith(
-        "conn1",
-        "SHOW CREATE TRIGGER `testdb`.`before_insert_users`",
-      );
+      // Its own DDL tab, not a SHOW CREATE run into the grid (#800).
+      expect(editorState.openTab).toHaveBeenCalledWith("ddl", {
+        connectionId: "conn1",
+        database: "testdb",
+        objectName: "before_insert_users",
+        objectType: "TRIGGER",
+        profileId: "p1",
+      });
+      expect(resultStore.executeQuery).not.toHaveBeenCalled();
     });
 
     // ─── Filter input ───

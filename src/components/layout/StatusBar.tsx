@@ -20,6 +20,7 @@ import { useResultStore } from "../../stores/resultStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { type StorageErrorKey, useStorageErrorStore } from "../../stores/storageErrorStore";
 import type { ConnectionEnvironment } from "../../types";
+import { ConnectionErrorChip } from "./ConnectionErrorChip";
 import { UpdateErrorDetails } from "./UpdateErrorDetails";
 
 const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
@@ -50,7 +51,9 @@ export function StatusBar() {
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
-  const connectionError = useConnectionStore((s) => s.error);
+  // A failed connect is shown in full under the tab bar, with Retry and Edit;
+  // repeating it here would only be the cut-off copy (#804).
+  const connectionError = useConnectionStore((s) => s.failedProfileId ? null : s.error);
   // Undefined until the check answers; only `false` shows the warning, so a
   // slow reply never flashes it at someone whose keyring is fine.
   const [keyringAvailable, setKeyringAvailable] = useState<boolean | undefined>();
@@ -138,6 +141,11 @@ export function StatusBar() {
     (c) => c.id === selectedConnectionId,
   );
   const profiles = useConnectionStore((s) => s.profiles);
+  const connecting = useConnectionStore((s) => s.connecting);
+  const connectingNames = connecting.map((id) => {
+    const profile = profiles.find((p) => p.id === id);
+    return profile?.name || profile?.host || id;
+  });
   const activeProfile = activeConn
     ? profiles.find((p) => p.id === activeConn.profile_id)
     : undefined;
@@ -229,6 +237,15 @@ export function StatusBar() {
               )}
             </>
           )
+          : connectingNames.length > 0
+          ? (
+            // The first connect used to leave this on "Disconnected" for the
+            // whole wait (#799).
+            <span className="flex items-center gap-1 text-[10px] text-[var(--color-text-secondary)]">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              Connecting to {connectingNames.join(", ")}…
+            </span>
+          )
           : (
             <span className="text-[10px] text-[var(--color-text-muted)]">
               Disconnected
@@ -237,14 +254,7 @@ export function StatusBar() {
       </div>
       <div className="flex items-center gap-3">
         {connectionError && (
-          <button
-            onClick={clearConnectionError}
-            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
-            title="Connection error — click to dismiss"
-          >
-            <AlertCircle className="h-3 w-3 flex-shrink-0" />
-            <span className="truncate">{connectionError}</span>
-          </button>
+          <ConnectionErrorChip key={connectionError} message={connectionError} onDismiss={clearConnectionError} />
         )}
         {startupProblems
           .filter((p) => !dismissedProblems.includes(p.kind))

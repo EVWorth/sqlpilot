@@ -35,7 +35,11 @@ export interface Action {
   keywords?: string[];
 }
 
-export type MenuEntry = { type: "item"; id: string } | { type: "separator" };
+export type MenuEntry =
+  | { type: "item"; id: string }
+  | { type: "separator" }
+  /** A "Connect to" submenu listing the saved profiles (#817). */
+  | { type: "connect-to" };
 
 export interface Menu {
   label: string;
@@ -148,6 +152,7 @@ export const MENUS: Menu[] = [
     label: "Connection",
     entries: [
       { type: "item", id: "new-connection" },
+      { type: "connect-to" },
       { type: "separator" },
       { type: "item", id: "disconnect" },
     ],
@@ -196,6 +201,31 @@ const byId = new Map(ACTIONS.map((action) => [action.id, action]));
 
 export function actionById(id: string): Action | undefined {
   return byId.get(id);
+}
+
+/** What a profile-generated action's id starts with. */
+const CONNECT_PREFIX = "connect:";
+
+/** The profile a "Connect: <name>" action is for, or undefined for any other id. */
+export function connectTarget(id: string): string | undefined {
+  return id.startsWith(CONNECT_PREFIX) ? id.slice(CONNECT_PREFIX.length) : undefined;
+}
+
+/**
+ * One "Connect: <name>" action per saved profile, for the palette (#817).
+ *
+ * Generated rather than listed in ACTIONS because profiles are data; AppLayout
+ * routes them by prefix (`connectTarget`) instead of by a `case` each.
+ */
+export function profileActions(
+  profiles: { id: string; name: string; host: string; username?: string | null }[],
+): Action[] {
+  return profiles.map((profile) => ({
+    id: `${CONNECT_PREFIX}${profile.id}`,
+    label: `Connect: ${profile.name || profile.host}`,
+    category: "Connection",
+    keywords: [profile.host, ...(profile.username ? [profile.username] : []), "server", "open"],
+  }));
 }
 
 /** Ask the app to do something. */

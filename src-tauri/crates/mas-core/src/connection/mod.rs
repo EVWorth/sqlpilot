@@ -116,16 +116,30 @@ pub async fn describe_first_connect_failure(
     port: u16,
     timeout_secs: u64,
 ) -> crate::error::CoreError {
+    let detail = first_connect_failure_detail(error, options, host, port, timeout_secs).await;
+    crate::error::CoreError::Connection(format!("Could not connect \"{profile_name}\". {detail}"))
+}
+
+/// The plain-language cause behind a pool that never opened its first
+/// connection, without saying which profile it was for.
+///
+/// Shared by connect and Test Connection so both explain a failure the same
+/// way (#809). Probes once outside the pool when sqlx hid the real error
+/// behind a pool timeout; see [`describe_first_connect_failure`].
+pub async fn first_connect_failure_detail(
+    error: &sqlx::Error,
+    options: &sqlx::mysql::MySqlConnectOptions,
+    host: &str,
+    port: u16,
+    timeout_secs: u64,
+) -> String {
     use sqlx::{ConnectOptions, Connection};
 
     // Sometimes sqlx hands back the real error and sometimes it hides it
     // behind a pool timeout, depending on how far the attempt got. Only the
     // second case needs a second attempt to find out what happened.
     if !matches!(error, sqlx::Error::PoolTimedOut) {
-        return crate::error::CoreError::Connection(format!(
-            "Could not connect \"{profile_name}\". {}",
-            diagnose_connect_error(error, host, port)
-        ));
+        return diagnose_connect_error(error, host, port);
     }
 
     let probe = tokio::time::timeout(
@@ -134,27 +148,76 @@ pub async fn describe_first_connect_failure(
     )
     .await;
 
-    let detail = match probe {
-        // It answered when asked directly, so the address and the credentials
-        // are right and something transient ate the first attempt.
+    let outcome = match probe {
         Ok(Ok(conn)) => {
             let _ = conn.close().await;
-            format!(
-                "{host}:{port} answered when tried again, so this looks like a slow or flaky \
-                 server rather than a wrong address. Try connecting again, or raise \"Connect \
-                 timeout\" above {timeout_secs}s on the profile."
-            )
+            Probe::Answered
         }
-        Ok(Err(error)) => diagnose_connect_error(&error, host, port),
+        Ok(Err(error)) => Probe::Failed(error),
+        Err(_) => Probe::Silent,
+    };
+    probe_detail(&outcome, host, port, timeout_secs)
+}
+
+/// What the direct attempt after a pool timeout found.
+enum Probe {
+    /// It connected, so the address and credentials are right.
+    Answered,
+    /// It failed, this time with the driver's real reason.
+    Failed(sqlx::Error),
+    /// It did not answer within the timeout either.
+    Silent,
+}
+
+fn probe_detail(probe: &Probe, host: &str, port: u16, timeout_secs: u64) -> String {
+    match probe {
+        // It answered when asked directly, so the address and the credentials
+        // are right and something transient ate the first attempt.
+        Probe::Answered => format!(
+            "{host}:{port} answered when tried again, so this looks like a slow or flaky server \
+             rather than a wrong address. Try connecting again, or raise \"Connect timeout\" \
+             above {timeout_secs}s on the profile."
+        ),
+        Probe::Failed(error) => diagnose_connect_error(error, host, port),
         // Two full timeouts and no answer either way: nothing is coming back.
-        Err(_) => format!(
+        Probe::Silent => format!(
             "{host}:{port} did not answer within {timeout_secs}s. Either the address is wrong, \
              the server is not running, or a firewall is dropping the connection rather than \
              refusing it."
         ),
-    };
+    }
+}
 
-    crate::error::CoreError::Connection(format!("Could not connect \"{profile_name}\". {detail}"))
+/// What a failed Test Connection reads as, given the diagnosed cause.
+pub fn test_connection_failure_message(detail: &str) -> String {
+    format!("Connection failed. {detail}")
+}
+
+/// What a successful Test Connection reads as, naming the server it reached.
+pub fn test_connection_success_message(server_version: &str) -> String {
+    format!("Connected to {}", describe_server_version(server_version))
+}
+
+/// Name the server product from its `VERSION()` string.
+///
+/// MariaDB answers `VERSION()` with something like `10.11.6-MariaDB` or
+/// `11.8.2-MariaDB-ubu2404`, and over the wire it may carry MySQL's legacy
+/// `5.5.5-` prefix; it reads as "MariaDB 10.11.6". Anything else is taken to
+/// be MySQL and keeps its version as reported, distro suffix and all.
+pub fn describe_server_version(version: &str) -> String {
+    let version = version.trim();
+    // ASCII-only lowering keeps byte offsets, so `at` can slice `version`.
+    // `to_lowercase` can change a non-ASCII string's length and panic here.
+    let lowered = version.to_ascii_lowercase();
+    match lowered.find("-mariadb") {
+        Some(at) => {
+            let number = &version[..at];
+            let number = number.strip_prefix("5.5.5-").unwrap_or(number);
+            format!("MariaDB {number}")
+        }
+        None if lowered.contains("mariadb") => format!("MariaDB {version}"),
+        None => format!("MySQL {version}"),
+    }
 }
 
 /// Say what a driver error means, for the handful that have a plain cause.
@@ -297,6 +360,99 @@ mod tests {
         assert!(!message.contains("Max pool size"), "{message}");
         // The driver's own words are kept, not replaced by our guess.
         assert!(message.contains("os error 111"), "{message}");
+    }
+
+    #[test]
+    fn a_refused_test_connection_gets_the_same_diagnosis_as_connect() {
+        // #809: Test Connection showed the raw driver text while Connect
+        // explained it. Both now go through `diagnose_connect_error`.
+        let refused = sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "Connection refused (os error 111)",
+        ));
+        let message =
+            test_connection_failure_message(&diagnose_connect_error(&refused, "localhost", 3307));
+        assert!(
+            message.starts_with(
+                "Connection failed. Nothing is listening on localhost:3307. The server is \
+                 stopped, or it is listening on a different port."
+            ),
+            "{message}"
+        );
+        assert!(message.contains("os error 111"), "{message}");
+    }
+
+    #[tokio::test]
+    async fn a_real_error_is_diagnosed_without_probing_again() {
+        // Not a pool timeout, so no second attempt is made; the options point
+        // at nothing and would fail loudly if they were used.
+        let refused = sqlx::Error::Io(std::io::Error::new(
+            std::io::ErrorKind::ConnectionRefused,
+            "Connection refused (os error 111)",
+        ));
+        let options = sqlx::mysql::MySqlConnectOptions::new()
+            .host("192.0.2.1")
+            .port(9);
+        let detail = first_connect_failure_detail(&refused, &options, "localhost", 3307, 1).await;
+        assert!(
+            detail.starts_with("Nothing is listening on localhost:3307."),
+            "{detail}"
+        );
+    }
+
+    #[test]
+    fn a_pool_timeout_is_explained_by_what_the_probe_found() {
+        // A test against a server that times out used to say only "pool
+        // timed out while waiting for an open connection" (#809).
+        let answered = probe_detail(&Probe::Answered, "db.lan", 3306, 10);
+        assert!(answered.contains("answered when tried again"), "{answered}");
+        assert!(answered.contains("above 10s"), "{answered}");
+
+        let silent = probe_detail(&Probe::Silent, "db.lan", 3306, 10);
+        assert!(
+            silent.contains("db.lan:3306 did not answer within 10s"),
+            "{silent}"
+        );
+        assert!(silent.contains("firewall"), "{silent}");
+
+        let denied = sqlx::Error::Protocol("1045 (28000): Access denied for user 'app'".into());
+        let failed = probe_detail(&Probe::Failed(denied), "db.lan", 3306, 10);
+        assert!(failed.contains("rejected the credentials"), "{failed}");
+
+        for detail in [answered, silent, failed] {
+            assert!(!detail.contains("pool timed out"), "{detail}");
+        }
+    }
+
+    #[test]
+    fn a_successful_test_names_the_server_product() {
+        // #809: a MariaDB server read as "Connected to MySQL 10.x-MariaDB".
+        assert_eq!(
+            test_connection_success_message("10.11.6-MariaDB"),
+            "Connected to MariaDB 10.11.6"
+        );
+        assert_eq!(
+            test_connection_success_message("11.8.2-MariaDB-ubu2404"),
+            "Connected to MariaDB 11.8.2"
+        );
+        assert_eq!(
+            test_connection_success_message("5.5.5-10.6.18-MariaDB-log"),
+            "Connected to MariaDB 10.6.18"
+        );
+        assert_eq!(
+            test_connection_success_message("8.0.39"),
+            "Connected to MySQL 8.0.39"
+        );
+        assert_eq!(
+            test_connection_success_message("8.0.39-0ubuntu0.22.04.1"),
+            "Connected to MySQL 8.0.39-0ubuntu0.22.04.1"
+        );
+        // Lowercasing "İ" grows it by a byte; slicing the original at the
+        // lowered string's offset kept the dash ("MariaDB 10İ-").
+        assert_eq!(
+            test_connection_success_message("10İ-MariaDB"),
+            "Connected to MariaDB 10İ"
+        );
     }
 
     #[test]

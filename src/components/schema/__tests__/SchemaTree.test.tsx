@@ -258,6 +258,65 @@ describe("SchemaTree", () => {
       expect(named("users")).toHaveLength(0);
     });
 
+    it("finds events in databases that were never opened (#806)", async () => {
+      vi.mocked(api.getEvents).mockImplementation((_cid: string, db: string) =>
+        Promise.resolve(
+          db === "logs"
+            ? [{
+              name: "purge_old_events",
+              event_type: "RECURRING",
+              status: "ENABLED",
+              definer: "root@%",
+              interval: "1 DAY",
+              comment: "",
+            }]
+            : [],
+        )
+      );
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+
+      await user.type(screen.getByPlaceholderText(/Filter/), "purge");
+
+      await waitFor(() => expect(api.getEvents).toHaveBeenCalledWith("conn-1", "logs"));
+      await waitFor(() =>
+        expect(
+          screen.queryAllByText((_t, node) => node?.textContent === "purge_old_events" && node.tagName === "SPAN")
+            .length,
+        ).toBeGreaterThan(0)
+      );
+      expect(screen.queryByText("app_db")).toBeNull();
+    });
+
+    it("tries a failing folder once per database, not in a loop", async () => {
+      // No EVENT privilege: listing events fails every time. A failure is
+      // never cached, and the preload used to restart on every render, so it
+      // asked the server again forever and hung the page.
+      vi.mocked(api.getEvents).mockRejectedValue("Access denied; you need the EVENT privilege");
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+
+      await user.type(screen.getByPlaceholderText(/Filter/), "ord");
+      await waitFor(() => expect(api.getEvents).toHaveBeenCalledTimes(2));
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(api.getEvents).toHaveBeenCalledTimes(2);
+    });
+
+    it("says so when the filter matches nothing (#806)", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+
+      await user.type(screen.getByPlaceholderText(/Filter/), "zzz");
+
+      await waitFor(() => expect(screen.getByText("No objects match 'zzz'")).toBeInTheDocument());
+      expect(screen.queryByText("app_db")).toBeNull();
+    });
+
     it("Escape key clears the filter input", async () => {
       const user = userEvent.setup({ applyAccept: false });
       render(<SchemaTree connectionId="conn-1" />);
@@ -595,6 +654,39 @@ describe("SchemaTree menus (#293)", () => {
     "Statistics",
   ])("offers %s on a database", async (label) => {
     expect(item(await openDatabaseMenu(), label)).toBeDefined();
+  });
+
+  it("shows a table's DDL in one reused DDL tab, not as a query (#800)", async () => {
+    const executeQuery = vi.fn();
+    useResultStore.setState({ executeQuery } as never);
+    useEditorStore.setState({ tabs: [], activeTabId: null });
+
+    item(await openTableMenu(), "Show DDL")?.onClick?.();
+    shownMenus.length = 0;
+    fireEvent.contextMenu(screen.getByText("users"));
+    item(shownMenus.at(-1) ?? [], "Show DDL")?.onClick?.();
+
+    const { tabs, activeTabId } = useEditorStore.getState();
+    expect(tabs).toHaveLength(1);
+    expect(tabs[0]).toMatchObject({
+      type: "ddl",
+      connectionId: "conn-1",
+      database: "app_db",
+      objectName: "users",
+      objectType: "TABLE",
+      isDirty: false,
+    });
+    expect(tabs[0].title).toContain("users");
+    expect(activeTabId).toBe(tabs[0].id);
+    expect(executeQuery).not.toHaveBeenCalled();
+  });
+
+  it("gives a DDL tab its profile, so a restored one reconnects", async () => {
+    useEditorStore.setState({ tabs: [], activeTabId: null });
+
+    item(await openTableMenu(), "Show DDL")?.onClick?.();
+
+    expect(useEditorStore.getState().tabs[0]).toMatchObject({ type: "ddl", profileId: "prof-1" });
   });
 
   describe("destructive operations", () => {

@@ -147,6 +147,7 @@ let connectionState = {
   activeConnections: [] as any[],
   disconnect: vi.fn(),
   profiles: [] as any[],
+  connecting: [] as string[],
 };
 
 vi.mock("../../../stores/connectionStore", () => ({
@@ -205,6 +206,7 @@ describe("AppLayout", () => {
       activeConnections: [],
       disconnect: vi.fn(),
       profiles: [],
+      connecting: [],
     };
     resultState = {
       confirmDialog: null,
@@ -515,6 +517,20 @@ describe("AppLayout", () => {
       });
 
       expect(connectionState.disconnect).toHaveBeenCalledWith("conn-1");
+    });
+
+    it("routes a palette \"Connect: <name>\" action to the connect flow (#817)", async () => {
+      const seen: string[] = [];
+      const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+      window.addEventListener("connect-profile", listener);
+      render(<AppLayout />);
+
+      await act(async () => {
+        window.dispatchEvent(new CustomEvent("menu-action", { detail: "connect:p1" }));
+      });
+
+      window.removeEventListener("connect-profile", listener);
+      expect(seen).toEqual(["p1"]);
     });
 
     it("handles select-all action", async () => {

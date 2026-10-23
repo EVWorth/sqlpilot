@@ -1,6 +1,7 @@
-import { Copy, Database, FileText, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
+import { Copy, Database, FileText, Loader2, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { CONNECT_PROFILE_EVENT, NEW_CONNECTION_EVENT } from "../../lib/connect-request";
 import { cn } from "../../lib/utils";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -9,6 +10,7 @@ import { useSqliteStore } from "../../stores/sqliteStore";
 import type { ConnectionProfileSummary } from "../../types";
 import type { MenuItem } from "../common/ContextMenu";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
+import { ConnectFailure } from "./ConnectFailure";
 import { useConnectionSwitching } from "./useConnectionSwitching";
 import { useProfileDeletion } from "./useProfileDeletion";
 
@@ -33,18 +35,19 @@ export function ConnectionTabs() {
     ConnectionProfileSummary | undefined
   >();
   const health = useConnectionHealthStore((s) => s.health);
-  const connecting = useConnectionStore((s) => s.loading);
+  const connecting = useConnectionStore((s) => s.connecting);
+  const cancelConnect = useConnectionStore((s) => s.cancelConnect);
+  const connectError = useConnectionStore((s) => s.error);
+  const failedProfileId = useConnectionStore((s) => s.failedProfileId);
+  const clearError = useConnectionStore((s) => s.clearError);
 
   /**
-   * What to show on a tab's icon: FR-1.3.2's three states.
-   *
-   * "Connecting" is the store's own in-flight flag rather than a per-tab one,
-   * so it shows while any connect is running — which is when the user is
-   * waiting on one.
+   * What to show on a connected tab's icon. FR-1.3.2's third state,
+   * "Connecting", belongs to the placeholder tab of the profile being opened,
+   * not to every tab that already works (#799).
    */
   const connectionState = (connectionId: string) => {
     if (health[connectionId] && !health[connectionId].healthy) return "Disconnected";
-    if (connecting) return "Connecting";
     return "Connected";
   };
   const popoverRef = useRef<HTMLDivElement>(null);
@@ -111,6 +114,7 @@ export function ConnectionTabs() {
       ];
 
       const failed: string[] = [];
+      const failedIds: string[] = [];
       for (const profileId of profileIds) {
         try {
           const conn = await connect(profileId);
@@ -125,6 +129,8 @@ export function ConnectionTabs() {
             setSelectedConnection(conn.id);
           }
         } catch (e) {
+          // Cancelled from its placeholder tab: the user knows.
+          if (e instanceof Error && e.message === "Connection cancelled") continue;
           // Leaving the tab without a live connection is right; saying nothing
           // about it is not. The tab looked normal and the first query failed
           // with "Connection not found", which describes neither what happened
@@ -132,12 +138,15 @@ export function ConnectionTabs() {
           const name = useConnectionStore.getState().profiles.find((p) => p.id === profileId)?.name
             ?? profileId;
           failed.push(name);
+          failedIds.push(profileId);
           console.warn(`Could not reconnect to ${name} on startup`, e);
         }
       }
 
       if (failed.length > 0) {
         useConnectionStore.setState({
+          // One failure can offer Retry and Edit for its profile (#804).
+          failedProfileId: failedIds.length === 1 ? failedIds[0] : null,
           error: failed.length === 1
             ? `Could not reconnect to ${failed[0]}. Its tabs have no live connection — use the connect button to retry.`
             : `Could not reconnect to ${failed.length} servers (${
@@ -152,8 +161,21 @@ export function ConnectionTabs() {
   // Listen for "open-new-connection" from menu bar
   useEffect(() => {
     const handler = () => openNew();
-    window.addEventListener("open-new-connection", handler);
-    return () => window.removeEventListener("open-new-connection", handler);
+    window.addEventListener(NEW_CONNECTION_EVENT, handler);
+    return () => window.removeEventListener(NEW_CONNECTION_EVENT, handler);
+  }, []);
+
+  // A connect asked for elsewhere — the menu bar, the palette, the sidebar —
+  // runs through the same flow as one from the `+` menu (#817). Through a ref,
+  // so the listener always calls this render's handler.
+  const connectProfileRef = useRef<(profileId: string) => Promise<void>>(async () => {});
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const profileId = (e as CustomEvent<string>).detail;
+      if (typeof profileId === "string") void connectProfileRef.current(profileId);
+    };
+    window.addEventListener(CONNECT_PROFILE_EVENT, handler);
+    return () => window.removeEventListener(CONNECT_PROFILE_EVENT, handler);
   }, []);
 
   // Close popover on outside click
@@ -182,10 +204,22 @@ export function ConnectionTabs() {
   };
 
   const activeProfileIds = new Set(activeConnections.map((c) => c.profile_id));
-  const inactiveProfiles = profiles.filter((p) => !activeProfileIds.has(p.id));
+  const inactiveProfiles = profiles.filter((p) => !activeProfileIds.has(p.id) && !connecting.includes(p.id));
 
   const handleConnectProfile = async (profileId: string) => {
     setPopoverOpen(false);
+    // The menu bar, the palette and the sidebar can all ask for a profile
+    // that is opening or already open. A second `api.connect` would make a
+    // second live connection, and its settle would drop the first one's
+    // placeholder tab. Read the store, not this render: two requests can
+    // arrive before React re-renders.
+    const { connecting: inFlight, activeConnections: open } = useConnectionStore.getState();
+    if (inFlight.includes(profileId)) return;
+    const existing = open.find((c) => c.profile_id === profileId);
+    if (existing) {
+      selectConnection(existing.id);
+      return;
+    }
     try {
       const conn = await connect(profileId);
       setSelectedConnection(conn.id);
@@ -197,8 +231,10 @@ export function ConnectionTabs() {
     }
   };
 
+  connectProfileRef.current = handleConnectProfile;
+
   return (
-    <div className="flex h-9 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-1">
+    <div className="relative flex h-9 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-1">
       {/* Scrollable tabs area */}
       <div className="flex min-w-0 shrink items-center gap-0.5 overflow-x-auto">
         {activeConnections.map((conn) => {
@@ -261,8 +297,8 @@ export function ConnectionTabs() {
 
               {
                 /* Green while the server answers, red once the health checker
-                  says it does not, amber while a connect is in flight — which
-                  is FR-1.3.2's three states. It was green whatever was true
+                  says it does not; the third FR-1.3.2 state, connecting, is
+                  the placeholder tab below. It was green whatever was true
                   (#294). */
               }
               <Database
@@ -272,8 +308,6 @@ export function ConnectionTabs() {
                   "h-3 w-3 shrink-0",
                   connectionState(conn.id) === "Disconnected"
                     ? "text-[var(--color-error)]"
-                    : connectionState(conn.id) === "Connecting"
-                    ? "animate-pulse text-[var(--color-warning)]"
                     : "text-[var(--color-success)]",
                 )}
               />
@@ -361,6 +395,38 @@ export function ConnectionTabs() {
             </div>
           );
         })}
+
+        {
+          /* A tab for each connect in flight, from the moment it starts, so
+            the wait shows where the connection will appear (#799). */
+        }
+        {connecting.map((profileId) => {
+          const profile = profiles.find((p) => p.id === profileId);
+          const label = profile?.name || profile?.host || profileId;
+          return (
+            <div
+              key={`connecting-${profileId}`}
+              data-testid="connecting-tab"
+              className="flex h-7 min-w-0 max-w-[180px] shrink-0 items-center gap-1.5 rounded px-2 text-xs text-[var(--color-text-secondary)] select-none"
+              title={`Connecting to ${label}…`}
+            >
+              <Loader2
+                role="img"
+                aria-label="Connecting"
+                className="h-3 w-3 shrink-0 animate-spin text-[var(--color-warning)]"
+              />
+              <span className="truncate">{label}</span>
+              <button
+                className="ml-0.5 shrink-0 rounded p-0.5 hover:bg-[var(--color-bg-tertiary)]"
+                onClick={() => cancelConnect(profileId)}
+                title={`Cancel connecting to ${label}`}
+                aria-label={`Cancel connecting to ${label}`}
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </div>
+          );
+        })}
       </div>
       {/* end scrollable tabs */}
 
@@ -383,10 +449,14 @@ export function ConnectionTabs() {
         <button
           ref={addButtonRef}
           onClick={togglePopover}
-          className="flex h-6 w-6 items-center justify-center rounded text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
+          className="flex h-7 items-center gap-1 rounded px-2 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
           title="Connect to a server"
+          aria-haspopup="menu"
+          aria-expanded={popoverOpen}
         >
           <Plus className="h-3.5 w-3.5" />
+          {/* A visible word, not just a 24px "+" (#817). */}
+          Connect
         </button>
 
         {popoverOpen && (
@@ -462,6 +532,23 @@ export function ConnectionTabs() {
           : undefined}
         onDuplicate={editingProfile ? () => openDuplicate(editingProfile) : undefined}
       />
+      {failedProfileId && connectError && (() => {
+        const failedProfile = profiles.find((p) => p.id === failedProfileId);
+        return (
+          <ConnectFailure
+            name={failedProfile?.name || failedProfile?.host || failedProfileId}
+            message={connectError}
+            onRetry={() => void handleConnectProfile(failedProfileId)}
+            onEdit={failedProfile
+              ? () => {
+                clearError();
+                openEdit(failedProfile);
+              }
+              : undefined}
+            onDismiss={clearError}
+          />
+        );
+      })()}
       {contextMenu}
       {confirmDialog}
     </div>

@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
+import { errorMessage } from "../lib/utils";
 import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary } from "../types";
 import { useConnectionHealthStore } from "./connectionHealthStore";
 import { useSchemaStore } from "./schemaStore";
@@ -10,20 +11,46 @@ interface ConnectionState {
   selectedConnectionId: string | null;
   loading: boolean;
   error: string | null;
+  /** The profile whose connect produced `error`, if a connect did. */
+  failedProfileId: string | null;
   /**
    * Ids that disconnect was called for before the connection existed on this
    * side — a cancel during a slow connect. Store state rather than a module
    * variable so it resets with everything else.
    */
   pendingDisconnects: string[];
+  /**
+   * Profiles with a connect in flight, so each can show its own placeholder
+   * tab. `loading` is shared with loading, saving and deleting profiles, so
+   * reading it painted every tab "Connecting" for any of them (#799).
+   */
+  connecting: string[];
+  /**
+   * The attempt token of each profile's in-flight connect. Per attempt, not
+   * per profile: after a cancel the user can connect again while the
+   * cancelled attempt is still running, and the two must not be confused.
+   */
+  connectAttempts: Record<string, number>;
+  /** Attempt tokens of in-flight connects the user cancelled. */
+  cancelledConnects: number[];
 
   loadProfiles: () => Promise<void>;
   saveProfile: (profile: ConnectionProfileInput) => Promise<void>;
   deleteProfile: (id: string) => Promise<void>;
   connect: (profileId: string) => Promise<ConnectionInfo>;
   disconnect: (connectionId: string) => Promise<void>;
+  /** Abandon the in-flight connect for a profile; its result is closed on arrival. */
+  cancelConnect: (profileId: string) => void;
   setSelectedConnection: (id: string | null) => void;
   clearError: () => void;
+}
+
+/** Source of attempt tokens; only ever compared for equality. */
+let nextConnectAttempt = 0;
+
+/** `attempts` without `profileId`'s entry. */
+function withoutAttempt(attempts: Record<string, number>, profileId: string): Record<string, number> {
+  return Object.fromEntries(Object.entries(attempts).filter(([id]) => id !== profileId));
 }
 
 export const useConnectionStore = create<ConnectionState>((set, get) => ({
@@ -32,25 +59,29 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   selectedConnectionId: null,
   loading: false,
   error: null,
+  failedProfileId: null,
   pendingDisconnects: [],
+  connecting: [],
+  connectAttempts: {},
+  cancelledConnects: [],
 
   loadProfiles: async () => {
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, failedProfileId: null });
       const profiles = await api.listConnectionProfiles();
       set({ profiles, loading: false });
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
   saveProfile: async (profile) => {
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, failedProfileId: null });
       await api.saveConnectionProfile(profile);
       await get().loadProfiles();
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
       // The dialog has to know, or it closes and takes the form with it (#792).
       throw e;
     }
@@ -58,46 +89,92 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
 
   deleteProfile: async (id) => {
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, failedProfileId: null });
       await api.deleteConnectionProfile(id);
       await get().loadProfiles();
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
   connect: async (profileId) => {
-    try {
-      set({ loading: true, error: null });
-      const info = await api.connect(profileId);
-
-      // Disconnect may have been asked for while this was in flight, before
-      // there was anything client-side to remove. Dropping the reference is
-      // not enough: the pool exists on the server, so it has to be closed
-      // there too, or it lives on with nothing able to reach it (#280).
-      if (get().pendingDisconnects.includes(info.id)) {
-        set((state) => ({
-          pendingDisconnects: state.pendingDisconnects.filter((id) => id !== info.id),
-        }));
-        try {
-          await api.disconnect(info.id);
-        } catch {
-          // Best effort — the reference is being discarded regardless.
-        }
-        set({ loading: false });
-        throw new Error("Connection cancelled");
-      }
-
+    const attempt = ++nextConnectAttempt;
+    set((state) => ({
+      error: null,
+      failedProfileId: null,
+      connecting: state.connecting.includes(profileId)
+        ? state.connecting
+        : [...state.connecting, profileId],
+      connectAttempts: { ...state.connectAttempts, [profileId]: attempt },
+    }));
+    /**
+     * This attempt is over. Only clears the placeholder if it is still this
+     * attempt's: a cancelled attempt finishing late must not remove a retry's.
+     */
+    const settle = () =>
+      set((state) => {
+        if (state.connectAttempts[profileId] !== attempt) return {};
+        return {
+          connecting: state.connecting.filter((id) => id !== profileId),
+          connectAttempts: withoutAttempt(state.connectAttempts, profileId),
+        };
+      });
+    /** Whether the user cancelled this attempt; consumes the request. */
+    const takeCancel = () => {
+      if (!get().cancelledConnects.includes(attempt)) return false;
       set((state) => ({
-        activeConnections: [...state.activeConnections, info],
-        selectedConnectionId: info.id,
-        loading: false,
+        cancelledConnects: state.cancelledConnects.filter((t) => t !== attempt),
       }));
-      return info;
+      return true;
+    };
+
+    let info: ConnectionInfo;
+    try {
+      info = await api.connect(profileId);
     } catch (e) {
-      set({ error: String(e), loading: false });
+      settle();
+      // A failure nobody is waiting for any more is not worth reporting.
+      // Rejected, not thrown: lint wants a `cause` on a throw inside a catch,
+      // and the ES2021 target has no `cause` option.
+      if (takeCancel()) return Promise.reject(new Error("Connection cancelled"));
+      // Which profile failed, so the failure can offer Retry and Edit (#804).
+      set({ error: errorMessage(e), failedProfileId: profileId });
       throw e;
     }
+    settle();
+
+    // Disconnect may have been asked for while this was in flight, before
+    // there was anything client-side to remove. Dropping the reference is
+    // not enough: the pool exists on the server, so it has to be closed
+    // there too, or it lives on with nothing able to reach it (#280).
+    const cancelled = takeCancel();
+    if (cancelled || get().pendingDisconnects.includes(info.id)) {
+      set((state) => ({
+        pendingDisconnects: state.pendingDisconnects.filter((id) => id !== info.id),
+      }));
+      try {
+        await api.disconnect(info.id);
+      } catch {
+        // Best effort — the reference is being discarded regardless.
+      }
+      throw new Error("Connection cancelled");
+    }
+
+    set((state) => ({
+      activeConnections: [...state.activeConnections, info],
+      selectedConnectionId: info.id,
+    }));
+    return info;
+  },
+
+  cancelConnect: (profileId) => {
+    const attempt = get().connectAttempts[profileId];
+    if (attempt === undefined || !get().connecting.includes(profileId)) return;
+    set((state) => ({
+      connecting: state.connecting.filter((id) => id !== profileId),
+      connectAttempts: withoutAttempt(state.connectAttempts, profileId),
+      cancelledConnects: [...state.cancelledConnects, attempt],
+    }));
   },
 
   disconnect: async (connectionId) => {
@@ -115,7 +192,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       return;
     }
     try {
-      set({ loading: true, error: null });
+      set({ loading: true, error: null, failedProfileId: null });
       await api.disconnect(connectionId);
       // The schema is about a server this app is no longer talking to.
       // Keeping it means a reconnect shows what was true before, and means
@@ -134,10 +211,10 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         loading: false,
       }));
     } catch (e) {
-      set({ error: String(e), loading: false });
+      set({ error: errorMessage(e), loading: false });
     }
   },
 
   setSelectedConnection: (id) => set({ selectedConnectionId: id }),
-  clearError: () => set({ error: null }),
+  clearError: () => set({ error: null, failedProfileId: null }),
 }));

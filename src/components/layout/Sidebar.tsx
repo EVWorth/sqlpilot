@@ -5,6 +5,7 @@ import { useSqliteStore } from "../../stores/sqliteStore";
 import { QueryFavorites } from "../favorites/QueryFavorites";
 import { QueryHistory } from "../history/QueryHistory";
 import { SchemaTree } from "../schema/SchemaTree";
+import { SavedConnections } from "./SavedConnections";
 
 export function Sidebar() {
   const [showHistory, setShowHistory] = useState(false);
@@ -59,14 +60,7 @@ export function Sidebar() {
       <div className="flex-1 overflow-y-auto">
         {selectedConnection || sqliteSession
           ? <SchemaTree connectionId={(selectedConnection ?? sqliteSession)!.id} />
-          : (
-            <div className="flex flex-col items-center justify-center h-full gap-2 p-4 text-center">
-              <Database className="h-8 w-8 text-[var(--color-text-muted)] opacity-40" />
-              <p className="text-xs text-[var(--color-text-muted)]">
-                No connection selected
-              </p>
-            </div>
-          )}
+          : <SavedConnections />}
       </div>
 
       {/* Favorites panel */}

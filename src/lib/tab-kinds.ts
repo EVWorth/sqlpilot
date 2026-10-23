@@ -1,4 +1,4 @@
-import type { EditorTab, RoutineKind } from "../types";
+import type { DdlObjectType, EditorTab, RoutineKind } from "../types";
 
 /**
  * What each kind of editor tab is, as data.
@@ -26,6 +26,14 @@ export interface TabParams {
     routineType: RoutineKind;
   };
   designer: { connectionId: string; database: string; tableName?: string };
+  ddl: {
+    connectionId: string;
+    database: string;
+    objectName: string;
+    objectType: DdlObjectType;
+    /** The connection's saved profile, so a restored tab can be re-pointed on reconnect. */
+    profileId?: string;
+  };
 }
 
 export type TabKind = keyof TabParams;
@@ -108,6 +116,26 @@ const SPECS: { [K in TabKind]: TabSpec<K> } = {
       connectionId: p.connectionId,
       database: p.database,
       tableName: p.tableName || undefined,
+    }),
+  },
+
+  ddl: {
+    // One per object: "Show DDL" twice brings the same tab back rather than
+    // stacking identical ones (#800).
+    identity: (tab, p) =>
+      tab.type === "ddl"
+      && tab.connectionId === p.connectionId
+      && tab.database === p.database
+      && tab.objectName === p.objectName
+      && tab.objectType === p.objectType,
+    title: (p) => `📜 ${p.objectName}`,
+    fields: (p) => ({
+      type: "ddl",
+      connectionId: p.connectionId,
+      database: p.database,
+      objectName: p.objectName,
+      objectType: p.objectType,
+      ...(p.profileId !== undefined && { profileId: p.profileId }),
     }),
   },
 };

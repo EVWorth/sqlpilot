@@ -5,6 +5,7 @@ const sidebarState = {
   profiles: [] as any[],
   activeConnections: [] as any[],
   selectedConnectionId: null as string | null,
+  connecting: [] as string[],
 };
 
 const editorState = {
@@ -13,6 +14,7 @@ const editorState = {
   addTab: vi.fn(() => "tab-1"),
   addStructureTab: vi.fn(),
   addRoutineTab: vi.fn(),
+  openTab: vi.fn(() => "tab-2"),
   addDesignerTab: vi.fn(),
   updateTabContent: vi.fn(),
   setTabConnection: vi.fn(),
@@ -111,6 +113,7 @@ describe("Sidebar", () => {
       profiles: [],
       activeConnections: [],
       selectedConnectionId: null,
+      connecting: [],
     });
     Object.assign(editorState, {
       tabs: [],
@@ -118,6 +121,7 @@ describe("Sidebar", () => {
       addTab: vi.fn(() => "tab-1"),
       addStructureTab: vi.fn(),
       addRoutineTab: vi.fn(),
+      openTab: vi.fn(() => "tab-2"),
       addDesignerTab: vi.fn(),
       updateTabContent: vi.fn(),
       setTabConnection: vi.fn(),
@@ -135,8 +139,51 @@ describe("Sidebar", () => {
     });
 
     it("shows no connection message", () => {
+      sidebarState.profiles = [{ id: "p1", name: "Local", host: "localhost", port: 3306 }];
       render(<Sidebar />);
       expect(screen.getByText("No connection selected")).toBeInTheDocument();
+    });
+
+    it("lists the saved profiles, each with a Connect button (#817)", () => {
+      sidebarState.profiles = [
+        { id: "p1", name: "Staging", host: "stg", port: 3307, username: "app", environment: "staging" },
+        { id: "p2", name: "Local", host: "localhost", port: 3306 },
+      ];
+      const seen: string[] = [];
+      const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+      window.addEventListener("connect-profile", listener);
+      render(<Sidebar />);
+
+      const rows = screen.getAllByTestId("saved-connection");
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveTextContent("Staging");
+      expect(rows[0]).toHaveTextContent("app@stg:3307");
+      expect(rows[0]).toHaveTextContent("STG");
+      fireEvent.click(screen.getByLabelText("Connect to Staging"));
+
+      window.removeEventListener("connect-profile", listener);
+      expect(seen).toEqual(["p1"]);
+      expect(screen.getByText("New Connection…")).toBeInTheDocument();
+    });
+
+    it("leaves out profiles that are already connected", () => {
+      sidebarState.profiles = [
+        { id: "p1", name: "Staging", host: "stg", port: 3306 },
+        { id: "p2", name: "Local", host: "localhost", port: 3306 },
+      ];
+      sidebarState.activeConnections = [{ id: "c1", profile_id: "p1", host: "stg", port: 3306 }];
+      render(<Sidebar />);
+      expect(screen.getAllByTestId("saved-connection")).toHaveLength(1);
+      expect(screen.queryByLabelText("Connect to Staging")).toBeNull();
+    });
+
+    it("prompts for a first connection when there are none (#817)", () => {
+      const listener = vi.fn();
+      window.addEventListener("open-new-connection", listener);
+      render(<Sidebar />);
+      fireEvent.click(screen.getByText("Create your first connection"));
+      window.removeEventListener("open-new-connection", listener);
+      expect(listener).toHaveBeenCalledOnce();
     });
   });
 
@@ -421,15 +468,15 @@ describe("Sidebar", () => {
       await waitFor(() => screen.getByText("trg_insert"));
       fireEvent.click(screen.getByText("trg_insert"));
 
-      expect(editorState.addTab).toHaveBeenCalledWith("conn1", "testdb");
-      expect(editorState.updateTabContent).toHaveBeenCalledWith(
-        "tab-1",
-        "SHOW CREATE TRIGGER `testdb`.`trg_insert`",
-      );
-      expect(resultStore.executeQuery).toHaveBeenCalledWith(
-        "conn1",
-        "SHOW CREATE TRIGGER `testdb`.`trg_insert`",
-      );
+      // Its own DDL tab, not a SHOW CREATE run into the grid (#800).
+      expect(editorState.openTab).toHaveBeenCalledWith("ddl", {
+        connectionId: "conn1",
+        database: "testdb",
+        objectName: "trg_insert",
+        objectType: "TRIGGER",
+        profileId: "p1",
+      });
+      expect(resultStore.executeQuery).not.toHaveBeenCalled();
     });
 
     it("shows filter input and clears on Escape", async () => {

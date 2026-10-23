@@ -4,6 +4,8 @@ import { useEditorStore } from "../../../stores/editorStore";
 import { ConnectionTabs } from "../ConnectionTabs";
 
 const mockLoadProfiles = vi.fn();
+const mockCancelConnect = vi.fn();
+const mockClearError = vi.fn();
 // Hoisted, because the mock factory below runs before ordinary top-level
 // consts are initialised.
 const { setStateSpy } = vi.hoisted(() => ({ setStateSpy: vi.fn() }));
@@ -18,8 +20,13 @@ function currentState() {
     profiles: [],
     activeConnections: [],
     selectedConnectionId: null,
+    connecting: [],
     connect: vi.fn(),
     disconnect: vi.fn(),
+    cancelConnect: mockCancelConnect,
+    clearError: mockClearError,
+    error: null,
+    failedProfileId: null,
     deleteProfile: vi.fn(),
     setSelectedConnection: vi.fn(),
     loadProfiles: mockLoadProfiles,
@@ -168,6 +175,8 @@ describe("startup reconnect (#276)", () => {
   });
 });
 
+const staging = { id: "p2", name: "Staging", host: "stg" };
+
 describe("connection state on the tab (FR-1.3.2)", () => {
   const conn = { id: "c1", profile_id: "p1", name: "prod", database: "app" };
   const profiles = [{ id: "p1", name: "prod", host: "db" }];
@@ -187,17 +196,55 @@ describe("connection state on the tab (FR-1.3.2)", () => {
     expect(screen.getByLabelText("Disconnected").getAttribute("class")).toContain("--color-error");
   });
 
-  it("is amber while a connect is in flight", () => {
-    storeState = { profiles, activeConnections: [conn], loading: true };
+  it("shows a lost connection as lost even while another is connecting", () => {
+    healthState = { c1: { connectionId: "c1", healthy: false, consecutiveFailures: 1 } };
+    storeState = { profiles: [...profiles, staging], activeConnections: [conn], connecting: ["p2"] };
     render(<ConnectionTabs />);
+    expect(screen.getByLabelText("Disconnected")).toBeInTheDocument();
+  });
+});
+
+describe("a connect in flight (#799)", () => {
+  const conn = { id: "c1", profile_id: "p1", name: "prod", database: "app" };
+  const profiles = [{ id: "p1", name: "prod-eu", host: "db" }, staging];
+
+  it("gets a placeholder tab, named, from the moment it starts", () => {
+    // Nothing changed for the whole wait: a tab existed only once the
+    // connect had succeeded.
+    storeState = { profiles, activeConnections: [], connecting: ["p2"] };
+    render(<ConnectionTabs />);
+    const tab = screen.getByTestId("connecting-tab");
+    expect(tab).toHaveTextContent("Staging");
     expect(screen.getByLabelText("Connecting").getAttribute("class")).toContain("--color-warning");
   });
 
-  it("shows a lost connection as lost even while another is connecting", () => {
-    healthState = { c1: { connectionId: "c1", healthy: false, consecutiveFailures: 1 } };
+  it("leaves the tabs that already work green", () => {
+    // The shared loading flag pulsed every existing tab amber.
+    storeState = { profiles, activeConnections: [conn], connecting: ["p2"], loading: true };
+    render(<ConnectionTabs />);
+    expect(screen.getByLabelText("Connected")).toBeInTheDocument();
+    expect(screen.getAllByLabelText("Connecting")).toHaveLength(1);
+  });
+
+  it("does not show a profile saving or loading as connecting", () => {
     storeState = { profiles, activeConnections: [conn], loading: true };
     render(<ConnectionTabs />);
-    expect(screen.getByLabelText("Disconnected")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Connecting")).toBeNull();
+  });
+
+  it("can be cancelled from its placeholder", () => {
+    storeState = { profiles, activeConnections: [], connecting: ["p2"] };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByLabelText("Cancel connecting to Staging"));
+    expect(mockCancelConnect).toHaveBeenCalledWith("p2");
+  });
+
+  it("is not offered again in the connect menu while it is opening", () => {
+    storeState = { profiles, activeConnections: [], connecting: ["p2"] };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByTitle("Connect to a server"));
+    expect(screen.getByText("prod-eu")).toBeInTheDocument();
+    expect(screen.getAllByText("Staging")).toHaveLength(1);
   });
 });
 
@@ -328,5 +375,99 @@ describe("deleting a profile (FR-1.1.3, #795)", () => {
 
     expect(disconnect).not.toHaveBeenCalled();
     expect(deleteProfile).toHaveBeenCalledWith("p2");
+  });
+});
+
+describe("a failed connect (#804)", () => {
+  const profiles = [{ id: "p2", name: "MariaDB sandbox", host: "localhost" }];
+  const message = "Connection error: Could not connect \"MariaDB sandbox\". Nothing is listening on "
+    + "localhost:3307. The server is stopped, or it is listening on a different port.";
+
+  it("shows the whole message under the tabs", () => {
+    storeState = { profiles, error: message, failedProfileId: "p2" };
+    render(<ConnectionTabs />);
+    const panel = screen.getByTestId("connect-failure");
+    expect(panel).toHaveTextContent("Could not connect to MariaDB sandbox");
+    expect(panel).toHaveTextContent(message);
+  });
+
+  it("retries the same profile", async () => {
+    const connect = vi.fn().mockRejectedValue(new Error("still refused"));
+    storeState = { profiles, error: message, failedProfileId: "p2", connect };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByText("Retry"));
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledWith("p2"));
+  });
+
+  it("opens the profile for editing", () => {
+    storeState = { profiles, error: message, failedProfileId: "p2" };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByText("Edit connection"));
+    expect(screen.getByTestId("connection-dialog")).toHaveAttribute("data-editing", "MariaDB sandbox");
+    expect(mockClearError).toHaveBeenCalled();
+  });
+
+  it("can be dismissed", () => {
+    storeState = { profiles, error: message, failedProfileId: "p2" };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByLabelText("Dismiss connection failure"));
+    expect(mockClearError).toHaveBeenCalled();
+  });
+
+  it("is not shown for an error that no connect produced", () => {
+    storeState = { profiles, error: "Delete failed", failedProfileId: null };
+    render(<ConnectionTabs />);
+    expect(screen.queryByTestId("connect-failure")).toBeNull();
+  });
+});
+
+describe("connecting from elsewhere (#817)", () => {
+  it("labels the connect button with a word, not only a +", () => {
+    render(<ConnectionTabs />);
+    expect(screen.getByTitle("Connect to a server")).toHaveTextContent("Connect");
+  });
+
+  it("connects when the menu bar, palette or sidebar asks", async () => {
+    const connect = vi.fn().mockResolvedValue({ id: "c2", profile_id: "p2", database: null });
+    storeState = { profiles: [{ id: "p2", name: "Staging", host: "stg" }], connect };
+    render(<ConnectionTabs />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("connect-profile", { detail: "p2" }));
+    });
+
+    await vi.waitFor(() => expect(connect).toHaveBeenCalledWith("p2"));
+  });
+
+  it("does not connect a profile a second time while it is opening", async () => {
+    const connect = vi.fn().mockResolvedValue({ id: "c2", profile_id: "p2", database: null });
+    storeState = { profiles: [{ id: "p2", name: "Staging", host: "stg" }], connecting: ["p2"], connect };
+    render(<ConnectionTabs />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("connect-profile", { detail: "p2" }));
+    });
+
+    await Promise.resolve();
+    expect(connect).not.toHaveBeenCalledWith("p2");
+  });
+
+  it("selects a profile that is already open instead of connecting it again", async () => {
+    const connect = vi.fn().mockResolvedValue({ id: "c3", profile_id: "p2", database: null });
+    const setSelectedConnection = vi.fn();
+    storeState = {
+      profiles: [{ id: "p2", name: "Staging", host: "stg" }],
+      activeConnections: [{ id: "c2", profile_id: "p2", database: null }],
+      connect,
+      setSelectedConnection,
+    };
+    render(<ConnectionTabs />);
+
+    act(() => {
+      window.dispatchEvent(new CustomEvent("connect-profile", { detail: "p2" }));
+    });
+
+    await vi.waitFor(() => expect(setSelectedConnection).toHaveBeenCalledWith("c2"));
+    expect(connect).not.toHaveBeenCalledWith("p2");
   });
 });

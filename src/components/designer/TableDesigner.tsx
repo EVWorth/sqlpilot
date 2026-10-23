@@ -27,7 +27,7 @@ import {
 import { foreignKeyTypeProblem } from "../../lib/fk-compat";
 import { DEFAULT_TABLE_OPTIONS, parseTableOptions } from "../../lib/table-options";
 import { api } from "../../lib/tauri-api";
-import { cn } from "../../lib/utils";
+import { cn, errorMessage } from "../../lib/utils";
 import { useResultStore } from "../../stores/resultStore";
 import type { ColumnInfo, ForeignKeyInfo, IndexInfo, TableInfo } from "../../types";
 import { SQLPreviewDialog } from "../common/SQLPreviewDialog";
@@ -170,6 +170,9 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
   // Name and type. The type is what makes a mismatched foreign key visible
   // before the server rejects it (#385).
   const [refTableColumns, setRefTableColumns] = useState<Record<string, RefColumn[]>>({});
+  // Why a reference table's columns could not be read, by table. Swallowed,
+  // the key's target columns vanished and the type check went quiet (#810).
+  const [refColumnErrors, setRefColumnErrors] = useState<Record<string, string>>({});
 
   // Load reference tables for FK tab
   useEffect(() => {
@@ -188,8 +191,13 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           ...prev,
           [table]: cols.map((c) => ({ name: c.name, type: c.column_type })),
         }));
-      } catch {
-        // ignore
+        setRefColumnErrors((prev) => {
+          const rest = { ...prev };
+          delete rest[table];
+          return rest;
+        });
+      } catch (e) {
+        setRefColumnErrors((prev) => ({ ...prev, [table]: errorMessage(e) }));
       }
     },
     [connectionId, database, refTableColumns],
@@ -572,6 +580,7 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
             localColumns={columns}
             refTables={refTables}
             refTableColumns={refTableColumns}
+            refColumnErrors={refColumnErrors}
             onLoadRefColumns={loadRefTableColumns}
             onUpdate={updateFK}
             onAdd={addFK}
@@ -919,6 +928,7 @@ function ForeignKeysTab({
   localColumns,
   refTables,
   refTableColumns,
+  refColumnErrors,
   onLoadRefColumns,
   onUpdate,
   onAdd,
@@ -928,6 +938,7 @@ function ForeignKeysTab({
   localColumns: DesignerColumn[];
   refTables: TableInfo[];
   refTableColumns: Record<string, RefColumn[]>;
+  refColumnErrors: Record<string, string>;
   onLoadRefColumns: (table: string) => void;
   onUpdate: (id: string, field: keyof DesignerForeignKey, value: unknown) => void;
   onAdd: () => void;
@@ -961,6 +972,20 @@ function ForeignKeysTab({
   }, [foreignKeys, onLoadRefColumns]);
 
   const columnNames = localColumns.filter((c) => c.name).map((c) => c.name);
+
+  /**
+   * The chips under Reference Table: the table's columns, plus whatever the
+   * key already points at. Without the second part a failed column load hid
+   * the key's own target entirely (#810).
+   */
+  const refChoices = (fk: DesignerForeignKey): RefColumn[] => {
+    const loaded = refTableColumns[fk.referenceTable] ?? [];
+    const missing = fk.referenceColumns
+      .filter((name) => !loaded.some((rc) => rc.name === name))
+      .map((name) => ({ name, type: "" }));
+    return [...loaded, ...missing];
+  };
+
   const localTypeOf = (name: string) => {
     const col = localColumns.find((c) => c.name === name);
     if (!col) return undefined;
@@ -1064,13 +1089,31 @@ function ForeignKeysTab({
                         {refTables.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}
                       </select>
 
-                      {fk.referenceTable && refTableColumns[fk.referenceTable] && (
+                      {fk.referenceTable && refColumnErrors[fk.referenceTable] && (
+                        <p
+                          role="alert"
+                          className="mt-1.5 flex items-center gap-1 text-[10px] text-[var(--color-error)]"
+                        >
+                          <AlertCircle className="h-3 w-3 shrink-0" />
+                          <span>
+                            Couldn't load columns of {fk.referenceTable}: {refColumnErrors[fk.referenceTable]}
+                          </span>
+                          <button
+                            onClick={() => onLoadRefColumns(fk.referenceTable)}
+                            className="ml-1 underline hover:text-[var(--color-text-primary)]"
+                          >
+                            Retry
+                          </button>
+                        </p>
+                      )}
+
+                      {fk.referenceTable && refChoices(fk).length > 0 && (
                         <div className="mt-1.5 flex flex-wrap gap-1">
-                          {refTableColumns[fk.referenceTable].map((rc) => (
+                          {refChoices(fk).map((rc) => (
                             <button
                               key={rc.name}
                               onClick={() => toggleColumn(fk, "referenceColumns", rc.name)}
-                              title={rc.type}
+                              title={rc.type || undefined}
                               className={`rounded border px-2 py-0.5 text-[10px] transition-colors ${
                                 fk.referenceColumns.includes(rc.name)
                                   ? "border-brand-500 bg-brand-600/20 text-brand-300"

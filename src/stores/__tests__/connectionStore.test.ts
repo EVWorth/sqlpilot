@@ -70,6 +70,10 @@ describe("connectionStore", () => {
       loading: false,
       error: null,
       pendingDisconnects: [],
+      connecting: [],
+      connectAttempts: {},
+      cancelledConnects: [],
+      failedProfileId: null,
     });
   });
 
@@ -102,7 +106,7 @@ describe("connectionStore", () => {
       await useConnectionStore.getState().loadProfiles();
 
       const state = useConnectionStore.getState();
-      expect(state.error).toBe("Error: API error");
+      expect(state.error).toBe("API error");
       expect(state.loading).toBe(false);
     });
 
@@ -140,7 +144,7 @@ describe("connectionStore", () => {
       );
 
       const state = useConnectionStore.getState();
-      expect(state.error).toBe("Error: Save failed");
+      expect(state.error).toBe("Save failed");
       expect(state.loading).toBe(false);
     });
   });
@@ -179,7 +183,7 @@ describe("connectionStore", () => {
 
       await useConnectionStore.getState().deleteProfile("profile-1");
 
-      expect(useConnectionStore.getState().error).toBe("Error: Delete failed");
+      expect(useConnectionStore.getState().error).toBe("Delete failed");
       expect(useConnectionStore.getState().loading).toBe(false);
     });
   });
@@ -198,15 +202,114 @@ describe("connectionStore", () => {
       expect(result).toEqual(mockConnectionInfo);
     });
 
-    it("sets loading to true during connect", async () => {
-      vi.mocked(api.connect).mockImplementation(
-        () => new Promise((resolve) => setTimeout(() => resolve(mockConnectionInfo), 10)),
-      );
+    it("tracks the in-flight connect per profile, not with the shared loading flag (#799)", async () => {
+      const pending = deferred<ConnectionInfo>();
+      vi.mocked(api.connect).mockReturnValueOnce(pending.promise);
 
       const promise = useConnectionStore.getState().connect("profile-1");
-      expect(useConnectionStore.getState().loading).toBe(true);
+      expect(useConnectionStore.getState().connecting).toEqual(["profile-1"]);
+      // `loading` belongs to profile loading, saving and deleting; a tab
+      // reading it showed "Connecting" for all of those.
+      expect(useConnectionStore.getState().loading).toBe(false);
 
+      pending.resolve(mockConnectionInfo);
       await promise;
+      expect(useConnectionStore.getState().connecting).toEqual([]);
+    });
+
+    it("clears only the finished profile when connects overlap (#799)", async () => {
+      const first = deferred<ConnectionInfo>();
+      const second = deferred<ConnectionInfo>();
+      vi.mocked(api.connect).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+
+      const p1 = useConnectionStore.getState().connect("profile-1");
+      const p2 = useConnectionStore.getState().connect("profile-2");
+      first.resolve(mockConnectionInfo);
+      await p1;
+
+      expect(useConnectionStore.getState().connecting).toEqual(["profile-2"]);
+      second.reject(new Error("refused"));
+      await expect(p2).rejects.toThrow("refused");
+      expect(useConnectionStore.getState().connecting).toEqual([]);
+    });
+
+    it("closes a cancelled connect on arrival and keeps it out of the tabs (#799)", async () => {
+      const pending = deferred<ConnectionInfo>();
+      vi.mocked(api.connect).mockReturnValueOnce(pending.promise);
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+
+      const promise = useConnectionStore.getState().connect("profile-1");
+      useConnectionStore.getState().cancelConnect("profile-1");
+      expect(useConnectionStore.getState().connecting).toEqual([]);
+
+      pending.resolve(mockConnectionInfo);
+      await expect(promise).rejects.toThrow(/cancelled/i);
+
+      const state = useConnectionStore.getState();
+      expect(api.disconnect).toHaveBeenCalledWith("conn-1");
+      expect(state.activeConnections).toEqual([]);
+      expect(state.cancelledConnects).toEqual([]);
+      expect(state.error).toBeNull();
+    });
+
+    it("keeps a retry made after a cancel, and closes the cancelled attempt", async () => {
+      const cancelled = deferred<ConnectionInfo>();
+      const retry = deferred<ConnectionInfo>();
+      vi.mocked(api.connect)
+        .mockReturnValueOnce(cancelled.promise)
+        .mockReturnValueOnce(retry.promise);
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+      const oldConn = { ...mockConnectionInfo, id: "conn-old" };
+      const newConn = { ...mockConnectionInfo, id: "conn-new" };
+
+      const first = useConnectionStore.getState().connect("profile-1");
+      useConnectionStore.getState().cancelConnect("profile-1");
+      const second = useConnectionStore.getState().connect("profile-1");
+
+      // The retry lands first: it is the one the user is waiting for.
+      retry.resolve(newConn);
+      await expect(second).resolves.toEqual(newConn);
+      cancelled.resolve(oldConn);
+      await expect(first).rejects.toThrow(/cancelled/i);
+
+      const state = useConnectionStore.getState();
+      expect(state.activeConnections.map((c) => c.id)).toEqual(["conn-new"]);
+      expect(api.disconnect).toHaveBeenCalledWith("conn-old");
+      expect(api.disconnect).not.toHaveBeenCalledWith("conn-new");
+      expect(state.cancelledConnects).toEqual([]);
+    });
+
+    it("keeps a retry's placeholder when the cancelled attempt finishes", async () => {
+      const cancelled = deferred<ConnectionInfo>();
+      const retry = deferred<ConnectionInfo>();
+      vi.mocked(api.connect)
+        .mockReturnValueOnce(cancelled.promise)
+        .mockReturnValueOnce(retry.promise);
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+
+      const first = useConnectionStore.getState().connect("profile-1");
+      useConnectionStore.getState().cancelConnect("profile-1");
+      const second = useConnectionStore.getState().connect("profile-1");
+
+      cancelled.resolve({ ...mockConnectionInfo, id: "conn-old" });
+      await expect(first).rejects.toThrow(/cancelled/i);
+      expect(useConnectionStore.getState().connecting).toEqual(["profile-1"]);
+
+      retry.resolve(mockConnectionInfo);
+      await second;
+      expect(useConnectionStore.getState().connecting).toEqual([]);
+    });
+
+    it("does not report the failure of a cancelled connect (#799)", async () => {
+      const pending = deferred<ConnectionInfo>();
+      vi.mocked(api.connect).mockReturnValueOnce(pending.promise);
+
+      const promise = useConnectionStore.getState().connect("profile-1");
+      useConnectionStore.getState().cancelConnect("profile-1");
+      pending.reject(new Error("Connection refused"));
+
+      await expect(promise).rejects.toThrow(/cancelled/i);
+      expect(useConnectionStore.getState().error).toBeNull();
     });
 
     it("handles connect error and throws", async () => {
@@ -217,8 +320,22 @@ describe("connectionStore", () => {
       );
 
       const state = useConnectionStore.getState();
-      expect(state.error).toBe("Error: Connection refused");
+      expect(state.error).toBe("Connection refused");
       expect(state.loading).toBe(false);
+    });
+
+    it("keeps the message whole and names the profile that failed (#804)", async () => {
+      vi.mocked(api.connect).mockRejectedValue(new Error("Connection error: Nothing is listening"));
+
+      await expect(useConnectionStore.getState().connect("profile-1")).rejects.toThrow();
+
+      const state = useConnectionStore.getState();
+      // Not "Error: Connection error: …".
+      expect(state.error).toBe("Connection error: Nothing is listening");
+      expect(state.failedProfileId).toBe("profile-1");
+
+      state.clearError();
+      expect(useConnectionStore.getState().failedProfileId).toBeNull();
     });
 
     it("appends to existing activeConnections", async () => {
@@ -297,7 +414,7 @@ describe("connectionStore", () => {
 
       await useConnectionStore.getState().disconnect("conn-1");
 
-      expect(useConnectionStore.getState().error).toBe("Error: Disconnect failed");
+      expect(useConnectionStore.getState().error).toBe("Disconnect failed");
     });
   });
 
@@ -374,7 +491,7 @@ describe("connectionStore", () => {
       expect(state.activeConnections).toHaveLength(1);
       expect(state.activeConnections[0].id).toBe("conn-1");
       expect(state.selectedConnectionId).toBe("conn-1");
-      expect(state.error).toBe("Error: Connection refused");
+      expect(state.error).toBe("Connection refused");
     });
   });
 

@@ -10,6 +10,7 @@ import { SQLEditor } from "../editor/SQLEditor";
 import { ExplainPanel } from "../explain/ExplainPanel";
 import { ResultsGrid } from "../grid/ResultsGrid";
 import { RoutineViewer } from "../routine/RoutineViewer";
+import { DdlViewer } from "../schema/DdlViewer";
 import { TableStructure } from "../schema/TableStructure";
 
 export function MainPanel() {
@@ -43,6 +44,15 @@ export function MainPanel() {
             connectionId={activeTab.connectionId}
             database={activeTab.database}
             tableName={activeTab.tableName}
+          />
+        )
+        : activeTab?.type === "ddl"
+        ? (
+          <DdlViewer
+            connectionId={activeTab.connectionId}
+            database={activeTab.database}
+            objectName={activeTab.objectName}
+            objectType={activeTab.objectType}
           />
         )
         : activeTab?.type === "routine"

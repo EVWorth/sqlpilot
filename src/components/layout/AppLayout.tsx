@@ -6,6 +6,8 @@ import { useAgentRequests } from "../../hooks/useAgentRequests";
 import { useAgentSessionEvents } from "../../hooks/useAgentSessionEvents";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
 import { useTheme } from "../../hooks/useTheme";
+import { connectTarget } from "../../lib/actions";
+import { requestConnect, requestNewConnection } from "../../lib/connect-request";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useDialogStore } from "../../stores/dialogStore";
@@ -137,6 +139,13 @@ export function AppLayout() {
       const { selectedConnectionId, disconnect } = useConnectionStore.getState();
       const { addTab, addAdminTab, editorInstance } = useEditorStore.getState();
 
+      // "Connect: <name>" from the palette, one per saved profile (#817).
+      const profileId = connectTarget(action);
+      if (profileId !== undefined) {
+        requestConnect(profileId);
+        return;
+      }
+
       switch (action) {
         case "new-query":
           addTab(selectedConnectionId ?? undefined);
@@ -179,7 +188,7 @@ export function AppLayout() {
           editorInstance?.getAction("editor.action.startFindReplaceAction")?.run();
           break;
         case "new-connection":
-          window.dispatchEvent(new CustomEvent("open-new-connection"));
+          requestNewConnection();
           break;
         case "disconnect":
           if (selectedConnectionId) disconnect(selectedConnectionId);

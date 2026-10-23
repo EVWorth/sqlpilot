@@ -50,6 +50,7 @@ import { confirmDestructive } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
 import { loadKey, type SchemaFolder, schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import type { DdlObjectType } from "../../types";
 import { FolderNode } from "./FolderNode";
 import { HighlightedName } from "./HighlightedName";
 
@@ -98,6 +99,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const addTab = useEditorStore((s) => s.addTab);
   const addStructureTab = useEditorStore((s) => s.addStructureTab);
   const addRoutineTab = useEditorStore((s) => s.addRoutineTab);
+  const openTab = useEditorStore((s) => s.openTab);
   const addDesignerTab = useEditorStore((s) => s.addDesignerTab);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
   const setTabConnection = useEditorStore((s) => s.setTabConnection);
@@ -152,6 +154,11 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   // complete. Cancellation is the store's job now — a response for a
   // connection the user has left is dropped there rather than here.
   const filterActive = filterText.trim().length > 0;
+  // Keyed by the names, not the array: `databases` is rebuilt every render,
+  // and each load below re-renders the tree. Keyed by the array, the effect
+  // restarted on every one of those renders, and a load that failed (and so
+  // was never cached) was retried in a loop that never ended.
+  const databaseNames = databases.map((d) => d.name).join("\u0000");
   useEffect(() => {
     if (!filterActive || databases.length === 0) return;
     let cancelled = false;
@@ -163,13 +170,14 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         await store.ensureViews(connectionId, db.name);
         await store.ensureRoutines(connectionId, db.name);
         await store.ensureTriggers(connectionId, db.name);
+        await store.ensureEvents(connectionId, db.name);
       }
     })();
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterActive, databases, connectionId]);
+  }, [filterActive, databaseNames, connectionId]);
 
   const toggleDb = async (dbName: string) => {
     const isExpanded = expanded[dbName];
@@ -243,6 +251,20 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     const tabId = addTab(connectionId, dbName);
     updateTabContent(tabId, ddlQuery);
     executeQuery(connectionId, ddlQuery);
+  };
+
+  /**
+   * The object's DDL in its own read-only tab, reused on repeat. Running
+   * `SHOW CREATE` instead left it ellipsized in one grid cell and opened a new
+   * dirty query tab per click (#800). Events have no DDL command yet, so they
+   * still go through `openDdlTab`.
+   */
+  const openDdlView = (dbName: string, objectName: string, objectType: DdlObjectType) => {
+    // With its profile, like a query tab: the startup reconnect re-points only
+    // tabs that carry one, so without it a restored DDL tab kept the old
+    // session's connection id and said "Connection not found".
+    const profileId = activeConnections.find((c) => c.id === connectionId)?.profile_id;
+    openTab("ddl", { connectionId, database: dbName, objectName, objectType, profileId });
   };
 
   /**
@@ -367,6 +389,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
 
   // Show all DBs while filtering; hide only those whose data IS loaded and has no matches
   const isDbVisible = (dbName: string) => !isFiltering || tables[dbName] === undefined || dbHasMatches(dbName);
+  const visibleDatabases = databases.filter((db) => isDbVisible(db.name));
 
   // Auto-expand when matches found; also respect manual toggles while filtering
   const isDbExpanded = (dbName: string) =>
@@ -426,7 +449,17 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         </label>
       )}
 
-      {databases.filter((db) => isDbVisible(db.name)).map((db) => (
+      {
+        /* Without this a filter that hides everything left a blank tree, which
+          reads as "still loading" (#806). */
+      }
+      {isFiltering && databases.length > 0 && visibleDatabases.length === 0 && (
+        <p role="status" className="px-2 py-1 text-[11px] text-[var(--color-text-muted)]">
+          No objects match '{filterText.trim()}'
+        </p>
+      )}
+
+      {visibleDatabases.map((db) => (
         <div key={db.name} role="treeitem" aria-expanded={isDbExpanded(db.name)} aria-label={db.name}>
           <button
             onKeyDown={(e) => {
@@ -626,12 +659,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             {
                               label: "Show DDL",
                               icon: <FileText className="h-3.5 w-3.5" />,
-                              onClick: () =>
-                                openDdlTab(
-                                  db.name,
-                                  t.name,
-                                  `SHOW CREATE TABLE \`${db.name}\`.\`${t.name}\``,
-                                ),
+                              onClick: () => openDdlView(db.name, t.name, "TABLE"),
                             },
                             {
                               // Opened rather than run: an INSERT with every
@@ -778,7 +806,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Show DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              openDdlTab(db.name, v.name, `SHOW CREATE VIEW \`${db.name}\`.\`${v.name}\``);
+                              openDdlView(db.name, v.name, "VIEW");
                             },
                           },
                           { separator: true },
@@ -852,7 +880,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "View DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              openDdlTab(db.name, r.name, `SHOW CREATE PROCEDURE \`${db.name}\`.\`${r.name}\``);
+                              openDdlView(db.name, r.name, "PROCEDURE");
                             },
                           },
                           { separator: true },
@@ -928,7 +956,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "View DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              openDdlTab(db.name, r.name, `SHOW CREATE FUNCTION \`${db.name}\`.\`${r.name}\``);
+                              openDdlView(db.name, r.name, "FUNCTION");
                             },
                           },
                           { separator: true },
@@ -983,7 +1011,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       key={t.name}
                       draggable
                       onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${t.name}\``)}
-                      onClick={() => openDdlTab(db.name, t.name, `SHOW CREATE TRIGGER \`${db.name}\`.\`${t.name}\``)}
+                      onClick={() => openDdlView(db.name, t.name, "TRIGGER")}
                       onContextMenu={(e) => {
                         showContextMenu(e, [
                           {
@@ -997,7 +1025,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             label: "Show DDL",
                             icon: <FileText className="h-3.5 w-3.5" />,
                             onClick: () => {
-                              openDdlTab(db.name, t.name, `SHOW CREATE TRIGGER \`${db.name}\`.\`${t.name}\``);
+                              openDdlView(db.name, t.name, "TRIGGER");
                             },
                           },
                           { separator: true },

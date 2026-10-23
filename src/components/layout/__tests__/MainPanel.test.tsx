@@ -27,6 +27,10 @@ vi.mock(
   () => ({ RoutineViewer: vi.fn(() => <div data-testid="routine-viewer">RoutineViewer</div>) }),
 );
 vi.mock(
+  "../../schema/DdlViewer",
+  () => ({ DdlViewer: vi.fn(() => <div data-testid="ddl-viewer">DdlViewer</div>) }),
+);
+vi.mock(
   "../../designer/TableDesigner",
   () => ({ TableDesigner: vi.fn(() => <div data-testid="table-designer">TableDesigner</div>) }),
 );
@@ -121,6 +125,17 @@ describe("MainPanel", () => {
           routineType: "PROCEDURE",
         },
         testId: "routine-viewer",
+      },
+      ddl: {
+        tab: {
+          ...base,
+          type: "ddl",
+          connectionId: "c1",
+          database: "shop",
+          objectName: "orders",
+          objectType: "TABLE",
+        },
+        testId: "ddl-viewer",
       },
     };
     const panelIds = Object.values(cases).map((c) => c.testId);
