@@ -51,7 +51,7 @@ export function ConnectionTabs() {
   const addButtonRef = useRef<HTMLButtonElement>(null);
   const { contextMenu, showContextMenu } = useContextMenu();
   const { requestDelete, confirmDialog } = useProfileDeletion();
-  const { selectConnection, attachNewConnection } = useConnectionSwitching();
+  const { selectConnection, attachNewConnection, attachSqliteSession } = useConnectionSwitching();
 
   /** Edit, duplicate and delete: what a saved profile offers wherever it is listed. */
   const profileMenuItems = (profile: ConnectionProfileSummary): MenuItem[] => [
@@ -367,7 +367,7 @@ export function ConnectionTabs() {
       <button
         onClick={() => {
           void openSqliteFile().then((session) => {
-            if (session) setSelectedConnection(session.id);
+            if (session) attachSqliteSession(session.id);
           });
         }}
         disabled={sqliteOpening}

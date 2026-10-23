@@ -25,8 +25,8 @@ function liveConnectionIds(): string[] {
  *
  * - switching editor tabs selects that tab's connection;
  * - selecting a connection moves to one of its editor tabs, or opens one;
- * - connecting a new server opens a tab for it, unless the active tab has
- *   no server yet, in which case that tab takes it.
+ * - connecting a new server, or opening a SQLite file, opens a tab for it,
+ *   unless the active tab has no server yet, in which case that tab takes it.
  */
 export function useConnectionSwitching() {
   const activeTabConnectionId = useEditorStore(
@@ -69,19 +69,29 @@ export function useConnectionSwitching() {
     openTabFor(connectionId, conn);
   };
 
-  /** A new connection has just been made from the connect menu. */
-  const attachNewConnection = (conn: ConnectionInfo) => {
+  /**
+   * A server or file has just been opened: give it an editor tab, so Run
+   * goes where the toolbar now says.
+   */
+  const attach = (connectionId: string, conn?: ConnectionInfo) => {
+    setSelectedConnection(connectionId);
     const { tabs, activeTabId, setTabConnection } = useEditorStore.getState();
     const active = tabs.find((t) => t.id === activeTabId);
     const activeHasServer = !!active?.connectionId
-      && active.connectionId !== conn.id
+      && active.connectionId !== connectionId
       && liveConnectionIds().includes(active.connectionId);
     if (active && !activeHasServer) {
-      setTabConnection(active.id, conn.id, conn.database ?? undefined, conn.profile_id);
+      setTabConnection(active.id, connectionId, conn?.database ?? undefined, conn?.profile_id);
       return;
     }
-    openTabFor(conn.id, conn);
+    openTabFor(connectionId, conn);
   };
 
-  return { selectConnection, attachNewConnection };
+  /** A new connection has just been made from the connect menu. */
+  const attachNewConnection = (conn: ConnectionInfo) => attach(conn.id, conn);
+
+  /** A SQLite file has just been opened. */
+  const attachSqliteSession = (sessionId: string) => attach(sessionId);
+
+  return { selectConnection, attachNewConnection, attachSqliteSession };
 }

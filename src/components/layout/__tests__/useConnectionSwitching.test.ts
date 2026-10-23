@@ -2,6 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
+import { type SqliteSession, useSqliteStore } from "../../../stores/sqliteStore";
 import type { ConnectionInfo } from "../../../types";
 import { useConnectionSwitching } from "../useConnectionSwitching";
 
@@ -97,5 +98,16 @@ describe("editor tab and selected connection agree (#788)", () => {
 
     act(() => useEditorStore.getState().setActiveTab(prodTab));
     expect(useConnectionStore.getState().selectedConnectionId).toBe("prod");
+  });
+
+  it("runs on a SQLite file once it is opened, not on the tab's server", () => {
+    const { result } = renderHook(() => useConnectionSwitching());
+    useSqliteStore.setState({ sessions: [{ id: "sqlite-1", path: "data.db" } as unknown as SqliteSession] });
+
+    act(() => result.current.attachSqliteSession("sqlite-1"));
+
+    expect(useConnectionStore.getState().selectedConnectionId).toBe("sqlite-1");
+    expect(activeTab()?.connectionId).toBe("sqlite-1");
+    expect(useEditorStore.getState().tabs.find((t) => t.id === "tab-0")?.connectionId).toBe("dev");
   });
 });
