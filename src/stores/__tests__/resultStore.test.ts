@@ -57,6 +57,7 @@ vi.mock("../settingsStore", () => ({
   },
 }));
 
+import type { QueryResult } from "../../types";
 import { useResultStore } from "../resultStore";
 
 function makeExplainResponse(overrides: Partial<any> = {}) {
@@ -811,7 +812,7 @@ describe("resultStore", () => {
         vi.setSystemTime(10_000);
         const slow = new Promise<never>(() => {});
         executeQueryMock.mockReturnValueOnce(slow);
-        useResultStore.setState({ results: [makeQueryResult({ rows: [["old"]] })] as any });
+        useResultStore.setState({ results: [makeQueryResult({ rows: [["old"]] })] as QueryResult[] });
         void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)");
         vi.setSystemTime(11_200);
 
@@ -827,7 +828,10 @@ describe("resultStore", () => {
     });
 
     it("leaves an idle tab's results alone", async () => {
-      useResultStore.setState({ isExecuting: false, results: [makeQueryResult({ rows: [["kept"]] })] as any });
+      useResultStore.setState({
+        isExecuting: false,
+        results: [makeQueryResult({ rows: [["kept"]] })] as QueryResult[],
+      });
 
       await useResultStore.getState().cancelActiveQuery();
 

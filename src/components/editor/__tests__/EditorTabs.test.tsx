@@ -1,5 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { PendingClose } from "../../../stores/editorStore";
 import { EditorTabs } from "../EditorTabs";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -22,7 +23,7 @@ const mockSetActiveTab = vi.fn();
 const mockRequestClose = vi.fn();
 const mockConfirmPendingClose = vi.fn();
 const mockCancelPendingClose = vi.fn();
-let currentPendingClose: any = null;
+let currentPendingClose: PendingClose | null = null;
 const mockAddTab = vi.fn();
 const mockRenameTab = vi.fn();
 const mockReorderTabs = vi.fn();
