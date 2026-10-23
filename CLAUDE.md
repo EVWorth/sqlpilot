@@ -137,6 +137,7 @@ Run the relevant subset. Don't skip, don't lie.
 npm run lint              # eslint src
 npm run type-check        # tsc --noEmit
 npx vitest run <file>     # affected test, not whole suite unless touching shared code
+npm run test:browser      # *.browser.test.tsx, real Chromium; CI runs these too
 ```
 
 **Rust changes:**
@@ -287,6 +288,9 @@ Linux deps, re-tag protocol.
   `src-tauri/target/debug/deps`, and run with `CARGO_INCREMENTAL=0`.
 - Docker doesn't survive a container restart. Start `dockerd`, then
   `just db-up`.
+- Playwright here expects a newer headless shell than the installed one, so
+  run the browser tests with
+  `CHROMIUM_PATH=/opt/pw-browsers/chromium npm run test:browser`.
 - Parallel subagents each get their own `git worktree`. Tell them never to
   use `git stash`: the stash list is shared by every worktree, so one agent's
   `stash pop` takes another agent's changes. To test that a fix is needed,
