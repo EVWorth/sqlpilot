@@ -289,6 +289,23 @@ describe("SchemaTree", () => {
       expect(screen.queryByText("app_db")).toBeNull();
     });
 
+    it("tries a failing folder once per database, not in a loop", async () => {
+      // No EVENT privilege: listing events fails every time. A failure is
+      // never cached, and the preload used to restart on every render, so it
+      // asked the server again forever and hung the page.
+      vi.mocked(api.getEvents).mockRejectedValue("Access denied; you need the EVENT privilege");
+      vi.spyOn(console, "error").mockImplementation(() => {});
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+
+      await user.type(screen.getByPlaceholderText(/Filter/), "ord");
+      await waitFor(() => expect(api.getEvents).toHaveBeenCalledTimes(2));
+      await new Promise((r) => setTimeout(r, 200));
+
+      expect(api.getEvents).toHaveBeenCalledTimes(2);
+    });
+
     it("says so when the filter matches nothing (#806)", async () => {
       const user = userEvent.setup({ applyAccept: false });
       render(<SchemaTree connectionId="conn-1" />);

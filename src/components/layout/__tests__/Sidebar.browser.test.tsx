@@ -102,6 +102,7 @@ vi.mock("../../../lib/tauri-api", async (importOriginal) => ({
       { name: "before_insert_users", timing: "BEFORE", event: "INSERT" },
       { name: "after_update_orders", timing: "AFTER", event: "UPDATE" },
     ]),
+    getEvents: vi.fn().mockResolvedValue([]),
   },
 }));
 

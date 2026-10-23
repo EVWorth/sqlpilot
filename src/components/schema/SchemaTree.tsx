@@ -154,6 +154,11 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   // complete. Cancellation is the store's job now — a response for a
   // connection the user has left is dropped there rather than here.
   const filterActive = filterText.trim().length > 0;
+  // Keyed by the names, not the array: `databases` is rebuilt every render,
+  // and each load below re-renders the tree. Keyed by the array, the effect
+  // restarted on every one of those renders, and a load that failed (and so
+  // was never cached) was retried in a loop that never ended.
+  const databaseNames = databases.map((d) => d.name).join("\u0000");
   useEffect(() => {
     if (!filterActive || databases.length === 0) return;
     let cancelled = false;
@@ -172,7 +177,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterActive, databases, connectionId]);
+  }, [filterActive, databaseNames, connectionId]);
 
   const toggleDb = async (dbName: string) => {
     const isExpanded = expanded[dbName];
