@@ -687,9 +687,10 @@ export const useResultStore = create<ResultState>((set, get) => ({
     });
     if (!connectionId) return;
     try {
-      // Session: `running.session` — the tab session the run is on, absent
-      // for a run on the shared pool.
-      await api.cancelQuery(connectionId);
+      // Only the session the run is on, so another tab's statement on the
+      // same connection keeps running. A run on the shared pool names none,
+      // which stops everything on the connection.
+      await api.cancelQuery(connectionId, running?.session);
     } catch (e) {
       // Only while this cancel is still what the user is looking at. Telling
       // the server to stop can outlast the query it was about, and reporting

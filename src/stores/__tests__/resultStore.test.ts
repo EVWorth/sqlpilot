@@ -881,7 +881,7 @@ describe("resultStore", () => {
       await useResultStore.getState().cancelActiveQuery();
 
       // Dropping the promise alone would leave SLEEP(60) running server-side.
-      expect(cancelQueryMock).toHaveBeenCalledWith("conn-1");
+      expect(cancelQueryMock).toHaveBeenCalledWith("conn-1", undefined);
 
       resolveQuery!([]);
       await pending;
@@ -898,7 +898,7 @@ describe("resultStore", () => {
       const pending = useResultStore.getState().executeExplainAnalyze("conn-9", "SELECT SLEEP(60)");
       await useResultStore.getState().cancelActiveQuery();
 
-      expect(cancelQueryMock).toHaveBeenCalledWith("conn-9");
+      expect(cancelQueryMock).toHaveBeenCalledWith("conn-9", undefined);
 
       resolveExplain!(makeExplainResponse());
       await pending;
@@ -966,7 +966,7 @@ describe("resultStore", () => {
       await first;
 
       await useResultStore.getState().cancelActiveQuery();
-      expect(cancelQueryMock).toHaveBeenCalledWith("conn-new");
+      expect(cancelQueryMock).toHaveBeenCalledWith("conn-new", undefined);
     });
 
     it("reports a cancel the server would not confirm", async () => {
@@ -1435,7 +1435,7 @@ describe("per-tab results", () => {
     useEditorStore.getState().setActiveTab("query-a");
 
     await useResultStore.getState().cancelActiveQuery();
-    expect(cancelQueryMock).toHaveBeenCalledWith("conn-1");
+    expect(cancelQueryMock).toHaveBeenCalledWith("conn-1", "query-a");
     slowAlter.resolve([alter]);
     await expect(altering).resolves.toEqual({ status: "succeeded", results: [alter] });
     slow.resolve([]);
@@ -1526,7 +1526,7 @@ describe("per-tab results", () => {
 
     await useResultStore.getState().cancelActiveQuery();
 
-    expect(cancelQueryMock).toHaveBeenCalledWith("conn-1");
+    expect(cancelQueryMock).toHaveBeenCalledWith("conn-1", undefined);
     expect(useResultStore.getState().isExecuting).toBe(false);
   });
 
@@ -1559,6 +1559,40 @@ describe("per-tab results", () => {
     await pending;
     expect(anyTabExecuting(useResultStore.getState())).toBe(false);
     expect(useResultStore.getState().parked).toEqual({});
+  });
+
+  it("cancels only the shown tab's session, leaving another tab's run alone", async () => {
+    const slowA = deferred<unknown[]>();
+    const slowB = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slowA.promise).mockReturnValueOnce(slowB.promise);
+    useResultStore.getState().showTab("tab-A");
+    const runA = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "tab-A");
+    useResultStore.getState().showTab("tab-B");
+    const runB = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(6)", undefined, "tab-B");
+    useResultStore.getState().showTab("tab-A");
+
+    await useResultStore.getState().cancelActiveQuery();
+
+    expect(cancelQueryMock).toHaveBeenCalledTimes(1);
+    expect(cancelQueryMock).toHaveBeenCalledWith("conn-1", "tab-A");
+    useResultStore.getState().showTab("tab-B");
+    expect(useResultStore.getState().isExecuting).toBe(true);
+    const sleep = makeQueryResult({ sql: "SELECT SLEEP(6)", rows: [["0"]] });
+    slowB.resolve([sleep]);
+    await expect(runB).resolves.toEqual({ status: "succeeded", results: [sleep] });
+    expect(useResultStore.getState().results).toEqual([sleep]);
+    slowA.resolve([]);
+    await expect(runA).resolves.toEqual({ status: "cancelled" });
+  });
+
+  it("names no session when cancelling a run on the shared pool", async () => {
+    useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
+    executeQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
+    void useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
+
+    await useResultStore.getState().cancelActiveQuery();
+
+    expect(cancelQueryMock).toHaveBeenCalledWith("conn-1", undefined);
   });
 
   it("clears a plan read on another connection along with the grid", () => {
