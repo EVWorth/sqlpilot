@@ -296,6 +296,17 @@ describe("StatusBar", () => {
       expect(useConnectionStore.getState().error).toBeNull();
     });
 
+    it("does not open the next error's details because the last one's were", () => {
+      renderStatusBar();
+      fireEvent.click(screen.getByTitle(message));
+      expect(screen.getByTestId("connection-error-details")).toBeInTheDocument();
+
+      act(() => useConnectionStore.setState({ error: "Access denied for user 'app'" }));
+
+      expect(screen.getByTitle("Access denied for user 'app'")).toHaveAttribute("aria-expanded", "false");
+      expect(screen.queryByTestId("connection-error-details")).toBeNull();
+    });
+
     it("leaves a failed connect to the panel under the tabs", () => {
       useConnectionStore.setState({ failedProfileId: "prof-1" });
       renderStatusBar();
