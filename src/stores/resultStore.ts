@@ -435,8 +435,34 @@ function endExecution(run: Execution, shown: boolean) {
  */
 function tabKeyFor(session: string | undefined): string {
   if (session) return session;
-  const { runTabId, viewTabId } = useResultStore.getState();
-  return runTabId ?? viewTabId ?? NO_TAB;
+  // Not the shown tab when it is not a query tab: a designer tab has no
+  // results pane, so what is filed there is never seen. Filed under no tab,
+  // it is adopted by the next query tab shown.
+  return useResultStore.getState().runTabId ?? NO_TAB;
+}
+
+/**
+ * Hand what was run under no tab to `tab`: the runs still in flight, so their
+ * responses and the spinner land there, and cancel finds them there.
+ */
+function adoptUntabbed(tab: string) {
+  for (const run of [...activeExecutions.values()]) {
+    if (run.tab !== NO_TAB || run.orphaned) continue;
+    run.tab = tab;
+    if (run.own) {
+      activeExecutions.delete(run.key);
+      run.key = tab;
+      run.generation = bumpGeneration(tab);
+      activeExecutions.set(tab, run);
+    }
+  }
+  generations.delete(NO_TAB);
+  const started = latestStart.get(NO_TAB);
+  if (started !== undefined) {
+    latestStart.set(tab, Math.max(started, latestStart.get(tab) ?? 0));
+    latestStart.delete(NO_TAB);
+  }
+  if (lastStartedTab === NO_TAB) lastStartedTab = tab;
 }
 
 /** Where a run that names `session`, or none, is filed. */
@@ -502,12 +528,21 @@ export const useResultStore = create<ResultState>((set, get) => ({
       return;
     }
     if (state.viewTabId === null) {
-      // Whatever ran before any tab was shown is the first tab's.
+      // Whatever ran before any tab was shown is the first tab's, and so is
+      // what is still running: its response would otherwise be parked under
+      // no tab, and the spinner adopted here would never stop.
+      if (tabId !== null) adoptUntabbed(tabId);
       set({ viewTabId: tabId, runTabId });
       return;
     }
     const parked = { ...state.parked, [state.viewTabId]: pickSlice(state) };
-    const next = (tabId !== null ? parked[tabId] : undefined) ?? EMPTY_SLICE;
+    let next = (tabId !== null ? parked[tabId] : undefined) ?? EMPTY_SLICE;
+    if (tabId !== null && isQueryTab && !(tabId in parked) && parked[NO_TAB]) {
+      // Run while no query tab was open, and kept for the next one.
+      next = parked[NO_TAB];
+      delete parked[NO_TAB];
+      adoptUntabbed(tabId);
+    }
     if (tabId !== null) delete parked[tabId];
     set({ ...next, parked, viewTabId: tabId, runTabId });
   },
@@ -530,7 +565,8 @@ export const useResultStore = create<ResultState>((set, get) => ({
       if (closed(tab)) latestStart.delete(tab);
     }
     const { parked, runTabId } = get();
-    const kept = Object.fromEntries(Object.entries(parked).filter(([id]) => live.has(id)));
+    // What ran under no tab waits for the next query tab to be shown.
+    const kept = Object.fromEntries(Object.entries(parked).filter(([id]) => id === NO_TAB || live.has(id)));
     if (Object.keys(kept).length !== Object.keys(parked).length) set({ parked: kept });
     if (runTabId !== null && !live.has(runTabId)) set({ runTabId: null });
   },
@@ -579,7 +615,8 @@ export const useResultStore = create<ResultState>((set, get) => ({
     const dialog = get().confirmDialog;
     if (!dialog) return;
     set({ confirmDialog: null });
-    const target = targetFor(dialog.session, dialog.tabKey);
+    // Asked with no tab to file it under: the tab shown now, if it is one.
+    const target = targetFor(dialog.session, dialog.tabKey || undefined);
     if (dialog.kind === "explain-analyze") {
       await doExplain(
         dialog.connectionId,
@@ -738,16 +775,18 @@ async function doExplain(
   format: ExplainFormat = "classic",
   session?: string,
 ) {
-  const set = tabWriter(target.tab);
   // The explain command is MySQL-only. Saying so beats letting the backend
   // answer "connection not found", which describes an internal detail rather
   // than the situation.
   if (connectionKind(connectionId) !== "mysql") {
-    set({ error: "Query plans are not available for SQLite connections yet." });
+    tabWriter(target.tab)({ error: "Query plans are not available for SQLite connections yet." });
     return;
   }
 
   const run = startExecution(target, connectionId, session);
+  // Looked up at each write: a run started under no tab moves to the tab
+  // that adopts it (see adoptUntabbed).
+  const set: SliceWriter = (partial) => tabWriter(run.tab)(partial);
   let shown = false;
 
   try {
@@ -807,7 +846,6 @@ async function doExecuteQuery(
   /** The editor tab whose session this runs on (#731). */
   session?: string,
 ): Promise<RunOutcome> {
-  const set = tabWriter(target.tab);
   const startTime = Date.now();
   const connState = useConnectionStore.getState();
   const conn = connState.activeConnections.find(
@@ -829,6 +867,9 @@ async function doExecuteQuery(
   const offset = paging ? paging.index * paging.size : undefined;
 
   const run = startExecution(target, connectionId, session);
+  // Looked up at each write: a run started under no tab moves to the tab
+  // that adopts it (see adoptUntabbed).
+  const set: SliceWriter = (partial) => tabWriter(run.tab)(partial);
   let shown = false;
 
   try {

@@ -1485,6 +1485,52 @@ describe("per-tab results", () => {
     expect(useResultStore.getState().results).toEqual([rows]);
   });
 
+  it("hands a run started with every tab closed to the tab opened next", async () => {
+    useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
+    useEditorStore.setState({ tabs: [], activeTabId: null });
+    const slow = deferred<unknown[]>();
+    executeQueryMock.mockReturnValueOnce(slow.promise);
+    const pending = useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders");
+    expect(useResultStore.getState().isExecuting).toBe(true);
+
+    useEditorStore.setState({ tabs: [queryTab("query-b")], activeTabId: "query-b" });
+    const rows = makeQueryResult({ sql: "SELECT * FROM orders" });
+    slow.resolve([rows]);
+    await pending;
+
+    expect(useResultStore.getState().isExecuting).toBe(false);
+    expect(useResultStore.getState().results).toEqual([rows]);
+    expect(useResultStore.getState().parked).toEqual({});
+  });
+
+  it("lets Ctrl+. stop a run handed over from no tab", async () => {
+    useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
+    useEditorStore.setState({ tabs: [], activeTabId: null });
+    executeQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
+    void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)");
+    useEditorStore.setState({ tabs: [queryTab("query-b")], activeTabId: "query-b" });
+
+    await useResultStore.getState().cancelActiveQuery();
+
+    expect(cancelQueryMock).toHaveBeenCalledWith("conn-1");
+    expect(useResultStore.getState().isExecuting).toBe(false);
+  });
+
+  it("keeps a run made with no query tab open for the next query tab", async () => {
+    // Only a designer tab is open: what the schema tree runs has no results
+    // pane to go to yet, and filing it under the designer hid it for good.
+    useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
+    useEditorStore.setState({ tabs: [designerTab("designer-d")], activeTabId: "designer-d" });
+    const rows = makeQueryResult({ sql: "SELECT * FROM orders" });
+    executeQueryMock.mockResolvedValueOnce([rows]);
+
+    await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders");
+    expect(useResultStore.getState().results).toEqual([]);
+
+    useEditorStore.setState({ tabs: [designerTab("designer-d"), queryTab("query-b")], activeTabId: "query-b" });
+    expect(useResultStore.getState().results).toEqual([rows]);
+  });
+
   it("clears a plan read on another connection along with the grid", () => {
     useResultStore.setState({
       explainResult: makeQueryResult({ query_id: "plan" }),
