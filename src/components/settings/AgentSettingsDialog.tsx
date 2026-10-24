@@ -1,9 +1,11 @@
 import { Bot, Check, Copy, Eye, EyeOff, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AgentConnection, SetupTarget } from "../../lib/bindings";
+import { useAgentSessionStore } from "../../stores/agentSessionStore";
 import {
   endpointSummary,
   SETUP_TARGETS,
+  setupTargetLabel,
   type Sharing,
   SHARING_OPTIONS,
   sharingOf,
@@ -126,11 +128,6 @@ function ConnectionRow({ connection }: { connection: AgentConnection }) {
         </p>
       )}
 
-      {
-        /* Production schema changes are refused outright unless this is on, and
-          it lapses when the app closes — so it belongs next to the connection
-          rather than in a preferences pane someone sets once and forgets. */
-      }
       {shared && (
         <label className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
           <span className="shrink-0">Also hide columns matching</span>
@@ -149,6 +146,11 @@ function ConnectionRow({ connection }: { connection: AgentConnection }) {
         </label>
       )}
 
+      {
+        /* Production schema changes are refused outright unless this is on, and
+          it lapses when the app closes — so it belongs next to the connection
+          rather than in a preferences pane someone sets once and forgets. */
+      }
       {shared && connection.environment === "production" && !connection.readOnly && (
         <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
           <input
@@ -170,6 +172,8 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
   const stop = useAgentStore((s) => s.stop);
   const rotateToken = useAgentStore((s) => s.rotateToken);
   const loadSetup = useAgentStore((s) => s.loadSetup);
+  // The panel's harness list, for the names: one product, one name.
+  const harnesses = useAgentSessionStore((s) => s.harnesses);
 
   const [target, setTarget] = useState<SetupTarget>("claude-code");
   const [showToken, setShowToken] = useState(false);
@@ -272,7 +276,7 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
           >
             {SETUP_TARGETS.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {setupTargetLabel(option.value, harnesses)}
               </option>
             ))}
           </select>
