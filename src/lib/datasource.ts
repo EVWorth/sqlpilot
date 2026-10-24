@@ -41,6 +41,7 @@ export interface DataSource {
   getColumns(connectionId: string, database: string, table: string): Promise<ColumnInfo[]>;
   getIndexes(connectionId: string, database: string, table: string): Promise<IndexInfo[]>;
   getTableDdl(connectionId: string, database: string, table: string): Promise<string>;
+  getViewDdl(connectionId: string, database: string, view: string): Promise<string>;
   execute(
     connectionId: string,
     sql: string,
@@ -68,6 +69,7 @@ const mysql: DataSource = {
   getColumns: (c, d, t) => api.getColumns(c, d, t),
   getIndexes: (c, d, t) => api.getIndexes(c, d, t),
   getTableDdl: (c, d, t) => api.getTableDdl(c, d, t),
+  getViewDdl: (c, d, v) => api.getViewDdl(c, d, v),
   execute: (c, sql, d, limit, offset, session) => api.executeQuery(c, sql, d, limit, offset, session),
 };
 
@@ -78,6 +80,20 @@ const mysql: DataSource = {
  * less surprising than giving SQLite its own tree.
  */
 export const SQLITE_SCHEMA_NAME = "main";
+
+/**
+ * `sqlite_master.type`, in the words MySQL's information_schema uses.
+ *
+ * SQLite stores "table" and "view" in lower case, and the tree tells a view
+ * from a table by `table_type === "VIEW"`, so a SQLite view was listed and
+ * counted under Tables and the Views folder stayed empty (#825).
+ */
+export function sqliteTableType(type: string): string {
+  const lower = type.toLowerCase();
+  if (lower === "view") return "VIEW";
+  if (lower === "table") return "BASE TABLE";
+  return type.toUpperCase();
+}
 
 const sqlite: DataSource = {
   kind: "sqlite",
@@ -94,16 +110,21 @@ const sqlite: DataSource = {
   listTables: async (c) =>
     (await api.sqliteGetTables(c)).map((t) => ({
       name: t.name,
-      table_type: t.table_type,
+      table_type: sqliteTableType(t.table_type),
       engine: null,
       row_count: t.row_count,
       data_size: null,
       comment: "",
     })),
-  // SQLite has no stored routines or a separate view listing in this backend,
-  // and its triggers are not exposed yet. Empty rather than absent, so the
-  // tree renders the same folders and simply shows nothing in them.
-  listViews: async () => [],
+  // Views come back with the tables from `sqlite_master`; this picks them
+  // out. Without INSTEAD OF triggers a SQLite view cannot be written to.
+  listViews: async (c) =>
+    (await api.sqliteGetTables(c))
+      .filter((t) => sqliteTableType(t.table_type) === "VIEW")
+      .map((t) => ({ name: t.name, is_updatable: false })),
+  // SQLite has no stored routines, and its triggers are not exposed yet.
+  // Empty rather than absent, so the tree renders the same folders and simply
+  // shows nothing in them.
   listRoutines: async () => [],
   listTriggers: async () => [],
   // SQLite has no event scheduler, so the folder stays empty rather than
@@ -130,6 +151,15 @@ const sqlite: DataSource = {
       index_type: "BTREE",
     })),
   getTableDdl: (c, _d, t) => api.sqliteGetTableDdl(c, t),
+  // `sqlite_get_table_ddl` reads only `type='table'` rows, but the listing
+  // already carries every object's `CREATE` statement, views included.
+  getViewDdl: async (c, _d, v) => {
+    const view = (await api.sqliteGetTables(c)).find(
+      (t) => t.name === v && sqliteTableType(t.table_type) === "VIEW",
+    );
+    if (!view?.sql) throw new Error(`No definition found for view ${v}`);
+    return view.sql;
+  },
   // Paging is not wired through the SQLite backend yet, so an offset is
   // ignored rather than silently returning the first page again. The grid
   // only offers paging where the source reports a truncated result, which

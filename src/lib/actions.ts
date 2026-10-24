@@ -73,6 +73,8 @@ export const ACTIONS: Action[] = [
 
   { id: "refresh-schema", label: "Refresh Schema Cache", category: "Database", keywords: ["reload", "tables"] },
   { id: "admin-tools", label: "Admin Tools", category: "Database", keywords: ["users", "privileges", "processes"] },
+  // The designer's create mode, which nothing used to reach (#818).
+  { id: "new-table", label: "New Table…", category: "Database", keywords: ["create", "design", "schema"] },
 
   {
     id: "format-sql",
@@ -160,6 +162,7 @@ export const MENUS: Menu[] = [
   {
     label: "Database",
     entries: [
+      { type: "item", id: "new-table" },
       { type: "item", id: "refresh-schema" },
       { type: "item", id: "admin-tools" },
     ],

@@ -142,10 +142,32 @@ export async function confirmDrop(
   connectionId: string,
   subject: string,
 ): Promise<boolean> {
-  if (isProductionConnection(connectionId)) return true;
-  return useProductionGuardStore.getState().ask({
+  return confirmOffProduction(connectionId, {
     title: "Drop it?",
     message: `${subject} will be dropped. This cannot be undone.`,
     confirmLabel: "Drop",
   });
+}
+
+/**
+ * Ask before emptying a table, in the app's own dialog. Production is left
+ * to its own gate, as in {@link confirmDrop}.
+ */
+export async function confirmTruncate(
+  connectionId: string,
+  subject: string,
+): Promise<boolean> {
+  return confirmOffProduction(connectionId, {
+    title: "Empty the table?",
+    message: `Every row in ${subject} will be deleted. TRUNCATE cannot be rolled back.`,
+    confirmLabel: "Truncate",
+  });
+}
+
+async function confirmOffProduction(
+  connectionId: string,
+  request: { title: string; message: string; confirmLabel: string },
+): Promise<boolean> {
+  if (isProductionConnection(connectionId)) return true;
+  return useProductionGuardStore.getState().ask(request);
 }

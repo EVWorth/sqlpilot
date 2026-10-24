@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistorySort } from "../lib/bindings";
 import { USER_ORIGINS } from "../lib/run-statement";
-import { redactCredentials, redactLiterals } from "../lib/sql-redact";
+import { redactCredentials, redactLiterals, redactServerEcho } from "../lib/sql-redact";
 import { api } from "../lib/tauri-api";
 
 export type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistorySort };
@@ -344,8 +344,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const scrub = get().redactLiterals ? redactLiterals : redactCredentials;
     const { sql, redacted } = scrub(entry.sql);
     // A driver message can quote the statement back, so it gets the same
-    // treatment. Nothing sensitive should reach storage by either route.
-    const redactedError = entry.error ? scrub(entry.error) : null;
+    // treatment. Nothing sensitive should reach storage by either route. The
+    // echo in a syntax error is not quoted like SQL, so it is removed first;
+    // that alone does not mark the entry redacted, since its SQL still runs.
+    const redactedError = entry.error ? scrub(redactServerEcho(entry.error).sql) : null;
 
     const stored: HistoryEntry = {
       ...entry,
@@ -380,12 +382,17 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   },
 
   clearHistory: async () => {
-    const previous = get().entries;
-    set({ entries: [] });
+    const { entries, matchCount, facets } = get();
+    // A read still in flight was taken before the clear and would bring the
+    // old rows back.
+    readGeneration++;
+    // The count and the filter chips describe the rows too: left alone they
+    // read "0 of 37" and offered connections with nothing behind them (#828).
+    set({ entries: [], matchCount: 0, facets: { connectionNames: [], databases: [], origins: [] } });
     try {
       await api.historyClear();
     } catch (e) {
-      set({ entries: previous, error: `Could not clear history: ${String(e)}` });
+      set({ entries, matchCount, facets, error: `Could not clear history: ${String(e)}` });
     }
   },
 

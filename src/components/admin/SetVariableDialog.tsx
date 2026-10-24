@@ -32,7 +32,8 @@ export interface SetVariableDialogProps {
   connectionId: string;
   flavour: ServerFlavour;
   onClose: () => void;
-  onChanged: () => void;
+  /** Called with the variable's name after the SET succeeded. */
+  onChanged: (name: string) => void;
 }
 
 export function SetVariableDialog(
@@ -82,7 +83,7 @@ export function SetVariableDialog(
         return;
       }
       await runStatement({ connectionId, sql: statement, origin: "admin" });
-      onChanged();
+      onChanged(variable.name);
       onClose();
     } catch (e) {
       // 1238 is the server saying the variable is read-only, which is the only

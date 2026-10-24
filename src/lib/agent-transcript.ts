@@ -36,7 +36,11 @@ export type TranscriptItem =
     dismissed?: boolean;
   }
   | { kind: "plan"; entries: PlanEntry[] }
-  | { kind: "note"; text: string };
+  | { kind: "note"; text: string }
+  /** The harness failed: not a remark about the turn, the end of the session. */
+  | { kind: "error"; text: string }
+  /** The session ended; what is above belongs to a process that is gone. */
+  | { kind: "ended" };
 
 /** What the user typed, added before the agent answers it. */
 export function addUserMessage(items: TranscriptItem[], text: string): TranscriptItem[] {
@@ -103,8 +107,12 @@ export function applyEvent(items: TranscriptItem[], event: SessionEvent): Transc
 
     case "plan": {
       // Replaced rather than appended: a plan that is revised three times
-      // should show once, as it stands now.
-      const index = items.findIndex((item) => item.kind === "plan");
+      // should show once, as it stands now. Only within the current turn,
+      // though — the next question gets a plan of its own, next to its own
+      // answer, rather than rewriting one that has scrolled out of view.
+      const turnStart = currentTurnStart(items);
+      const offset = items.slice(turnStart).findIndex((item) => item.kind === "plan");
+      const index = offset === -1 ? -1 : turnStart + offset;
       const entry: TranscriptItem = { kind: "plan", entries: event.entries };
       if (index === -1) return [...items, entry];
       return [...items.slice(0, index), entry, ...items.slice(index + 1)];
@@ -118,11 +126,36 @@ export function applyEvent(items: TranscriptItem[], event: SessionEvent): Transc
         : [...items, { kind: "note", text: endingNote(event.reason) }];
 
     case "failed":
-      return [...items, { kind: "note", text: event.message }];
+      return [...items, { kind: "error", text: event.message }];
 
     case "started":
       return items;
   }
+}
+
+/** Where the turn in progress begins: just after the user's latest message. */
+function currentTurnStart(items: TranscriptItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind === "user") return i + 1;
+  }
+  return 0;
+}
+
+/**
+ * Close the transcript of a session that has ended, so it can stay on screen
+ * without reading as live. Permissions still waiting can no longer be
+ * answered, so they read as dismissed.
+ */
+export function endSession(items: TranscriptItem[]): TranscriptItem[] {
+  if (items.length === 0 || items[items.length - 1].kind === "ended") return items;
+  return [
+    ...items.map((item) =>
+      item.kind === "permission" && item.answered === undefined && !item.dismissed
+        ? { ...item, dismissed: true }
+        : item
+    ),
+    { kind: "ended" },
+  ];
 }
 
 /** Mark a permission as answered, so its buttons stop inviting a second click. */

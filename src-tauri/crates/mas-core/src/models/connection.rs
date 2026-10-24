@@ -31,7 +31,9 @@ impl std::fmt::Display for ConnectionEnvironment {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+// `Debug` is written by hand so a password never reaches a log line (#882).
+// A plain comment, so it stays out of the generated TypeScript.
+#[derive(Clone, Serialize, Deserialize, specta::Type)]
 pub struct ConnectionProfile {
     pub id: String,
     pub name: String,
@@ -118,7 +120,9 @@ impl Default for ConnectionProfile {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+// `Debug` is written by hand so a password or passphrase never reaches a
+// log line (#882).
+#[derive(Clone, Serialize, Deserialize, specta::Type)]
 pub struct SSHConfig {
     pub host: String,
     pub port: u16,
@@ -171,4 +175,106 @@ pub struct TestConnectionResult {
     // changing it. Row counts, byte sizes, timings and ids never approach it.
     #[specta(type = specta_typescript::Number)]
     pub latency_ms: u64,
+}
+
+/// How a secret appears in `Debug` output: whether one is set, never what it is.
+fn secret(value: &str) -> &'static str {
+    if value.is_empty() {
+        "\"\""
+    } else {
+        "<redacted>"
+    }
+}
+
+/// A `Debug` value printed verbatim, for the redaction markers above.
+struct Shown(&'static str);
+
+impl std::fmt::Debug for Shown {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.0)
+    }
+}
+
+impl std::fmt::Debug for ConnectionProfile {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ConnectionProfile")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("group", &self.group)
+            .field("color", &self.color)
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &Shown(secret(&self.password)))
+            .field("default_database", &self.default_database)
+            .field("ssh_config", &self.ssh_config)
+            .field("ssl_config", &self.ssl_config)
+            .field("pool_min", &self.pool_min)
+            .field("pool_max", &self.pool_max)
+            .field("read_only", &self.read_only)
+            .field("connect_timeout_secs", &self.connect_timeout_secs)
+            .field("query_timeout_secs", &self.query_timeout_secs)
+            .field("charset", &self.charset)
+            .field("environment", &self.environment)
+            .field("created_at", &self.created_at)
+            .field("updated_at", &self.updated_at)
+            .finish()
+    }
+}
+
+impl std::fmt::Debug for SSHConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let optional = |v: &Option<String>| Shown(v.as_deref().map_or("None", secret));
+        f.debug_struct("SSHConfig")
+            .field("host", &self.host)
+            .field("port", &self.port)
+            .field("username", &self.username)
+            .field("password", &optional(&self.password))
+            .field("private_key_path", &self.private_key_path)
+            .field("passphrase", &optional(&self.passphrase))
+            .finish()
+    }
+}
+
+#[cfg(test)]
+mod debug_tests {
+    use super::*;
+
+    #[test]
+    fn debug_output_never_contains_a_secret() {
+        let profile = ConnectionProfile {
+            password: "hunter2".to_string(),
+            ssh_config: Some(SSHConfig {
+                host: "bastion".to_string(),
+                port: 22,
+                username: "ops".to_string(),
+                password: Some("hunter3".to_string()),
+                private_key_path: None,
+                passphrase: Some("hunter4".to_string()),
+            }),
+            ..ConnectionProfile::default()
+        };
+        let out = format!("{profile:?} {profile:#?}");
+        for secret in ["hunter2", "hunter3", "hunter4"] {
+            assert!(!out.contains(secret), "{secret} leaked: {out}");
+        }
+        assert!(out.contains("password: <redacted>"));
+        assert!(out.contains("passphrase: <redacted>"));
+        assert!(out.contains("bastion"), "non-secret fields still print");
+    }
+
+    #[test]
+    fn debug_output_shows_whether_a_secret_is_set() {
+        let profile = ConnectionProfile::default();
+        assert!(format!("{profile:?}").contains("password: \"\""));
+        let ssh = SSHConfig {
+            host: "h".to_string(),
+            port: 22,
+            username: "u".to_string(),
+            password: None,
+            private_key_path: None,
+            passphrase: None,
+        };
+        assert!(format!("{ssh:?}").contains("password: None"));
+    }
 }

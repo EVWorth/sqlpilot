@@ -18,6 +18,7 @@ const { apiMocks } = vi.hoisted(() => ({
 vi.mock("../../../lib/tauri-api", () => ({ api: apiMocks }));
 
 import type { AgentConnection } from "../../../lib/bindings";
+import { useAgentSessionStore } from "../../../stores/agentSessionStore";
 import { useAgentStore } from "../../../stores/agentStore";
 import { AgentSettingsDialog } from "../AgentSettingsDialog";
 
@@ -60,6 +61,33 @@ beforeEach(() => {
 const open = () => render(<AgentSettingsDialog isOpen onClose={() => {}} />);
 
 describe("AgentSettingsDialog", () => {
+  it("names each harness as the agent panel does", async () => {
+    // "Start Claude Agent" in the panel and "Claude Code" here read as two
+    // different products.
+    useAgentSessionStore.setState({ harnesses: [] });
+    const { unmount } = open();
+    const harness = await screen.findByLabelText("Harness");
+    expect([...(harness as HTMLSelectElement).options].map((o) => o.text)).toEqual([
+      "Claude Agent",
+      "GitHub Copilot",
+      "Something else",
+    ]);
+    unmount();
+
+    // And the backend's own label wins once the panel has loaded it.
+    useAgentSessionStore.setState({
+      harnesses: [{
+        harness: "claude-code",
+        label: "Claude Agent (beta)",
+        installed: true,
+        version: null,
+        installHint: null,
+      }],
+    });
+    open();
+    expect(screen.getByRole("option", { name: "Claude Agent (beta)" })).toBeTruthy();
+  });
+
   it("renders nothing when closed", () => {
     render(<AgentSettingsDialog isOpen={false} onClose={() => {}} />);
     expect(screen.queryByText("Agents")).toBeNull();

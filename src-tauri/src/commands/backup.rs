@@ -174,7 +174,11 @@ pub async fn restore_database(
     )
     .await
     .map_err(|e| {
-        tracing::error!(error = %e, database = %database, "Restore failed");
+        tracing::error!(
+            error = %mas_core::query::log_safe_error(&e),
+            database = %database,
+            "Restore failed"
+        );
         e.to_string()
     })?;
 

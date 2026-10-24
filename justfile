@@ -217,7 +217,7 @@ bump LEVEL="patch":
     # Moves only the app's own entry in Cargo.lock; no other crate changes.
     (cd src-tauri && cargo update -p sqlpilot --offline --quiet)
     echo "Version bumped to $new."
-    echo "Next: open a release PR with the bump; tag v$new on its merge commit (CLAUDE.md, Release Flow)."
+    echo "Next: open a release PR with the bump; tag v$new on its merge commit (.claude/skills/release/SKILL.md)."
 
 # ── Housekeeping ───────────────────────────────────────────────────────────
 
@@ -225,3 +225,8 @@ bump LEVEL="patch":
 clean:
     cd src-tauri && cargo clean
     rm -rf dist coverage playwright-report test-results
+
+# Free disk from debug builds (incremental caches, big test binaries) without
+# a full clean. Pass --all-deps to drop every test binary.
+clean-debug *ARGS:
+    bash scripts/clean-debug.sh {{ ARGS }}

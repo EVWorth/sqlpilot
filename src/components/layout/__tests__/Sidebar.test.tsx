@@ -17,6 +17,9 @@ const editorState = {
   openTab: vi.fn(() => "tab-2"),
   addDesignerTab: vi.fn(),
   updateTabContent: vi.fn(),
+  setTabDirty: vi.fn(),
+  renameTab: vi.fn(),
+  setActiveTab: vi.fn(),
   setTabConnection: vi.fn(),
   editorInstance: null as any,
 };
@@ -403,7 +406,7 @@ describe("Sidebar", () => {
       });
     });
 
-    it("clicking a table executes SELECT query", async () => {
+    it("clicking a table opens its rows in a tab", async () => {
       render(<Sidebar />);
       await waitFor(() => screen.getByText("testdb"));
       fireEvent.click(screen.getByText("testdb"));
@@ -412,14 +415,17 @@ describe("Sidebar", () => {
       await waitFor(() => screen.getByText("users"));
       fireEvent.click(screen.getByText("users"));
 
+      // In a tab of its own, named after it (#829).
+      expect(editorState.renameTab).toHaveBeenCalledWith("tab-1", "testdb.users");
       expect(resultStore.executeQuery).toHaveBeenCalledWith(
         "conn1",
         "SELECT * FROM `testdb`.`users` LIMIT 100",
         "testdb",
+        "tab-1",
       );
     });
 
-    it("clicking a view executes SELECT query", async () => {
+    it("clicking a view opens its rows in a tab", async () => {
       render(<Sidebar />);
       await waitFor(() => screen.getByText("testdb"));
       fireEvent.click(screen.getByText("testdb"));
@@ -428,10 +434,13 @@ describe("Sidebar", () => {
       await waitFor(() => screen.getByText("user_view"));
       fireEvent.click(screen.getByText("user_view"));
 
+      // In a tab of its own, named after it (#829).
+      expect(editorState.renameTab).toHaveBeenCalledWith("tab-1", "testdb.user_view");
       expect(resultStore.executeQuery).toHaveBeenCalledWith(
         "conn1",
         "SELECT * FROM `testdb`.`user_view` LIMIT 100",
         "testdb",
+        "tab-1",
       );
     });
 

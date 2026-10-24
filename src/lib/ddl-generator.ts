@@ -98,6 +98,53 @@ export function canAutoIncrement(type: string): boolean {
   return AUTO_INCREMENT_TYPES.has(type.trim().toUpperCase());
 }
 
+/** Types that take UNSIGNED and ZEROFILL. */
+const NUMERIC_TYPES = new Set([
+  "INT",
+  "INTEGER",
+  "BIGINT",
+  "TINYINT",
+  "SMALLINT",
+  "MEDIUMINT",
+  "DECIMAL",
+  "FLOAT",
+  "DOUBLE",
+]);
+
+/** Types that take a character set and a collation of their own. */
+const CHARACTER_TYPES = new Set([
+  "CHAR",
+  "VARCHAR",
+  "TINYTEXT",
+  "TEXT",
+  "MEDIUMTEXT",
+  "LONGTEXT",
+  "ENUM",
+  "SET",
+]);
+
+/** Types that take `ON UPDATE CURRENT_TIMESTAMP`. */
+const ON_UPDATE_TYPES = new Set(["TIMESTAMP", "DATETIME"]);
+
+/**
+ * Whether UNSIGNED and ZEROFILL are legal on this type. Like AUTO_INCREMENT,
+ * the generator checks it too, so a column whose type changed from INT to
+ * VARCHAR does not keep an UNSIGNED the server rejects (#814).
+ */
+export function supportsUnsigned(type: string): boolean {
+  return NUMERIC_TYPES.has(type.trim().toUpperCase());
+}
+
+/** Whether a column of this type can carry CHARACTER SET and COLLATE. */
+export function supportsCharset(type: string): boolean {
+  return CHARACTER_TYPES.has(type.trim().toUpperCase());
+}
+
+/** Whether a column of this type can carry ON UPDATE. */
+export function supportsOnUpdate(type: string): boolean {
+  return ON_UPDATE_TYPES.has(type.trim().toUpperCase());
+}
+
 function escId(name: string): string {
   return `\`${name.replace(/`/g, "``")}\``;
 }
@@ -107,9 +154,10 @@ function buildColumnType(col: DesignerColumn): string {
   // UNSIGNED and ZEROFILL are part of the type, not separate clauses, and
   // must come straight after it. ZEROFILL implies UNSIGNED, so MySQL reports
   // both; emitting both back is what it accepts.
+  const numeric = supportsUnsigned(col.type);
   const numericAttrs = [
-    col.unsigned ? " UNSIGNED" : "",
-    col.zerofill ? " ZEROFILL" : "",
+    numeric && col.unsigned ? " UNSIGNED" : "",
+    numeric && col.zerofill ? " ZEROFILL" : "",
   ].join("");
   if (col.length && TYPES_WITH_LENGTH.has(upper)) {
     return `${upper}(${col.length})${numericAttrs}`;
@@ -121,8 +169,10 @@ function buildColumnDef(col: DesignerColumn): string {
   const parts: string[] = [escId(col.name), buildColumnType(col)];
 
   // Between the type and NOT NULL, which is where MySQL wants them.
-  if (col.charset) parts.push(`CHARACTER SET ${col.charset}`);
-  if (col.collation) parts.push(`COLLATE ${col.collation}`);
+  if (supportsCharset(col.type)) {
+    if (col.charset) parts.push(`CHARACTER SET ${col.charset}`);
+    if (col.collation) parts.push(`COLLATE ${col.collation}`);
+  }
 
   if (!col.nullable) {
     parts.push("NOT NULL");
@@ -147,7 +197,7 @@ function buildColumnDef(col: DesignerColumn): string {
   }
 
   // After DEFAULT, before COMMENT.
-  if (col.onUpdate) {
+  if (col.onUpdate && supportsOnUpdate(col.type)) {
     parts.push(`ON UPDATE ${col.onUpdate}`);
   }
 
@@ -374,16 +424,24 @@ export function generateAlterTable(
   return `ALTER TABLE ${tn}\n  ${clauses.join(",\n  ")};`;
 }
 
-function isColumnChanged(a: DesignerColumn, b: DesignerColumn): boolean {
+/**
+ * Whether a column differs from what was loaded.
+ *
+ * The modifiers compare loosely: a column created without them has them
+ * absent, and one whose checkbox was ticked and unticked has `false` or "",
+ * and neither is a change worth a MODIFY COLUMN. Also what the Columns tab
+ * uses to mark edited rows, so the highlight and the SQL agree (#814).
+ */
+export function isColumnChanged(a: DesignerColumn, b: DesignerColumn): boolean {
   return (
     a.name !== b.name
     || a.type !== b.type
     || a.length !== b.length
-    || a.unsigned !== b.unsigned
-    || a.zerofill !== b.zerofill
-    || a.charset !== b.charset
-    || a.collation !== b.collation
-    || a.onUpdate !== b.onUpdate
+    || !!a.unsigned !== !!b.unsigned
+    || !!a.zerofill !== !!b.zerofill
+    || (a.charset || "") !== (b.charset || "")
+    || (a.collation || "") !== (b.collation || "")
+    || (a.onUpdate || "") !== (b.onUpdate || "")
     || a.nullable !== b.nullable
     || a.defaultValue !== b.defaultValue
     || a.autoIncrement !== b.autoIncrement

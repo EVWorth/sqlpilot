@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryFavorites } from "../QueryFavorites";
 
@@ -681,5 +681,40 @@ describe("QueryFavorites — dirty-tab overwrite confirmation (#341)", () => {
       const row = screen.getByDisplayValue("Get Active Users").closest("div.group") as HTMLElement;
       expect(row).toHaveAttribute("draggable", "false");
     });
+  });
+});
+
+describe("deleting a favorite (#829)", () => {
+  const openDelete = () => {
+    render(<QueryFavorites />);
+    fireEvent.contextMenu(screen.getByText("Get Active Users"));
+    fireEvent.click(screen.getByTestId("ctx-item-Delete"));
+  };
+
+  it("asks before deleting", () => {
+    openDelete();
+
+    expect(screen.getByText("Delete favorite \"Get Active Users\"?")).toBeInTheDocument();
+    expect(storeState.deleteFavorite).not.toHaveBeenCalled();
+  });
+
+  it("deletes once confirmed", () => {
+    openDelete();
+
+    expect(storeState.deleteFavorite).not.toHaveBeenCalled();
+    // The dialog's button: the mocked menu stays rendered beside it.
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: /^delete$/i }));
+
+    expect(storeState.deleteFavorite).toHaveBeenCalledTimes(1);
+    expect(storeState.deleteFavorite).toHaveBeenCalledWith("fav1");
+  });
+
+  it("keeps it when cancelled", () => {
+    openDelete();
+
+    fireEvent.click(screen.getByRole("button", { name: /^cancel$/i }));
+
+    expect(storeState.deleteFavorite).not.toHaveBeenCalled();
+    expect(screen.queryByText("Delete favorite \"Get Active Users\"?")).not.toBeInTheDocument();
   });
 });

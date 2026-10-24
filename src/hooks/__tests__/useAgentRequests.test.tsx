@@ -63,7 +63,7 @@ beforeEach(() => {
     ] as never,
   });
   useResultStore.setState({ results: [], activeResultIndex: 0 });
-  useAgentStore.setState({ proposal: null });
+  useAgentStore.setState({ proposal: null, approval: null, approvals: [] });
 });
 
 describe("useAgentRequests", () => {
@@ -223,6 +223,25 @@ describe("useAgentRequests", () => {
       change: "write",
     });
     expect(apiMocks.answerAgentRequest).not.toHaveBeenCalled();
+  });
+
+  it("says who asked for an approval, when the request does", async () => {
+    render(<Mounted />);
+    await deliver({
+      id: "r2",
+      kind: "approve",
+      connection: "shop",
+      environment: "development",
+      database: "shop",
+      sql: "DELETE FROM orders",
+      rowsAffected: 4,
+      change: "write",
+      reason: null,
+      session: null,
+      client: "cursor",
+    } as AgentRequest);
+    await waitFor(() => expect(useAgentStore.getState().approval).not.toBeNull());
+    expect(useAgentStore.getState().approval?.requester).toBe("cursor (external client on the endpoint)");
   });
 
   it("leaves lastError to the backend", async () => {

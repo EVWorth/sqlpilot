@@ -1,14 +1,17 @@
 import { Bot, Check, Copy, Eye, EyeOff, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import type { AgentConnection, SetupTarget } from "../../lib/bindings";
+import { useAgentSessionStore } from "../../stores/agentSessionStore";
 import {
   endpointSummary,
   SETUP_TARGETS,
+  setupTargetLabel,
   type Sharing,
   SHARING_OPTIONS,
   sharingOf,
   useAgentStore,
 } from "../../stores/agentStore";
+import { EnvironmentBadge } from "../agent/AgentBadges";
 import { Modal } from "../common/Modal";
 
 /**
@@ -55,22 +58,6 @@ function CopyButton({ value, label }: { value: string; label: string }) {
     >
       {copied ? <Check className="h-3.5 w-3.5 text-[var(--color-success)]" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
-  );
-}
-
-function EnvironmentBadge({ environment }: { environment: string }) {
-  // Production is the one that has to be visible at a glance; the rest are
-  // noise if they shout.
-  const production = environment === "production";
-  return (
-    <span
-      data-testid="environment-badge"
-      className={production
-        ? "rounded surface-error px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-error)]"
-        : "rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--color-text-muted)]"}
-    >
-      {environment}
-    </span>
   );
 }
 
@@ -126,11 +113,6 @@ function ConnectionRow({ connection }: { connection: AgentConnection }) {
         </p>
       )}
 
-      {
-        /* Production schema changes are refused outright unless this is on, and
-          it lapses when the app closes — so it belongs next to the connection
-          rather than in a preferences pane someone sets once and forgets. */
-      }
       {shared && (
         <label className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
           <span className="shrink-0">Also hide columns matching</span>
@@ -149,6 +131,11 @@ function ConnectionRow({ connection }: { connection: AgentConnection }) {
         </label>
       )}
 
+      {
+        /* Production schema changes are refused outright unless this is on, and
+          it lapses when the app closes — so it belongs next to the connection
+          rather than in a preferences pane someone sets once and forgets. */
+      }
       {shared && connection.environment === "production" && !connection.readOnly && (
         <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
           <input
@@ -170,6 +157,8 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
   const stop = useAgentStore((s) => s.stop);
   const rotateToken = useAgentStore((s) => s.rotateToken);
   const loadSetup = useAgentStore((s) => s.loadSetup);
+  // The panel's harness list, for the names: one product, one name.
+  const harnesses = useAgentSessionStore((s) => s.harnesses);
 
   const [target, setTarget] = useState<SetupTarget>("claude-code");
   const [showToken, setShowToken] = useState(false);
@@ -272,7 +261,7 @@ export function AgentSettingsDialog({ isOpen, onClose }: AgentSettingsDialogProp
           >
             {SETUP_TARGETS.map((option) => (
               <option key={option.value} value={option.value}>
-                {option.label}
+                {setupTargetLabel(option.value, harnesses)}
               </option>
             ))}
           </select>
