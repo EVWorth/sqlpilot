@@ -1,5 +1,7 @@
+import { useMonaco } from "@monaco-editor/react";
 import { render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { builtInTheme } from "../../../lib/themes";
 import { SQLEditor } from "../SQLEditor";
 
 // Mock @monaco-editor/react
@@ -162,7 +164,7 @@ vi.mock("../../../stores/schemaStore", () => {
 });
 
 // Provide theme store state
-const themeStoreState = { effectiveTheme: "dark" as string };
+const themeStoreState: { effectiveTheme: string; activeTheme?: unknown } = { effectiveTheme: "dark" };
 vi.mock("../../../stores/themeStore", () => ({
   useThemeStore: vi.fn((selector?: (s: any) => any) => {
     return selector ? selector(themeStoreState) : themeStoreState;
@@ -173,6 +175,7 @@ describe("SQLEditor", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     themeStoreState.effectiveTheme = "dark";
+    themeStoreState.activeTheme = undefined;
     editorStoreActiveTabId = "tab-0";
     editorStoreTabs = [
       {
@@ -238,5 +241,30 @@ describe("SQLEditor", () => {
     render(<SQLEditor />);
     const editor = screen.getByTestId("monaco-editor");
     expect(editor).toHaveAttribute("data-language", "sql");
+  });
+});
+
+describe("editor colours from the app theme (#838)", () => {
+  it("defines and uses a Monaco theme built from the active theme", () => {
+    const defineTheme = vi.fn();
+    const setTheme = vi.fn();
+    vi.mocked(useMonaco).mockReturnValue({
+      editor: { defineTheme, setTheme },
+      languages: { registerCompletionItemProvider: vi.fn(() => ({ dispose: vi.fn() })) },
+    } as never);
+    const nord = builtInTheme("nord");
+    themeStoreState.activeTheme = nord;
+    render(<SQLEditor />);
+
+    expect(defineTheme).toHaveBeenCalledWith(
+      "sqlpilot-nord",
+      expect.objectContaining({
+        base: "vs-dark",
+        colors: expect.objectContaining({ "editor.background": nord?.colors["bg-primary"] }),
+      }),
+    );
+    expect(setTheme).toHaveBeenCalledWith("sqlpilot-nord");
+    expect(screen.getByTestId("monaco-editor")).toHaveAttribute("data-theme", "sqlpilot-nord");
+    vi.mocked(useMonaco).mockReturnValue(null);
   });
 });

@@ -1,7 +1,8 @@
 import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
 import type { editor, IDisposable } from "monaco-editor";
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useSchemaCompletion } from "../../hooks/useSchemaCompletion";
+import { monacoThemeData, monacoThemeName } from "../../lib/monaco-theme";
 import { runConnectionId } from "../../lib/run-connection";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { formatSql } from "../../lib/sql-format";
@@ -87,6 +88,21 @@ export function SQLEditor() {
   );
 
   const monaco = useMonaco();
+  // The editor in the app theme's colours, not vs-dark or vs by base alone
+  // (#838). Defined in a layout effect, so it exists before the editor's own
+  // effect applies the `theme` prop; redefined and reapplied when a custom
+  // theme is edited under the same name.
+  const activeTheme = useThemeStore((s) => s.activeTheme);
+  const editorTheme = monaco && activeTheme
+    ? monacoThemeName(activeTheme)
+    : effectiveTheme === "dark"
+    ? "vs-dark"
+    : "vs";
+  useLayoutEffect(() => {
+    if (!monaco || !activeTheme) return;
+    monaco.editor.defineTheme(monacoThemeName(activeTheme), monacoThemeData(activeTheme));
+    monaco.editor.setTheme(monacoThemeName(activeTheme));
+  }, [monaco, activeTheme]);
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
@@ -301,7 +317,7 @@ export function SQLEditor() {
     <Editor
       height="100%"
       language="sql"
-      theme={effectiveTheme === "dark" ? "vs-dark" : "vs"}
+      theme={editorTheme}
       value={activeTab.content}
       onChange={(value) => {
         if (activeTab) {
