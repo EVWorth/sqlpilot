@@ -1,4 +1,18 @@
-import { AlertCircle, Check, Columns3, Eye, Key, Link2, Loader2, Plus, Save, Settings, Trash2 } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Columns3,
+  Eye,
+  Key,
+  Link2,
+  Loader2,
+  Plus,
+  Save,
+  Settings,
+  Trash2,
+} from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseColumnType, parseOnUpdate } from "../../lib/column-modifiers";
 import {
@@ -674,26 +688,47 @@ function IndexesTab({
                   <div>
                     <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Columns</label>
                     <div className="flex flex-wrap gap-1.5">
-                      {columnNames.map((colName) => (
-                        <button
-                          key={colName}
-                          onClick={() => toggleColumn(idx, colName)}
-                          className={cn(
-                            "rounded border px-2 py-0.5 text-[10px] transition-colors",
-                            idx.columns.includes(colName)
-                              ? "border-brand-500 bg-brand-600/20 text-brand-300"
-                              : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]",
-                          )}
-                        >
-                          {colName}
-                        </button>
-                      ))}
+                      {columnNames.map((colName) => {
+                        // Click order is key order. The chips are in table
+                        // order, so without the number (status, placed_at)
+                        // looked the same as (placed_at, status) (#829).
+                        const position = idx.columns.indexOf(colName);
+                        return (
+                          <button
+                            key={colName}
+                            onClick={() => toggleColumn(idx, colName)}
+                            aria-pressed={position !== -1}
+                            className={cn(
+                              "flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] transition-colors",
+                              position !== -1
+                                ? "border-brand-500 bg-brand-600/20 text-brand-300"
+                                : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]",
+                            )}
+                          >
+                            {position !== -1 && (
+                              <span
+                                data-testid="index-column-position"
+                                className="rounded-full bg-brand-600 px-1 text-[9px] font-semibold text-white"
+                              >
+                                {position + 1}
+                              </span>
+                            )}
+                            {colName}
+                          </button>
+                        );
+                      })}
                       {columnNames.length === 0 && (
                         <span className="text-[10px] text-[var(--color-text-muted)]">
                           Add columns in the Columns tab first
                         </span>
                       )}
                     </div>
+                    {idx.columns.length > 1 && (
+                      <IndexColumnOrder
+                        columns={idx.columns}
+                        onChange={(next) => onUpdate(idx.id, "columns", next)}
+                      />
+                    )}
                   </div>
                 </div>
               );
@@ -708,6 +743,51 @@ function IndexesTab({
         Add Index
       </button>
     </div>
+  );
+}
+
+/**
+ * The key's columns in key order, each movable, for a composite index.
+ * Toggling chips off and on again was the only way to reorder (#829).
+ */
+function IndexColumnOrder({ columns, onChange }: { columns: string[]; onChange: (next: string[]) => void }) {
+  const move = (from: number, to: number) => {
+    const next = [...columns];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onChange(next);
+  };
+  const arrowClass =
+    "rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-30";
+  return (
+    <ol aria-label="Key order" className="mt-2 space-y-0.5">
+      {columns.map((name, i) => (
+        <li key={name} className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-secondary)]">
+          <span className="w-4 text-right text-[var(--color-text-muted)]">{i + 1}.</span>
+          <span className="min-w-24">{name}</span>
+          <button
+            type="button"
+            onClick={() =>
+              move(i, i - 1)}
+            disabled={i === 0}
+            aria-label={`Move ${name} up`}
+            className={arrowClass}
+          >
+            <ArrowUp className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              move(i, i + 1)}
+            disabled={i === columns.length - 1}
+            aria-label={`Move ${name} down`}
+            className={arrowClass}
+          >
+            <ArrowDown className="h-3 w-3" />
+          </button>
+        </li>
+      ))}
+    </ol>
   );
 }
 

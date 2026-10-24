@@ -544,6 +544,47 @@ describe("TableDesigner", () => {
     });
   });
 
+  describe("composite index order (#829)", () => {
+    function twoColumnIndex() {
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      fireEvent.change(screen.getAllByPlaceholderText("table_name")[0], { target: { value: "orders" } });
+      fireEvent.change(screen.getByPlaceholderText("column_name"), { target: { value: "status" } });
+      fireEvent.click(screen.getByText("Add Column"));
+      fireEvent.change(screen.getAllByPlaceholderText("column_name")[1], { target: { value: "placed_at" } });
+      fireEvent.click(screen.getByText("Indexes"));
+      fireEvent.click(screen.getByText("Add Index"));
+      fireEvent.change(screen.getByPlaceholderText("index_name"), { target: { value: "idx_s" } });
+      // Clicked in the opposite order to the table's.
+      fireEvent.click(screen.getByRole("button", { name: "placed_at" }));
+      fireEvent.click(screen.getByRole("button", { name: /status$/ }));
+    }
+
+    const preview = () => {
+      fireEvent.click(screen.getByText("Preview SQL"));
+      return screen.getByTestId("sql-preview-dialog").textContent ?? "";
+    };
+
+    it("numbers the chosen columns in key order", () => {
+      twoColumnIndex();
+
+      expect(screen.getByRole("button", { name: /placed_at$/ }).textContent).toBe("1placed_at");
+      expect(screen.getByRole("button", { name: /status$/ }).textContent).toBe("2status");
+      expect(
+        within(screen.getByRole("list", { name: "Key order" })).getAllByRole("listitem").map((li) => li.textContent),
+      ).toEqual(["1.placed_at", "2.status"]);
+      expect(preview()).toContain("(`placed_at`, `status`)");
+    });
+
+    it("reorders the key", () => {
+      twoColumnIndex();
+
+      fireEvent.click(screen.getByLabelText("Move status up"));
+
+      expect(screen.getByRole("button", { name: /status$/ }).textContent).toBe("1status");
+      expect(preview()).toContain("(`status`, `placed_at`)");
+    });
+  });
+
   describe("applying changes", () => {
     beforeEach(() => {
       vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
