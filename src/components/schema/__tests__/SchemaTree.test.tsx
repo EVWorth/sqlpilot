@@ -40,6 +40,7 @@ vi.mock("../../../lib/run-statement", () => ({
 
 vi.mock("../../../stores/productionGuardStore", () => ({
   confirmDestructive: vi.fn(async () => true),
+  confirmDrop: vi.fn(async () => true),
   isProductionConnection: vi.fn(() => false),
 }));
 
@@ -47,7 +48,7 @@ import { runStatement } from "../../../lib/run-statement";
 import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
-import { confirmDestructive } from "../../../stores/productionGuardStore";
+import { confirmDestructive, confirmDrop } from "../../../stores/productionGuardStore";
 import { useResultStore } from "../../../stores/resultStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -863,6 +864,177 @@ describe("SchemaTree menus (#293)", () => {
     const menu = await openDatabaseMenu();
 
     expect(item(menu, "Already the default")?.disabled).toBe(true);
+  });
+});
+
+describe("SchemaTree polish (#829)", () => {
+  const user = () => userEvent.setup({ applyAccept: false });
+
+  const openFolder = async (folder: string, leaf: string) => {
+    const u = user();
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await u.click(screen.getByText("app_db"));
+    await waitFor(() => screen.getByText(folder));
+    await u.click(screen.getByText(folder));
+    await waitFor(() => screen.getByText(leaf));
+    return u;
+  };
+
+  const menuOf = (name: string) => {
+    shownMenus.length = 0;
+    fireEvent.contextMenu(screen.getByText(name));
+    return shownMenus.at(-1) ?? [];
+  };
+
+  const item = (menu: (typeof shownMenus)[number], label: string) => menu.find((i) => i.label === label);
+
+  beforeEach(() => {
+    shownMenus.length = 0;
+    useSchemaStore.setState({ byConnection: {} });
+    useSettingsStore.setState({
+      querySettings: { maxResultRows: 1000, limitEnabled: true, showSystemDatabases: false },
+    } as never);
+    vi.mocked(runStatement).mockClear();
+    vi.mocked(confirmDrop).mockClear();
+    vi.mocked(confirmDrop).mockResolvedValue(true);
+  });
+
+  describe("a table click", () => {
+    it("opens the rows in a tab named after the table, leaving the current tab alone", async () => {
+      const executeQuery = vi.fn(async () => ({ status: "ran" }));
+      setupStores({ activeTabId: "mine", database: "app_db" });
+      useEditorStore.getState().updateTabContent("mine", "SELECT 42");
+      useResultStore.setState({ executeQuery } as never);
+      const u = await openFolder("Tables", "users");
+
+      await u.click(screen.getByText("users"));
+
+      const { tabs, activeTabId } = useEditorStore.getState();
+      const opened = tabs.find((t) => t.id === activeTabId);
+      expect(opened).toMatchObject({
+        type: "query",
+        title: "app_db.users",
+        content: "SELECT * FROM `app_db`.`users` LIMIT 1000",
+        connectionId: "conn-1",
+        database: "app_db",
+        isDirty: false,
+      });
+      expect(tabs.find((t) => t.id === "mine")?.content).toBe("SELECT 42");
+      // On the new tab's session, so its results are filed under it.
+      expect(executeQuery).toHaveBeenCalledWith(
+        "conn-1",
+        "SELECT * FROM `app_db`.`users` LIMIT 1000",
+        "app_db",
+        opened?.id,
+      );
+    });
+
+    it("reuses the table's tab on a second click", async () => {
+      const executeQuery = vi.fn(async () => ({ status: "ran" }));
+      setupStores();
+      useResultStore.setState({ executeQuery } as never);
+      const u = await openFolder("Tables", "users");
+
+      await u.click(screen.getByText("users"));
+      await u.click(screen.getByText("users"));
+
+      expect(useEditorStore.getState().tabs.filter((t) => t.title === "app_db.users")).toHaveLength(1);
+      expect(executeQuery).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("names a view's Select item for the limit it uses", async () => {
+    await openFolder("Views", "active_users");
+
+    const menu = menuOf("active_users");
+
+    expect(item(menu, "Select Top 1,000 Rows")).toBeDefined();
+    expect(item(menu, "Select Top 100 Rows")).toBeUndefined();
+  });
+
+  it.each([
+    ["Views", "active_users", "Drop View", "DROP VIEW `app_db`.`active_users`", () => api.getViews],
+    ["Procedures", "do_cleanup", "Drop Procedure", "DROP PROCEDURE `app_db`.`do_cleanup`", () => api.getRoutines],
+    ["Functions", "compute_total", "Drop Function", "DROP FUNCTION `app_db`.`compute_total`", () => api.getRoutines],
+    ["Triggers", "users_audit", "Drop Trigger", "DROP TRIGGER `app_db`.`users_audit`", () => api.getTriggers],
+  ])("refreshes %s after the drop has run", async (folder, leaf, label, sql, fetcher) => {
+    await openFolder(folder, leaf);
+    vi.mocked(fetcher()).mockClear();
+
+    await item(menuOf(leaf), label)?.onClick?.();
+
+    expect(runStatement).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "conn-1", sql }));
+    await waitFor(() => expect(fetcher()).toHaveBeenCalled());
+  });
+
+  it("runs nothing when the drop is declined", async () => {
+    vi.mocked(confirmDrop).mockResolvedValue(false);
+    await openFolder("Views", "active_users");
+
+    await item(menuOf("active_users"), "Drop View")?.onClick?.();
+
+    expect(runStatement).not.toHaveBeenCalled();
+  });
+
+  describe("events", () => {
+    const event = {
+      name: "nightly",
+      event_type: "RECURRING",
+      status: "ENABLED",
+      definer: "root@localhost",
+      interval: "1 DAY",
+      comment: "",
+    };
+
+    beforeEach(() => {
+      vi.mocked(api.getEvents).mockResolvedValue([event] as never);
+    });
+
+    it("refreshes after disabling one", async () => {
+      await openFolder("Events", "nightly");
+      vi.mocked(api.getEvents).mockClear();
+
+      item(menuOf("nightly"), "Disable Event")?.onClick?.();
+
+      await waitFor(() =>
+        expect(runStatement).toHaveBeenCalledWith(
+          expect.objectContaining({ sql: "ALTER EVENT `app_db`.`nightly` DISABLE" }),
+        )
+      );
+      await waitFor(() => expect(api.getEvents).toHaveBeenCalled());
+    });
+
+    it("refreshes after dropping one", async () => {
+      await openFolder("Events", "nightly");
+      vi.mocked(api.getEvents).mockClear();
+
+      await item(menuOf("nightly"), "Drop Event")?.onClick?.();
+
+      expect(runStatement).toHaveBeenCalledWith(expect.objectContaining({ sql: "DROP EVENT `app_db`.`nightly`" }));
+      await waitFor(() => expect(api.getEvents).toHaveBeenCalled());
+    });
+  });
+
+  it("marks the connection's default database when the tab names none", async () => {
+    useConnectionStore.setState({
+      activeConnections: [{
+        id: "conn-1",
+        profile_id: "prof-1",
+        name: "Test",
+        host: "localhost",
+        port: 3306,
+        database: "app_db",
+        server_version: "8.0.0",
+        connected_at: "2024-01-01T00:00:00Z",
+      }],
+    } as never);
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+
+    expect(item(menuOf("app_db"), "Already the default")?.disabled).toBe(true);
+    expect(item(menuOf("logs"), "Set as Default")?.disabled).toBe(false);
+    expect(screen.getByText("app_db").closest("button")?.className).toContain("font-semibold");
   });
 });
 

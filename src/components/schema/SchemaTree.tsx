@@ -105,6 +105,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const openTab = useEditorStore((s) => s.openTab);
   const addDesignerTab = useEditorStore((s) => s.addDesignerTab);
   const updateTabContent = useEditorStore((s) => s.updateTabContent);
+  const setTabDirty = useEditorStore((s) => s.setTabDirty);
+  const renameTab = useEditorStore((s) => s.renameTab);
+  const setActiveTab = useEditorStore((s) => s.setActiveTab);
   const setTabConnection = useEditorStore((s) => s.setTabConnection);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
@@ -112,9 +115,12 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const { contextMenu, showContextMenu } = useContextMenu();
   const activeConnections = useConnectionStore((s) => s.activeConnections);
 
-  // Derive the selected database from the active tab
+  // The database queries run against: the active tab's, or else the
+  // connection's default, as the status bar shows it. Reading only the tab
+  // left the default unmarked and still offered "Set as Default" (#829).
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const selectedDb = activeTab?.database ?? null;
+  const connectionDefault = activeConnections.find((c) => c.id === connectionId)?.database;
+  const selectedDb = activeTab?.database || connectionDefault || null;
 
   // Set the active tab's database context to the given DB
   const selectDatabase = (dbName: string) => {
@@ -233,20 +239,51 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     else await store.ensureRoutines(connectionId, dbName);
   };
 
-  // Single click: run SELECT inline without touching the editor tab
-  // Double click (within 250ms): insert table name at cursor instead
   const { maxResultRows } = useSettingsStore.getState().querySettings;
+
+  /**
+   * A table's or view's rows, in a query tab of its own named after it.
+   *
+   * The click used to run its SELECT into whatever tab was open, replacing
+   * that query's results with a grid nothing named and an editor that did not
+   * match it (#829). The tab holds the statement, so the grid says what it is,
+   * and clicking the same object again reuses the tab while its SQL is
+   * untouched.
+   */
+  const openObjectData = (dbName: string, name: string) => {
+    const sql = selectTopRows(dbName, name, maxResultRows);
+    const title = `${dbName}.${name}`;
+    const reusable = useEditorStore.getState().tabs.find((t) =>
+      t.type === "query" && t.connectionId === connectionId && t.title === title && t.content === sql
+    );
+    let tabId: string;
+    if (reusable) {
+      tabId = reusable.id;
+      setActiveTab(tabId);
+    } else {
+      tabId = addTab(connectionId, dbName);
+      updateTabContent(tabId, sql);
+      // Generated, not typed: closing it loses nothing worth asking about.
+      setTabDirty(tabId, false);
+      renameTab(tabId, title);
+    }
+    // On the tab's own session, so the results are filed under it (#842).
+    void executeQuery(connectionId, sql, dbName, tabId);
+  };
+
+  // Single click: open the rows in their own tab.
+  // Double click (within 250ms): insert the name at the cursor instead.
   const handleTableClick = (dbName: string, tableName: string) =>
     makeClickHandler(
       `${dbName}.${tableName}`,
-      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${tableName}\` LIMIT ${maxResultRows}`, dbName),
+      () => openObjectData(dbName, tableName),
       () => insertNameAtCursor(tableName),
     );
 
   const handleViewClick = (dbName: string, viewName: string) =>
     makeClickHandler(
       `${dbName}.${viewName}`,
-      () => executeQuery(connectionId, `SELECT * FROM \`${dbName}\`.\`${viewName}\` LIMIT ${maxResultRows}`, dbName),
+      () => openObjectData(dbName, viewName),
       () => insertNameAtCursor(viewName),
     );
 
@@ -650,13 +687,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                               // Named for the limit it actually uses (#293).
                               label: selectTopRowsLabel(maxResultRows),
                               icon: <Search className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                void executeQuery(
-                                  connectionId,
-                                  selectTopRows(db.name, t.name, maxResultRows),
-                                  db.name,
-                                );
-                              },
+                              onClick: () => openObjectData(db.name, t.name),
                             },
                             {
                               label: "View Structure",
@@ -804,15 +835,10 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                       onContextMenu={(e) => {
                         showContextMenu(e, [
                           {
-                            label: "Select Top 100 Rows",
+                            // The limit it uses, as on tables (#829).
+                            label: selectTopRowsLabel(maxResultRows),
                             icon: <Search className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              executeQuery(
-                                connectionId,
-                                `SELECT * FROM \`${db.name}\`.\`${v.name}\` LIMIT ${maxResultRows}`,
-                                db.name,
-                              );
-                            },
+                            onClick: () => openObjectData(db.name, v.name),
                           },
                           {
                             label: "Copy Name",
@@ -834,11 +860,15 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
                             onClick: async () => {
-                              if (await confirmDrop(connectionId, `view \`${db.name}\`.\`${v.name}\``)) {
-                                executeQuery(connectionId, `DROP VIEW \`${db.name}\`.\`${v.name}\``).then(() =>
-                                  refreshFolder(db.name, "views")
-                                );
-                              }
+                              // Asked here off production; on production the
+                              // guard in runSchemaChange asks instead. Awaited,
+                              // so the refresh sees the drop (#829).
+                              if (!(await confirmDrop(connectionId, `view \`${db.name}\`.\`${v.name}\``))) return;
+                              await runSchemaChange(
+                                `DROP VIEW \`${db.name}\`.\`${v.name}\``,
+                                `Drop view \`${db.name}\`.\`${v.name}\`?`,
+                                () => refreshFolder(db.name, "views"),
+                              );
                             },
                           },
                         ]);
@@ -908,13 +938,15 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
                             onClick: async () => {
-                              if (
-                                await confirmDrop(connectionId, `procedure \`${db.name}\`.\`${r.name}\``)
-                              ) {
-                                executeQuery(connectionId, `DROP PROCEDURE \`${db.name}\`.\`${r.name}\``).then(() =>
-                                  refreshFolder(db.name, "routines")
-                                );
-                              }
+                              // Asked here off production; on production the
+                              // guard in runSchemaChange asks instead. Awaited,
+                              // so the refresh sees the drop (#829).
+                              if (!(await confirmDrop(connectionId, `procedure \`${db.name}\`.\`${r.name}\``))) return;
+                              await runSchemaChange(
+                                `DROP PROCEDURE \`${db.name}\`.\`${r.name}\``,
+                                `Drop procedure \`${db.name}\`.\`${r.name}\`?`,
+                                () => refreshFolder(db.name, "routines"),
+                              );
                             },
                           },
                         ]);
@@ -984,13 +1016,15 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
                             onClick: async () => {
-                              if (
-                                await confirmDrop(connectionId, `function \`${db.name}\`.\`${r.name}\``)
-                              ) {
-                                executeQuery(connectionId, `DROP FUNCTION \`${db.name}\`.\`${r.name}\``).then(() =>
-                                  refreshFolder(db.name, "routines")
-                                );
-                              }
+                              // Asked here off production; on production the
+                              // guard in runSchemaChange asks instead. Awaited,
+                              // so the refresh sees the drop (#829).
+                              if (!(await confirmDrop(connectionId, `function \`${db.name}\`.\`${r.name}\``))) return;
+                              await runSchemaChange(
+                                `DROP FUNCTION \`${db.name}\`.\`${r.name}\``,
+                                `Drop function \`${db.name}\`.\`${r.name}\`?`,
+                                () => refreshFolder(db.name, "routines"),
+                              );
                             },
                           },
                         ]);
@@ -1053,13 +1087,15 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
                             onClick: async () => {
-                              if (
-                                await confirmDrop(connectionId, `trigger \`${db.name}\`.\`${t.name}\``)
-                              ) {
-                                executeQuery(connectionId, `DROP TRIGGER \`${db.name}\`.\`${t.name}\``).then(() =>
-                                  refreshFolder(db.name, "triggers")
-                                );
-                              }
+                              // Asked here off production; on production the
+                              // guard in runSchemaChange asks instead. Awaited,
+                              // so the refresh sees the drop (#829).
+                              if (!(await confirmDrop(connectionId, `trigger \`${db.name}\`.\`${t.name}\``))) return;
+                              await runSchemaChange(
+                                `DROP TRIGGER \`${db.name}\`.\`${t.name}\``,
+                                `Drop trigger \`${db.name}\`.\`${t.name}\`?`,
+                                () => refreshFolder(db.name, "triggers"),
+                              );
                             },
                           },
                         ]);
@@ -1124,15 +1160,16 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             // nobody remembers the syntax of.
                             label: ev.status === "ENABLED" ? "Disable Event" : "Enable Event",
                             icon: <CalendarClock className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              void executeQuery(
-                                connectionId,
+                            onClick: () =>
+                              void runSchemaChange(
                                 `ALTER EVENT \`${db.name}\`.\`${ev.name}\` ${
                                   ev.status === "ENABLED" ? "DISABLE" : "ENABLE"
                                 }`,
-                                db.name,
-                              ).then(() => refreshFolder(db.name, "events"));
-                            },
+                                `${
+                                  ev.status === "ENABLED" ? "Disable" : "Enable"
+                                } event \`${db.name}\`.\`${ev.name}\`?`,
+                                () => refreshFolder(db.name, "events"),
+                              ),
                           },
                           { separator: true },
                           {
@@ -1140,13 +1177,15 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             icon: <Trash2 className="h-3.5 w-3.5" />,
                             danger: true,
                             onClick: async () => {
-                              if (await confirmDrop(connectionId, `event \`${db.name}\`.\`${ev.name}\``)) {
-                                void executeQuery(
-                                  connectionId,
-                                  `DROP EVENT \`${db.name}\`.\`${ev.name}\``,
-                                  db.name,
-                                ).then(() => refreshFolder(db.name, "events"));
-                              }
+                              // Asked here off production; on production the
+                              // guard in runSchemaChange asks instead. Awaited,
+                              // so the refresh sees the drop (#829).
+                              if (!(await confirmDrop(connectionId, `event \`${db.name}\`.\`${ev.name}\``))) return;
+                              await runSchemaChange(
+                                `DROP EVENT \`${db.name}\`.\`${ev.name}\``,
+                                `Drop event \`${db.name}\`.\`${ev.name}\`?`,
+                                () => refreshFolder(db.name, "events"),
+                              );
                             },
                           },
                         ]);
