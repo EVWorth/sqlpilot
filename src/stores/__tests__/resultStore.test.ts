@@ -62,11 +62,14 @@ import { noteGridEdits, resetGridEdits } from "../../lib/unsaved-grid-edits";
 import type { EditorTab, QueryResult } from "../../types";
 import { useEditorStore } from "../editorStore";
 import { useProductionGuardStore } from "../productionGuardStore";
-import { anyTabExecuting, followEditorStore, useResultStore } from "../resultStore";
+import { anyTabExecuting, followEditorStore, resetRunBookkeeping, useResultStore } from "../resultStore";
 
-// The grid's unsaved-edit counts are module state; one test's must not make
-// another's run ask first (#865).
-beforeEach(() => resetGridEdits());
+// Module state outside the store: the grid's unsaved-edit counts (#865) and
+// the runs in flight (#867). One test's must not leak into the next.
+beforeEach(() => {
+  resetGridEdits();
+  resetRunBookkeeping();
+});
 
 function makeExplainResponse(overrides: Partial<any> = {}) {
   return {
@@ -1168,6 +1171,19 @@ describe("resultStore", () => {
 
       expect(addEntryMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("run bookkeeping between tests (#867)", () => {
+  it("forgets a run left in flight", () => {
+    executeQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
+    void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(100)");
+    useResultStore.setState({ isExecuting: false, parked: {} });
+    expect(anyTabExecuting(useResultStore.getState())).toBe(true);
+
+    resetRunBookkeeping();
+
+    expect(anyTabExecuting(useResultStore.getState())).toBe(false);
   });
 });
 

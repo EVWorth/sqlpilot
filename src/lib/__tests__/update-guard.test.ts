@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useEditorStore } from "../../stores/editorStore";
-import { useResultStore } from "../../stores/resultStore";
+import { resetRunBookkeeping, useResultStore } from "../../stores/resultStore";
 import { describeUpdateBlockers, updateBlockers } from "../update-guard";
 
 const tab = (id: string, isDirty: boolean) => ({
@@ -13,6 +13,7 @@ const tab = (id: string, isDirty: boolean) => ({
 
 describe("updateBlockers", () => {
   beforeEach(() => {
+    resetRunBookkeeping();
     useResultStore.setState({ isExecuting: false });
     useEditorStore.setState({ tabs: [tab("t1", false)], activeTabId: "t1" });
   });

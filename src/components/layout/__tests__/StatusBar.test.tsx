@@ -6,7 +6,7 @@ import { api } from "../../../lib/tauri-api";
 import { useConnectionHealthStore } from "../../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
-import { useResultStore } from "../../../stores/resultStore";
+import { resetRunBookkeeping, useResultStore } from "../../../stores/resultStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { useStorageErrorStore } from "../../../stores/storageErrorStore";
 import { StatusBar } from "../StatusBar";
@@ -24,6 +24,7 @@ const { act: reactAct } = await import("react");
 
 describe("StatusBar", () => {
   beforeEach(() => {
+    resetRunBookkeeping();
     vi.clearAllMocks();
     useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
     useStorageErrorStore.setState({ errors: {} });

@@ -505,6 +505,23 @@ function tabWriter(key: string): SliceWriter {
 }
 
 /**
+ * Forget every run in flight and every generation counted (#867).
+ *
+ * For tests: the bookkeeping above lives outside the store's state, so
+ * `useResultStore.setState` in a `beforeEach` resets what components read but
+ * not this, and a test that stopped with a query in flight left it running
+ * for every test after it.
+ */
+export function resetRunBookkeeping() {
+  generations.clear();
+  activeExecutions.clear();
+  latestStart.clear();
+  sideRuns = 0;
+  runCount = 0;
+  lastStartedTab = NO_TAB;
+}
+
+/**
  * True when any tab, shown or parked, has a statement running — including a
  * tab that has closed while its statement was still on the server.
  */
