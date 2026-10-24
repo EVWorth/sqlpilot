@@ -27,6 +27,7 @@ import { GridFooter } from "./GridFooter";
 import { GridHeaderRow } from "./GridHeaderRow";
 import { GridPlaceholder } from "./GridPlaceholder";
 import { TableGridRows, VirtualGridRows } from "./GridRows";
+import { ResultTabs } from "./ResultTabs";
 
 function ExportToast({ message }: { message: string }) {
   return (
@@ -348,10 +349,20 @@ export function ResultsGrid() {
     overscan: 5,
   });
 
+  // Every result of a script stays reachable, whether or not the one shown
+  // has a grid (#844). Not while running: the results are the last run's.
+  const resultTabs = isExecuting ? null : (
+    <ResultTabs
+      results={results}
+      activeIndex={activeResultIndex}
+      onSelect={(idx) => useResultStore.getState().setActiveResult(idx)}
+    />
+  );
+
   // Running, failed, a statement that returned a count, or nothing run yet —
   // none of which is a grid.
   if (isExecuting || error || !activeResult || activeResult.columns.length === 0) {
-    return (
+    const placeholder = (
       <GridPlaceholder
         isExecuting={isExecuting}
         error={error}
@@ -360,11 +371,20 @@ export function ResultsGrid() {
         cancelledAfterMs={cancelledAfterMs}
       />
     );
+    if (!resultTabs || results.length < 2) return placeholder;
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {resultTabs}
+        <div className="min-h-0 flex-1">{placeholder}</div>
+      </div>
+    );
   }
 
   return (
     // tabIndex so the grid can hold focus, which is what scopes Ctrl+A to it.
     <div ref={gridRef} tabIndex={-1} className="flex h-full flex-col min-h-0 outline-none">
+      {resultTabs}
+
       {/* Edit toolbar */}
       <EditToolbar
         editMode={editing.editMode}
@@ -390,25 +410,6 @@ export function ResultsGrid() {
         warnings={activeResult.warnings}
         rowCount={rowCount}
       />
-
-      {/* Result set tabs */}
-      {results.length > 1 && (
-        <div className="flex border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
-          {results.map((_, idx) => (
-            <button
-              key={idx}
-              onClick={() => useResultStore.getState().setActiveResult(idx)}
-              className={`px-3 py-1 text-xs ${
-                idx === activeResultIndex
-                  ? "border-b-2 border-brand-500 text-[var(--color-text-primary)]"
-                  : "text-[var(--color-text-muted)]"
-              }`}
-            >
-              Result {idx + 1}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Table */}
       <GridCellContext.Provider value={cellState}>

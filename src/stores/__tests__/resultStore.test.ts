@@ -1128,6 +1128,17 @@ describe("resultStore", () => {
   });
 
   describe("multi-statement runs (#329)", () => {
+    it("opens on the first result that has a grid (#844)", async () => {
+      executeQueryMock.mockResolvedValue([
+        makeQueryResult({ query_id: "u", columns: [], rows: [], rows_affected: 1 }),
+        makeQueryResult({ query_id: "s", statement_index: 1, columns: [{ name: "a" }] }),
+      ]);
+
+      await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1; SELECT * FROM t");
+
+      expect(useResultStore.getState().activeResultIndex).toBe(1);
+    });
+
     it("records one entry per statement, not one for the batch", async () => {
       executeQueryMock.mockResolvedValue([
         makeQueryResult({ statement_index: 0, sql: "SELECT 1", rows: [["a"]] }),

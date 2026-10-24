@@ -2,6 +2,7 @@ import { create } from "zustand";
 import type { ExplainFormat } from "../lib/bindings";
 import { connectionKind, dataSourceFor } from "../lib/datasource";
 import { forgetGridMemory } from "../lib/grid-memory";
+import { firstGridIndex } from "../lib/result-label";
 import { noteSession } from "../lib/server-sessions";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
@@ -979,7 +980,9 @@ async function doExecuteQuery(
     shown = true;
     set({
       results,
-      activeResultIndex: 0,
+      // A script whose first statement was a write opened on its count, and
+      // the grid it ran for was a tab away (#844).
+      activeResultIndex: firstGridIndex(results),
       isExecuting: tabBusy(run.tab, run),
       // Only a MySQL tab has a session of its own to come back to.
       resultSource: {

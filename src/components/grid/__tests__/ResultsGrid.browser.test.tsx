@@ -669,14 +669,14 @@ describe("ResultsGrid (browser)", () => {
     ];
     resultState.activeResultIndex = 0;
     render(<ResultsGrid />);
-    expect(screen.getByText("Result 1")).toBeInTheDocument();
-    expect(screen.getByText("Result 2")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")[1]).toBeInTheDocument();
   });
 
   it("does not show tabs when only one result", () => {
     resultState.results = [makeResult()];
     render(<ResultsGrid />);
-    expect(screen.queryByText("Result 1")).not.toBeInTheDocument();
+    expect(screen.queryByRole("tab")).not.toBeInTheDocument();
   });
 
   it("clicking Result 2 tab selects the second result", async () => {
@@ -699,7 +699,7 @@ describe("ResultsGrid (browser)", () => {
     const user = userEvent.setup();
     render(<ResultsGrid />);
 
-    const tab2 = screen.getByText("Result 2");
+    const tab2 = screen.getAllByRole("tab")[1];
     await user.click(tab2);
     // setActiveResult is called via getState, so we verify the click happened
     expect(tab2).toBeInTheDocument();
