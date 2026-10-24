@@ -28,6 +28,9 @@ const editorState = {
   openTab: vi.fn(() => "tab-2"),
   addDesignerTab: vi.fn(),
   updateTabContent: vi.fn(),
+  setTabDirty: vi.fn(),
+  renameTab: vi.fn(),
+  setActiveTab: vi.fn(),
   setTabConnection: vi.fn(),
   editorInstance: null as any,
 };
@@ -458,7 +461,7 @@ describe("Sidebar (browser)", () => {
     });
 
     // ─── Click actions ───
-    it("clicking a table executes SELECT query", async () => {
+    it("clicking a table opens its rows in a tab", async () => {
       const user = userEvent.setup();
       render(<Sidebar />);
       await waitFor(() => screen.getByText("testdb"));
@@ -471,10 +474,12 @@ describe("Sidebar (browser)", () => {
         "conn1",
         "SELECT * FROM `testdb`.`users` LIMIT 100",
         "testdb",
+        // On the tab opened for it (#829).
+        "tab-1",
       );
     });
 
-    it("clicking a view executes SELECT query", async () => {
+    it("clicking a view opens its rows in a tab", async () => {
       const user = userEvent.setup();
       render(<Sidebar />);
       await waitFor(() => screen.getByText("testdb"));
@@ -487,6 +492,8 @@ describe("Sidebar (browser)", () => {
         "conn1",
         "SELECT * FROM `testdb`.`active_users` LIMIT 100",
         "testdb",
+        // On the tab opened for it (#829).
+        "tab-1",
       );
     });
 
@@ -709,7 +716,7 @@ describe("Sidebar (browser)", () => {
       expect(editorState.addStructureTab).toHaveBeenCalledWith("conn1", "testdb", "users");
     });
 
-    it("clicking view item executes SELECT query via handleViewClick", async () => {
+    it("clicking view item opens its rows via handleViewClick", async () => {
       const user = userEvent.setup();
       render(<Sidebar />);
       await waitFor(() => screen.getByText("testdb"));
@@ -719,11 +726,13 @@ describe("Sidebar (browser)", () => {
       await waitFor(() => screen.getByText("active_users"));
       await user.click(screen.getByText("active_users"));
 
-      // handleViewClick single-click executes a SELECT query
+      // handleViewClick single-click runs the SELECT in its own tab
       expect(resultStore.executeQuery).toHaveBeenCalledWith(
         "conn1",
         "SELECT * FROM `testdb`.`active_users` LIMIT 100",
         "testdb",
+        // On the tab opened for it (#829).
+        "tab-1",
       );
     });
 

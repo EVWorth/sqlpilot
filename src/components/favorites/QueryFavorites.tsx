@@ -56,6 +56,8 @@ export function QueryFavorites() {
     null,
   );
 
+  const [favoriteToDelete, setFavoriteToDelete] = useState<Favorite | null>(null);
+
   const { contextMenu, showContextMenu } = useContextMenu();
   const exportFavorites = useFavoritesStore((s) => s.exportFavorites);
   const importFavorites = useFavoritesStore((s) => s.importFavorites);
@@ -446,7 +448,9 @@ export function QueryFavorites() {
                                 label: "Delete",
                                 icon: <Trash2 className="h-3.5 w-3.5" />,
                                 danger: true,
-                                onClick: () => deleteFavorite(fav.id),
+                                // Asked first, as deleting a category is: it
+                                // went at once, with no way back (#829).
+                                onClick: () => setFavoriteToDelete(fav),
                               },
                             ]);
                           }}
@@ -560,6 +564,19 @@ export function QueryFavorites() {
           setPendingDelete(null);
         }}
         onCancel={() => setPendingDelete(null)}
+      />
+      <ConfirmDialog
+        isOpen={favoriteToDelete !== null}
+        title={`Delete favorite "${favoriteToDelete?.name ?? ""}"?`}
+        message="Its SQL is removed from your favorites. This cannot be undone."
+        confirmLabel="Delete"
+        cancelLabel="Cancel"
+        danger
+        onConfirm={() => {
+          if (favoriteToDelete) deleteFavorite(favoriteToDelete.id);
+          setFavoriteToDelete(null);
+        }}
+        onCancel={() => setFavoriteToDelete(null)}
       />
       <ConfirmDialog
         isOpen={showConfirm}

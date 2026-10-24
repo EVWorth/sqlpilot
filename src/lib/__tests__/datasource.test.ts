@@ -18,6 +18,7 @@ vi.mock("../tauri-api", () => ({
     getColumns: vi.fn(),
     getIndexes: vi.fn(),
     getTableDdl: vi.fn(),
+    getViewDdl: vi.fn(),
     executeQuery: vi.fn(),
     sqliteGetTables: vi.fn(),
     sqliteGetColumns: vi.fn(),
@@ -82,7 +83,7 @@ describe("the SQLite source", () => {
 
     const tables = await dataSourceFor("c-sqlite").listTables("c-sqlite", "main");
 
-    expect(tables[0]).toMatchObject({ name: "users", table_type: "table", row_count: 3 });
+    expect(tables[0]).toMatchObject({ name: "users", table_type: "BASE TABLE", row_count: 3 });
     // Fields MySQL has and SQLite does not are present and empty, rather than
     // missing, so consumers do not have to guess which backend answered.
     expect(tables[0].engine).toBeNull();
@@ -106,9 +107,53 @@ describe("the SQLite source", () => {
     expect(api.sqliteGetColumns).toHaveBeenCalledWith("c-sqlite", "users");
   });
 
-  it("has no views, routines or triggers to list", async () => {
+  describe("views (#825)", () => {
+    const listing = [
+      { name: "notes", table_type: "table", row_count: 3, sql: "CREATE TABLE notes (id)" },
+      { name: "recent", table_type: "view", row_count: null, sql: "CREATE VIEW recent AS SELECT * FROM notes" },
+    ];
+
+    it("reports a view as VIEW and a table as BASE TABLE, as MySQL does", async () => {
+      // The tree tells them apart by `table_type === "VIEW"`; SQLite's own
+      // lower-case "view" never matched, so views were listed as tables.
+      vi.mocked(api.sqliteGetTables).mockResolvedValue(listing as never);
+
+      const tables = await dataSourceFor("c-sqlite").listTables("c-sqlite", "main");
+
+      expect(tables.map((t) => [t.name, t.table_type])).toEqual([
+        ["notes", "BASE TABLE"],
+        ["recent", "VIEW"],
+      ]);
+    });
+
+    it("lists the views", async () => {
+      vi.mocked(api.sqliteGetTables).mockResolvedValue(listing as never);
+
+      const views = await dataSourceFor("c-sqlite").listViews("c-sqlite", "main");
+
+      expect(views).toEqual([{ name: "recent", is_updatable: false }]);
+    });
+
+    it("reads a view's DDL from the listing, not the MySQL command", async () => {
+      vi.mocked(api.sqliteGetTables).mockResolvedValue(listing as never);
+
+      const ddl = await dataSourceFor("c-sqlite").getViewDdl("c-sqlite", "main", "recent");
+
+      expect(ddl).toBe("CREATE VIEW recent AS SELECT * FROM notes");
+      expect(api.getViewDdl).not.toHaveBeenCalled();
+    });
+
+    it("fails for a view that is not there", async () => {
+      vi.mocked(api.sqliteGetTables).mockResolvedValue(listing as never);
+
+      await expect(dataSourceFor("c-sqlite").getViewDdl("c-sqlite", "main", "notes")).rejects.toThrow(
+        /No definition found/,
+      );
+    });
+  });
+
+  it("has no routines or triggers to list", async () => {
     const source = dataSourceFor("c-sqlite");
-    expect(await source.listViews("c-sqlite", "main")).toEqual([]);
     expect(await source.listRoutines("c-sqlite", "main")).toEqual([]);
     expect(await source.listTriggers("c-sqlite", "main")).toEqual([]);
   });

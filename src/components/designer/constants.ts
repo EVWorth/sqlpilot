@@ -1,0 +1,57 @@
+/** The choices the designer offers. Shared by the tabs. */
+
+export const COLUMN_TYPES = [
+  "INT",
+  "BIGINT",
+  "TINYINT",
+  "SMALLINT",
+  "MEDIUMINT",
+  "VARCHAR",
+  "CHAR",
+  "TEXT",
+  "TINYTEXT",
+  "MEDIUMTEXT",
+  "LONGTEXT",
+  "DECIMAL",
+  "FLOAT",
+  "DOUBLE",
+  "DATE",
+  "DATETIME",
+  "TIMESTAMP",
+  "TIME",
+  "YEAR",
+  "BOOLEAN",
+  "ENUM",
+  "SET",
+  "BLOB",
+  "JSON",
+  "BINARY",
+  "VARBINARY",
+  // Absent until #382. BIT is the damaging omission: a BIT(8) column loaded
+  // as VARCHAR(8) and saved back turns b'10101010' into the string "170".
+  "BIT",
+  "BOOL",
+  "SERIAL",
+  "TINYBLOB",
+  "MEDIUMBLOB",
+  "LONGBLOB",
+  "GEOMETRY",
+  "POINT",
+  "LINESTRING",
+  "POLYGON",
+  "MULTIPOINT",
+  "MULTILINESTRING",
+  "MULTIPOLYGON",
+  "GEOMETRYCOLLECTION",
+] as const;
+
+export const CHARSETS = ["utf8mb4", "utf8", "latin1", "ascii", "binary"] as const;
+export const COLLATIONS = [
+  "utf8mb4_general_ci",
+  "utf8mb4_unicode_ci",
+  "utf8mb4_bin",
+  "utf8_general_ci",
+  "utf8_unicode_ci",
+  "latin1_swedish_ci",
+  "latin1_general_ci",
+] as const;

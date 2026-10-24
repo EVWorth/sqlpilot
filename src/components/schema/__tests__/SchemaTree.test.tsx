@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SchemaTree } from "../SchemaTree";
@@ -40,6 +40,8 @@ vi.mock("../../../lib/run-statement", () => ({
 
 vi.mock("../../../stores/productionGuardStore", () => ({
   confirmDestructive: vi.fn(async () => true),
+  confirmDrop: vi.fn(async () => true),
+  confirmTruncate: vi.fn(async () => true),
   isProductionConnection: vi.fn(() => false),
 }));
 
@@ -47,7 +49,7 @@ import { runStatement } from "../../../lib/run-statement";
 import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
-import { confirmDestructive } from "../../../stores/productionGuardStore";
+import { confirmDestructive, confirmDrop, confirmTruncate } from "../../../stores/productionGuardStore";
 import { useResultStore } from "../../../stores/resultStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -732,6 +734,22 @@ describe("SchemaTree menus (#293)", () => {
       expect(asked.action).toContain("cannot be rolled back");
     });
 
+    // confirmDestructive asks only on production, so without these a click on
+    // a development connection dropped or emptied the table at once.
+    it("asks off production before dropping a table", async () => {
+      vi.mocked(confirmDrop).mockResolvedValueOnce(false);
+      item(await openTableMenu(), "Drop Table")!.onClick!();
+      await waitFor(() => expect(confirmDrop).toHaveBeenCalledWith("conn-1", "table `app_db`.`users`"));
+      expect(runStatement).not.toHaveBeenCalled();
+    });
+
+    it("asks off production before emptying a table", async () => {
+      vi.mocked(confirmTruncate).mockResolvedValueOnce(false);
+      item(await openTableMenu(), "Truncate Table")!.onClick!();
+      await waitFor(() => expect(confirmTruncate).toHaveBeenCalledWith("conn-1", "`app_db`.`users`"));
+      expect(runStatement).not.toHaveBeenCalled();
+    });
+
     it("runs nothing when the confirmation is declined", async () => {
       vi.mocked(confirmDestructive).mockResolvedValue(false);
       const menu = await openTableMenu();
@@ -817,6 +835,35 @@ describe("SchemaTree menus (#293)", () => {
     });
   });
 
+  describe("New Table (#818)", () => {
+    it("opens the designer on a new table from the database menu", async () => {
+      useEditorStore.setState({ tabs: [], activeTabId: null });
+
+      item(await openDatabaseMenu(), "New Table…")?.onClick?.();
+
+      const { tabs, activeTabId } = useEditorStore.getState();
+      expect(tabs).toHaveLength(1);
+      expect(tabs[0]).toMatchObject({ type: "designer", connectionId: "conn-1", database: "app_db" });
+      expect(tabs[0].tableName).toBeUndefined();
+      expect(activeTabId).toBe(tabs[0].id);
+    });
+
+    it("offers it on the Tables folder", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useEditorStore.setState({ tabs: [], activeTabId: null });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+      await user.click(screen.getByText("app_db"));
+      await waitFor(() => screen.getByText("Tables"));
+      shownMenus.length = 0;
+
+      fireEvent.contextMenu(screen.getByText("Tables"));
+      item(shownMenus.at(-1) ?? [], "New Table…")?.onClick?.();
+
+      expect(useEditorStore.getState().tabs[0]).toMatchObject({ type: "designer", database: "app_db" });
+    });
+  });
+
   it("marks Set as Default disabled for the database already in use", async () => {
     useEditorStore.setState({
       tabs: [{
@@ -834,6 +881,307 @@ describe("SchemaTree menus (#293)", () => {
     const menu = await openDatabaseMenu();
 
     expect(item(menu, "Already the default")?.disabled).toBe(true);
+  });
+});
+
+describe("SchemaTree polish (#829)", () => {
+  const user = () => userEvent.setup({ applyAccept: false });
+
+  const openFolder = async (folder: string, leaf: string) => {
+    const u = user();
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    await u.click(screen.getByText("app_db"));
+    await waitFor(() => screen.getByText(folder));
+    await u.click(screen.getByText(folder));
+    await waitFor(() => screen.getByText(leaf));
+    return u;
+  };
+
+  const menuOf = (name: string) => {
+    shownMenus.length = 0;
+    fireEvent.contextMenu(screen.getByText(name));
+    return shownMenus.at(-1) ?? [];
+  };
+
+  const item = (menu: (typeof shownMenus)[number], label: string) => menu.find((i) => i.label === label);
+
+  beforeEach(() => {
+    shownMenus.length = 0;
+    useSchemaStore.setState({ byConnection: {} });
+    useSettingsStore.setState({
+      querySettings: { maxResultRows: 1000, limitEnabled: true, showSystemDatabases: false },
+    } as never);
+    vi.mocked(runStatement).mockClear();
+    vi.mocked(confirmDrop).mockClear();
+    vi.mocked(confirmDrop).mockResolvedValue(true);
+  });
+
+  describe("a table click", () => {
+    it("opens the rows in a tab named after the table, leaving the current tab alone", async () => {
+      const executeQuery = vi.fn(async () => ({ status: "ran" }));
+      setupStores({ activeTabId: "mine", database: "app_db" });
+      useEditorStore.getState().updateTabContent("mine", "SELECT 42");
+      useResultStore.setState({ executeQuery } as never);
+      const u = await openFolder("Tables", "users");
+
+      await u.click(screen.getByText("users"));
+
+      const { tabs, activeTabId } = useEditorStore.getState();
+      const opened = tabs.find((t) => t.id === activeTabId);
+      expect(opened).toMatchObject({
+        type: "query",
+        title: "app_db.users",
+        content: "SELECT * FROM `app_db`.`users` LIMIT 1000",
+        connectionId: "conn-1",
+        database: "app_db",
+        isDirty: false,
+      });
+      expect(tabs.find((t) => t.id === "mine")?.content).toBe("SELECT 42");
+      // On the new tab's session, so its results are filed under it.
+      expect(executeQuery).toHaveBeenCalledWith(
+        "conn-1",
+        "SELECT * FROM `app_db`.`users` LIMIT 1000",
+        "app_db",
+        opened?.id,
+      );
+    });
+
+    it("reuses the table's tab on a second click", async () => {
+      const executeQuery = vi.fn(async () => ({ status: "ran" }));
+      setupStores();
+      useResultStore.setState({ executeQuery } as never);
+      const u = await openFolder("Tables", "users");
+
+      await u.click(screen.getByText("users"));
+      await u.click(screen.getByText("users"));
+
+      expect(useEditorStore.getState().tabs.filter((t) => t.title === "app_db.users")).toHaveLength(1);
+      expect(executeQuery).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it("names a view's Select item for the limit it uses", async () => {
+    await openFolder("Views", "active_users");
+
+    const menu = menuOf("active_users");
+
+    expect(item(menu, "Select Top 1,000 Rows")).toBeDefined();
+    expect(item(menu, "Select Top 100 Rows")).toBeUndefined();
+  });
+
+  it.each([
+    ["Views", "active_users", "Drop View", "DROP VIEW `app_db`.`active_users`", () => api.getViews],
+    ["Procedures", "do_cleanup", "Drop Procedure", "DROP PROCEDURE `app_db`.`do_cleanup`", () => api.getRoutines],
+    ["Functions", "compute_total", "Drop Function", "DROP FUNCTION `app_db`.`compute_total`", () => api.getRoutines],
+    ["Triggers", "users_audit", "Drop Trigger", "DROP TRIGGER `app_db`.`users_audit`", () => api.getTriggers],
+  ])("refreshes %s after the drop has run", async (folder, leaf, label, sql, fetcher) => {
+    await openFolder(folder, leaf);
+    vi.mocked(fetcher()).mockClear();
+
+    await item(menuOf(leaf), label)?.onClick?.();
+
+    expect(runStatement).toHaveBeenCalledWith(expect.objectContaining({ connectionId: "conn-1", sql }));
+    await waitFor(() => expect(fetcher()).toHaveBeenCalled());
+  });
+
+  it("runs nothing when the drop is declined", async () => {
+    vi.mocked(confirmDrop).mockResolvedValue(false);
+    await openFolder("Views", "active_users");
+
+    await item(menuOf("active_users"), "Drop View")?.onClick?.();
+
+    expect(runStatement).not.toHaveBeenCalled();
+  });
+
+  describe("events", () => {
+    const event = {
+      name: "nightly",
+      event_type: "RECURRING",
+      status: "ENABLED",
+      definer: "root@localhost",
+      interval: "1 DAY",
+      comment: "",
+    };
+
+    beforeEach(() => {
+      vi.mocked(api.getEvents).mockResolvedValue([event] as never);
+    });
+
+    it("refreshes after disabling one", async () => {
+      await openFolder("Events", "nightly");
+      vi.mocked(api.getEvents).mockClear();
+
+      item(menuOf("nightly"), "Disable Event")?.onClick?.();
+
+      await waitFor(() =>
+        expect(runStatement).toHaveBeenCalledWith(
+          expect.objectContaining({ sql: "ALTER EVENT `app_db`.`nightly` DISABLE" }),
+        )
+      );
+      await waitFor(() => expect(api.getEvents).toHaveBeenCalled());
+    });
+
+    it("refreshes after dropping one", async () => {
+      await openFolder("Events", "nightly");
+      vi.mocked(api.getEvents).mockClear();
+
+      await item(menuOf("nightly"), "Drop Event")?.onClick?.();
+
+      expect(runStatement).toHaveBeenCalledWith(expect.objectContaining({ sql: "DROP EVENT `app_db`.`nightly`" }));
+      await waitFor(() => expect(api.getEvents).toHaveBeenCalled());
+    });
+  });
+
+  it("marks the connection's default database when the tab names none", async () => {
+    useConnectionStore.setState({
+      activeConnections: [{
+        id: "conn-1",
+        profile_id: "prof-1",
+        name: "Test",
+        host: "localhost",
+        port: 3306,
+        database: "app_db",
+        server_version: "8.0.0",
+        connected_at: "2024-01-01T00:00:00Z",
+      }],
+    } as never);
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+
+    expect(item(menuOf("app_db"), "Already the default")?.disabled).toBe(true);
+    expect(item(menuOf("logs"), "Set as Default")?.disabled).toBe(false);
+    expect(screen.getByText("app_db").closest("button")?.className).toContain("font-semibold");
+  });
+});
+
+describe("SchemaTree keyboard navigation (#823)", () => {
+  beforeEach(() => {
+    useSchemaStore.setState({ byConnection: {} });
+    setupStores();
+  });
+
+  const row = (name: string) => screen.getByRole("treeitem", { name: new RegExp(`^${name}\\b`) });
+  const focused = () => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.textContent;
+
+  const renderTree = async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    return user;
+  };
+
+  it("is one tab stop: the first row, then the row last focused", async () => {
+    const user = await renderTree();
+    const tabStops = () => screen.getAllByRole("treeitem").filter((r) => r.tabIndex === 0);
+
+    expect(tabStops()).toEqual([row("app_db")]);
+    expect(row("logs").tabIndex).toBe(-1);
+
+    await user.click(row("logs"));
+    expect(tabStops()).toEqual([row("logs")]);
+  });
+
+  it("moves down and up through the visible rows", async () => {
+    const user = await renderTree();
+    row("app_db").focus();
+
+    await user.keyboard("{ArrowDown}");
+    expect(focused()).toBe("logs");
+
+    await user.keyboard("{ArrowUp}");
+    expect(focused()).toBe("app_db");
+
+    // Into an opened database's folders, in the order they are shown.
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => screen.getByText("Tables"));
+    await user.keyboard("{ArrowDown}");
+    expect(focused()).toBe("Tables");
+  });
+
+  it("goes to the first child on Right and to the parent on Left", async () => {
+    const user = await renderTree();
+    row("app_db").focus();
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => screen.getByText("Tables"));
+
+    // Open already, so Right moves in rather than doing nothing.
+    await user.keyboard("{ArrowRight}");
+    expect(focused()).toBe("Tables");
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => screen.getByText("users"));
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(row("users"));
+
+    // A leaf goes to its folder, a closed folder to its database.
+    await user.keyboard("{ArrowLeft}");
+    expect(focused()).toBe("Tables");
+    await user.keyboard("{ArrowLeft}");
+    expect(screen.queryByText("users")).toBeNull();
+    await user.keyboard("{ArrowLeft}");
+    expect(focused()).toBe("app_db");
+  });
+
+  it("jumps to the first and last rows with Home and End", async () => {
+    const user = await renderTree();
+    row("app_db").focus();
+
+    await user.keyboard("{End}");
+    expect(focused()).toBe("logs");
+    await user.keyboard("{Home}");
+    expect(focused()).toBe("app_db");
+  });
+
+  it("makes every leaf a tree item, with its depth", async () => {
+    const user = await renderTree();
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await user.click(screen.getByText("Views"));
+    await user.click(screen.getByText("Procedures"));
+    await user.click(screen.getByText("Triggers"));
+    await waitFor(() => screen.getByText("users_audit"));
+
+    for (const name of ["users", "active_users", "do_cleanup", "users_audit"]) {
+      const leaf = screen.getByText(name).closest("[role='treeitem']");
+      expect(leaf, name).not.toBeNull();
+      expect(leaf?.getAttribute("aria-level"), name).toBe("3");
+    }
+    expect(row("app_db").getAttribute("aria-level")).toBe("1");
+    expect(row("Tables").getAttribute("aria-level")).toBe("2");
+  });
+
+  it("keeps the filter out of the tree", async () => {
+    await renderTree();
+
+    expect(screen.getByRole("tree").contains(screen.getByPlaceholderText(/Filter/))).toBe(false);
+  });
+
+  it("falls back to the first row when the focused one goes away", async () => {
+    const user = await renderTree();
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => screen.getByText("users"));
+    act(() => row("users").focus());
+    expect(row("users").tabIndex).toBe(0);
+
+    // The filter hides the row that was the tab stop.
+    await user.type(screen.getByPlaceholderText(/Filter/), "orders");
+    await waitFor(() => expect(screen.queryByText("users")).toBeNull());
+
+    expect(screen.getAllByRole("treeitem").filter((r) => r.tabIndex === 0)).toEqual([row("app_db")]);
+  });
+
+  it("opens a row's menu from the context-menu key", async () => {
+    // Shift+F10 and the menu key fire `contextmenu` on the focused row.
+    const user = await renderTree();
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => screen.getByText("users"));
+    shownMenus.length = 0;
+
+    fireEvent.contextMenu(row("users"));
+
+    expect(shownMenus.at(-1)?.some((i) => i.label === "Design Table")).toBe(true);
   });
 });
 
