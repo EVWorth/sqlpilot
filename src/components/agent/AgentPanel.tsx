@@ -1,8 +1,9 @@
 import { Bot, X } from "lucide-react";
-import { useEffect, useRef } from "react";
-import type { Harness } from "../../lib/bindings";
+import { useEffect, useRef, useState } from "react";
 import { useAgentSessionStore } from "../../stores/agentSessionStore";
+import { ConfirmDialog } from "../common/ConfirmDialog";
 import { AgentComposer } from "./AgentComposer";
+import { AgentStart } from "./AgentStart";
 import { Thinking, TranscriptBlock } from "./AgentTranscript";
 
 /**
@@ -41,6 +42,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const answer = useAgentSessionStore((s) => s.answer);
 
   const bottom = useRef<HTMLDivElement>(null);
+  const [confirmEnd, setConfirmEnd] = useState(false);
 
   useEffect(() => {
     void findHarnesses();
@@ -52,7 +54,12 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
     bottom.current?.scrollIntoView({ block: "end" });
   }, [transcript]);
 
-  const installed = harnesses.filter((h) => h.installed);
+  // Ending mid-turn throws away whatever the agent is doing, so it asks
+  // first. Between turns there is nothing to lose: the transcript stays.
+  const end = () => {
+    if (thinking) setConfirmEnd(true);
+    else void stop();
+  };
 
   return (
     <div className="flex h-full w-[380px] flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-primary)]">
@@ -67,7 +74,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           {session && (
             <button
               type="button"
-              onClick={() => void stop()}
+              onClick={end}
               className="rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
             >
               End
@@ -90,78 +97,62 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
         </p>
       )}
 
-      {!session
-        ? (
-          <div className="flex flex-1 flex-col justify-center gap-3 p-4">
-            <p className="text-xs text-[var(--color-text-secondary)]">
-              Run your own agent here, with the connections you have shared. SQLPilot never signs in for you and never
-              sees your key — it starts the CLI you already have.
+      {session && !toolsAvailable && (
+        <p className="border-b border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-warning)]">
+          This agent could not be given SQLPilot's tools, so it cannot see your databases.
+        </p>
+      )}
+
+      {(session || transcript.length > 0) && (
+        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+          {session && transcript.length === 0 && (
+            <p className="text-xs text-[var(--color-text-muted)]">
+              Ask about a query, a schema, or the error you just hit.
             </p>
-            {installed.length === 0
-              ? (
-                <div className="space-y-2">
-                  <p className="text-xs text-[var(--color-text-muted)]">
-                    No agent CLI found on this machine. Install one and reopen this panel:
-                  </p>
-                  {harnesses.map((h) => (
-                    <div key={h.harness} className="text-xs">
-                      <span className="text-[var(--color-text-secondary)]">{h.label}</span>
-                      <code className="mt-0.5 block rounded bg-[var(--color-bg-secondary)] px-2 py-1 font-mono text-[11px] text-[var(--color-text-primary)]">
-                        {h.installHint}
-                      </code>
-                    </div>
-                  ))}
-                </div>
-              )
-              : (
-                installed.map((h) => (
-                  <button
-                    key={h.harness}
-                    type="button"
-                    disabled={starting !== null}
-                    aria-busy={starting === h.harness}
-                    onClick={() => void start(h.harness as Harness)}
-                    className="rounded bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-60"
-                  >
-                    {starting === h.harness ? `Starting ${h.label}…` : `Start ${h.label}`}
-                    {h.version && <span className="ml-1 font-normal opacity-80">({h.version})</span>}
-                  </button>
-                ))
-              )}
-          </div>
+          )}
+          {transcript.map((item, i) => <TranscriptBlock key={i} item={item} onAnswer={answer} />)}
+          {thinking && (
+            <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+              <Thinking />
+              Working
+            </div>
+          )}
+          <div ref={bottom} />
+        </div>
+      )}
+
+      {session
+        ? (
+          <AgentComposer
+            thinking={thinking}
+            failed={failed}
+            onSend={(text) => void send(text)}
+            onCancel={() => void cancel()}
+            onNewSession={() => void stop()}
+          />
         )
         : (
-          <>
-            {!toolsAvailable && (
-              <p className="border-b border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-warning)]">
-                This agent could not be given SQLPilot's tools, so it cannot see your databases.
-              </p>
-            )}
-            <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-              {transcript.length === 0 && (
-                <p className="text-xs text-[var(--color-text-muted)]">
-                  Ask about a query, a schema, or the error you just hit.
-                </p>
-              )}
-              {transcript.map((item, i) => <TranscriptBlock key={i} item={item} onAnswer={answer} />)}
-              {thinking && (
-                <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-                  <Thinking />
-                  Working
-                </div>
-              )}
-              <div ref={bottom} />
-            </div>
-
-            <AgentComposer
-              thinking={thinking}
-              failed={failed}
-              onSend={(text) => void send(text)}
-              onCancel={() => void cancel()}
-              onNewSession={() => void stop()}
-            />
-          </>
+          <AgentStart
+            harnesses={harnesses}
+            starting={starting}
+            onStart={(harness) => void start(harness)}
+            compact={transcript.length > 0}
+          />
         )}
+
+      <ConfirmDialog
+        isOpen={confirmEnd}
+        title="End the session?"
+        message="The agent is still working on this turn. Ending the session stops it; the transcript stays until you start a new one."
+        confirmLabel="End session"
+        cancelLabel="Keep working"
+        danger
+        onConfirm={() => {
+          setConfirmEnd(false);
+          void stop();
+        }}
+        onCancel={() => setConfirmEnd(false)}
+      />
     </div>
   );
 }

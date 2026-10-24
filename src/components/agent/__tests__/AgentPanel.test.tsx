@@ -166,6 +166,35 @@ describe("during a session", () => {
     await waitFor(() => expect(apiMocks.stopAgentSession).toHaveBeenCalledWith("s1"));
   });
 
+  it("asks before ending a session in the middle of a turn", async () => {
+    useAgentSessionStore.setState({ ...running, thinking: true });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(screen.getByRole("dialog", { name: "End the session?" })).toBeTruthy();
+    expect(apiMocks.stopAgentSession).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep working" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(apiMocks.stopAgentSession).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "End session" }));
+    await waitFor(() => expect(apiMocks.stopAgentSession).toHaveBeenCalledWith("s1"));
+  });
+
+  it("keeps the last transcript on screen after the session ends", async () => {
+    useAgentSessionStore.setState({
+      ...running,
+      transcript: [{ kind: "user", text: "hello" }, { kind: "agent", text: "hi there" }],
+    });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(await screen.findByRole("separator", { name: "Session ended" })).toBeTruthy();
+    expect(screen.getByText("hi there")).toBeTruthy();
+    // And a new one is one click away.
+    expect(screen.getByRole("button", { name: /Start GitHub Copilot/ })).toBeTruthy();
+  });
+
   it("says where writes are approved", () => {
     // The harness's own permissions are not the last word, and the panel says
     // so where the user is about to type.

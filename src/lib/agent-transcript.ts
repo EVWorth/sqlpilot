@@ -38,7 +38,9 @@ export type TranscriptItem =
   | { kind: "plan"; entries: PlanEntry[] }
   | { kind: "note"; text: string }
   /** The harness failed: not a remark about the turn, the end of the session. */
-  | { kind: "error"; text: string };
+  | { kind: "error"; text: string }
+  /** The session ended; what is above belongs to a process that is gone. */
+  | { kind: "ended" };
 
 /** What the user typed, added before the agent answers it. */
 export function addUserMessage(items: TranscriptItem[], text: string): TranscriptItem[] {
@@ -137,6 +139,23 @@ function currentTurnStart(items: TranscriptItem[]): number {
     if (items[i].kind === "user") return i + 1;
   }
   return 0;
+}
+
+/**
+ * Close the transcript of a session that has ended, so it can stay on screen
+ * without reading as live. Permissions still waiting can no longer be
+ * answered, so they read as dismissed.
+ */
+export function endSession(items: TranscriptItem[]): TranscriptItem[] {
+  if (items.length === 0 || items[items.length - 1].kind === "ended") return items;
+  return [
+    ...items.map((item) =>
+      item.kind === "permission" && item.answered === undefined && !item.dismissed
+        ? { ...item, dismissed: true }
+        : item
+    ),
+    { kind: "ended" },
+  ];
 }
 
 /** Mark a permission as answered, so its buttons stop inviting a second click. */

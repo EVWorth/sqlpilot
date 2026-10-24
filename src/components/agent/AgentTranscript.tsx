@@ -185,6 +185,14 @@ export function TranscriptBlock({ item, onAnswer }: {
       return <PlanRow item={item} />;
     case "note":
       return <p className="text-xs italic text-[var(--color-text-muted)]">{item.text}</p>;
+    case "ended":
+      return (
+        <div role="separator" aria-label="Session ended" className="flex items-center gap-2 pt-1">
+          <span className="h-px flex-1 bg-[var(--color-border)]" />
+          <span className="text-[10px] uppercase text-[var(--color-text-muted)]">Session ended</span>
+          <span className="h-px flex-1 bg-[var(--color-border)]" />
+        </div>
+      );
     case "error":
       return (
         <div

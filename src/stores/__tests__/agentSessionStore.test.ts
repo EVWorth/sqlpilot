@@ -253,6 +253,25 @@ describe("stopping", () => {
     expect(useAgentSessionStore.getState().thinking).toBe(false);
   });
 
+  it("keeps the transcript after the session ends, closed off", async () => {
+    // The answer the user was reading should not vanish with the process.
+    arrive({ type: "text", delta: "the answer" });
+    arrive({
+      type: "permissionRequested",
+      id: "p1",
+      title: "Run `ls`",
+      options: [{ id: "yes", label: "Allow once", kind: "allow_once" }],
+    });
+    await useAgentSessionStore.getState().stop();
+    expect(transcript().map((item) => item.kind)).toEqual(["agent", "permission", "ended"]);
+    // Nobody is left to answer it.
+    expect(transcript()[1]).toMatchObject({ dismissed: true });
+
+    // Until a new session replaces it.
+    await useAgentSessionStore.getState().start("copilot");
+    expect(transcript()).toEqual([]);
+  });
+
   it("forgets the session even when stopping it failed", async () => {
     // The process may already be gone; leaving the UI attached to it would
     // make the panel unusable until a restart.

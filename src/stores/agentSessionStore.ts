@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { addUserMessage, answerPermission, applyEvent, type TranscriptItem } from "../lib/agent-transcript";
+import { addUserMessage, answerPermission, applyEvent, endSession, type TranscriptItem } from "../lib/agent-transcript";
 import type { AgentSessionEvent, Harness, HarnessStatus } from "../lib/bindings";
 import { api } from "../lib/tauri-api";
 
@@ -126,7 +126,9 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     } catch (e) {
       set({ error: message(e) });
     }
-    set({ session: null, agent: null, thinking: false, failed: false });
+    // The transcript stays, closed off, until a new session replaces it: the
+    // answer the user was reading should not vanish with the process.
+    set({ session: null, agent: null, thinking: false, failed: false, transcript: endSession(get().transcript) });
   },
 
   answer: async (requestId, optionId) => {
