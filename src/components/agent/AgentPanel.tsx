@@ -1,5 +1,6 @@
 import { Bot, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useAgentPanelWidth } from "../../hooks/useAgentPanelWidth";
 import { useAgentSessionStore } from "../../stores/agentSessionStore";
 import { useAgentStore } from "../../stores/agentStore";
 import { ConfirmDialog } from "../common/ConfirmDialog";
@@ -47,6 +48,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const input = useRef<HTMLTextAreaElement>(null);
   const firstStart = useRef<HTMLButtonElement>(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
+  const { width, separatorProps } = useAgentPanelWidth();
 
   // Keyboard users have no other way in: the panel sits after Monaco in the
   // tab order, and Monaco keeps Tab for itself. So focus moves into the panel
@@ -108,101 +110,111 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   };
 
   return (
-    <div className="flex h-full w-[380px] flex-col border-l border-[var(--color-border)] bg-[var(--color-bg-primary)]">
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
-        <div className="flex min-w-0 items-center gap-2">
-          <Bot className="h-4 w-4 shrink-0 text-brand-400" />
-          <span className="truncate text-xs font-semibold text-[var(--color-text-primary)]">
-            {agent ?? "Agent"}
-          </span>
-        </div>
-        <div className="flex items-center gap-1">
-          {session && (
+    <div className="flex h-full shrink-0" style={{ width }}>
+      {
+        /* The same divider as the sidebar's: a 4px line with a wider grab
+          area, focusable so the arrow keys resize it too. */
+      }
+      <div
+        {...separatorProps}
+        className="relative z-10 w-1 shrink-0 cursor-col-resize bg-[var(--color-border)] transition-colors hover:bg-brand-500 focus-visible:bg-brand-500 focus-visible:outline-none after:absolute after:inset-y-0 after:-left-2.5 after:-right-2.5 after:content-['']"
+      />
+      <div className="flex min-w-0 flex-1 flex-col bg-[var(--color-bg-primary)]">
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-3 py-2">
+          <div className="flex min-w-0 items-center gap-2">
+            <Bot className="h-4 w-4 shrink-0 text-brand-400" />
+            <span className="truncate text-xs font-semibold text-[var(--color-text-primary)]">
+              {agent ?? "Agent"}
+            </span>
+          </div>
+          <div className="flex items-center gap-1">
+            {session && (
+              <button
+                type="button"
+                onClick={end}
+                className="rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+              >
+                End
+              </button>
+            )}
             <button
               type="button"
-              onClick={end}
-              className="rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+              onClick={onClose}
+              aria-label="Close the agent panel"
+              className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
             >
-              End
+              <X className="h-4 w-4" />
             </button>
-          )}
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close the agent panel"
-            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          </div>
         </div>
-      </div>
 
-      <AgentSharingStrip />
+        <AgentSharingStrip />
 
-      {error && (
-        <p role="alert" className="px-3 py-2 text-xs text-[var(--color-error)]">
-          {error}
-        </p>
-      )}
-
-      {session && !toolsAvailable && (
-        <p className="border-b border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-warning)]">
-          This agent could not be given SQLPilot's tools, so it cannot see your databases.
-        </p>
-      )}
-
-      {(session || transcript.length > 0) && (
-        <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
-          {session && transcript.length === 0 && (
-            <p className="text-xs text-[var(--color-text-muted)]">
-              Ask about a query, a schema, or the error you just hit.
-            </p>
-          )}
-          {transcript.map((item, i) => <TranscriptBlock key={i} item={item} onAnswer={answerAndReturn} />)}
-          {thinking && (
-            <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
-              <Thinking />
-              Working
-            </div>
-          )}
-          <div ref={bottom} />
-        </div>
-      )}
-
-      {session
-        ? (
-          <AgentComposer
-            thinking={thinking}
-            failed={failed}
-            onSend={(text) => void send(text)}
-            onCancel={() => void cancel()}
-            onNewSession={() => void stop()}
-            inputRef={input}
-          />
-        )
-        : (
-          <AgentStart
-            harnesses={harnesses}
-            starting={starting}
-            onStart={(harness) => void start(harness)}
-            compact={transcript.length > 0}
-            firstButtonRef={firstStart}
-          />
+        {error && (
+          <p role="alert" className="px-3 py-2 text-xs text-[var(--color-error)]">
+            {error}
+          </p>
         )}
 
-      <ConfirmDialog
-        isOpen={confirmEnd}
-        title="End the session?"
-        message="The agent is still working on this turn. Ending the session stops it; the transcript stays until you start a new one."
-        confirmLabel="End session"
-        cancelLabel="Keep working"
-        danger
-        onConfirm={() => {
-          setConfirmEnd(false);
-          void stop();
-        }}
-        onCancel={() => setConfirmEnd(false)}
-      />
+        {session && !toolsAvailable && (
+          <p className="border-b border-[var(--color-border)] px-3 py-2 text-xs text-[var(--color-warning)]">
+            This agent could not be given SQLPilot's tools, so it cannot see your databases.
+          </p>
+        )}
+
+        {(session || transcript.length > 0) && (
+          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+            {session && transcript.length === 0 && (
+              <p className="text-xs text-[var(--color-text-muted)]">
+                Ask about a query, a schema, or the error you just hit.
+              </p>
+            )}
+            {transcript.map((item, i) => <TranscriptBlock key={i} item={item} onAnswer={answerAndReturn} />)}
+            {thinking && (
+              <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
+                <Thinking />
+                Working
+              </div>
+            )}
+            <div ref={bottom} />
+          </div>
+        )}
+
+        {session
+          ? (
+            <AgentComposer
+              thinking={thinking}
+              failed={failed}
+              onSend={(text) => void send(text)}
+              onCancel={() => void cancel()}
+              onNewSession={() => void stop()}
+              inputRef={input}
+            />
+          )
+          : (
+            <AgentStart
+              harnesses={harnesses}
+              starting={starting}
+              onStart={(harness) => void start(harness)}
+              compact={transcript.length > 0}
+              firstButtonRef={firstStart}
+            />
+          )}
+
+        <ConfirmDialog
+          isOpen={confirmEnd}
+          title="End the session?"
+          message="The agent is still working on this turn. Ending the session stops it; the transcript stays until you start a new one."
+          confirmLabel="End session"
+          cancelLabel="Keep working"
+          danger
+          onConfirm={() => {
+            setConfirmEnd(false);
+            void stop();
+          }}
+          onCancel={() => setConfirmEnd(false)}
+        />
+      </div>
     </div>
   );
 }

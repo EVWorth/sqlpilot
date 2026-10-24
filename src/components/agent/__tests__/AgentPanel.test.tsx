@@ -199,6 +199,40 @@ describe("focus", () => {
   });
 });
 
+describe("width", () => {
+  // jsdom's window is 1024px wide: the case the fixed 380px did not fit.
+  const panelWidth = () =>
+    (screen.getByRole("separator", { name: "Resize the agent panel" }).parentElement as HTMLElement)
+      .style.width;
+
+  beforeEach(() => localStorage.clear());
+
+  it("fits a 1024px window", () => {
+    open();
+    expect(window.innerWidth).toBe(1024);
+    expect(panelWidth()).toBe("307px");
+  });
+
+  it("resizes from the divider by dragging, and remembers it", () => {
+    open();
+    const divider = screen.getByRole("separator", { name: "Resize the agent panel" });
+    fireEvent.pointerDown(divider, { clientX: 700, pointerId: 1 });
+    fireEvent.pointerMove(divider, { clientX: 600, pointerId: 1 });
+    expect(panelWidth()).toBe("407px");
+    fireEvent.pointerUp(divider, { clientX: 600, pointerId: 1 });
+    expect(localStorage.getItem("sqlpilot-agent-panel-width")).toBe("407");
+  });
+
+  it("resizes from the keyboard, within its limits", () => {
+    open();
+    const divider = screen.getByRole("separator", { name: "Resize the agent panel" });
+    fireEvent.keyDown(divider, { key: "ArrowLeft" });
+    expect(divider.getAttribute("aria-valuenow")).toBe("323");
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(divider, { key: "ArrowRight" });
+    expect(divider.getAttribute("aria-valuenow")).toBe("300");
+  });
+});
+
 describe("what the agent can reach", () => {
   it("lists the shared connections with environment and posture", async () => {
     apiMocks.listAgentConnections.mockResolvedValue([
