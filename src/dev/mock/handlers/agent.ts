@@ -90,17 +90,7 @@ const waiting = new Map<string, (answer: { value: string | null; error: string |
 /** The approval dialog holds one at a time, so requests are sent in turn. */
 let queue: Promise<unknown> = Promise.resolve();
 
-/**
- * Who is asking, as the backend is to report it for an approval (#801): the
- * in-app session's id, or none and the client's own name for an external
- * client. Not in the generated `AgentAsk` yet, so it rides alongside.
- */
-interface Requester {
-  session?: string | null;
-  client?: string | null;
-}
-
-function ask(question: AgentAsk & Requester): Promise<{ value: string | null; error: string | null }> {
+function ask(question: AgentAsk): Promise<{ value: string | null; error: string | null }> {
   const asked = queue.then(
     () =>
       new Promise<{ value: string | null; error: string | null }>((resolve) => {
