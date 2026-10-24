@@ -2,7 +2,7 @@ import type { SqlValue } from "../lib/bindings";
 import { isNumericLiteral, isNumericSqlType } from "../lib/sql-types";
 
 // Types crossing the Tauri boundary are generated from Rust by tauri-specta
-// (src/lib/bindings.ts, regenerate with `make bindings`). Re-exported here so
+// (src/lib/bindings.ts, regenerate with `just bindings`). Re-exported here so
 // existing imports keep working and the definitions cannot drift from Rust.
 export type {
   ColumnInfo,

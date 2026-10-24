@@ -76,7 +76,7 @@ fn column_n(results: &[mas_core::models::QueryResult]) -> Vec<String> {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn offset_skips_rows_and_limit_bounds_the_page() {
     let (executor, id) = executor().await;
 
@@ -111,7 +111,7 @@ async fn offset_skips_rows_and_limit_bounds_the_page() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn last_page_comes_back_short() {
     let (executor, id) = executor().await;
 
@@ -132,7 +132,7 @@ async fn last_page_comes_back_short() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn offset_past_the_end_returns_nothing_rather_than_failing() {
     let (executor, id) = executor().await;
 
@@ -152,7 +152,7 @@ async fn offset_past_the_end_returns_nothing_rather_than_failing() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn pages_statements_an_appended_offset_could_not_reach() {
     let (executor, id) = executor().await;
 
@@ -182,7 +182,7 @@ async fn pages_statements_an_appended_offset_could_not_reach() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn each_statement_in_a_batch_is_paged_from_its_own_start() {
     // The skip counter resets per result set; otherwise the first statement
     // would consume the offset and the second would start from row one.

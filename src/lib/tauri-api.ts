@@ -20,7 +20,7 @@ import { commands } from "./bindings";
  * tauri-specta, so nothing here restates the wire contract. What this module
  * still owns is behaviour the generated code cannot provide:
  *
- * - the non-Tauri guard, so `make dev-web` fails with a clear message rather
+ * - the non-Tauri guard, so `just dev-web` fails with a clear message rather
  *   than a raw Tauri internals error
  * - the error convention: generated commands resolve to
  *   `{ status: "ok" | "error" }`, while every caller here expects a rejected

@@ -54,7 +54,7 @@ const MANY_ROWS: &str = "SELECT a.ORDINAL_POSITION AS n
      LIMIT 5000";
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_tripped_guard_returns_the_rows_it_has_and_says_why() {
     let manager = Arc::new(ConnectionManager::new());
     // No machine has u64::MAX MB free, so the first check fails.
@@ -86,7 +86,7 @@ async fn a_tripped_guard_returns_the_rows_it_has_and_says_why() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_default_floor_does_not_trip_on_a_healthy_machine() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -103,7 +103,7 @@ async fn the_default_floor_does_not_trip_on_a_healthy_machine() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_row_limit_is_reported_as_a_row_limit_even_when_memory_is_tight() {
     // Both caps can apply to one fetch. The row limit is the one the user can
     // do something about, and it is the one that stopped the read first.

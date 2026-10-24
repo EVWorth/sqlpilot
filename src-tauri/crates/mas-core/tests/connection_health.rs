@@ -43,7 +43,7 @@ fn port() -> u16 {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_new_connection_starts_healthy_and_can_be_pinged() {
     let manager = Arc::new(ConnectionManager::new());
     let info = manager.connect(&profile(port())).await.unwrap();
@@ -66,7 +66,7 @@ async fn a_new_connection_starts_healthy_and_can_be_pinged() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_disconnected_connection_has_no_health_and_stops_being_watched() {
     let manager = Arc::new(ConnectionManager::new());
     let info = manager.connect(&profile(port())).await.unwrap();
@@ -85,7 +85,7 @@ async fn a_disconnected_connection_has_no_health_and_stops_being_watched() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_ping_against_a_closed_pool_reports_the_failure_rather_than_hanging() {
     // What the checker sees when the server goes away: an error, promptly.
     let manager = Arc::new(ConnectionManager::new());
@@ -106,7 +106,7 @@ async fn a_ping_against_a_closed_pool_reports_the_failure_rather_than_hanging() 
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_stored_pool_size_is_ignored() {
     // Profiles saved by older builds still carry a pool size, anything from a
     // zero (which sqlx panics on) to a hand-edited thousand. Connections are

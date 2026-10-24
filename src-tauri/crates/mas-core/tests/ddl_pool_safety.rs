@@ -82,7 +82,7 @@ async fn teardown(pool: &sqlx::MySqlPool) {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn ddl_names_the_database_it_was_asked_for_at_any_pool_size() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -112,7 +112,7 @@ async fn ddl_names_the_database_it_was_asked_for_at_any_pool_size() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn views_and_routines_are_qualified_too() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -142,7 +142,7 @@ async fn views_and_routines_are_qualified_too() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_missing_object_is_an_error_rather_than_an_empty_string() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -164,7 +164,7 @@ async fn a_missing_object_is_an_error_rather_than_an_empty_string() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_database_that_does_not_exist_says_so() {
     // Previously the `USE` failed, its error was discarded, and the
     // `SHOW CREATE` ran against whatever database the session already had —

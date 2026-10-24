@@ -111,7 +111,7 @@ fn text(value: &mas_core::models::query::SqlValue) -> String {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn table_stats_parses_and_finds_the_table() {
     let live = Live::connect().await;
 
@@ -129,7 +129,7 @@ async fn table_stats_parses_and_finds_the_table() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_table_that_does_not_exist_comes_back_empty_rather_than_failing() {
     // The tool turns this into "there is no such table", which is only
     // possible if the query itself succeeds.
@@ -139,7 +139,7 @@ async fn a_table_that_does_not_exist_comes_back_empty_rather_than_failing() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn profiling_counts_nulls_and_distinct_values() {
     let live = Live::connect().await;
 
@@ -156,7 +156,7 @@ async fn profiling_counts_nulls_and_distinct_values() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_extremes_of_a_datetime_come_back_as_text_without_losing_precision() {
     // CAST(... AS CHAR) on a DATETIME(6) is the case that would quietly drop
     // sub-second precision if the cast were to something narrower — the same
@@ -175,7 +175,7 @@ async fn the_extremes_of_a_datetime_come_back_as_text_without_losing_precision()
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_decimal_keeps_its_scale_through_the_cast() {
     // Through f64 this would come back as 10.5, and an agent writing
     // `WHERE total = 10.5` against a DECIMAL(10,2) is a subtly wrong query.
@@ -188,7 +188,7 @@ async fn a_decimal_keeps_its_scale_through_the_cast() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn top_values_orders_by_frequency_and_skips_nulls() {
     let live = Live::connect().await;
 
@@ -202,7 +202,7 @@ async fn top_values_orders_by_frequency_and_skips_nulls() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn identifiers_that_need_quoting_actually_work() {
     // A backtick in a table or column name is legal, rare, and exactly the
     // case where string building without quoting produces a syntax error at
@@ -220,7 +220,7 @@ async fn identifiers_that_need_quoting_actually_work() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn an_empty_table_profiles_to_nulls_rather_than_an_error() {
     let live = Live::connect().await;
     let pool = live.manager.get_pool(&live.id).unwrap();
