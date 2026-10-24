@@ -29,7 +29,7 @@ export function EnvironmentBadge(
       title={badge.name}
       aria-label={`${badge.name} environment`}
       className={cn(
-        "shrink-0 rounded px-1 py-px text-[10px] font-bold uppercase leading-tight",
+        "shrink-0 rounded px-1 text-xs font-bold uppercase leading-4",
         badge.className,
         className,
       )}

@@ -8,7 +8,7 @@ import { SQLEditor } from "../SQLEditor";
 const mockEditorOnMountFn = vi.fn();
 
 vi.mock("@monaco-editor/react", () => ({
-  default: ({ height, language, theme, value, onMount }: any) => {
+  default: ({ height, language, theme, value, onMount, options }: any) => {
     if (onMount) {
       const mockEditor = {
         getModel: vi.fn().mockReturnValue({
@@ -31,7 +31,13 @@ vi.mock("@monaco-editor/react", () => ({
       mockEditorOnMountFn();
     }
     return (
-      <div data-testid="monaco-editor" data-language={language} data-theme={theme} data-height={height}>
+      <div
+        data-testid="monaco-editor"
+        data-language={language}
+        data-theme={theme}
+        data-height={height}
+        data-font-size={options?.fontSize}
+      >
         <pre>{value}</pre>
       </div>
     );
@@ -114,23 +120,28 @@ vi.mock("../../../stores/connectionStore", () => ({
 }));
 
 // Mock settings store
+const settingsState = vi.hoisted(() => ({ editorFontSize: 14 }));
 vi.mock("../../../stores/settingsStore", () => ({
-  useSettingsStore: vi.fn(() => ({
-    formatterSettings: {
-      keywordCase: "upper",
-      identifierCase: "preserve",
-      dataTypeCase: "upper",
-      functionCase: "preserve",
-      indentStyle: "standard",
-      tabWidth: 2,
-      useTabs: false,
-      logicalOperatorNewline: "before",
-      newlineBeforeSemicolon: false,
-      expressionWidth: 50,
-      linesBetweenQueries: 1,
-      denseOperators: false,
-    },
-  })),
+  useSettingsStore: vi.fn((selector?: (s: unknown) => unknown) => {
+    const state = {
+      querySettings: { showMinimap: false, editorFontSize: settingsState.editorFontSize },
+      formatterSettings: {
+        keywordCase: "upper",
+        identifierCase: "preserve",
+        dataTypeCase: "upper",
+        functionCase: "preserve",
+        indentStyle: "standard",
+        tabWidth: 2,
+        useTabs: false,
+        logicalOperatorNewline: "before",
+        newlineBeforeSemicolon: false,
+        expressionWidth: 50,
+        linesBetweenQueries: 1,
+        denseOperators: false,
+      },
+    };
+    return selector ? selector(state) : state;
+  }),
 }));
 
 // Mock schema cache store
@@ -266,5 +277,14 @@ describe("editor colours from the app theme (#838)", () => {
     expect(setTheme).toHaveBeenCalledWith("sqlpilot-nord");
     expect(screen.getByTestId("monaco-editor")).toHaveAttribute("data-theme", "sqlpilot-nord");
     vi.mocked(useMonaco).mockReturnValue(null);
+  });
+});
+
+describe("editor font size (#837)", () => {
+  it("comes from the setting, not a hard-coded 13", () => {
+    settingsState.editorFontSize = 18;
+    render(<SQLEditor />);
+    expect(screen.getByTestId("monaco-editor")).toHaveAttribute("data-font-size", "18");
+    settingsState.editorFontSize = 14;
   });
 });

@@ -161,6 +161,14 @@ describe("StatusBar", () => {
     expect(screen.getByText("MySQL 8.0.33")).toBeInTheDocument();
   });
 
+  it("keeps its text at the 12px minimum (#837, NFR-3.5)", () => {
+    renderStatusBar();
+    const small = [...document.body.querySelectorAll("[class]")].filter((el) =>
+      /text-\[(?:[0-9]|1[01])px\]/.test(el.getAttribute("class") ?? "")
+    );
+    expect(small.map((el) => el.getAttribute("class"))).toEqual([]);
+  });
+
   it("names a MariaDB server MariaDB (#838)", () => {
     const conn = useConnectionStore.getState().activeConnections[0];
     useConnectionStore.setState({

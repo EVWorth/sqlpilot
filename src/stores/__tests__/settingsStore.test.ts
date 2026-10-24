@@ -14,6 +14,8 @@ const defaultQuerySettings = {
   limitEnabled: true,
   showSystemDatabases: false,
   showMinimap: false,
+  editorFontSize: 14,
+  uiScale: 1,
 };
 const defaultFormatterSettings = {
   keywordCase: "upper" as const,
@@ -71,6 +73,48 @@ describe("settingsStore", () => {
         ...defaultQuerySettings,
         ...partial,
       });
+    });
+  });
+
+  describe("interface scale and editor font size (#837)", () => {
+    beforeEach(() => {
+      localStorage.clear();
+    });
+
+    it("steps the scale up and down, stopping at the ends", async () => {
+      vi.resetModules();
+      const { useSettingsStore, UI_SCALES } = await import("../settingsStore");
+      useSettingsStore.getState().zoom(1);
+      expect(useSettingsStore.getState().querySettings.uiScale).toBe(1.1);
+      for (let i = 0; i < 10; i++) useSettingsStore.getState().zoom(1);
+      expect(useSettingsStore.getState().querySettings.uiScale).toBe(UI_SCALES[UI_SCALES.length - 1]);
+      for (let i = 0; i < 10; i++) useSettingsStore.getState().zoom(-1);
+      expect(useSettingsStore.getState().querySettings.uiScale).toBe(UI_SCALES[0]);
+      useSettingsStore.getState().resetZoom();
+      expect(useSettingsStore.getState().querySettings.uiScale).toBe(1);
+    });
+
+    it("persists the scale with the other query settings", async () => {
+      vi.resetModules();
+      const { useSettingsStore } = await import("../settingsStore");
+      useSettingsStore.getState().zoom(-1);
+      expect(JSON.parse(localStorage.getItem(QUERY_SETTINGS_KEY) ?? "{}").uiScale).toBe(0.9);
+    });
+
+    it("repairs unreadable stored values instead of shrinking the window to nothing", async () => {
+      localStorage.setItem(QUERY_SETTINGS_KEY, JSON.stringify({ uiScale: 0, editorFontSize: 400 }));
+      vi.resetModules();
+      const { useSettingsStore } = await import("../settingsStore");
+      const { uiScale, editorFontSize } = useSettingsStore.getState().querySettings;
+      expect(uiScale).toBe(0.8);
+      expect(editorFontSize).toBe(28);
+    });
+
+    it("clamps and rounds the font size", async () => {
+      const { clampFontSize } = await import("../settingsStore");
+      expect(clampFontSize(3)).toBe(10);
+      expect(clampFontSize(15.6)).toBe(16);
+      expect(clampFontSize("x")).toBe(14);
     });
   });
 

@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useEditorStore } from "../stores/editorStore";
 import { useResultStore } from "../stores/resultStore";
+import { useSettingsStore } from "../stores/settingsStore";
 
 export function useKeyboardShortcuts(
   onToggleSidebar?: () => void,
@@ -24,6 +25,25 @@ export function useKeyboardShortcuts(
       }
 
       if (!ctrl) return;
+
+      // Ctrl+= / Ctrl++, Ctrl+- and Ctrl+0 — interface scale (#837). Matched
+      // on the key and on the physical key, so "=" without Shift and the
+      // numpad both work on every layout.
+      if (!e.altKey && (e.key === "=" || e.key === "+" || e.code === "NumpadAdd")) {
+        e.preventDefault();
+        useSettingsStore.getState().zoom(1);
+        return;
+      }
+      if (!e.altKey && (e.key === "-" || e.key === "_" || e.code === "NumpadSubtract")) {
+        e.preventDefault();
+        useSettingsStore.getState().zoom(-1);
+        return;
+      }
+      if (!e.altKey && !shift && (e.key === "0" || e.code === "Numpad0")) {
+        e.preventDefault();
+        useSettingsStore.getState().resetZoom();
+        return;
+      }
 
       // Ctrl+. — cancel the running query (FR-2.2.4).
       //

@@ -144,6 +144,9 @@ export const ACTIONS: Action[] = [
     shortcut: "Ctrl+Shift+P",
     keywords: ["commands", "run", "search", "actions"],
   },
+  { id: "zoom-in", label: "Zoom In", category: "View", shortcut: "Ctrl+=", keywords: ["bigger", "scale", "font"] },
+  { id: "zoom-out", label: "Zoom Out", category: "View", shortcut: "Ctrl+-", keywords: ["smaller", "scale", "font"] },
+  { id: "reset-zoom", label: "Reset Zoom", category: "View", shortcut: "Ctrl+0", keywords: ["scale", "100%"] },
   {
     id: "agent-panel",
     label: "Agent Panel",
@@ -232,6 +235,10 @@ export const MENUS: Menu[] = [
       { type: "separator" },
       { type: "item", id: "appearance" },
       { type: "item", id: "cycle-theme" },
+      { type: "separator" },
+      { type: "item", id: "zoom-in" },
+      { type: "item", id: "zoom-out" },
+      { type: "item", id: "reset-zoom" },
     ],
   },
   {
