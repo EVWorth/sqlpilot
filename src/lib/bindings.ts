@@ -275,7 +275,17 @@ export const commands = {
 	startAgentSession: (harness: Harness) => typedError<StartedSession, string>(__TAURI_INVOKE("start_agent_session", { harness })),
 	/**  Send a message. The answer arrives as events, not as a return value. */
 	sendAgentMessage: (session: string, text: string) => typedError<null, string>(__TAURI_INVOKE("send_agent_message", { session, text })),
-	/**  Stop the turn in progress. The session stays open. */
+	/**
+	 *  Stop the turn in progress, and any SQL it has running. The session stays
+	 *  open.
+	 * 
+	 *  The harness is asked to stop first, so it does not answer a killed
+	 *  statement by starting another. Then every statement on the agent's own
+	 *  connections is cancelled (#868): the editor's Cancel no longer reaches
+	 *  them (#866), so this is the one control that does. The SQL is stopped even
+	 *  when the harness could not be asked, because a statement left running is
+	 *  the worse outcome, and the harness's answer is what the command returns.
+	 */
 	cancelAgentTurn: (session: string) => typedError<null, string>(__TAURI_INVOKE("cancel_agent_turn", { session })),
 	/**
 	 *  Answer the harness's own permission prompt, in SQLPilot's window.
@@ -285,7 +295,10 @@ export const commands = {
 	 *  look for another way round.
 	 */
 	answerAgentPermission: (session: string, request: string, option: string | null) => typedError<null, string>(__TAURI_INVOKE("answer_agent_permission", { session, request, option })),
-	/**  End a session and clean up after it. */
+	/**
+	 *  End a session and clean up after it, including any SQL its agent still
+	 *  has running: the harness is gone, so nothing would read the answer.
+	 */
 	stopAgentSession: (session: string) => typedError<null, string>(__TAURI_INVOKE("stop_agent_session", { session })),
 };
 

@@ -15,6 +15,15 @@ pub mod event;
 pub mod harness;
 pub mod think;
 
+/// The header an in-app session's harness sends to SQLPilot's MCP endpoint,
+/// carrying SQLPilot's id for the session.
+///
+/// It is how the endpoint tells the panel's own agent from an external client
+/// holding the same token: the agent's statements can then be stopped from the
+/// panel (#868) and its approval requests say who asked (#801). The endpoint
+/// reads the same name as `mas_mcp::server::SESSION_HEADER`.
+pub const SESSION_HEADER: &str = "X-SQLPilot-Session";
+
 pub use acp::{AcpClient, AgentInfo, McpServer};
 pub use event::{PermissionOption, PlanEntry, SessionEvent};
 pub use harness::{discover, Harness, HarnessStatus};

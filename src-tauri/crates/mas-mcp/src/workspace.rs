@@ -76,6 +76,17 @@ pub trait Workspace: Send + Sync + 'static {
         None
     }
 
+    /// Note that this session belongs to the in-app agent session `owner`,
+    /// SQLPilot's own id for the session the panel holds.
+    ///
+    /// Called at most once per MCP session, on its first tool call that names
+    /// an owner, and before that call touches the database. The app records it
+    /// so the panel's Stop can reach the statements this session runs (#868).
+    /// The owner is a label sent by a client that already holds the token; see
+    /// `server::SESSION_HEADER` for why that is safe to act on. The default
+    /// does nothing.
+    fn bind_owner(&self, _owner: &str) {}
+
     /// Connections the user has shared, and on what terms.
     fn grants(&self) -> Grants;
 

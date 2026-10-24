@@ -131,8 +131,8 @@ impl AgentSessions {
 
         let cwd = workspace.to_string_lossy().to_string();
         let started = match harness {
-            Harness::Copilot => self.start_acp(harness, &cwd, endpoint).await,
-            Harness::ClaudeCode => self.start_claude(&cwd, endpoint).await,
+            Harness::Copilot => self.start_acp(harness, &cwd, &id, endpoint).await,
+            Harness::ClaudeCode => self.start_claude(&cwd, &id, endpoint).await,
         };
         let (driver, child, agent, version, tools_available, mut events) = match started {
             Ok(parts) => parts,
@@ -175,10 +175,15 @@ impl AgentSessions {
     }
 
     /// Copilot: handshake, then a session with our server in it.
+    ///
+    /// `id` is SQLPilot's id for the session. The harness sends it back to the
+    /// endpoint on every request, which is how the panel's Stop finds the SQL
+    /// this agent is running (#868) and how an approval names it (#801).
     async fn start_acp(
         &self,
         harness: Harness,
         cwd: &str,
+        id: &str,
         endpoint: Option<(String, String)>,
     ) -> Result<Parts, String> {
         let mut child = spawn_acp(harness, cwd).map_err(|e| not_started(harness, e))?;
@@ -192,7 +197,7 @@ impl AgentSessions {
         // agent that can read its working directory is useful — so this is
         // reported rather than refused.
         let servers = match &endpoint {
-            Some((url, token)) if info.http_mcp => vec![McpServer::sqlpilot(url, token)],
+            Some((url, token)) if info.http_mcp => vec![McpServer::sqlpilot(url, token, Some(id))],
             _ => Vec::new(),
         };
         let tools_available = !servers.is_empty();
@@ -216,11 +221,12 @@ impl AgentSessions {
     async fn start_claude(
         &self,
         cwd: &str,
+        id: &str,
         endpoint: Option<(String, String)>,
     ) -> Result<Parts, String> {
         let config = endpoint
             .as_ref()
-            .map(|(url, token)| claude::mcp_config(url, token));
+            .map(|(url, token)| claude::mcp_config(url, token, Some(id)));
         let tools_available = config.is_some();
 
         let mut child = claude::spawn(cwd, config.as_deref())
@@ -370,6 +376,13 @@ impl AgentSessions {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_harness_and_the_endpoint_agree_on_the_session_header() {
+        // Two crates, one header: the harness config names it, the endpoint
+        // reads it, and a typo in either would silently unlink every session.
+        assert_eq!(mas_agent::SESSION_HEADER, mas_mcp::server::SESSION_HEADER);
+    }
 
     #[tokio::test]
     async fn a_session_that_does_not_exist_is_a_message_rather_than_a_panic() {

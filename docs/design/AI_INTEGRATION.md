@@ -214,8 +214,13 @@ A session is a harness process attached to a connection and a database.
   `connections.db`) until revoked. Unlocking DDL on production is the one
   per-session permission; it lapses when the app closes.
 - A turn is **cancellable**: `cancel_agent_turn` sends the harness's own
-  cancel (`session/cancel` over ACP, an interrupt for Claude Code). The app
-  does not itself issue `KILL QUERY` for a statement in flight.
+  cancel (`session/cancel` over ACP, an interrupt for Claude Code), then
+  issues `KILL QUERY` for every statement in flight on that session's own
+  connections (`CancelScope::Agent`), leaving the editor and other agents
+  running (#868). The harness's MCP requests carry `X-SQLPilot-Session`, which
+  links its MCP session's connection lane to the panel's session id. Stopping
+  the session does the same. A staged write still running its statement and a
+  schema read are not tracked as in flight, so they run to their timeout.
 - Several may run at once.
 - Everything it runs lands in query history tagged with the session and the
   harness, so **"what did this thing do"** is answerable afterwards. A
