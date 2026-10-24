@@ -380,12 +380,17 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   },
 
   clearHistory: async () => {
-    const previous = get().entries;
-    set({ entries: [] });
+    const { entries, matchCount, facets } = get();
+    // A read still in flight was taken before the clear and would bring the
+    // old rows back.
+    readGeneration++;
+    // The count and the filter chips describe the rows too: left alone they
+    // read "0 of 37" and offered connections with nothing behind them (#828).
+    set({ entries: [], matchCount: 0, facets: { connectionNames: [], databases: [], origins: [] } });
     try {
       await api.historyClear();
     } catch (e) {
-      set({ entries: previous, error: `Could not clear history: ${String(e)}` });
+      set({ entries, matchCount, facets, error: `Could not clear history: ${String(e)}` });
     }
   },
 
