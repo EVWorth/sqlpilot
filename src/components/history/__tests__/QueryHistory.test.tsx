@@ -369,6 +369,32 @@ describe("QueryHistory", () => {
     expect(mockRemoveEntry).toHaveBeenCalledWith("entry-3");
   });
 
+  describe("keyboard reach (#826)", () => {
+    it("has no interactive role nested inside another button", () => {
+      const { container } = render(<QueryHistory />);
+      expect(container.querySelectorAll("[role=button]")).toHaveLength(0);
+      for (const button of container.querySelectorAll("button")) {
+        expect(button.querySelector("button, [role=button]")).toBeNull();
+      }
+    });
+
+    it("makes Delete a real, focusable button", () => {
+      render(<QueryHistory />);
+      const del = screen.getAllByRole("button", { name: "Delete entry" })[0];
+      expect(del.tagName).toBe("BUTTON");
+      del.focus();
+      expect(document.activeElement).toBe(del);
+    });
+
+    it("makes the error toggle a real button", () => {
+      render(<QueryHistory />);
+      const toggle = screen.getByRole("button", { name: "Table 'otherdb.nonexistent' doesn't exist" });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+    });
+  });
+
   describe("failed entries (#324)", () => {
     it("shows the error message inline", () => {
       render(<QueryHistory />);

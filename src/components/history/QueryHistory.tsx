@@ -1,15 +1,4 @@
-import {
-  CheckCircle,
-  Clock,
-  Download,
-  FileText,
-  Play,
-  Search,
-  SlidersHorizontal,
-  Trash2,
-  X,
-  XCircle,
-} from "lucide-react";
+import { Download, FileText, Play, Search, SlidersHorizontal, Trash2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { groupConsecutive } from "../../lib/history-grouping";
@@ -26,18 +15,7 @@ import {
   useHistoryStore,
 } from "../../stores/historyStore";
 import { useResultStore } from "../../stores/resultStore";
-
-function formatRelativeTime(isoDate: string): string {
-  const diff = Date.now() - new Date(isoDate).getTime();
-  const seconds = Math.floor(diff / 1000);
-  if (seconds < 60) return `${seconds}s ago`;
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.floor(hours / 24);
-  return `${days}d ago`;
-}
+import { HistoryEntryRow } from "./HistoryEntryRow";
 
 /** Shared class for the small filter controls, so they line up. */
 const CONTROL =
@@ -205,11 +183,6 @@ export function QueryHistory() {
   /** Add or remove one value from a multi-select filter. */
   const toggleIn = (list: string[], value: string) =>
     list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
-
-  const handleRemove = (e: React.MouseEvent, entryId: string) => {
-    e.stopPropagation();
-    void useHistoryStore.getState().removeEntry(entryId);
-  };
 
   return (
     <div className="flex h-full flex-col">
@@ -454,119 +427,52 @@ export function QueryHistory() {
             </p>
           )
           : (
-            rows.map(({ entry, runs }) => (
-              <button
-                key={entry.id}
-                onClick={() => handleClick(entry)}
-                onContextMenu={(e) => {
-                  const live = liveConnectionFor(entry);
-                  showContextMenu(e, [
-                    {
-                      label: "Insert into editor",
-                      icon: <FileText className="h-3.5 w-3.5" />,
-                      onClick: () => handleClick(entry),
-                    },
-                    {
-                      label: live
-                        ? `Run now on ${entry.connectionName}`
-                        : "Run now",
-                      icon: <Play className="h-3.5 w-3.5" />,
-                      // A redacted entry is missing the password it needs, so
-                      // running it would fail in a way nobody could act on
-                      // (#587).
-                      disabled: !live || entry.redacted,
-                      title: entry.redacted
-                        ? "A credential was removed from this entry, so it will not run as written."
-                        : live
-                        ? undefined
-                        : `${entry.connectionName} is not connected.`,
-                      onClick: () => void handleRunNow(entry),
-                    },
-                    { separator: true },
-                    {
-                      label: "Delete",
-                      icon: <Trash2 className="h-3.5 w-3.5" />,
-                      danger: true,
-                      onClick: () => void useHistoryStore.getState().removeEntry(entry.id),
-                    },
-                  ]);
-                }}
-                className="group flex w-full flex-col gap-0.5 border-b border-[var(--color-border)] px-2.5 py-2 text-left hover:bg-[var(--color-bg-tertiary)]"
-              >
-                <div className="flex items-start justify-between gap-1">
-                  <pre className="line-clamp-2 flex-1 whitespace-pre-wrap break-all font-mono text-[11px] leading-tight text-[var(--color-text-primary)]">
-                    {entry.sql}
-                  </pre>
-                  <span
-                    role="button"
-                    aria-label="Delete entry"
-                    title="Delete entry"
-                    onClick={(e) => handleRemove(e, entry.id)}
-                    className="inline-flex shrink-0 cursor-pointer rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-error)] group-hover:opacity-100"
-                  >
-                    <X className="h-3 w-3" />
-                  </span>
-                </div>
-                <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
-                  {entry.status === "success"
-                    ? <CheckCircle className="h-3 w-3 text-[var(--color-success)]" />
-                    : <XCircle className="h-3 w-3 text-[var(--color-error)]" />}
-                  <span className="truncate">{entry.connectionName}</span>
-                  <span className="flex items-center gap-0.5">
-                    <Clock className="h-2.5 w-2.5" />
-                    {formatRelativeTime(entry.executedAt)}
-                  </span>
-                  <span>{entry.executionTimeMs}ms</span>
-                  {entry.origin !== "editor" && (
-                    <span
-                      className="rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px]"
-                      title={`Issued by the ${entry.origin}`}
-                    >
-                      {entry.origin}
-                    </span>
-                  )}
-                  {runs.length > 1 && (
-                    <span
-                      className="rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px]"
-                      title={`Run ${runs.length} times in a row`}
-                    >
-                      ×{runs.length}
-                    </span>
-                  )}
-                  {entry.status === "success" && <span>{entry.rowCount} rows</span>}
-                  {entry.redacted && (
-                    <span
-                      className="rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px] uppercase tracking-wide"
-                      title="A password was removed before this was saved, so it will not run as written."
-                    >
-                      redacted
-                    </span>
-                  )}
-                  {entry.status === "error" && entry.errorCode !== undefined && (
-                    <span className="font-mono text-[var(--color-error)]/80">
-                      {entry.errorCode}
-                      {entry.errorSqlState ? ` · ${entry.errorSqlState}` : ""}
-                    </span>
-                  )}
-                </div>
-                {entry.status === "error" && entry.error && (
-                  <span
-                    role="button"
-                    aria-expanded={expandedError === entry.id}
-                    title={entry.error}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setExpandedError((prev) => (prev === entry.id ? null : entry.id));
-                    }}
-                    className={`cursor-pointer text-[10px] text-[var(--color-error)] ${
-                      expandedError === entry.id ? "whitespace-pre-wrap break-words" : "truncate"
-                    }`}
-                  >
-                    {entry.error}
-                  </span>
-                )}
-              </button>
-            ))
+            <ul>
+              {rows.map(({ entry, runs }) => (
+                <HistoryEntryRow
+                  key={entry.id}
+                  entry={entry}
+                  runs={runs.length}
+                  errorExpanded={expandedError === entry.id}
+                  onLoad={() => handleClick(entry)}
+                  onRemove={() => void useHistoryStore.getState().removeEntry(entry.id)}
+                  onToggleError={() => setExpandedError((prev) => (prev === entry.id ? null : entry.id))}
+                  onContextMenu={(e) => {
+                    const live = liveConnectionFor(entry);
+                    showContextMenu(e, [
+                      {
+                        label: "Insert into editor",
+                        icon: <FileText className="h-3.5 w-3.5" />,
+                        onClick: () => handleClick(entry),
+                      },
+                      {
+                        label: live
+                          ? `Run now on ${entry.connectionName}`
+                          : "Run now",
+                        icon: <Play className="h-3.5 w-3.5" />,
+                        // A redacted entry is missing the password it needs, so
+                        // running it would fail in a way nobody could act on
+                        // (#587).
+                        disabled: !live || entry.redacted,
+                        title: entry.redacted
+                          ? "A credential was removed from this entry, so it will not run as written."
+                          : live
+                          ? undefined
+                          : `${entry.connectionName} is not connected.`,
+                        onClick: () => void handleRunNow(entry),
+                      },
+                      { separator: true },
+                      {
+                        label: "Delete",
+                        icon: <Trash2 className="h-3.5 w-3.5" />,
+                        danger: true,
+                        onClick: () => void useHistoryStore.getState().removeEntry(entry.id),
+                      },
+                    ]);
+                  }}
+                />
+              ))}
+            </ul>
           )}
       </div>
       {contextMenu}
