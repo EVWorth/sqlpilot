@@ -396,6 +396,59 @@ describe("editorStore", () => {
     });
   });
 
+  // #855: a tab stayed "unsaved" for good after its first keystroke.
+  describe("clean again once saved", () => {
+    const tabOf = (id: string) => useEditorStore.getState().tabs.find((t) => t.id === id);
+
+    it("is clean after its SQL is saved", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(id, "SELECT 1");
+      useEditorStore.getState().markTabSaved(id, "SELECT 1");
+
+      expect(tabOf(id)?.isDirty).toBe(false);
+    });
+
+    it("is dirty again when the text moves off the saved version, and clean when it returns", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(id, "SELECT 1");
+      useEditorStore.getState().markTabSaved(id, "SELECT 1");
+
+      useEditorStore.getState().updateTabContent(id, "SELECT 12");
+      expect(tabOf(id)?.isDirty).toBe(true);
+      useEditorStore.getState().updateTabContent(id, "SELECT 1");
+      expect(tabOf(id)?.isDirty).toBe(false);
+    });
+
+    it("is clean when a new tab is typed into and emptied again", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(id, "S");
+      useEditorStore.getState().updateTabContent(id, "");
+
+      expect(tabOf(id)?.isDirty).toBe(false);
+    });
+
+    it("stays dirty when what was saved is not what the tab now holds", () => {
+      // Typing continued while the save dialog was open.
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(id, "SELECT 1 FROM t");
+      useEditorStore.getState().markTabSaved(id, "SELECT 1");
+
+      expect(tabOf(id)?.isDirty).toBe(true);
+    });
+
+    it("no longer asks before closing a saved tab", () => {
+      const a = useEditorStore.getState().addTab();
+      useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(a, "SELECT 1");
+      useEditorStore.getState().markTabSaved(a, "SELECT 1");
+
+      useEditorStore.getState().requestClose("close", a);
+
+      expect(useEditorStore.getState().pendingClose).toBeNull();
+      expect(tabOf(a)).toBeUndefined();
+    });
+  });
+
   describe("renameTab", () => {
     it("should rename a tab", () => {
       const id = useEditorStore.getState().addTab();
@@ -507,6 +560,10 @@ describe("editorStore session persistence", () => {
     expect(state.tabs[0].content).toBe("SELECT 1");
     expect(state.tabs[0].isDirty).toBe(false);
     expect(state.activeTabId).toBe("tab-5");
+    // Restored content is the baseline: undoing back to it stays clean.
+    store.getState().updateTabContent("tab-5", "SELECT 12");
+    store.getState().updateTabContent("tab-5", "SELECT 1");
+    expect(store.getState().tabs[0].isDirty).toBe(false);
   });
 
   it("falls back to initial tab when localStorage has empty tabs array", async () => {

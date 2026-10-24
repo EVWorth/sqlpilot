@@ -9,6 +9,8 @@ interface SaveFavoriteDialogProps {
   sql: string;
   connectionName?: string;
   database?: string;
+  /** Called with the SQL once it is saved, so its tab can count as clean (#855). */
+  onSaved?: (sql: string) => void;
 }
 
 export function SaveFavoriteDialog({
@@ -17,6 +19,7 @@ export function SaveFavoriteDialog({
   sql,
   connectionName,
   database,
+  onSaved,
 }: SaveFavoriteDialogProps) {
   const categories = useFavoritesStore((s) => s.categories);
   const addFavorite = useFavoritesStore((s) => s.addFavorite);
@@ -87,6 +90,7 @@ export function SaveFavoriteDialog({
       setConflictId(result.existingId);
       return;
     }
+    onSaved?.(sql);
     reset();
   };
 
@@ -99,6 +103,7 @@ export function SaveFavoriteDialog({
       category: targetCategory,
       description: description.trim() || undefined,
     });
+    onSaved?.(sql);
     reset();
   };
 

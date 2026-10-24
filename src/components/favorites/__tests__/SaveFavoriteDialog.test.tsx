@@ -265,3 +265,23 @@ describe("SaveFavoriteDialog", () => {
     });
   });
 });
+
+// #855: the editor tab stays "unsaved" unless it hears that the save landed.
+describe("SaveFavoriteDialog onSaved", () => {
+  it("reports the saved SQL once the favorite is stored", () => {
+    const onSaved = vi.fn();
+    render(<SaveFavoriteDialog {...dp({ onSaved })} />);
+    save("Active users");
+
+    expect(onSaved).toHaveBeenCalledWith("SELECT * FROM users WHERE active = 1");
+  });
+
+  it("reports nothing when the store refuses the save", () => {
+    refuseAsDuplicate();
+    const onSaved = vi.fn();
+    render(<SaveFavoriteDialog {...dp({ onSaved })} />);
+    save("Active users");
+
+    expect(onSaved).not.toHaveBeenCalled();
+  });
+});

@@ -147,7 +147,13 @@ interface EditorTabBase {
   id: string;
   title: string;
   content: string;
+  /** True while `content` differs from `savedContent` (#855). */
   isDirty: boolean;
+  /**
+   * The content as last saved — to a favorite, or as restored from the last
+   * session. Absent means nothing has been saved, so the baseline is empty.
+   */
+  savedContent?: string;
   /** Absent until the user picks a connection for the tab. */
   connectionId?: string;
   profileId?: string;

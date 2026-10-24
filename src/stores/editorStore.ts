@@ -70,6 +70,11 @@ interface EditorState {
   ) => void;
   setEditorInstance: (instance: editor.IStandaloneCodeEditor | null) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
+  /**
+   * Record that `content` has been saved from this tab — to a favorite, say —
+   * so the tab is clean until its text differs from that again (#855).
+   */
+  markTabSaved: (tabId: string, content: string) => void;
   renameTab: (tabId: string, newTitle: string) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
 }
@@ -214,7 +219,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   updateTabContent: (id, content) => {
     set((state) => ({
-      tabs: state.tabs.map((t) => t.id === id ? { ...t, content, isDirty: true } : t),
+      // Dirty means "differs from what was last saved", so typing back to
+      // the saved text, or undoing to it, counts as clean again (#855).
+      tabs: state.tabs.map((t) => t.id === id ? { ...t, content, isDirty: content !== (t.savedContent ?? "") } : t),
     }));
   },
 
@@ -239,7 +246,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTabDirty: (tabId, dirty) =>
     set((state) => ({
-      tabs: state.tabs.map((t) => t.id === tabId ? { ...t, isDirty: dirty } : t),
+      // Clean means the current text is the saved one.
+      tabs: state.tabs.map((t) =>
+        t.id === tabId ? { ...t, isDirty: dirty, ...(dirty ? {} : { savedContent: t.content }) } : t
+      ),
+    })),
+
+  markTabSaved: (tabId, content) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => t.id === tabId ? { ...t, savedContent: content, isDirty: t.content !== content } : t),
     })),
 
   renameTab: (tabId, newTitle) =>

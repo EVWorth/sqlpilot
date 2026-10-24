@@ -295,6 +295,9 @@ export function QueryToolbar() {
         sql={activeTab?.content ?? ""}
         connectionName={activeConnection?.name}
         database={activeTab?.database}
+        onSaved={(sql) => {
+          if (activeTab) useEditorStore.getState().markTabSaved(activeTab.id, sql);
+        }}
       />
 
       <FormatterSettingsDialog
