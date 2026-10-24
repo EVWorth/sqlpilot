@@ -8,20 +8,24 @@ section 6.
 ## Content Security Policy (CSP)
 
 SQLPilot uses Tauri's built-in protections plus a Content Security Policy set
-in `security.csp` of [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json).
+in `app.security` of [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json):
+`csp` for release builds and `devCsp` for `just dev`.
 
 ### Current Policy
+
+Release builds (`csp`):
 
 ```
 default-src 'self';
 script-src 'self' 'unsafe-eval' blob:;
 style-src 'self' 'unsafe-inline';
 worker-src 'self' blob:;
-connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*
+connect-src ipc: http://ipc.localhost
 ```
 
-The same policy applies to development and production builds; there is no
-separate `devCsp`.
+Development (`devCsp`) is the same plus
+`connect-src http://localhost:* http://127.0.0.1:*`, for the Vite dev server.
+Keep the two in step: a directive added to one usually belongs in both.
 
 ### CSP Directive Rationale
 
@@ -35,12 +39,11 @@ separate `devCsp`.
 | `style-src`   | `'unsafe-inline'`           | Inline styles for dynamic layout values (width/height calculations) |
 | `worker-src`  | `'self' blob:`              | Monaco's `editor.worker`, set up in `src/main.tsx`                  |
 | `connect-src` | `ipc: http://ipc.localhost` | Tauri IPC command channel                                           |
-| `connect-src` | `http://localhost:*`        | The Vite dev server (`devUrl` is `http://localhost:1420`)           |
-| `connect-src` | `http://127.0.0.1:*`        | Local servers during development                                    |
+| `connect-src` | `http://localhost:*`        | Dev only: the Vite dev server (`devUrl` is `http://localhost:1420`) |
+| `connect-src` | `http://127.0.0.1:*`        | Dev only: local servers during development                          |
 
-The two loopback `connect-src` entries ship in production builds too. The
-frontend makes no `fetch` calls to them; the agent endpoint is reached by the
-harness, not by the webview.
+Release builds allow no loopback `connect-src`. The frontend makes no requests
+to loopback; the agent endpoint is reached by the harness, not by the webview.
 
 ### Accepted Trade-offs
 
