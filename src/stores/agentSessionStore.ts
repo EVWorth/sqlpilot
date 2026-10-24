@@ -31,8 +31,11 @@ interface AgentSessionState {
   thinking: boolean;
   transcript: TranscriptItem[];
   error: string | null;
-  /** True while a session is being started, which takes a second or two. */
-  starting: boolean;
+  /**
+   * The harness being started, which takes a second or two; null otherwise.
+   * Which one, not just whether: the panel labels only that button.
+   */
+  starting: Harness | null;
 
   findHarnesses: () => Promise<void>;
   start: (harness: Harness) => Promise<void>;
@@ -53,7 +56,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   thinking: false,
   transcript: [],
   error: null,
-  starting: false,
+  starting: null,
 
   findHarnesses: async () => {
     try {
@@ -64,7 +67,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   },
 
   start: async (harness) => {
-    set({ starting: true, error: null });
+    if (get().starting) return;
+    set({ starting: harness, error: null });
     try {
       const started = await api.startAgentSession(harness);
       set({
@@ -79,7 +83,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     } catch (e) {
       set({ error: message(e) });
     } finally {
-      set({ starting: false });
+      set({ starting: null });
     }
   },
 

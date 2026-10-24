@@ -286,11 +286,12 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
                   <button
                     key={h.harness}
                     type="button"
-                    disabled={starting}
+                    disabled={starting !== null}
+                    aria-busy={starting === h.harness}
                     onClick={() => void start(h.harness as Harness)}
                     className="rounded bg-brand-600 px-3 py-2 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-60"
                   >
-                    {starting ? "Starting…" : `Start ${h.label}`}
+                    {starting === h.harness ? `Starting ${h.label}…` : `Start ${h.label}`}
                     {h.version && <span className="ml-1 font-normal opacity-80">({h.version})</span>}
                   </button>
                 ))

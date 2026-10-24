@@ -47,7 +47,7 @@ beforeEach(() => {
     thinking: false,
     transcript: [],
     error: null,
-    starting: false,
+    starting: null,
   });
   apiMocks.listHarnesses.mockResolvedValue([copilot, claude]);
   apiMocks.startAgentSession.mockResolvedValue({
@@ -82,6 +82,23 @@ describe("before a session", () => {
     apiMocks.listHarnesses.mockResolvedValue([claude]);
     open();
     expect(await screen.findByText("npm install -g @anthropic-ai/claude-code")).toBeTruthy();
+  });
+
+  it("labels only the harness being started", () => {
+    // Two "Starting…" buttons read as two harnesses launching.
+    useAgentSessionStore.setState({
+      harnesses: [copilot, { ...claude, installed: true, version: "2.1.14" }],
+      starting: "copilot",
+    });
+    apiMocks.listHarnesses.mockReturnValue(new Promise(() => {}));
+    open();
+    const buttons = screen.getAllByRole("button", { name: /Start|Starting/ });
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      "Starting GitHub Copilot…(1.0.75)",
+      "Start Claude Agent(2.1.14)",
+    ]);
+    // The other stays unclickable: one session at a time.
+    expect(buttons.every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
   });
 
   it("starts a session when asked", async () => {
