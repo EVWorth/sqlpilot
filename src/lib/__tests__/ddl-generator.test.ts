@@ -4,6 +4,7 @@ import {
   type DesignerForeignKey,
   generateAlterTable,
   generateCreateTable,
+  isColumnChanged,
   type TableDesignerConfig,
   type TableOptions,
 } from "../ddl-generator";
@@ -705,5 +706,35 @@ describe("BIT keeps its width", () => {
       },
     });
     expect(sql).toContain("`b` BIT(8)");
+  });
+});
+
+describe("modifiers only where the type takes them (#814)", () => {
+  it("leaves UNSIGNED and ZEROFILL off a column that is no longer numeric", () => {
+    const sql = generateCreateTable(makeConfig({
+      columns: [makeCol({ type: "VARCHAR", length: "20", autoIncrement: false, unsigned: true, zerofill: true })],
+    }));
+    expect(sql).toContain("`id` VARCHAR(20) NOT NULL");
+    expect(sql).not.toContain("UNSIGNED");
+  });
+
+  it("leaves a charset off a column that is not a string", () => {
+    const sql = generateCreateTable(makeConfig({
+      columns: [makeCol({ charset: "latin1", collation: "latin1_bin" })],
+    }));
+    expect(sql).not.toContain("CHARACTER SET");
+    expect(sql).not.toContain("COLLATE latin1_bin");
+  });
+
+  it("leaves ON UPDATE off a column that is not a timestamp", () => {
+    const sql = generateCreateTable(makeConfig({ columns: [makeCol({ onUpdate: "CURRENT_TIMESTAMP" })] }));
+    expect(sql).not.toContain("ON UPDATE");
+  });
+
+  it("does not count an unset modifier against an absent one as a change", () => {
+    const loaded = makeCol();
+    expect(isColumnChanged(loaded, { ...loaded, unsigned: false, zerofill: false, charset: "", onUpdate: "" }))
+      .toBe(false);
+    expect(isColumnChanged(loaded, { ...loaded, unsigned: true })).toBe(true);
   });
 });

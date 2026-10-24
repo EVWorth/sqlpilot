@@ -26,6 +26,7 @@ import { RestoreDialog } from "../backup/RestoreDialog";
 import { CommandPalette } from "../common/CommandPalette";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
+import { openNewTableDesigner } from "../designer/openNewTable";
 import { HistoryQuickOpen } from "../history/HistoryQuickOpen";
 import { ImportDialog } from "../import/ImportDialog";
 import { AgentSettingsDialog } from "../settings/AgentSettingsDialog";
@@ -196,6 +197,11 @@ export function AppLayout() {
         case "refresh-schema":
           if (selectedConnectionId) void useSchemaStore.getState().refreshAll(selectedConnectionId);
           break;
+        case "new-table": {
+          const problem = openNewTableDesigner();
+          if (problem) window.alert(problem);
+          break;
+        }
         case "admin-tools":
           if (selectedConnectionId) addAdminTab(selectedConnectionId);
           break;

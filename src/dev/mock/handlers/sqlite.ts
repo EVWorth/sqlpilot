@@ -99,6 +99,27 @@ const SETTINGS: FakeTable = {
 
 const TABLES = [NOTES, SETTINGS];
 
+/**
+ * A view, so the Views folder has something in it (#825). `sqlite_master`
+ * lists it beside the tables, with type "view" and no row count.
+ */
+const RECENT_NOTES: FakeTable = {
+  name: "recent_notes",
+  ddl: "CREATE VIEW recent_notes AS\n  SELECT id, title, created_at FROM notes\n  ORDER BY created_at DESC LIMIT 10",
+  columns: [
+    column("id", "INTEGER"),
+    column("title", "TEXT"),
+    column("created_at", "TEXT"),
+  ],
+  indexes: [],
+  rows: [...NOTES.rows]
+    .sort((a, b) => String(b[3]).localeCompare(String(a[3])))
+    .slice(0, 10)
+    .map((r) => [r[0], r[1], r[3]]),
+};
+
+const VIEWS = [RECENT_NOTES];
+
 /** Open files, by connection id. */
 const sessions = new Map<string, string>();
 
@@ -108,8 +129,9 @@ function session(connectionId: unknown): string {
   return path;
 }
 
+/** A table or a view: both can be selected from and described. */
 function table(name: string): FakeTable | undefined {
-  return TABLES.find((t) => t.name === name.toLowerCase());
+  return [...TABLES, ...VIEWS].find((t) => t.name === name.toLowerCase());
 }
 
 function queryError(message: string, statementIndex: number): never {
@@ -117,8 +139,12 @@ function queryError(message: string, statementIndex: number): never {
   fail(error);
 }
 
-/** The table a statement names, unquoted: `"notes"`, `[notes]`, `main.notes`. */
-const TARGET = /\b(?:from|into|update|table)\s+(?:main\.)?["`[]?(\w+)["`\]]?/i;
+/**
+ * The table a statement names, unquoted: `"notes"`, `[notes]`, `main.notes`,
+ * and the tree's `` `main`.`notes` ``, whose quoted schema was read as the
+ * table name.
+ */
+const TARGET = /\b(?:from|into|update|table)\s+(?:["`[]?main["`\]]?\.)?["`[]?(\w+)["`\]]?/i;
 
 function result(index: number, sql: string, columns: string[], rows: Value[][], affected = 0): SqliteQueryResult {
   return {
@@ -182,6 +208,7 @@ function write(sql: string, index: number): SqliteQueryResult {
   if (!["INSERT", "UPDATE", "DELETE", "REPLACE"].includes(verb)) return result(index, sql, [], []);
   const name = TARGET.exec(sql)?.[1] ?? "";
   const t = table(name) ?? queryError(`no such table: ${name}`, index);
+  if (VIEWS.includes(t)) queryError(`cannot modify ${t.name} because it is a view`, index);
   const affected = verb === "INSERT" || verb === "REPLACE"
     ? Math.max(1, (sql.match(/\)\s*(,|$)/g) ?? []).length)
     : /\bwhere\b/i.test(sql)
@@ -227,7 +254,11 @@ export const sqliteHandlers: Handlers = {
 
   sqlite_get_tables: ({ connectionId }: Args): SqliteTableInfo[] => {
     session(connectionId);
-    return TABLES.map((t) => ({ name: t.name, table_type: "table", row_count: t.rows.length, sql: t.ddl }));
+    // In name order, as `ORDER BY name` returns them.
+    return [
+      ...TABLES.map((t) => ({ name: t.name, table_type: "table", row_count: t.rows.length, sql: t.ddl })),
+      ...VIEWS.map((v) => ({ name: v.name, table_type: "view", row_count: null, sql: v.ddl })),
+    ].sort((a, b) => a.name.localeCompare(b.name));
   },
 
   // An unknown table is an empty list, not an error: `PRAGMA table_info` on a
@@ -244,6 +275,9 @@ export const sqliteHandlers: Handlers = {
 
   sqlite_get_table_ddl: ({ connectionId, table: name }: Args): string => {
     session(connectionId);
-    return table(String(name))?.ddl ?? fail("Schema error: Query returned no rows");
+    // Tables only, as the inspector's `type='table'` filter has it: a view's
+    // DDL comes from the listing instead.
+    return TABLES.find((t) => t.name === String(name).toLowerCase())?.ddl
+      ?? fail("Schema error: Query returned no rows");
   },
 };
