@@ -204,3 +204,35 @@ describe("CellViewerModal", () => {
     expect(writeText).toHaveBeenCalledWith("copy me");
   });
 });
+
+// #851: the viewer was a bare overlay: no dialog role, focus left on <body>,
+// and Escape did nothing.
+describe("CellViewerModal as a dialog", () => {
+  it("is a modal dialog named for its column", () => {
+    render(<CellViewerModal {...createDefaultProps()} />);
+
+    const dialog = screen.getByRole("dialog", { name: "Cell content: my_column" });
+    expect(dialog.getAttribute("aria-modal")).toBe("true");
+  });
+
+  it("moves focus to Copy when it opens", () => {
+    render(<CellViewerModal {...createDefaultProps()} />);
+
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: /copy/i }));
+  });
+
+  it("closes on Escape", () => {
+    const onClose = vi.fn();
+    render(<CellViewerModal {...createDefaultProps({ onClose })} />);
+
+    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("labels the X button", () => {
+    render(<CellViewerModal {...createDefaultProps()} />);
+
+    expect(screen.getAllByRole("button", { name: "Close" })).toHaveLength(2);
+  });
+});
