@@ -245,6 +245,25 @@ describe("ProcessListTab", () => {
     expect(idle.className).not.toContain("color-error");
   });
 
+  it("marks empty Database, State and Info cells the same way (#836)", async () => {
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    const table = await screen.findByRole("table");
+    // Process 2 has no database, state or statement.
+    const row = within(table).getByText("app").closest("tr");
+    expect(row).not.toBeNull();
+    const cells = Array.from((row as HTMLTableRowElement).cells).map((c) => c.textContent);
+    expect(cells[3]).toBe("—");
+    expect(cells[6]).toBe("—");
+    expect(cells[7]).toBe("—");
+    expect(within(table).queryByText("NULL")).toBeNull();
+  });
+
+  it("labels the auto-refresh select (#836)", async () => {
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    await screen.findByRole("table");
+    expect(screen.getByRole("combobox", { name: "Auto-refresh interval" })).toBeDefined();
+  });
+
   it("shows error on kill failure", async () => {
     vi.mocked(api.killProcess).mockRejectedValue("Kill failed");
     render(<AdminPanel connectionId={mockConnectionId} />);

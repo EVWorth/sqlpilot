@@ -153,6 +153,7 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
           </button>
         )}
         <select
+          aria-label="Auto-refresh interval"
           value={refreshInterval}
           onChange={(e) => setRefreshInterval(Number(e.target.value) as RefreshInterval)}
           className="h-7 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 text-xs text-[var(--color-text-primary)] focus:border-brand-500 focus:outline-none"
@@ -203,7 +204,7 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
                 <td className="px-3 py-1.5">{p.user}</td>
                 <td className="px-3 py-1.5 text-[var(--color-text-muted)]">{p.host}</td>
                 <td className="px-3 py-1.5">
-                  {p.db ?? <span className="italic text-[var(--color-text-muted)]">NULL</span>}
+                  {p.db || <Empty />}
                 </td>
                 <td className="px-3 py-1.5">{p.command}</td>
                 <td
@@ -212,7 +213,7 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
                 >
                   {formatDurationSeconds(p.time)}
                 </td>
-                <td className="px-3 py-1.5 text-[var(--color-text-muted)]">{p.state ?? ""}</td>
+                <td className="px-3 py-1.5 text-[var(--color-text-muted)]">{p.state || <Empty />}</td>
                 <td className="max-w-[300px] px-3 py-1.5">
                   {p.info
                     ? (
@@ -228,7 +229,7 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
                         </span>
                       </button>
                     )
-                    : <span className="italic text-[var(--color-text-muted)]">—</span>}
+                    : <Empty />}
                 </td>
                 <td className="relative w-12 px-3 py-1.5">
                   <button
@@ -265,6 +266,11 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
       </div>
     </div>
   );
+}
+
+/** An empty Database, State or Info cell: one mark for all three (#836). */
+function Empty() {
+  return <span className="text-[var(--color-text-muted)]">—</span>;
 }
 
 /**
