@@ -242,7 +242,7 @@ function GroupRows({
                 {v.name}
                 {copiedKey === `name:${v.name}`
                   ? <Check className="h-3 w-3 text-[var(--color-success)]" />
-                  : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />}
+                  : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />}
               </button>
             </td>
             <td className="px-3 py-1.5">
@@ -255,7 +255,7 @@ function GroupRows({
                   <span className="max-w-[520px] truncate">{v.value}</span>
                   {copiedKey === `value:${v.name}`
                     ? <Check className="h-3 w-3 text-[var(--color-success)]" />
-                    : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100" />}
+                    : <Copy className="h-3 w-3 opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />}
                 </button>
                 <button
                   onClick={() => onEdit(v)}
@@ -263,7 +263,7 @@ function GroupRows({
                   title={v.readOnly === true
                     ? "The server reports this variable as read-only"
                     : `Change ${v.name}`}
-                  className="ml-auto shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed group-hover:opacity-100 [tr:hover_&]:opacity-100"
+                  className="ml-auto shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] focus-visible:opacity-100 disabled:cursor-not-allowed [tr:hover_&]:opacity-100"
                 >
                   <Pencil className="h-3 w-3" />
                 </button>
