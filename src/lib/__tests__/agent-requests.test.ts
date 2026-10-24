@@ -6,7 +6,9 @@ import {
   profileIdOf,
   proposalRefusal,
   proposalTarget,
+  requesterOf,
   resultAnswer,
+  rowsSentence,
 } from "../agent-requests";
 import type { ConnectionInfo, QueryResult } from "../bindings";
 
@@ -184,5 +186,42 @@ describe("proposalRefusal", () => {
 
   it("points at open_draft when there is no tab to change", () => {
     expect(proposalRefusal(null)).toContain("open_draft");
+  });
+});
+
+describe("requesterOf", () => {
+  const current = { session: "s1", agent: "Claude Agent 2.1.14" };
+
+  it("names the panel's own session by its harness", () => {
+    expect(requesterOf({ session: "s1", client: null }, current)).toBe("Claude Agent 2.1.14 (in-app session)");
+  });
+
+  it("names an external client by what it called itself", () => {
+    expect(requesterOf({ session: null, client: "cursor" }, current)).toBe(
+      "cursor (external client on the endpoint)",
+    );
+    expect(requesterOf({ session: null, client: null }, current)).toBe("An external client on the endpoint");
+  });
+
+  it("does not guess when the request does not say", () => {
+    expect(requesterOf({ kind: "approve" }, current)).toBeUndefined();
+  });
+
+  it("does not claim a session it cannot name", () => {
+    expect(requesterOf({ session: "old", client: null }, current)).toBe("An agent session in this window");
+  });
+});
+
+describe("rowsSentence", () => {
+  it("leads with the statement's verb", () => {
+    expect(rowsSentence("DELETE FROM t WHERE a = 1", 132)).toBe("Deletes 132 rows.");
+    expect(rowsSentence("  update t set a = 1", 1)).toBe("Updates 1 row.");
+    expect(rowsSentence("INSERT INTO t VALUES (1)", 2)).toBe("Inserts 2 rows.");
+    expect(rowsSentence("/* why */ DELETE FROM t", 0)).toBe("Deletes no rows.");
+    expect(rowsSentence("CALL tidy()", 3)).toBe("Changes 3 rows.");
+  });
+
+  it("groups big numbers", () => {
+    expect(rowsSentence("DELETE FROM t", 4_200_000)).toBe("Deletes 4,200,000 rows.");
   });
 });

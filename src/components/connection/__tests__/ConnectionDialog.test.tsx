@@ -341,6 +341,44 @@ describe("ConnectionDialog", () => {
     });
   });
 
+  describe("character set (#859)", () => {
+    it("lets the charset be cleared and retyped without snapping back", () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.click(screen.getByText("Advanced"));
+      const charset = screen.getByLabelText("Character Set") as HTMLInputElement;
+
+      fireEvent.change(charset, { target: { value: "" } });
+      expect(charset.value).toBe("");
+
+      fireEvent.change(charset, { target: { value: "lat" } });
+      expect(charset.value).toBe("lat");
+    });
+
+    it("saves an empty charset as utf8mb4", async () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+      fireEvent.click(screen.getByText("Advanced"));
+      fireEvent.change(screen.getByLabelText("Character Set"), { target: { value: "" } });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => expect(saveProfileFn).toHaveBeenCalledTimes(1));
+      expect(saveProfileFn.mock.calls[0][0].charset).toBe("utf8mb4");
+    });
+
+    it("saves a typed charset as typed", async () => {
+      render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+      fireEvent.click(screen.getByText("Advanced"));
+      fireEvent.change(screen.getByLabelText("Character Set"), { target: { value: "latin1" } });
+
+      fireEvent.click(screen.getByText("Save"));
+
+      await waitFor(() => expect(saveProfileFn).toHaveBeenCalledTimes(1));
+      expect(saveProfileFn.mock.calls[0][0].charset).toBe("latin1");
+    });
+  });
+
   describe("a failed save (#792)", () => {
     it("keeps the dialog open and shows the error", async () => {
       saveProfileFn.mockRejectedValueOnce(new Error("keyring locked"));

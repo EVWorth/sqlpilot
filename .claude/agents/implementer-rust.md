@@ -33,6 +33,6 @@ types) for `implementer-frontend` or the team lead.
 From `src-tauri/`: `cargo fmt --all`,
 `cargo clippy --workspace --all-targets --all-features -- -D warnings` and
 `cargo test -p <crate>` pass, and `npx dprint check --list-different` is
-clean. In a cloud session set `CARGO_INCREMENTAL=0` and clear old test
-binaries first. Report what changed, the gate output, and anything wrong you
+clean. In a cloud session set `CARGO_INCREMENTAL=0` and run
+`bash scripts/clean-debug.sh` first. Report what changed, the gate output, and anything wrong you
 noticed outside your task so the team lead can file it.

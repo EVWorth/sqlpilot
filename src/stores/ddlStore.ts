@@ -45,7 +45,8 @@ function fetchDdl({ connectionId, database, objectName, objectType }: DdlTarget)
       // than a MySQL statement it cannot run.
       return dataSourceFor(connectionId).getTableDdl(connectionId, database, objectName);
     case "VIEW":
-      return api.getViewDdl(connectionId, database, objectName);
+      // Through the data source too: a SQLite view's DDL is not MySQL's (#825).
+      return dataSourceFor(connectionId).getViewDdl(connectionId, database, objectName);
     case "TRIGGER":
       return api.getTriggerDdl(connectionId, database, objectName);
     case "PROCEDURE":

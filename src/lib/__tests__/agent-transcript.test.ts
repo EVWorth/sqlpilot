@@ -115,6 +115,16 @@ describe("plans", () => {
     expect(items[0].kind).toBe("plan");
     expect(items[1].kind).toBe("agent");
   });
+
+  it("gives each turn its own plan", () => {
+    // The second question's plan belongs next to the second answer, not in
+    // the first turn's box at the top of the transcript.
+    const first = fold([plan(["completed"]), text("first answer")], addUserMessage([], "one"));
+    const items = fold([plan(["in_progress"]), plan(["completed"])], addUserMessage(first, "two"));
+    expect(items.map((item) => item.kind)).toEqual(["user", "plan", "agent", "user", "plan"]);
+    expect((items[1] as Extract<TranscriptItem, { kind: "plan" }>).entries[0].status).toBe("completed");
+    expect((items[4] as Extract<TranscriptItem, { kind: "plan" }>).entries[0].status).toBe("completed");
+  });
 });
 
 describe("permissions", () => {
@@ -173,9 +183,11 @@ describe("endings", () => {
     expect((items[0] as { text: string }).text).toContain("something_new");
   });
 
-  it("shows a failure as a note in the transcript", () => {
+  it("shows a failure as an error, not as a note", () => {
+    // A note is "Stopped." after a cancel; a failure ends the session and has
+    // to look like it.
     const items = fold([{ type: "failed", message: "The agent stopped." }]);
-    expect(items[0]).toEqual({ kind: "note", text: "The agent stopped." });
+    expect(items[0]).toEqual({ kind: "error", text: "The agent stopped." });
   });
 });
 

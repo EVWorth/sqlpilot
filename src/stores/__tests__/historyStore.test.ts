@@ -180,6 +180,23 @@ describe("historyStore", () => {
       expect(sent.redacted).toBe(true);
     });
 
+    it("drops the statement a MySQL syntax error echoes back (#881)", async () => {
+      // The echo's quotes are not escaped, so the password sits outside any
+      // literal the credential rules can see.
+      await useHistoryStore.getState().addEntry(
+        newEntry({
+          sql: "CREATE USR 'a'@'%' IDENTIFIED BY 'hunter2'",
+          status: "error",
+          error: "1064 (42000): You have an error in your SQL syntax; check the manual for the right "
+            + "syntax to use near 'USR 'a'@'%' IDENTIFIED BY 'hunter2'' at line 1",
+        }),
+      );
+
+      const [sent] = historyAdd.mock.calls[0];
+      expect(sent.error).not.toContain("hunter2");
+      expect(sent.error).toContain("near '<redacted>' at line 1");
+    });
+
     it("leaves an ordinary statement unmarked", async () => {
       await useHistoryStore.getState().addEntry(
         newEntry({ sql: "SELECT * FROM users WHERE name = 'alice'" }),
@@ -336,6 +353,31 @@ describe("historyStore", () => {
       await useHistoryStore.getState().clearHistory();
 
       expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["a"]);
+    });
+
+    it("resets the match count and the filter facets (#828)", async () => {
+      useHistoryStore.setState({
+        entries: [entry()],
+        matchCount: 37,
+        facets: { connectionNames: ["Local dev"], databases: ["shop"], origins: ["editor"] },
+      });
+
+      await useHistoryStore.getState().clearHistory();
+
+      const state = useHistoryStore.getState();
+      expect(state.matchCount).toBe(0);
+      expect(state.facets).toEqual({ connectionNames: [], databases: [], origins: [] });
+    });
+
+    it("puts the count and facets back when the clear fails", async () => {
+      const facets = { connectionNames: ["Local dev"], databases: ["shop"], origins: ["editor"] };
+      useHistoryStore.setState({ entries: [entry()], matchCount: 37, facets });
+      historyClear.mockRejectedValue(new Error("locked"));
+
+      await useHistoryStore.getState().clearHistory();
+
+      expect(useHistoryStore.getState().matchCount).toBe(37);
+      expect(useHistoryStore.getState().facets).toEqual(facets);
     });
   });
 

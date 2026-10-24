@@ -284,8 +284,10 @@ impl AcpClient {
     ) {
         let Ok(message) = serde_json::from_str::<Value>(line) else {
             // Agents print things. A line that is not JSON is not a protocol
-            // violation worth ending the session over.
-            tracing::debug!(line = %line, "ignoring a non-JSON line from the agent");
+            // violation worth ending the session over. Only its length is
+            // logged: the text can be SQL, a query result or a token, and the
+            // DEBUG file log is no place for any of them (#883).
+            tracing::debug!(len = line.len(), "ignoring a non-JSON line from the agent");
             return;
         };
 

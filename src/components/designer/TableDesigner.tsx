@@ -1,9 +1,10 @@
 import {
   AlertCircle,
+  ArrowDown,
+  ArrowUp,
   Check,
   Columns3,
   Eye,
-  GripVertical,
   Key,
   Link2,
   Loader2,
@@ -15,7 +16,6 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseColumnType, parseOnUpdate } from "../../lib/column-modifiers";
 import {
-  canAutoIncrement,
   type DesignerColumn,
   type DesignerForeignKey,
   type DesignerIndex,
@@ -31,68 +31,14 @@ import { cn, errorMessage } from "../../lib/utils";
 import { useResultStore } from "../../stores/resultStore";
 import type { ColumnInfo, ForeignKeyInfo, IndexInfo, TableInfo } from "../../types";
 import { SQLPreviewDialog } from "../common/SQLPreviewDialog";
+import { ColumnsTab } from "./ColumnsTab";
+import { CHARSETS, COLLATIONS } from "./constants";
 
 // --- Constants ---
-
-const COLUMN_TYPES = [
-  "INT",
-  "BIGINT",
-  "TINYINT",
-  "SMALLINT",
-  "MEDIUMINT",
-  "VARCHAR",
-  "CHAR",
-  "TEXT",
-  "TINYTEXT",
-  "MEDIUMTEXT",
-  "LONGTEXT",
-  "DECIMAL",
-  "FLOAT",
-  "DOUBLE",
-  "DATE",
-  "DATETIME",
-  "TIMESTAMP",
-  "TIME",
-  "YEAR",
-  "BOOLEAN",
-  "ENUM",
-  "SET",
-  "BLOB",
-  "JSON",
-  "BINARY",
-  "VARBINARY",
-  // Absent until #382. BIT is the damaging omission: a BIT(8) column loaded
-  // as VARCHAR(8) and saved back turns b'10101010' into the string "170".
-  "BIT",
-  "BOOL",
-  "SERIAL",
-  "TINYBLOB",
-  "MEDIUMBLOB",
-  "LONGBLOB",
-  "GEOMETRY",
-  "POINT",
-  "LINESTRING",
-  "POLYGON",
-  "MULTIPOINT",
-  "MULTILINESTRING",
-  "MULTIPOLYGON",
-  "GEOMETRYCOLLECTION",
-] as const;
 
 const INDEX_TYPES = ["PRIMARY KEY", "UNIQUE", "INDEX", "FULLTEXT"] as const;
 const FK_ACTIONS = ["RESTRICT", "CASCADE", "SET NULL", "NO ACTION"] as const;
 const ENGINES = ["InnoDB", "MyISAM", "MEMORY", "CSV", "ARCHIVE"] as const;
-const CHARSETS = ["utf8mb4", "utf8", "latin1", "ascii", "binary"] as const;
-const COLLATIONS = [
-  "utf8mb4_general_ci",
-  "utf8mb4_unicode_ci",
-  "utf8mb4_bin",
-  "utf8_general_ci",
-  "utf8_unicode_ci",
-  "latin1_swedish_ci",
-  "latin1_general_ci",
-] as const;
-
 type SubTab = "columns" | "indexes" | "foreignKeys" | "options";
 
 interface TableDesignerProps {
@@ -437,6 +383,27 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
     setIndexes((prev) => prev.map((i) => (i.id === id ? { ...i, [field]: value } : i)));
   };
   const addIndex = () => setIndexes((prev) => [...prev, newIndex()]);
+
+  /**
+   * The PK column in the Columns tab: the same PRIMARY KEY index the Indexes
+   * tab edits, created on the first column and dropped with the last (#814).
+   * A key column cannot be NULL, so adding one makes it NOT NULL, as MySQL
+   * would do silently.
+   */
+  const togglePrimaryKey = (name: string) => {
+    const pk = indexes.find((i) => i.type === "PRIMARY KEY");
+    const adding = !pk?.columns.includes(name);
+    if (adding) {
+      setColumns((prev) => prev.map((c) => (c.name === name ? { ...c, nullable: false } : c)));
+    }
+    setIndexes((prev) => {
+      const key = prev.find((i) => i.type === "PRIMARY KEY");
+      if (!key) return [...prev, { ...newIndex(), name: "PRIMARY", type: "PRIMARY KEY", columns: [name] }];
+      const cols = key.columns.includes(name) ? key.columns.filter((c) => c !== name) : [...key.columns, name];
+      if (cols.length === 0) return prev.filter((i) => i.id !== key.id);
+      return prev.map((i) => (i.id === key.id ? { ...i, columns: cols } : i));
+    });
+  };
   const removeIndex = (id: string) => setIndexes((prev) => prev.filter((i) => i.id !== id));
 
   // --- FK operations ---
@@ -562,7 +529,9 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
           <ColumnsTab
             columns={columns}
             originalColumns={originalConfig?.columns}
+            primaryKeyColumns={indexes.find((i) => i.type === "PRIMARY KEY")?.columns ?? []}
             onUpdate={updateColumn}
+            onTogglePrimaryKey={togglePrimaryKey}
             onAdd={addColumn}
             onRemove={removeColumn}
             onDragStart={handleDragStart}
@@ -607,178 +576,6 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
 }
 
 // --- Sub-components ---
-
-function ColumnsTab({
-  columns,
-  originalColumns,
-  onUpdate,
-  onAdd,
-  onRemove,
-  onDragStart,
-  onDragEnter,
-  onDragEnd,
-}: {
-  columns: DesignerColumn[];
-  originalColumns?: DesignerColumn[];
-  onUpdate: (id: string, field: keyof DesignerColumn, value: string | boolean) => void;
-  onAdd: () => void;
-  onRemove: (id: string) => void;
-  onDragStart: (idx: number) => void;
-  onDragEnter: (idx: number) => void;
-  onDragEnd: () => void;
-}) {
-  const origMap = new Map(originalColumns?.map((c) => [c.id, c]) || []);
-
-  const isChanged = (col: DesignerColumn): boolean => {
-    const orig = origMap.get(col.id);
-    if (!orig) return true;
-    return (
-      orig.name !== col.name
-      || orig.type !== col.type
-      || orig.length !== col.length
-      || orig.nullable !== col.nullable
-      || orig.defaultValue !== col.defaultValue
-      || orig.autoIncrement !== col.autoIncrement
-      || orig.comment !== col.comment
-    );
-  };
-
-  const inputClass =
-    "w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-1.5 py-1 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500";
-  const selectClass =
-    "w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-1 py-1 text-xs text-[var(--color-text-primary)] outline-none focus:border-brand-500";
-
-  return (
-    <div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-left text-xs">
-          <thead>
-            <tr className="border-b border-[var(--color-border)] text-[var(--color-text-muted)]">
-              <th className="w-6 py-2"></th>
-              <th className="px-1 py-2">Name</th>
-              <th className="px-1 py-2">Type</th>
-              <th className="w-20 px-1 py-2">Length</th>
-              <th className="w-14 px-1 py-2 text-center">Null</th>
-              <th className="px-1 py-2">Default</th>
-              <th className="w-14 px-1 py-2 text-center">AI</th>
-              <th className="px-1 py-2">Comment</th>
-              <th className="w-8 py-2"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {columns.map((col, idx) => {
-              const changed = originalColumns ? isChanged(col) : false;
-              return (
-                <tr
-                  key={col.id}
-                  draggable
-                  onDragStart={() => onDragStart(idx)}
-                  onDragEnter={() => onDragEnter(idx)}
-                  onDragEnd={onDragEnd}
-                  onDragOver={(e) => e.preventDefault()}
-                  className={cn(
-                    "border-b border-[var(--color-border)]",
-                    changed && "bg-brand-600/5",
-                  )}
-                >
-                  <td className="cursor-grab px-1 py-1 text-[var(--color-text-muted)]">
-                    <GripVertical className="h-3 w-3" />
-                  </td>
-                  <td className="px-1 py-1">
-                    <input
-                      value={col.name}
-                      onChange={(e) => onUpdate(col.id, "name", e.target.value)}
-                      placeholder="column_name"
-                      className={inputClass}
-                    />
-                  </td>
-                  <td className="px-1 py-1">
-                    <select
-                      value={col.type}
-                      onChange={(e) => onUpdate(col.id, "type", e.target.value)}
-                      className={selectClass}
-                    >
-                      {COLUMN_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-                    </select>
-                  </td>
-                  <td className="px-1 py-1">
-                    <input
-                      value={col.length}
-                      onChange={(e) => onUpdate(col.id, "length", e.target.value)}
-                      placeholder="—"
-                      className={inputClass}
-                    />
-                  </td>
-                  <td className="px-1 py-1 text-center">
-                    <input
-                      type="checkbox"
-                      checked={col.nullable}
-                      onChange={(e) => onUpdate(col.id, "nullable", e.target.checked)}
-                      className="accent-brand-500"
-                    />
-                  </td>
-                  <td className="px-1 py-1">
-                    <input
-                      value={col.defaultValue}
-                      onChange={(e) => onUpdate(col.id, "defaultValue", e.target.value)}
-                      placeholder="—"
-                      className={inputClass}
-                    />
-                  </td>
-                  <td className="px-1 py-1 text-center">
-                    {
-                      /*
-                      MySQL rejects AUTO_INCREMENT on anything but an integer
-                      type — `VARCHAR(255) AUTO_INCREMENT` is ERROR 1063 — and
-                      the checkbox used to be offered on every column, so the
-                      only sign was the save failing (#383).
-                    */
-                    }
-                    <input
-                      type="checkbox"
-                      checked={col.autoIncrement && canAutoIncrement(col.type)}
-                      disabled={!canAutoIncrement(col.type)}
-                      title={canAutoIncrement(col.type)
-                        ? undefined
-                        : `AUTO_INCREMENT needs an integer type; ${col.type || "this column"} cannot carry it`}
-                      onChange={(e) => onUpdate(col.id, "autoIncrement", e.target.checked)}
-                      className="accent-brand-500 disabled:opacity-40"
-                    />
-                  </td>
-                  <td className="px-1 py-1">
-                    <input
-                      value={col.comment}
-                      onChange={(e) => onUpdate(col.id, "comment", e.target.value)}
-                      placeholder="—"
-                      className={inputClass}
-                    />
-                  </td>
-                  <td className="px-1 py-1">
-                    <button
-                      onClick={() => onRemove(col.id)}
-                      aria-label={`Remove column ${col.name || "(unnamed)"}`}
-                      title="Remove column"
-                      className="rounded p-0.5 text-[var(--color-text-muted)] hover:surface-error hover:text-[var(--color-error)]"
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-      <button
-        onClick={onAdd}
-        className="mt-3 flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Add Column
-      </button>
-    </div>
-  );
-}
 
 function IndexesTab({
   indexes,
@@ -891,26 +688,47 @@ function IndexesTab({
                   <div>
                     <label className="mb-1 block text-[10px] text-[var(--color-text-muted)]">Columns</label>
                     <div className="flex flex-wrap gap-1.5">
-                      {columnNames.map((colName) => (
-                        <button
-                          key={colName}
-                          onClick={() => toggleColumn(idx, colName)}
-                          className={cn(
-                            "rounded border px-2 py-0.5 text-[10px] transition-colors",
-                            idx.columns.includes(colName)
-                              ? "border-brand-500 bg-brand-600/20 text-brand-300"
-                              : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]",
-                          )}
-                        >
-                          {colName}
-                        </button>
-                      ))}
+                      {columnNames.map((colName) => {
+                        // Click order is key order. The chips are in table
+                        // order, so without the number (status, placed_at)
+                        // looked the same as (placed_at, status) (#829).
+                        const position = idx.columns.indexOf(colName);
+                        return (
+                          <button
+                            key={colName}
+                            onClick={() => toggleColumn(idx, colName)}
+                            aria-pressed={position !== -1}
+                            className={cn(
+                              "flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] transition-colors",
+                              position !== -1
+                                ? "border-brand-500 bg-brand-600/20 text-brand-300"
+                                : "border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-text-muted)]",
+                            )}
+                          >
+                            {position !== -1 && (
+                              <span
+                                data-testid="index-column-position"
+                                className="rounded-full bg-brand-600 px-1 text-[9px] font-semibold text-white"
+                              >
+                                {position + 1}
+                              </span>
+                            )}
+                            {colName}
+                          </button>
+                        );
+                      })}
                       {columnNames.length === 0 && (
                         <span className="text-[10px] text-[var(--color-text-muted)]">
                           Add columns in the Columns tab first
                         </span>
                       )}
                     </div>
+                    {idx.columns.length > 1 && (
+                      <IndexColumnOrder
+                        columns={idx.columns}
+                        onChange={(next) => onUpdate(idx.id, "columns", next)}
+                      />
+                    )}
                   </div>
                 </div>
               );
@@ -925,6 +743,51 @@ function IndexesTab({
         Add Index
       </button>
     </div>
+  );
+}
+
+/**
+ * The key's columns in key order, each movable, for a composite index.
+ * Toggling chips off and on again was the only way to reorder (#829).
+ */
+function IndexColumnOrder({ columns, onChange }: { columns: string[]; onChange: (next: string[]) => void }) {
+  const move = (from: number, to: number) => {
+    const next = [...columns];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    onChange(next);
+  };
+  const arrowClass =
+    "rounded p-0.5 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] disabled:opacity-30";
+  return (
+    <ol aria-label="Key order" className="mt-2 space-y-0.5">
+      {columns.map((name, i) => (
+        <li key={name} className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-secondary)]">
+          <span className="w-4 text-right text-[var(--color-text-muted)]">{i + 1}.</span>
+          <span className="min-w-24">{name}</span>
+          <button
+            type="button"
+            onClick={() =>
+              move(i, i - 1)}
+            disabled={i === 0}
+            aria-label={`Move ${name} up`}
+            className={arrowClass}
+          >
+            <ArrowUp className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              move(i, i + 1)}
+            disabled={i === columns.length - 1}
+            aria-label={`Move ${name} down`}
+            className={arrowClass}
+          >
+            <ArrowDown className="h-3 w-3" />
+          </button>
+        </li>
+      ))}
+    </ol>
   );
 }
 

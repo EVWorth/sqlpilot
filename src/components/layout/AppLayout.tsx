@@ -27,6 +27,7 @@ import { RestoreDialog } from "../backup/RestoreDialog";
 import { CommandPalette } from "../common/CommandPalette";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { ShortcutsDialog } from "../common/ShortcutsDialog";
+import { openNewTableDesigner } from "../designer/openNewTable";
 import { HistoryQuickOpen } from "../history/HistoryQuickOpen";
 import { ImportDialog } from "../import/ImportDialog";
 import { AgentSettingsDialog } from "../settings/AgentSettingsDialog";
@@ -70,7 +71,7 @@ export function AppLayout() {
   // The window's half of the agent surface: questions arrive as events and are
   // answered from whatever the stores hold at that moment.
   useAgentRequests();
-  // The session panel: a fixed-width column beside the editor, toggled from
+  // The session panel: a resizable column beside the editor, toggled from
   // the menu rather than always present — most sessions do not involve one.
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -198,6 +199,11 @@ export function AppLayout() {
         case "refresh-schema":
           if (selectedConnectionId) void useSchemaStore.getState().refreshAll(selectedConnectionId);
           break;
+        case "new-table": {
+          const problem = openNewTableDesigner();
+          if (problem) window.alert(problem);
+          break;
+        }
         case "admin-tools":
           if (selectedConnectionId) addAdminTab(selectedConnectionId);
           break;
@@ -332,9 +338,9 @@ export function AppLayout() {
           </Group>
         </div>
         {
-          /* Outside the resizable group: the panel is a fixed width the user
-            toggles, not a pane they drag, and it should not steal space from
-            the editor when it is closed. */
+          /* Outside the resizable group: the panel keeps its own width (it
+            has its own divider, and remembers where it was left), and it
+            should not steal space from the editor when it is closed. */
         }
         {agentPanelOpen && <AgentPanel onClose={() => setAgentPanelOpen(false)} />}
       </div>

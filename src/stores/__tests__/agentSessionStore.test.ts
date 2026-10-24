@@ -38,9 +38,10 @@ beforeEach(() => {
     agent: null,
     toolsAvailable: false,
     thinking: false,
+    failed: false,
     transcript: [],
     error: null,
-    starting: false,
+    starting: null,
   });
   apiMocks.listHarnesses.mockResolvedValue([
     { harness: "copilot", label: "GitHub Copilot", installed: true, version: "1.0.75" },
@@ -70,7 +71,7 @@ describe("starting", () => {
     expect(state.session).toBe("s1");
     expect(state.agent).toBe("Copilot 1.0.75");
     expect(state.toolsAvailable).toBe(true);
-    expect(state.starting).toBe(false);
+    expect(state.starting).toBeNull();
   });
 
   it("starts with an empty transcript", async () => {
@@ -80,13 +81,23 @@ describe("starting", () => {
     expect(transcript()).toEqual([]);
   });
 
+  it("records which harness is starting, not just that one is", async () => {
+    let finish: (value: typeof started) => void = () => {};
+    apiMocks.startAgentSession.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    const starting = useAgentSessionStore.getState().start("copilot");
+    expect(useAgentSessionStore.getState().starting).toBe("copilot");
+    finish(started);
+    await starting;
+    expect(useAgentSessionStore.getState().starting).toBeNull();
+  });
+
   it("keeps a failure to start visible", async () => {
     apiMocks.startAgentSession.mockRejectedValue(
       new Error("Could not start Claude Agent: not found. Install it with `npm install -g …`."),
     );
     await useAgentSessionStore.getState().start("claude-code");
     expect(useAgentSessionStore.getState().error).toContain("npm install");
-    expect(useAgentSessionStore.getState().starting).toBe(false);
+    expect(useAgentSessionStore.getState().starting).toBeNull();
   });
 
   it("says when a session has no database tools", async () => {
@@ -130,6 +141,21 @@ describe("sending", () => {
     await useAgentSessionStore.getState().send("hi");
     arrive({ type: "failed", message: "The agent stopped." });
     expect(useAgentSessionStore.getState().thinking).toBe(false);
+  });
+
+  it("treats a failure as the end of the session", async () => {
+    // Every later message would fail the same way.
+    await useAgentSessionStore.getState().send("hi");
+    arrive({ type: "failed", message: "GitHub Copilot is not signed in." });
+    expect(useAgentSessionStore.getState().failed).toBe(true);
+
+    apiMocks.sendAgentMessage.mockClear();
+    await useAgentSessionStore.getState().send("hello again");
+    expect(apiMocks.sendAgentMessage).not.toHaveBeenCalled();
+
+    // A new session starts clean.
+    await useAgentSessionStore.getState().start("copilot");
+    expect(useAgentSessionStore.getState().failed).toBe(false);
   });
 
   it("stops thinking if the send itself fails", async () => {
@@ -225,6 +251,25 @@ describe("stopping", () => {
     expect(apiMocks.stopAgentSession).toHaveBeenCalledWith("s1");
     expect(useAgentSessionStore.getState().session).toBeNull();
     expect(useAgentSessionStore.getState().thinking).toBe(false);
+  });
+
+  it("keeps the transcript after the session ends, closed off", async () => {
+    // The answer the user was reading should not vanish with the process.
+    arrive({ type: "text", delta: "the answer" });
+    arrive({
+      type: "permissionRequested",
+      id: "p1",
+      title: "Run `ls`",
+      options: [{ id: "yes", label: "Allow once", kind: "allow_once" }],
+    });
+    await useAgentSessionStore.getState().stop();
+    expect(transcript().map((item) => item.kind)).toEqual(["agent", "permission", "ended"]);
+    // Nobody is left to answer it.
+    expect(transcript()[1]).toMatchObject({ dismissed: true });
+
+    // Until a new session replaces it.
+    await useAgentSessionStore.getState().start("copilot");
+    expect(transcript()).toEqual([]);
   });
 
   it("forgets the session even when stopping it failed", async () => {

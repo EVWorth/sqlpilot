@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { redactCredentials, REDACTION, redactLiterals } from "../sql-redact";
+import { redactCredentials, REDACTION, redactLiterals, redactServerEcho } from "../sql-redact";
 
 /** Assert the secret is gone and the statement still reads as itself. */
 function expectRedacted(sql: string, secret: string) {
@@ -223,5 +223,28 @@ describe("redactLiterals (#330)", () => {
     const original = "SELECT * FROM t WHERE a = 'x'";
     redactLiterals(original);
     expect(original).toBe("SELECT * FROM t WHERE a = 'x'");
+  });
+});
+
+describe("redactServerEcho (#881)", () => {
+  const MYSQL = "You have an error in your SQL syntax; check the manual for the right syntax to use "
+    + "near 'USR 'a'@'%' IDENTIFIED BY 'hunter2'' at line 1";
+
+  it("removes the echoed statement and keeps the line number", () => {
+    const { sql, redacted } = redactServerEcho(MYSQL);
+    expect(redacted).toBe(true);
+    expect(sql).not.toContain("hunter2");
+    expect(sql.endsWith(`near '${REDACTION}' at line 1`)).toBe(true);
+  });
+
+  it("removes a truncated echo to the end", () => {
+    expect(redactServerEcho("syntax to use near 'IDENTIFIED BY 'hunter2").sql).toBe(
+      `syntax to use near '${REDACTION}`,
+    );
+  });
+
+  it("leaves a message without an echo alone", () => {
+    const msg = "Table 'shop.nope' doesn't exist";
+    expect(redactServerEcho(msg)).toEqual({ sql: msg, redacted: false });
   });
 });

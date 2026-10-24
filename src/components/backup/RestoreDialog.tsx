@@ -253,9 +253,10 @@ export function RestoreDialog({
         <div data-testid="dialog-body" className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
           {/* File picker */}
           <div>
-            <label className={labelClasses}>SQL File</label>
+            <label htmlFor="restore-file" className={labelClasses}>SQL File</label>
             <div className="flex gap-2">
               <input
+                id="restore-file"
                 type="text"
                 readOnly
                 value={filePath ?? ""}
@@ -293,8 +294,9 @@ export function RestoreDialog({
           {/* Connection + Database */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClasses}>Connection</label>
+              <label htmlFor="restore-connection" className={labelClasses}>Connection</label>
               <select
+                id="restore-connection"
                 className={selectClasses}
                 value={connectionId}
                 onChange={(e) => {
@@ -312,8 +314,9 @@ export function RestoreDialog({
               </select>
             </div>
             <div>
-              <label className={labelClasses}>Database</label>
+              <label htmlFor="restore-database" className={labelClasses}>Database</label>
               <select
+                id="restore-database"
                 className={selectClasses}
                 value={database}
                 onChange={(e) => setDatabase(e.target.value)}
@@ -330,8 +333,8 @@ export function RestoreDialog({
           </div>
 
           {/* Options */}
-          <div>
-            <label className={labelClasses}>Options</label>
+          <fieldset className="min-w-0">
+            <legend className={labelClasses}>Options</legend>
             <div className="space-y-1.5">
               <label className={checkboxLabelClasses}>
                 <input
@@ -370,7 +373,7 @@ export function RestoreDialog({
                 Run in a transaction
               </label>
             </div>
-          </div>
+          </fieldset>
 
           {/* Progress */}
           {progress && !summary && (

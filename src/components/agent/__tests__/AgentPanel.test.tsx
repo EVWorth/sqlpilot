@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiMocks } = vi.hoisted(() => ({
@@ -9,13 +9,19 @@ const { apiMocks } = vi.hoisted(() => ({
     cancelAgentTurn: vi.fn(),
     stopAgentSession: vi.fn(),
     answerAgentPermission: vi.fn(),
+    agentEndpointStatus: vi.fn(),
+    listAgentConnections: vi.fn(),
+    answerAgentRequest: vi.fn(),
   },
 }));
 
 vi.mock("../../../lib/tauri-api", () => ({ api: apiMocks }));
 
 import { useAgentSessionStore } from "../../../stores/agentSessionStore";
+import { useAgentStore } from "../../../stores/agentStore";
+import { useDialogStore } from "../../../stores/dialogStore";
 import { AgentPanel } from "../AgentPanel";
+import { ApprovalDialog } from "../ApprovalDialog";
 
 const copilot = {
   harness: "copilot" as const,
@@ -45,9 +51,10 @@ beforeEach(() => {
     agent: null,
     toolsAvailable: false,
     thinking: false,
+    failed: false,
     transcript: [],
     error: null,
-    starting: false,
+    starting: null,
   });
   apiMocks.listHarnesses.mockResolvedValue([copilot, claude]);
   apiMocks.startAgentSession.mockResolvedValue({
@@ -60,6 +67,23 @@ beforeEach(() => {
   apiMocks.cancelAgentTurn.mockResolvedValue(null);
   apiMocks.stopAgentSession.mockResolvedValue(null);
   apiMocks.answerAgentPermission.mockResolvedValue(null);
+  apiMocks.agentEndpointStatus.mockResolvedValue({ running: true, url: null, token: null });
+  apiMocks.listAgentConnections.mockResolvedValue([]);
+  apiMocks.answerAgentRequest.mockResolvedValue(null);
+  useAgentStore.setState({ connections: [], error: null, approval: null, approvals: [], proposal: null });
+  useDialogStore.setState({ open: null });
+});
+
+const shared = (name: string, environment: string, posture: "full" | "schema-only" | null) => ({
+  connectionId: name,
+  name,
+  environment,
+  readOnly: false,
+  connected: true,
+  posture,
+  databases: null,
+  redact: [],
+  ddlUnlocked: false,
 });
 
 const open = () => render(<AgentPanel onClose={() => {}} />);
@@ -84,10 +108,161 @@ describe("before a session", () => {
     expect(await screen.findByText("npm install -g @anthropic-ai/claude-code")).toBeTruthy();
   });
 
+  it("labels only the harness being started", () => {
+    // Two "Starting…" buttons read as two harnesses launching.
+    useAgentSessionStore.setState({
+      harnesses: [copilot, { ...claude, installed: true, version: "2.1.14" }],
+      starting: "copilot",
+    });
+    apiMocks.listHarnesses.mockReturnValue(new Promise(() => {}));
+    open();
+    const buttons = screen.getAllByRole("button", { name: /Start|Starting/ });
+    expect(buttons.map((b) => b.textContent)).toEqual([
+      "Starting GitHub Copilot…(1.0.75)",
+      "Start Claude Agent(2.1.14)",
+    ]);
+    // The other stays unclickable: one session at a time.
+    expect(buttons.every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
+  });
+
   it("starts a session when asked", async () => {
     open();
     fireEvent.click(await screen.findByRole("button", { name: /Start GitHub Copilot/ }));
     await waitFor(() => expect(apiMocks.startAgentSession).toHaveBeenCalledWith("copilot"));
+  });
+});
+
+describe("focus", () => {
+  // Monaco keeps Tab, so without this a keyboard user cannot reach the panel.
+  it("moves to the first Start button when the panel opens", async () => {
+    open();
+    const startButton = await screen.findByRole("button", { name: /Start GitHub Copilot/ });
+    await waitFor(() => expect(document.activeElement).toBe(startButton));
+  });
+
+  it("moves to the message box when a session is already running", () => {
+    useAgentSessionStore.setState(running);
+    open();
+    expect(document.activeElement).toBe(screen.getByLabelText("Message the agent"));
+  });
+
+  it("moves to the message box once a session starts", async () => {
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: /Start GitHub Copilot/ }));
+    const box = await screen.findByLabelText("Message the agent");
+    await waitFor(() => expect(document.activeElement).toBe(box));
+  });
+
+  it("comes back to the message box after an approval closes", async () => {
+    useAgentSessionStore.setState(running);
+    render(
+      <>
+        <AgentPanel onClose={() => {}} />
+        <ApprovalDialog />
+      </>,
+    );
+    const box = screen.getByLabelText("Message the agent");
+    // Arriving while focus was nowhere: the dialog would hand it back to
+    // <body> when it closes.
+    box.blur();
+    act(() => {
+      useAgentStore.getState().showApproval({
+        id: "a1",
+        connection: "Local dev",
+        environment: "development",
+        sql: "DELETE FROM t",
+        change: "write",
+      });
+    });
+    expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(box));
+  });
+
+  it("comes back to the message box after answering a permission", async () => {
+    useAgentSessionStore.setState({
+      ...running,
+      transcript: [{
+        kind: "permission",
+        id: "p1",
+        title: "Run `ls`",
+        options: [{ id: "yes", label: "Allow once", kind: "allow_once" }],
+      }],
+    });
+    open();
+    const allow = screen.getByRole("button", { name: "Allow once" });
+    allow.focus();
+    fireEvent.click(allow);
+    expect(document.activeElement).toBe(screen.getByLabelText("Message the agent"));
+  });
+});
+
+describe("width", () => {
+  // jsdom's window is 1024px wide: the case the fixed 380px did not fit.
+  const panelWidth = () =>
+    (screen.getByRole("separator", { name: "Resize the agent panel" }).parentElement as HTMLElement)
+      .style.width;
+
+  beforeEach(() => localStorage.clear());
+
+  it("fits a 1024px window", () => {
+    open();
+    expect(window.innerWidth).toBe(1024);
+    expect(panelWidth()).toBe("307px");
+  });
+
+  it("resizes from the divider by dragging, and remembers it", () => {
+    open();
+    const divider = screen.getByRole("separator", { name: "Resize the agent panel" });
+    fireEvent.pointerDown(divider, { clientX: 700, pointerId: 1 });
+    fireEvent.pointerMove(divider, { clientX: 600, pointerId: 1 });
+    expect(panelWidth()).toBe("407px");
+    fireEvent.pointerUp(divider, { clientX: 600, pointerId: 1 });
+    expect(localStorage.getItem("sqlpilot-agent-panel-width")).toBe("407");
+  });
+
+  it("resizes from the keyboard, within its limits", () => {
+    open();
+    const divider = screen.getByRole("separator", { name: "Resize the agent panel" });
+    fireEvent.keyDown(divider, { key: "ArrowLeft" });
+    expect(divider.getAttribute("aria-valuenow")).toBe("323");
+    for (let i = 0; i < 5; i++) fireEvent.keyDown(divider, { key: "ArrowRight" });
+    expect(divider.getAttribute("aria-valuenow")).toBe("300");
+  });
+});
+
+describe("what the agent can reach", () => {
+  it("lists the shared connections with environment and posture", async () => {
+    apiMocks.listAgentConnections.mockResolvedValue([
+      shared("Local dev", "development", "full"),
+      shared("Production", "production", "schema-only"),
+      shared("Staging", "staging", null),
+    ]);
+    useAgentSessionStore.setState(running);
+    open();
+    const strip = await screen.findByRole("group", { name: "What the agent can reach" });
+    await waitFor(() => expect(strip.textContent).toContain("Production"));
+    expect(strip.textContent).toContain("Local dev");
+    // Not shared means not reachable, so it is not listed.
+    expect(strip.textContent).not.toContain("Staging");
+    expect(screen.getAllByTestId("posture-badge").map((b) => b.textContent)).toEqual(["Full", "Schema only"]);
+    expect(screen.getAllByTestId("environment-badge").map((b) => b.textContent)).toEqual([
+      "development",
+      "production",
+    ]);
+  });
+
+  it("says so when nothing is shared", async () => {
+    open();
+    expect(await screen.findByText("No connections shared with agents.")).toBeTruthy();
+  });
+
+  it("opens the Agents settings from the panel", async () => {
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Manage…" }));
+    expect(useDialogStore.getState().open).toBe("agents");
   });
 });
 
@@ -148,6 +323,35 @@ describe("during a session", () => {
     await waitFor(() => expect(apiMocks.stopAgentSession).toHaveBeenCalledWith("s1"));
   });
 
+  it("asks before ending a session in the middle of a turn", async () => {
+    useAgentSessionStore.setState({ ...running, thinking: true });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(screen.getByRole("dialog", { name: "End the session?" })).toBeTruthy();
+    expect(apiMocks.stopAgentSession).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Keep working" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(apiMocks.stopAgentSession).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    fireEvent.click(screen.getByRole("button", { name: "End session" }));
+    await waitFor(() => expect(apiMocks.stopAgentSession).toHaveBeenCalledWith("s1"));
+  });
+
+  it("keeps the last transcript on screen after the session ends", async () => {
+    useAgentSessionStore.setState({
+      ...running,
+      transcript: [{ kind: "user", text: "hello" }, { kind: "agent", text: "hi there" }],
+    });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "End" }));
+    expect(await screen.findByRole("separator", { name: "Session ended" })).toBeTruthy();
+    expect(screen.getByText("hi there")).toBeTruthy();
+    // And a new one is one click away.
+    expect(screen.getByRole("button", { name: /Start GitHub Copilot/ })).toBeTruthy();
+  });
+
   it("says where writes are approved", () => {
     // The harness's own permissions are not the last word, and the panel says
     // so where the user is about to type.
@@ -201,6 +405,43 @@ describe("the transcript", () => {
     });
     open();
     expect(screen.getByText("run_select on shop")).toBeTruthy();
+  });
+
+  it("shows the whole statement a tool ran, on request", () => {
+    const sql = "SELECT status, COUNT(*) FROM shop.orders GROUP BY status — 5 rows";
+    useAgentSessionStore.setState({
+      transcript: [{
+        kind: "tool",
+        id: "t1",
+        title: "run_select on Local dev",
+        toolKind: "execute",
+        status: "completed",
+        detail: sql,
+      }],
+    });
+    const { container } = open();
+    const toggle = screen.getByRole("button", { name: "Show what the agent ran" });
+    // Hovering is enough to read it; clicking shows it in full.
+    expect(toggle.getAttribute("title")).toBe(sql);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector("pre")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(container.querySelector("pre")?.textContent).toBe(sql);
+    expect(screen.getByRole("button", { name: "Hide what the agent ran" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  });
+
+  it("renders the agent's lists and code rather than the markdown", () => {
+    useAgentSessionStore.setState({
+      transcript: [{ kind: "agent", text: "Counts:\n\n- paid: 1,939\n- shipped: 1,902\n\nUse `GROUP BY`." }],
+    });
+    const { container } = open();
+    const items = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["paid: 1,939", "shipped: 1,902"]);
+    expect(container.querySelector("code")?.textContent).toBe("GROUP BY");
+    expect(screen.queryByText(/`/)).toBeNull();
   });
 
   it("shows a plan with its progress", () => {
@@ -273,6 +514,33 @@ describe("the transcript", () => {
     open();
     expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
     expect(screen.getByText("Allow once")).toBeTruthy();
+  });
+
+  it("shows a harness failure as an error and offers a new session", async () => {
+    useAgentSessionStore.setState({
+      failed: true,
+      transcript: [
+        { kind: "user", text: "hello" },
+        {
+          kind: "error",
+          text: "GitHub Copilot is not signed in. Run `copilot` in a terminal, then start a new session.",
+        },
+      ],
+    });
+    const { container } = open();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("is not signed in");
+    expect(alert.className).toContain("color-error");
+    // The backticks are code, not literal punctuation.
+    expect(alert.querySelector("code")?.textContent).toBe("copilot");
+    expect(container.textContent).not.toContain("`");
+
+    // Nothing sent now would get an answer.
+    expect((screen.getByLabelText("Message the agent") as HTMLTextAreaElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /Send/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a new session" }));
+    await waitFor(() => expect(apiMocks.stopAgentSession).toHaveBeenCalledWith("s1"));
   });
 
   it("shows a note when something went wrong", () => {

@@ -85,9 +85,10 @@ Code, commits, PRs, issues and log lines are written in normal English.
   covers the hand-off.
 - GitHub deletes the session branch when its PR merges. Recreate it from
   `origin/main`.
-- The disk fills quickly with test binaries. Before a long Rust run, delete
-  `src-tauri/target/debug/incremental` and large files in
-  `src-tauri/target/debug/deps`, and set `CARGO_INCREMENTAL=0`.
+- The disk fills quickly with test binaries. Before a long Rust run, run
+  `bash scripts/clean-debug.sh` (or `just clean-debug`; `just` may not be
+  installed) and set `CARGO_INCREMENTAL=0`. The `rm -rf` deny rule blocks
+  deleting those directories by hand on purpose.
 - Docker doesn't survive a container restart: start `dockerd`, then
   `just db-up`.
 - The session-start hook sets `CHROMIUM_PATH` to the container's Chromium, so

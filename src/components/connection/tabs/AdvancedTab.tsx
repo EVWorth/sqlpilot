@@ -61,8 +61,10 @@ export function AdvancedTab({
       </div>
       <Field
         label="Character Set"
-        value={form.charset ?? "utf8mb4"}
-        onChange={(v) => handleChange("charset", v || "utf8mb4")}
+        value={form.charset ?? ""}
+        // Kept as typed, so clearing it to type another charset does not
+        // snap back to the default; an empty field saves as utf8mb4 (#859).
+        onChange={(v) => handleChange("charset", v)}
         placeholder="utf8mb4"
       />
     </div>

@@ -121,6 +121,14 @@ export const ACTIONS: Action[] = [
     keywords: ["users", "privileges", "processes"],
     enabled: needsConnection,
   },
+  // The designer's create mode, which nothing used to reach (#818).
+  {
+    id: "new-table",
+    label: "New Table…",
+    category: "Database",
+    keywords: ["create", "design", "schema"],
+    enabled: needsConnection,
+  },
 
   {
     id: "format-sql",
@@ -211,6 +219,7 @@ export const MENUS: Menu[] = [
   {
     label: "Database",
     entries: [
+      { type: "item", id: "new-table" },
       { type: "item", id: "refresh-schema" },
       { type: "item", id: "admin-tools" },
     ],

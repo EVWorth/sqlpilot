@@ -46,7 +46,32 @@ describe("ApprovalDialog", () => {
 
     expect(screen.getByText(write.sql)).toBeTruthy();
     expect(screen.getByText("shop")).toBeTruthy();
-    expect(screen.getByText(/This changes 4 rows/)).toBeTruthy();
+    expect(screen.getByText("Updates 4 rows.")).toBeTruthy();
+  });
+
+  it("says the row count prominently, with the verb, however small", () => {
+    // 132 deleted rows is not small print.
+    useAgentStore.setState({
+      approval: { ...write, sql: "DELETE FROM shop.customers WHERE is_active = 0", rowsAffected: 132 },
+    });
+    render(<ApprovalDialog />);
+    const rows = screen.getByTestId("approval-rows");
+    expect(rows.textContent).toBe("Deletes 132 rows.");
+    expect(rows.className).toContain("font-semibold");
+  });
+
+  it("names who asked, when the backend says", () => {
+    useAgentStore.setState({ approval: { ...write, requester: "Claude Agent 2.1.14 (in-app session)" } });
+    render(<ApprovalDialog />);
+    expect(screen.getByTestId("approval-requester").textContent).toBe(
+      "Asked by Claude Agent 2.1.14 (in-app session)",
+    );
+  });
+
+  it("does not guess who asked when it is not known", () => {
+    useAgentStore.setState({ approval: write });
+    render(<ApprovalDialog />);
+    expect(screen.queryByTestId("approval-requester")).toBeNull();
   });
 
   it("says the number is measured rather than guessed", () => {
@@ -165,7 +190,7 @@ describe("ApprovalDialog", () => {
     // in the statement, and the user should see that rather than a blank.
     useAgentStore.setState({ approval: { ...write, rowsAffected: 0 } });
     render(<ApprovalDialog />);
-    expect(screen.getByText(/changes no rows/)).toBeTruthy();
+    expect(screen.getByText("Updates no rows.")).toBeTruthy();
   });
 
   it("says a schema change is being approved before it runs", () => {

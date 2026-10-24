@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { cn } from "../../lib/utils";
 
@@ -41,8 +41,74 @@ interface ContextMenuProps {
   onClose: () => void;
 }
 
+/** The menu's items that can take focus, in order. */
+function enabledItems(menu: HTMLElement | null): HTMLElement[] {
+  return Array.from(menu?.querySelectorAll<HTMLElement>("[role='menuitem']:not([disabled])") ?? []);
+}
+
+/**
+ * A right-click menu, usable from the keyboard too (#823).
+ *
+ * It opened with focus left on whatever was right-clicked, so Shift+F10 or
+ * the context-menu key showed a menu that only a mouse could use. It is now
+ * a WAI-ARIA menu: the first enabled item takes focus on open, Up, Down, Home
+ * and End move between items, Enter picks one, and Escape or Tab closes it.
+ * Focus goes back to what opened it unless the chosen action moved it on.
+ */
 export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  // Whatever had focus when the menu opened: the row that was right-clicked,
+  // or the one Shift+F10 was pressed on. Read before the menu takes focus.
+  const openerRef = useRef<Element | null>(null);
+  if (openerRef.current === null && typeof document !== "undefined") {
+    openerRef.current = document.activeElement;
+  }
+
+  useLayoutEffect(() => {
+    enabledItems(menuRef.current)[0]?.focus();
+  }, [items]);
+
+  useEffect(() => {
+    const menu = menuRef.current;
+    return () => {
+      // Only if focus would otherwise be lost: an action that opened a dialog
+      // or a tab and focused it has put focus where it belongs.
+      const active = document.activeElement;
+      const lost = !active || active === document.body || (menu?.contains(active) ?? false);
+      const opener = openerRef.current;
+      if (lost && opener instanceof HTMLElement && opener.isConnected) opener.focus();
+    };
+  }, []);
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const all = enabledItems(menuRef.current);
+    const at = all.indexOf(document.activeElement as HTMLElement);
+    let next: HTMLElement | undefined;
+    switch (e.key) {
+      case "ArrowDown":
+        next = all[(at + 1) % all.length];
+        break;
+      case "ArrowUp":
+        next = all[(at - 1 + all.length) % all.length];
+        break;
+      case "Home":
+        next = all[0];
+        break;
+      case "End":
+        next = all[all.length - 1];
+        break;
+      case "Tab":
+        // A menu is not a stop on the way through the page: Tab leaves it,
+        // back to where it was opened.
+        e.preventDefault();
+        onClose();
+        return;
+      default:
+        return;
+    }
+    e.preventDefault();
+    next?.focus();
+  };
 
   useEffect(() => {
     const el = menuRef.current;
@@ -97,6 +163,9 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
   return createPortal(
     <div
       ref={menuRef}
+      role="menu"
+      aria-orientation="vertical"
+      onKeyDown={onKeyDown}
       className="fixed z-50 min-w-[180px] rounded-md border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] py-1 shadow-xl"
       style={{ left: x, top: y }}
     >
@@ -105,13 +174,18 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
           ? (
             <div
               key={idx}
+              role="separator"
               className="mx-2 my-1 border-t border-[var(--color-border)]"
             />
           )
           : (
             <button
               key={idx}
+              role="menuitem"
+              // Reached with the arrow keys, not Tab.
+              tabIndex={-1}
               disabled={item.disabled}
+              aria-disabled={item.disabled || undefined}
               title={item.title}
               onClick={() => {
                 if (!item.disabled) {
@@ -124,8 +198,8 @@ export function ContextMenu({ x, y, items, onClose }: ContextMenuProps) {
                 item.disabled
                   ? "cursor-default text-[var(--color-text-muted)] opacity-50"
                   : item.danger
-                  ? "text-[var(--color-error)] hover:surface-error"
-                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)]",
+                  ? "text-[var(--color-error)] hover:surface-error focus:surface-error"
+                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] focus:bg-[var(--color-bg-secondary)] focus:text-[var(--color-text-primary)]",
               )}
             >
               {item.icon && <span className="h-3.5 w-3.5">{item.icon}</span>}

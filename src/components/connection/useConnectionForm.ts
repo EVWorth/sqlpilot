@@ -19,6 +19,9 @@ import type {
  * it needs.
  */
 
+/** The charset a profile gets when the field is left empty. */
+const DEFAULT_CHARSET = "utf8mb4";
+
 const defaultProfile: Omit<ConnectionProfileInput, "id" | "created_at" | "updated_at"> = {
   name: "",
   host: "127.0.0.1",
@@ -29,7 +32,7 @@ const defaultProfile: Omit<ConnectionProfileInput, "id" | "created_at" | "update
   read_only: false,
   connect_timeout_secs: 10,
   query_timeout_secs: 0,
-  charset: "utf8mb4",
+  charset: DEFAULT_CHARSET,
   // Rust Options are required-but-nullable, so these are stated explicitly
   // instead of being left off as they were with the hand-written type.
   group: null,
@@ -239,6 +242,8 @@ export function useConnectionForm(
     if (!profile.ssl_config || profile.ssl_config.mode === "Disabled") {
       profile.ssl_config = null;
     }
+    // The field is free text while typing; an empty one means the default.
+    profile.charset = profile.charset?.trim() || DEFAULT_CHARSET;
     return profile;
   };
 

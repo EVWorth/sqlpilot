@@ -208,3 +208,24 @@ export function redactCredentials(sql: string): RedactionResult {
   out += sql.slice(cursor);
   return { sql: out, redacted };
 }
+
+/**
+ * Remove the statement text a server error quotes back.
+ *
+ * MySQL and MariaDB syntax errors end with `near '<the rest of the statement>'
+ * at line N`, and the quotes inside that echo are not escaped. So
+ * {@link redactCredentials} cannot see a literal there, and a mistyped
+ * `CREATE USER … IDENTIFIED BY 'pw'` kept the password in the stored error
+ * (#881). The echo goes whole; the line number stays. Mirrors
+ * `redact_server_echo` in mas-core, which does the same for the log file.
+ */
+export function redactServerEcho(message: string): RedactionResult {
+  const OPEN = "near '";
+  const CLOSE = "' at line ";
+  const open = message.indexOf(OPEN);
+  if (open === -1) return { sql: message, redacted: false };
+  const start = open + OPEN.length;
+  const close = message.lastIndexOf(CLOSE);
+  const end = close >= start ? close : message.length;
+  return { sql: message.slice(0, start) + REDACTION + message.slice(end), redacted: true };
+}

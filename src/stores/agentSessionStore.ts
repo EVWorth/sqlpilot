@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { addUserMessage, answerPermission, applyEvent, type TranscriptItem } from "../lib/agent-transcript";
+import { addUserMessage, answerPermission, applyEvent, endSession, type TranscriptItem } from "../lib/agent-transcript";
 import type { AgentSessionEvent, Harness, HarnessStatus } from "../lib/bindings";
 import { api } from "../lib/tauri-api";
 
@@ -29,10 +29,19 @@ interface AgentSessionState {
   toolsAvailable: boolean;
   /** True between sending a message and the turn ending. */
   thinking: boolean;
+  /**
+   * True once the harness has failed. Every later message would fail the same
+   * way (not signed in, the process gone), so the panel stops offering to
+   * send one and offers a new session instead.
+   */
+  failed: boolean;
   transcript: TranscriptItem[];
   error: string | null;
-  /** True while a session is being started, which takes a second or two. */
-  starting: boolean;
+  /**
+   * The harness being started, which takes a second or two; null otherwise.
+   * Which one, not just whether: the panel labels only that button.
+   */
+  starting: Harness | null;
 
   findHarnesses: () => Promise<void>;
   start: (harness: Harness) => Promise<void>;
@@ -51,9 +60,10 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   agent: null,
   toolsAvailable: false,
   thinking: false,
+  failed: false,
   transcript: [],
   error: null,
-  starting: false,
+  starting: null,
 
   findHarnesses: async () => {
     try {
@@ -64,7 +74,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   },
 
   start: async (harness) => {
-    set({ starting: true, error: null });
+    if (get().starting) return;
+    set({ starting: harness, error: null });
     try {
       const started = await api.startAgentSession(harness);
       set({
@@ -75,17 +86,18 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         // belonged to a process that is gone.
         transcript: [],
         thinking: false,
+        failed: false,
       });
     } catch (e) {
       set({ error: message(e) });
     } finally {
-      set({ starting: false });
+      set({ starting: null });
     }
   },
 
   send: async (text) => {
-    const { session } = get();
-    if (!session || !text.trim()) return;
+    const { session, failed } = get();
+    if (!session || failed || !text.trim()) return;
     // Shown immediately: waiting for the round trip to echo the user's own
     // message back reads as a dropped keystroke.
     set({ transcript: addUserMessage(get().transcript, text), thinking: true, error: null });
@@ -114,7 +126,9 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     } catch (e) {
       set({ error: message(e) });
     }
-    set({ session: null, agent: null, thinking: false });
+    // The transcript stays, closed off, until a new session replaces it: the
+    // answer the user was reading should not vanish with the process.
+    set({ session: null, agent: null, thinking: false, failed: false, transcript: endSession(get().transcript) });
   },
 
   answer: async (requestId, optionId) => {
@@ -139,6 +153,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       // A permission request pauses the turn, but the agent is still working
       // on it — only an ending stops the spinner.
       thinking: event.type === "turnEnded" || event.type === "failed" ? false : get().thinking,
+      failed: get().failed || event.type === "failed",
     });
   },
 
