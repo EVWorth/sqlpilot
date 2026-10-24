@@ -33,6 +33,30 @@ export interface Action {
    * called: "theme" should find Appearance, "export" should find Backup.
    */
   keywords?: string[];
+  /**
+   * Whether the action can run right now; omitted means always.
+   *
+   * The menu bar greys out what returns false and the palette lists it last,
+   * unselectable, with the reason. Before this, Admin Tools with nothing
+   * connected closed the menu and did nothing at all (#821).
+   */
+  enabled?: (context: ActionContext) => boolean;
+}
+
+/** What `Action.enabled` is decided from. */
+export interface ActionContext {
+  /** A connection is open and selected. */
+  connected: boolean;
+}
+
+/** Shown beside an action that needs a connection while there is none. */
+export const CONNECT_FIRST = "Connect first";
+
+const needsConnection = (context: ActionContext) => context.connected;
+
+/** Whether an action can run in this context. */
+export function isEnabled(action: Action, context: ActionContext): boolean {
+  return action.enabled?.(context) ?? true;
 }
 
 export type MenuEntry =
@@ -48,9 +72,21 @@ export interface Menu {
 
 export const ACTIONS: Action[] = [
   { id: "new-query", label: "New Query Tab", category: "File", shortcut: "Ctrl+T" },
-  { id: "import", label: "Import Data…", category: "File", keywords: ["csv", "load"] },
-  { id: "backup", label: "Backup Database…", category: "File", keywords: ["dump", "export", "sql"] },
-  { id: "restore", label: "Restore Database…", category: "File", keywords: ["import", "load", "dump"] },
+  { id: "import", label: "Import Data…", category: "File", keywords: ["csv", "load"], enabled: needsConnection },
+  {
+    id: "backup",
+    label: "Backup Database…",
+    category: "File",
+    keywords: ["dump", "export", "sql"],
+    enabled: needsConnection,
+  },
+  {
+    id: "restore",
+    label: "Restore Database…",
+    category: "File",
+    keywords: ["import", "load", "dump"],
+    enabled: needsConnection,
+  },
   { id: "quit", label: "Quit", category: "File", keywords: ["exit", "close"] },
 
   { id: "undo", label: "Undo", category: "Edit", shortcut: "Ctrl+Z" },
@@ -69,10 +105,22 @@ export const ACTIONS: Action[] = [
   },
 
   { id: "new-connection", label: "New Connection…", category: "Connection", keywords: ["server", "database", "add"] },
-  { id: "disconnect", label: "Disconnect", category: "Connection" },
+  { id: "disconnect", label: "Disconnect", category: "Connection", enabled: needsConnection },
 
-  { id: "refresh-schema", label: "Refresh Schema Cache", category: "Database", keywords: ["reload", "tables"] },
-  { id: "admin-tools", label: "Admin Tools", category: "Database", keywords: ["users", "privileges", "processes"] },
+  {
+    id: "refresh-schema",
+    label: "Refresh Schema Cache",
+    category: "Database",
+    keywords: ["reload", "tables"],
+    enabled: needsConnection,
+  },
+  {
+    id: "admin-tools",
+    label: "Admin Tools",
+    category: "Database",
+    keywords: ["users", "privileges", "processes"],
+    enabled: needsConnection,
+  },
 
   {
     id: "format-sql",

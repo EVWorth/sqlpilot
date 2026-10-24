@@ -162,6 +162,50 @@ describe("MenuBar", () => {
   });
 });
 
+describe("items that need a connection (#821)", () => {
+  afterEach(() => {
+    useConnectionStore.setState({ activeConnections: [], selectedConnectionId: null });
+  });
+
+  it("greys them out and does not run them while nothing is connected", () => {
+    useConnectionStore.setState({ activeConnections: [], selectedConnectionId: null });
+    const seen: string[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener("menu-action", listener);
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Database"));
+    const admin = screen.getByText("Admin Tools").closest("button");
+    expect(admin).toHaveAttribute("aria-disabled", "true");
+    expect(admin).toHaveAttribute("title", "Connect first");
+    fireEvent.click(screen.getByText("Admin Tools"));
+    expect(seen).toEqual([]);
+
+    fireEvent.click(screen.getByText("File"));
+    expect(screen.getByText("Import Data…").closest("button")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("Backup Database…").closest("button")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("New Query Tab").closest("button")).not.toHaveAttribute("aria-disabled");
+    window.removeEventListener("menu-action", listener);
+  });
+
+  it("enables them once a connection is selected", () => {
+    useConnectionStore.setState({
+      activeConnections: [{ id: "c1", profile_id: "p1" }] as never,
+      selectedConnectionId: "c1",
+    });
+    const seen: string[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener("menu-action", listener);
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Database"));
+    expect(screen.getByText("Admin Tools").closest("button")).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(screen.getByText("Admin Tools"));
+    expect(seen).toEqual(["admin-tools"]);
+    window.removeEventListener("menu-action", listener);
+  });
+});
+
 describe("Connection → Connect to (#817)", () => {
   const profile = (id: string, name: string) => ({ id, name, host: "h" }) as never;
 

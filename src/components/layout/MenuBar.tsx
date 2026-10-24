@@ -1,6 +1,7 @@
 import { ChevronRight } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { actionById, MENUS, runAction } from "../../lib/actions";
+import { useActionContext } from "../../hooks/useActionContext";
+import { actionById, CONNECT_FIRST, isEnabled, MENUS, runAction } from "../../lib/actions";
 import { requestConnect } from "../../lib/connect-request";
 import { useConnectionStore } from "../../stores/connectionStore";
 
@@ -12,6 +13,7 @@ export function MenuBar() {
   const openProfileIds = new Set(activeConnections.map((c) => c.profile_id));
   const connecting = useConnectionStore((s) => s.connecting);
   const barRef = useRef<HTMLDivElement>(null);
+  const context = useActionContext();
 
   useEffect(() => {
     if (openMenu === null) return;
@@ -116,11 +118,20 @@ export function MenuBar() {
                 }
                 const action = actionById(entry.id);
                 if (!action) return null;
+                // Greyed rather than hidden, so the menu keeps its shape and
+                // says what is missing (#821).
+                const enabled = isEnabled(action, context);
                 return (
                   <button
                     key={entry.id}
-                    onClick={() => handleItemClick(entry.id)}
-                    className="flex w-full items-center justify-between gap-8 px-3 py-1 text-left text-xs text-[var(--color-text-primary)] transition-colors hover:bg-[var(--color-bg-tertiary)]"
+                    aria-disabled={!enabled || undefined}
+                    title={enabled ? undefined : CONNECT_FIRST}
+                    onClick={() => {
+                      if (enabled) handleItemClick(entry.id);
+                    }}
+                    className={`flex w-full items-center justify-between gap-8 px-3 py-1 text-left text-xs text-[var(--color-text-primary)] transition-colors ${
+                      enabled ? "hover:bg-[var(--color-bg-tertiary)]" : "cursor-default opacity-50"
+                    }`}
                   >
                     <span>{action.label}</span>
                     {action.shortcut && (
