@@ -121,7 +121,7 @@ impl Harness {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_dump_restores_onto_one_session() {
     // Every statement used to get its own pooled connection, so the `USE`
     // that opened the database was not guaranteed to apply to the next one.
@@ -150,7 +150,7 @@ async fn a_dump_restores_onto_one_session() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_stored_program_restores_whole() {
     let h = harness().await;
     let summary = h
@@ -175,7 +175,7 @@ async fn a_stored_program_restores_whole() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_truncated_stored_program_reports_rather_than_hanging() {
     // The case that used to wait forever for a terminator (#360).
     let h = harness().await;
@@ -201,7 +201,7 @@ async fn a_truncated_stored_program_reports_rather_than_hanging() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn stopping_at_the_first_error_says_what_had_already_applied() {
     let h = harness().await;
     let summary = h
@@ -225,7 +225,7 @@ async fn stopping_at_the_first_error_says_what_had_already_applied() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_data_only_restore_rolls_back_completely() {
     // Where a transaction does buy something: no DDL, so nothing has
     // committed before the failure.
@@ -262,7 +262,7 @@ async fn a_data_only_restore_rolls_back_completely() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn carrying_on_past_errors_runs_the_rest_of_the_file() {
     let h = harness().await;
     let summary = h
@@ -284,7 +284,7 @@ async fn carrying_on_past_errors_runs_the_rest_of_the_file() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn rows_land_in_a_child_table_before_its_parent_exists() {
     // What turning the foreign-key checks off is for: a file whose tables are
     // in the wrong order restores anyway, which is how mysqldump's own output
@@ -306,7 +306,7 @@ async fn rows_land_in_a_child_table_before_its_parent_exists() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_checks_are_back_on_when_the_restore_ends() {
     // A session left with foreign_key_checks off would silently accept
     // orphans for every later query on that connection.
@@ -326,7 +326,7 @@ async fn the_checks_are_back_on_when_the_restore_ends() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn progress_reports_bytes_against_the_size_of_the_file() {
     let h = harness().await;
     let sql: String = (0..200)
@@ -357,7 +357,7 @@ async fn progress_reports_bytes_against_the_size_of_the_file() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_read_only_connection_refuses_a_restore() {
     let mut p = profile();
     p.read_only = true;
@@ -385,7 +385,7 @@ async fn a_read_only_connection_refuses_a_restore() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_database_survives_a_round_trip_through_a_dump() {
     // The test the audit asked for and nothing did: dump a database, restore
     // it somewhere else, and compare. Every other test here checks one part
@@ -496,7 +496,7 @@ async fn a_database_survives_a_round_trip_through_a_dump() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_commit_that_cannot_happen_is_reported_as_a_failure() {
     // The transaction's own outcome used to be ignored, so a restore could
     // report "complete — 400 statements" with nothing committed. Provoked

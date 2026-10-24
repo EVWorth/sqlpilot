@@ -66,7 +66,7 @@ fn root_profile() -> ConnectionProfile {
 // ====== CONNECTION TESTS ======
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_connect_mysql8() {
     let manager = ConnectionManager::new();
     let profile = test_profile();
@@ -77,7 +77,7 @@ async fn test_connect_mysql8() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_connect_invalid_credentials() {
     let manager = ConnectionManager::new();
     let mut profile = test_profile();
@@ -87,7 +87,7 @@ async fn test_connect_invalid_credentials() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_connect_invalid_host() {
     let manager = ConnectionManager::new();
     let mut profile = test_profile();
@@ -97,7 +97,7 @@ async fn test_connect_invalid_host() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_test_connection_success() {
     let profile = test_profile();
     let result = ConnectionManager::test_connection(&profile).await.unwrap();
@@ -107,7 +107,7 @@ async fn test_test_connection_success() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_test_connection_failure() {
     let mut profile = test_profile();
     profile.password = "wrong".to_string();
@@ -125,7 +125,7 @@ async fn test_test_connection_failure() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_disconnect_cleanup() {
     let manager = ConnectionManager::new();
     let profile = test_profile();
@@ -136,7 +136,7 @@ async fn test_disconnect_cleanup() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_disconnect_nonexistent() {
     let manager = ConnectionManager::new();
     let result = manager.disconnect("nonexistent").await;
@@ -144,7 +144,7 @@ async fn test_disconnect_nonexistent() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_concurrent_connections() {
     let manager = ConnectionManager::new();
     let profile1 = test_profile();
@@ -216,7 +216,7 @@ fn test_connection_store_update() {
 // ====== QUERY TESTS ======
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_execute_select() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -249,7 +249,7 @@ async fn test_execute_select() {
 // (#520).
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_row_limit_does_not_break_show_and_describe() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -276,7 +276,7 @@ async fn a_row_limit_does_not_break_show_and_describe() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_row_limit_still_bounds_the_statements_it_should() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -311,7 +311,7 @@ async fn a_row_limit_still_bounds_the_statements_it_should() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_cte_is_bounded_too() {
     // starts_with("SELECT") did not match a WITH, so a CTE-prefixed SELECT
     // ignored the setting entirely.
@@ -335,7 +335,7 @@ async fn a_cte_is_bounded_too() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_limit_the_user_wrote_is_not_overridden() {
     // The setting is a ceiling on what the app volunteers, not an override of
     // what was asked for.
@@ -365,7 +365,7 @@ async fn a_limit_the_user_wrote_is_not_overridden() {
 // apply. Capping the read instead cannot fail any of those ways (#520).
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_locking_read_still_runs_under_a_row_limit() {
     // `SELECT ... FOR UPDATE LIMIT 2` is ERROR 1064: the LIMIT has to precede
     // the locking clause, and appending puts it after.
@@ -389,7 +389,7 @@ async fn a_locking_read_still_runs_under_a_row_limit() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_trailing_comment_no_longer_swallows_the_limit() {
     // The worst of the old failures, because it was silent: the appended
     // LIMIT landed after `--`, so the statement ran unbounded while the
@@ -419,7 +419,7 @@ async fn a_trailing_comment_no_longer_swallows_the_limit() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_limit_inside_a_subquery_does_not_count_as_the_outer_one() {
     // The old check saw any LIMIT anywhere and concluded the statement was
     // already bounded, so this came back whole.
@@ -443,7 +443,7 @@ async fn a_limit_inside_a_subquery_does_not_count_as_the_outer_one() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn show_output_is_bounded_too() {
     // No LIMIT could have done this: SHOW does not take one. The setting now
     // means what it says for every statement, not only the ones whose syntax
@@ -463,7 +463,7 @@ async fn show_output_is_bounded_too() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_result_exactly_the_limit_long_is_not_called_truncated() {
     // Nothing was withheld, so saying otherwise would send the user looking
     // for rows that do not exist.
@@ -485,7 +485,7 @@ async fn a_result_exactly_the_limit_long_is_not_called_truncated() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_statement_reaches_the_server_as_written() {
     // The point of the change: nothing edits the user's SQL. A statement that
     // would not survive having text appended to it runs unchanged.
@@ -538,19 +538,19 @@ async fn foreign_keys_come_back_with_their_actions(profile: ConnectionProfile) {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_foreign_keys_mysql() {
     foreign_keys_come_back_with_their_actions(test_profile()).await;
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_foreign_keys_mariadb() {
     foreign_keys_come_back_with_their_actions(mariadb_profile()).await;
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_composite_foreign_key_keeps_its_column_order() {
     // A composite key spans several rows of KEY_COLUMN_USAGE, and the pairing
     // is positional — the wrong order would build a different constraint.
@@ -596,7 +596,7 @@ async fn test_composite_foreign_key_keeps_its_column_order() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_table_without_foreign_keys_reports_none() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -672,19 +672,19 @@ async fn a_failed_alter_changes_nothing(profile: ConnectionProfile) {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_failed_alter_changes_nothing_mysql() {
     a_failed_alter_changes_nothing(test_profile()).await;
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_failed_alter_changes_nothing_mariadb() {
     a_failed_alter_changes_nothing(mariadb_profile()).await;
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_separate_alters_are_what_left_the_table_half_changed() {
     // The behaviour being moved away from, pinned so the reason for the
     // single-statement form does not have to be taken on trust.
@@ -725,7 +725,7 @@ async fn test_separate_alters_are_what_left_the_table_half_changed() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_ddl_ignores_a_rollback() {
     // Why the issue's proposed transaction wrapper cannot work.
     let manager = Arc::new(ConnectionManager::new());
@@ -846,13 +846,13 @@ async fn designer_ddl_preserves_column_modifiers(profile: ConnectionProfile) {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_designer_ddl_preserves_column_modifiers_mysql() {
     designer_ddl_preserves_column_modifiers(test_profile()).await;
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_designer_ddl_preserves_column_modifiers_mariadb() {
     designer_ddl_preserves_column_modifiers(mariadb_profile()).await;
 }
@@ -902,19 +902,19 @@ async fn call_returns_the_procedures_rows(profile: ConnectionProfile) {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_call_with_one_result_set_mysql() {
     call_returns_the_procedures_rows(test_profile()).await;
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_call_with_one_result_set_mariadb() {
     call_returns_the_procedures_rows(mariadb_profile()).await;
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_call_with_no_result_set_still_reports_a_count() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -938,7 +938,7 @@ async fn test_call_with_no_result_set_still_reports_a_count() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_procedure_batch_attributes_every_set_to_its_statement() {
     // The shape the routine viewer sends: initialise the OUT parameter, call,
     // then read it back.
@@ -988,7 +988,7 @@ async fn test_procedure_batch_attributes_every_set_to_its_statement() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_select_matching_nothing_is_still_a_result_set() {
     // Guards the other half of the change: "did rows arrive" now helps decide
     // whether a completion marker is a result set, and a SELECT that matched
@@ -1015,7 +1015,7 @@ async fn test_select_matching_nothing_is_still_a_result_set() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_plain_batch_keeps_one_statement_index_each() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1034,7 +1034,7 @@ async fn test_plain_batch_keeps_one_statement_index_each() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_row_limit_is_reported_as_the_reason() {
     // The banner tells the user what to do about a short result set, so the
     // reason has to survive the round trip and not just the boolean (#413).
@@ -1064,7 +1064,7 @@ async fn test_row_limit_is_reported_as_the_reason() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_result_within_the_limit_has_no_truncation_reason() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1089,7 +1089,7 @@ async fn test_result_within_the_limit_has_no_truncation_reason() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_execute_select_from_table() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1117,7 +1117,7 @@ async fn test_execute_select_from_table() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_execute_insert_update_delete() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1167,7 +1167,7 @@ async fn test_execute_insert_update_delete() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_execute_multi_statement() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1188,7 +1188,7 @@ async fn test_execute_multi_statement() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_execute_show_commands() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1212,7 +1212,7 @@ async fn test_execute_show_commands() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_execute_with_error() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1233,7 +1233,7 @@ async fn test_execute_with_error() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_execute_ddl() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1282,7 +1282,7 @@ async fn test_execute_ddl() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_null_handling() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1310,7 +1310,7 @@ async fn test_null_handling() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_data_types() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1337,7 +1337,7 @@ async fn test_data_types() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_unicode_data() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1373,7 +1373,7 @@ async fn test_unicode_data() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_json_data() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1412,7 +1412,7 @@ async fn test_json_data() {
 // ====== SCHEMA TESTS ======
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_list_databases() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -1435,7 +1435,7 @@ async fn test_list_databases() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_list_tables() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -1468,7 +1468,7 @@ async fn test_list_tables() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_list_views() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -1495,7 +1495,7 @@ async fn test_list_views() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_list_columns() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -1528,7 +1528,7 @@ async fn test_list_columns() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_list_indexes() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -1551,7 +1551,7 @@ async fn test_list_indexes() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_get_table_ddl() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -1573,7 +1573,7 @@ async fn test_get_table_ddl() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_schema_empty_database() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -1591,7 +1591,7 @@ async fn test_schema_empty_database() {
 // ====== EXPORT TESTS ======
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_export_csv() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1626,7 +1626,7 @@ async fn test_export_csv() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_export_json() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1652,7 +1652,7 @@ async fn test_export_json() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_export_sql_insert() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1685,7 +1685,7 @@ async fn test_export_sql_insert() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_export_markdown() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1719,7 +1719,7 @@ async fn test_export_markdown() {
 // ====== ADMIN TESTS ======
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_get_process_list() {
     let manager = Arc::new(ConnectionManager::new());
     let admin = mas_admin::AdminService::new(manager.clone());
@@ -1736,7 +1736,7 @@ async fn test_get_process_list() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn test_get_server_variables() {
     let manager = Arc::new(ConnectionManager::new());
     let admin = mas_admin::AdminService::new(manager.clone());
@@ -1773,7 +1773,7 @@ fn ssh_profile() -> ConnectionProfile {
 }
 
 #[test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 fn ssh_credentials_survive_a_save_load_round_trip() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -1792,7 +1792,7 @@ fn ssh_credentials_survive_a_save_load_round_trip() {
 }
 
 #[test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 fn ssh_credentials_are_not_written_to_the_database_file() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -1816,7 +1816,7 @@ fn ssh_credentials_are_not_written_to_the_database_file() {
 }
 
 #[test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 fn clearing_an_ssh_credential_removes_it() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -1837,7 +1837,7 @@ fn clearing_an_ssh_credential_removes_it() {
 }
 
 #[test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 fn deleting_a_profile_removes_its_ssh_credentials() {
     setup_keyring();
     let dir = tempfile::tempdir().unwrap();
@@ -1935,7 +1935,7 @@ fn an_edit_that_omits_the_password_keeps_the_stored_one() {
 // not which failure it was (#324).
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_failed_query_keeps_the_driver_error_number() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1965,7 +1965,7 @@ async fn a_failed_query_keeps_the_driver_error_number() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_syntax_error_is_distinguishable_from_a_missing_table() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -1984,7 +1984,7 @@ async fn a_syntax_error_is_distinguishable_from_a_missing_table() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_multi_statement_run_says_which_statement_failed() {
     // One entry for a whole batch meant a script whose third statement failed
     // showed as one opaque failure (#329).
@@ -2011,7 +2011,7 @@ async fn a_multi_statement_run_says_which_statement_failed() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn each_result_carries_the_statement_it_came_from() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());

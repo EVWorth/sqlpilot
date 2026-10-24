@@ -607,16 +607,16 @@ pays for — Claude Code, Copilot, or anything else that speaks MCP.
 
 ### NFR-2: Security
 
-| ID      | Requirement                        | Implementation                                                                                                                                           |
-| ------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| NFR-2.1 | Credential storage                 | Passwords stored in the OS credential store via `keyring-core` (macOS Keychain, Windows Credential Manager, Linux kernel keyutils)                       |
-| NFR-2.2 | No plaintext secrets               | Config files never contain plaintext passwords, tokens, or private keys; audit CI pipeline to verify                                                     |
-| NFR-2.3 | SSL/TLS by default                 | New connections default to SSL/TLS verification enabled; show warning for unencrypted connections                                                        |
-| NFR-2.4 | SSH key passphrase                 | Support encrypted private keys; prompt for passphrase; optional keychain storage of passphrase                                                           |
-| NFR-2.5 | Destructive operation audit        | Log all DROP, TRUNCATE, and DELETE-without-WHERE operations to a local audit file with timestamp, user, connection, and SQL                              |
-| NFR-2.6 | Destructive operation confirmation | Double-confirmation dialog for DROP DATABASE/TABLE and TRUNCATE; show affected object details; require typing the object name for production connections |
-| NFR-2.7 | Read-only mode                     | Per-connection read-only toggle; enforced at the application layer (reject write queries before sending to server)                                       |
-| NFR-2.8 | Dependency security                | Automated dependency vulnerability scanning via `cargo audit` and `npm audit` in CI; fail build on critical vulnerabilities                              |
+| ID      | Requirement                        | Implementation                                                                                                                                                        |
+| ------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| NFR-2.1 | Credential storage                 | Passwords stored in the OS credential store via `keyring-core` (macOS Keychain, Windows Credential Manager, Linux Secret Service with an in-memory keyutils fallback) |
+| NFR-2.2 | No plaintext secrets               | Config files never contain plaintext passwords, tokens, or private keys; audit CI pipeline to verify                                                                  |
+| NFR-2.3 | SSL/TLS by default                 | New connections default to SSL/TLS verification enabled; show warning for unencrypted connections                                                                     |
+| NFR-2.4 | SSH key passphrase                 | Support encrypted private keys; prompt for passphrase; optional keychain storage of passphrase                                                                        |
+| NFR-2.5 | Destructive operation audit        | Log all DROP, TRUNCATE, and DELETE-without-WHERE operations to a local audit file with timestamp, user, connection, and SQL                                           |
+| NFR-2.6 | Destructive operation confirmation | Double-confirmation dialog for DROP DATABASE/TABLE and TRUNCATE; show affected object details; require typing the object name for production connections              |
+| NFR-2.7 | Read-only mode                     | Per-connection read-only toggle; enforced at the application layer (reject write queries before sending to server)                                                    |
+| NFR-2.8 | Dependency security                | Automated dependency vulnerability scanning via `cargo audit` and `npm audit` in CI; fail build on critical vulnerabilities                                           |
 
 ### NFR-3: Usability
 

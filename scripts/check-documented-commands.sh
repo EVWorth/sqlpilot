@@ -49,11 +49,12 @@ planned="$(
 )"
 documented="$(comm -23 <(echo "$documented") <(echo "$planned"))"
 
-# Registered: the invoke_handler list. Deduplicated because the handler is
-# declared twice, once per feature configuration, and the module path is
-# stripped — commands live under commands::, commands::sqlite:: and
-# commands::ai::, and a first version of this script reported every AI command
-# as missing because it only knew the first two.
+# Registered: the collect_commands! list in specta_builder(), the one list
+# both the runtime handler and the generated bindings come from. The module
+# path is stripped, because commands live under commands:: and its
+# submodules (commands::agents::, commands::backup::, commands::sqlite::); a
+# first version of this script knew only some of them and reported the rest
+# as missing. Deduplicated in case a name appears twice.
 registered="$(
   grep -oE 'commands::([a-z0-9_]+::)*[a-z0-9_]+,' "$lib" |
     sed 's/,$//' | awk -F':' '{print $NF}' | sort -u

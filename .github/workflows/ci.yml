@@ -87,6 +87,8 @@ jobs:
               - '.github/workflows/**'
               # Release tooling lives here and is exercised by the same job.
               - 'scripts/**'
+              # Every recipe the docs tell contributors to run.
+              - 'justfile'
             config:
               - 'lefthook.yml'
               - 'eslint.config.js'
@@ -228,11 +230,11 @@ jobs:
   # raw cargo audit). The wrapper:
   # - Fails ONLY on real vulnerabilities (RUSTSEC type "vulnerability")
   # - Logs unmaintained/yanked/unsound warnings to job output without blocking
-  # - Uses zero --ignore flags (no silencing)
+  # - Ignores only the real vulnerabilities listed in KNOWN_ACCEPTED in
+  #   scripts/cargo-audit-check.sh, each blocked on an upstream fix
   #
-  # 17 transitive advisories remain (gtk-rs GTK3 bindings + glib unsound +
-  # unic-* sub-deps) that cannot be fixed without upstream action.
-  # Tracked in #204.
+  # The remaining warnings are transitive (gtk-rs GTK3 bindings, glib
+  # unsound, unic-* sub-deps) and wait on upstream. Tracked in #204.
   cargo-audit:
     name: cargo Audit
     needs: detect-changes

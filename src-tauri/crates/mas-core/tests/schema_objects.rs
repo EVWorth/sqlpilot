@@ -91,7 +91,7 @@ async fn setup(pool: &sqlx::MySqlPool) {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn reads_events() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -128,7 +128,7 @@ async fn reads_events() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_database_with_no_events_reports_none() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -148,7 +148,7 @@ async fn a_database_with_no_events_reports_none() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn reads_a_composite_foreign_key_in_order() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -175,7 +175,7 @@ async fn reads_a_composite_foreign_key_in_order() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn reads_partitions() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());
@@ -205,7 +205,7 @@ async fn reads_partitions() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn an_unpartitioned_table_reports_no_partitions() {
     // information_schema.PARTITIONS has a row for every table either way; the
     // unpartitioned case is one row with a NULL name, which would otherwise

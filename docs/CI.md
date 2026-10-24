@@ -24,13 +24,12 @@ those outputs, so a docs-only PR runs neither the Rust nor the frontend suite.
 | `npm`       | `package.json`, `package-lock.json`                                                               | `npm-audit`, `check-versions`                            |
 | `cargo`     | `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`                                                    | `cargo-audit`, `check-versions`                          |
 | `docs`      | `docs/**`, `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, `REVIEW.md`, `**/CLAUDE.md`, `.claude/**` | `check-docs`, `dprint`                                   |
-| `workflows` | `.github/workflows/**`, `scripts/**`                                                              | `lint-workflows`, `check-docs`, `check-test-mocks`       |
+| `workflows` | `.github/workflows/**`, `scripts/**`, `justfile`                                                  | `lint-workflows`, `check-docs`, `check-test-mocks`       |
 | `config`    | `lefthook.yml`, `eslint.config.js`, `dprint.json`, `vitest*.config.ts`                            | `dprint`                                                 |
 
 `ci.yml` is in both `frontend` and `rust` so that editing the workflow runs
 the jobs it defines. The `dprint` job checks only the files the PR changed.
-Root files outside every filter (for example `justfile`) trigger no job at
-all.
+Root files outside every filter trigger no job at all.
 
 ## Workflow lint
 

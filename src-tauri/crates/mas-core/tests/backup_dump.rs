@@ -117,7 +117,7 @@ async fn dump(options: BackupOptions) -> (String, mas_core::backup::BackupSummar
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn values_are_written_exactly_as_the_server_printed_them() {
     let (sql, summary) = dump(BackupOptions::default()).await;
 
@@ -144,7 +144,7 @@ async fn values_are_written_exactly_as_the_server_printed_them() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_hostile_value_is_data_in_the_file_and_stays_data_on_restore() {
     // Without the routines and triggers, because DELIMITER is a client
     // directive that the server itself does not parse — the restore dialog
@@ -212,7 +212,7 @@ async fn a_hostile_value_is_data_in_the_file_and_stays_data_on_restore() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_dump_carries_views_routines_and_triggers() {
     let (sql, _) = dump(BackupOptions::default()).await;
 
@@ -231,7 +231,7 @@ async fn the_dump_carries_views_routines_and_triggers() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn structure_only_writes_no_rows_and_data_only_writes_no_ddl() {
     let (structure, _) = dump(BackupOptions {
         include_data: false,
@@ -254,7 +254,7 @@ async fn structure_only_writes_no_rows_and_data_only_writes_no_ddl() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn dropping_the_auto_increment_keeps_the_column_that_generates_it() {
     let (sql, _) = dump(BackupOptions {
         include_auto_increment: false,
@@ -272,7 +272,7 @@ async fn dropping_the_auto_increment_keeps_the_column_that_generates_it() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn one_insert_per_row_when_that_is_what_was_asked_for() {
     let (batched, _) = dump(BackupOptions::default()).await;
     assert_eq!(
@@ -290,7 +290,7 @@ async fn one_insert_per_row_when_that_is_what_was_asked_for() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_cancelled_backup_leaves_no_file_behind() {
     // A partial dump that looks like a dump is how someone restores half a
     // database a month later.
@@ -322,7 +322,7 @@ async fn a_cancelled_backup_leaves_no_file_behind() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn progress_is_reported_while_a_table_is_being_read() {
     // Progress used to be emitted once per table, so a single large table
     // showed nothing from the first row to the last (#361).
@@ -367,7 +367,7 @@ async fn progress_is_reported_while_a_table_is_being_read() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_file_ends_with_the_marker_that_says_it_finished() {
     let (sql, summary) = dump(BackupOptions::default()).await;
     // A file without this was interrupted, whatever its size.
@@ -380,7 +380,7 @@ async fn the_file_ends_with_the_marker_that_says_it_finished() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_snapshot_transaction_does_not_outlive_the_dump() {
     // The dump reads inside START TRANSACTION WITH CONSISTENT SNAPSHOT. Left
     // open, the connection goes back to the pool still reading the database

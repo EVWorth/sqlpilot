@@ -30,6 +30,7 @@ import type {
   QueryResult_Serialize,
   SqlValue,
 } from "../../../lib/bindings";
+import { redactCredentials } from "../../../lib/sql-redact";
 import { DATABASES, type MockColumn, type MockTable, rand } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection, newId, state } from "../state";
@@ -923,13 +924,19 @@ function contextFor(connectionId: unknown, database: unknown, index = 0): { ctx:
   };
 }
 
-/** The backend's refusal, raised before any statement of the script runs. */
+/**
+ * The backend's refusal, raised before any statement of the script runs. Its
+ * preview is the first 120 characters with credentials redacted, as in
+ * `redacted_preview` in mas-core.
+ */
 function refuseWrite(sql: string): never {
   return fail(
     queryError(
       null,
       null,
-      `Read-only connection: This connection is marked read-only, so it will not run: ${sql.slice(0, 120)}`,
+      `Read-only connection: This connection is marked read-only, so it will not run: ${
+        redactCredentials(sql.slice(0, 120)).sql
+      }`,
       null,
     ),
   );

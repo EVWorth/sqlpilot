@@ -46,7 +46,7 @@ fn profile(query_timeout_secs: Option<u32>) -> ConnectionProfile {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_statement_past_the_timeout_is_stopped_and_says_so() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -77,7 +77,7 @@ async fn a_statement_past_the_timeout_is_stopped_and_says_so() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_statement_is_killed_on_the_server_rather_than_abandoned() {
     // Dropping the stream on this side leaves the server running the query —
     // holding locks and a connection — for as long as it takes.
@@ -105,7 +105,7 @@ async fn the_statement_is_killed_on_the_server_rather_than_abandoned() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_statement_inside_the_timeout_is_untouched() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
@@ -121,7 +121,7 @@ async fn a_statement_inside_the_timeout_is_untouched() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_timeout_bounds_the_batch_rather_than_the_gap_between_rows() {
     // Three statements of a second each, against a two-second limit: a
     // per-statement timeout would let this through, and the point of the
@@ -146,7 +146,7 @@ async fn the_timeout_bounds_the_batch_rather_than_the_gap_between_rows() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn no_timeout_means_no_timeout() {
     // The column is optional, and a profile without one should not acquire a
     // limit from somewhere.
@@ -164,7 +164,7 @@ async fn no_timeout_means_no_timeout() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_timed_out_statement_gives_its_connection_back() {
     // The timeout used to abandon the stream and then kill the statement,
     // which left sqlx draining a connection that, on MariaDB, never finished.

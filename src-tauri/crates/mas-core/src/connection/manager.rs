@@ -3,7 +3,7 @@ use crate::models::{ConnectionInfo, ConnectionProfile, SSLMode, TestConnectionRe
 use chrono::Utc;
 use dashmap::DashMap;
 use sqlx::mysql::{MySqlConnectOptions, MySqlPoolOptions, MySqlSslMode};
-use sqlx::{AssertSqlSafe, MySqlPool};
+use sqlx::{AssertSqlSafe, ConnectOptions, MySqlPool};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -279,7 +279,12 @@ impl ConnectionManager {
             .port(profile.port)
             .username(&profile.username)
             .password(&profile.password)
-            .charset(&charset);
+            .charset(&charset)
+            // sqlx logs every statement it runs, in full, at DEBUG, and slow
+            // ones at WARN: `CREATE USER ... IDENTIFIED BY '<password>'`
+            // included, straight into the file log (#875). The executor logs
+            // its own redacted previews instead.
+            .disable_statement_logging();
 
         if let Some(ref db) = profile.default_database {
             if !db.is_empty() {
@@ -457,7 +462,12 @@ impl ConnectionManager {
             .port(profile.port)
             .username(&profile.username)
             .password(&profile.password)
-            .charset(&charset);
+            .charset(&charset)
+            // sqlx logs every statement it runs, in full, at DEBUG, and slow
+            // ones at WARN: `CREATE USER ... IDENTIFIED BY '<password>'`
+            // included, straight into the file log (#875). The executor logs
+            // its own redacted previews instead.
+            .disable_statement_logging();
 
         if let Some(ref db) = profile.default_database {
             if !db.is_empty() {

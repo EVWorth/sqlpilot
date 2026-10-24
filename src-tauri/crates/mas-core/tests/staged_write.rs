@@ -87,7 +87,7 @@ async fn finish(manager: Arc<ConnectionManager>, id: String, pool: &sqlx::MySqlP
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_write_reports_what_it_actually_changed() {
     // The number nobody can work out from the statement, which is the whole
     // reason the user is asked after it runs rather than before.
@@ -109,7 +109,7 @@ async fn a_write_reports_what_it_actually_changed() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn rolling_back_puts_everything_back() {
     let (manager, id, pool) = connect().await;
 
@@ -128,7 +128,7 @@ async fn rolling_back_puts_everything_back() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn committing_keeps_it() {
     let (manager, id, pool) = connect().await;
 
@@ -149,7 +149,7 @@ async fn committing_keeps_it() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn nothing_is_visible_to_anyone_else_before_it_is_committed() {
     // A staged write that other sessions could already see would not be a
     // question, it would be a fait accompli.
@@ -173,7 +173,7 @@ async fn nothing_is_visible_to_anyone_else_before_it_is_committed() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_schema_change_is_refused_rather_than_staged() {
     // The verified reason: ROLLBACK after CREATE TABLE leaves the table,
     // because the server committed before running it. Staging DDL would
@@ -197,7 +197,7 @@ async fn a_schema_change_is_refused_rather_than_staged() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_server_really_does_commit_before_ddl() {
     // The premise behind the refusal above, asserted rather than assumed —
     // if a future server version changes this, the refusal should be revisited
@@ -245,7 +245,7 @@ async fn the_server_really_does_commit_before_ddl() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_statement_that_fails_leaves_nothing_open() {
     // The connection has to go back clean, or the next caller inherits an open
     // transaction on a pooled connection.
@@ -269,7 +269,7 @@ async fn a_statement_that_fails_leaves_nothing_open() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_deadline_that_has_passed_is_visible_to_the_caller() {
     let (manager, id, pool) = connect().await;
 

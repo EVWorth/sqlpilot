@@ -41,7 +41,7 @@ fn test_profile() -> ConnectionProfile {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL 8 server: make test-integration"]
+#[ignore = "needs a live MySQL 8 server: just test-integration"]
 async fn get_indexes_survives_a_functional_index() {
     let manager = Arc::new(ConnectionManager::new());
     let inspector = SchemaInspector::new(manager.clone());

@@ -64,7 +64,7 @@ fn test_profile() -> ConnectionProfile {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn kill_process_terminates_a_real_connection() {
     let manager = Arc::new(ConnectionManager::new());
     let service = AdminService::new(manager.clone());
@@ -111,7 +111,7 @@ async fn kill_process_terminates_a_real_connection() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn kill_process_with_bogus_id_returns_error() {
     let manager = Arc::new(ConnectionManager::new());
     let service = AdminService::new(manager.clone());
@@ -148,7 +148,7 @@ async fn kill_process_with_bogus_id_returns_error() {
 /// frontend unit tests cover the escaping itself; this proves the escaping is
 /// the one the server actually needs.
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_password_containing_a_backslash_round_trips() {
     use sqlx::mysql::MySqlConnection;
     use sqlx::Connection;
@@ -226,7 +226,7 @@ fn urlencoding_encode(s: &str) -> String {
 /// surfaced "pool timed out", which does not tell the user that they had just
 /// cut their own connection (#433).
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn kill_process_refuses_the_apps_own_connection() {
     let manager = Arc::new(ConnectionManager::new());
     let service = AdminService::new(manager.clone());
@@ -262,7 +262,7 @@ async fn kill_process_refuses_the_apps_own_connection() {
 /// Somebody else's session is still killable — the guard must not be a blanket
 /// refusal.
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn kill_process_still_kills_a_foreign_connection() {
     use sqlx::mysql::MySqlConnection;
     use sqlx::Connection;
@@ -298,7 +298,7 @@ async fn kill_process_still_kills_a_foreign_connection() {
 /// its transaction, prepared statements and session variables — a heavy answer
 /// to "this SELECT is taking too long" (#430).
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn kill_query_stops_the_statement_but_keeps_the_session() {
     use sqlx::mysql::MySqlConnection;
     use sqlx::Connection;
@@ -371,7 +371,7 @@ fn mariadb_profile() -> ConnectionProfile {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn process_list_includes_this_connection() {
     let manager = Arc::new(ConnectionManager::new());
     let service = AdminService::new(manager.clone());
@@ -392,7 +392,7 @@ async fn process_list_includes_this_connection() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn process_list_works_on_mariadb_too() {
     // MariaDB's PROCESSLIST carries different columns from MySQL 8's; the
     // query has to be readable on both.
@@ -406,7 +406,7 @@ async fn process_list_works_on_mariadb_too() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn server_variables_include_the_ones_the_panel_shows() {
     let manager = Arc::new(ConnectionManager::new());
     let service = AdminService::new(manager.clone());
@@ -426,7 +426,7 @@ async fn server_variables_include_the_ones_the_panel_shows() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn kill_query_with_a_bogus_id_reports_an_error() {
     let manager = Arc::new(ConnectionManager::new());
     let service = AdminService::new(manager.clone());
@@ -471,7 +471,7 @@ async fn run(conn: &mut sqlx::mysql::MySqlConnection, sql: &str) -> Result<(), s
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn the_user_lifecycle_statements_are_accepted() {
     use sqlx::Row;
 
@@ -535,7 +535,7 @@ async fn the_user_lifecycle_statements_are_accepted() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn revoking_a_privilege_the_user_does_not_have_is_an_error() {
     // Worth pinning because the privilege editor derives its REVOKE list from
     // what it read a moment earlier. If that read is stale, the whole batch
@@ -586,13 +586,13 @@ async fn create_user_form_is_accepted(port: u16, identified: &str) {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn mysql_takes_the_plugin_form_with_by() {
     create_user_form_is_accepted(13306, "IDENTIFIED WITH caching_sha2_password BY 'pw'").await;
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn mariadb_takes_the_plugin_form_with_via() {
     create_user_form_is_accepted(
         13308,
@@ -602,7 +602,7 @@ async fn mariadb_takes_the_plugin_form_with_via() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn both_servers_take_the_server_default_form() {
     // The portable answer, and what the dialog now defaults to.
     create_user_form_is_accepted(13306, "IDENTIFIED BY 'pw'").await;
@@ -610,7 +610,7 @@ async fn both_servers_take_the_server_default_form() {
 }
 
 #[tokio::test]
-#[ignore = "needs a live MySQL/MariaDB server: make test-integration"]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn mariadb_still_rejects_the_form_that_was_being_sent() {
     // Pins the defect rather than trusting the fix: if MariaDB ever accepts
     // `IDENTIFIED WITH ... BY`, this fails and the branch can go.
