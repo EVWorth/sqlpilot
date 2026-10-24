@@ -56,19 +56,21 @@ vi.mock("../../../stores/editorStore", () => {
 });
 
 /** Captures the items a right-click would offer, so they can be invoked. */
-const { menuItems, showContextMenu } = vi.hoisted(() => {
+const { menuItems, showContextMenu, showContextMenuAt } = vi.hoisted(() => {
   const menuItems: { label?: string; onClick?: () => void; disabled?: boolean }[] = [];
+  const capture = (items: typeof menuItems) => {
+    menuItems.length = 0;
+    menuItems.push(...items);
+  };
   return {
     menuItems,
-    showContextMenu: vi.fn((_e: unknown, items: typeof menuItems) => {
-      menuItems.length = 0;
-      menuItems.push(...items);
-    }),
+    showContextMenu: vi.fn((_e: unknown, items: typeof menuItems) => capture(items)),
+    showContextMenuAt: vi.fn((_x: number, _y: number, items: typeof menuItems) => capture(items)),
   };
 });
 
 vi.mock("../../../hooks/useContextMenu", () => ({
-  useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu })),
+  useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu, showContextMenuAt })),
 }));
 
 vi.mock("../../../stores/connectionHealthStore", () => ({
@@ -469,5 +471,104 @@ describe("connecting from elsewhere (#817)", () => {
 
     await vi.waitFor(() => expect(setSelectedConnection).toHaveBeenCalledWith("c2"));
     expect(connect).not.toHaveBeenCalledWith("p2");
+  });
+});
+
+describe("by keyboard (#827)", () => {
+  const profiles = [
+    { id: "p1", name: "prod-eu", host: "db" },
+    { id: "p2", name: "Staging", host: "stg" },
+    { id: "p3", name: "sandbox", host: "nowhere" },
+  ];
+  const c1 = { id: "c1", profile_id: "p1", name: "prod-eu", host: "db", port: 3306, database: null };
+  const c3 = { id: "c3", profile_id: "p3", name: "sandbox", host: "nowhere", port: 3306, database: null };
+  const connectButton = () => screen.getByTitle("Connect to a server");
+  const key = (k: string, init: Record<string, unknown> = {}) =>
+    fireEvent.keyDown(document.activeElement as Element, { key: k, ...init });
+
+  it("moves focus into the connect menu when it opens", () => {
+    storeState = { profiles };
+    render(<ConnectionTabs />);
+    fireEvent.click(connectButton());
+    expect(document.activeElement).toHaveTextContent("prod-eu");
+  });
+
+  it("arrows through the connect menu and reaches a row's Edit button", () => {
+    storeState = { profiles };
+    render(<ConnectionTabs />);
+    fireEvent.click(connectButton());
+    key("ArrowDown");
+    expect(document.activeElement).toHaveTextContent("Staging");
+    key("End");
+    expect(document.activeElement).toHaveTextContent("New Connection…");
+    key("ArrowDown");
+    expect(document.activeElement).toHaveTextContent("prod-eu");
+    key("ArrowRight");
+    expect(document.activeElement).toHaveAccessibleName("Edit prod-eu");
+    key("ArrowLeft");
+    expect(document.activeElement).toHaveTextContent("prod-eu");
+  });
+
+  it("closes the connect menu on Escape and gives focus back to the button", () => {
+    storeState = { profiles };
+    render(<ConnectionTabs />);
+    fireEvent.click(connectButton());
+    key("Escape");
+    expect(screen.queryByRole("menu", { name: "Connect to a server" })).toBeNull();
+    expect(document.activeElement).toBe(connectButton());
+  });
+
+  it("focuses the new connection's tab after connecting from the menu", async () => {
+    const connect = vi.fn(async () => {
+      storeState = { ...storeState, activeConnections: [c3] };
+      return c3;
+    });
+    storeState = { profiles, connect };
+    render(<ConnectionTabs />);
+    fireEvent.click(connectButton());
+    key("End");
+    key("ArrowUp");
+    expect(document.activeElement).toHaveTextContent("sandbox");
+    await act(async () => {
+      fireEvent.click(document.activeElement as Element);
+    });
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole("tab", { name: /sandbox/ })));
+  });
+
+  it("makes connection tabs tabs, with one Tab stop on the selected one", () => {
+    storeState = { profiles, activeConnections: [c1, c3], selectedConnectionId: "c3" };
+    render(<ConnectionTabs />);
+    expect(screen.getByRole("tablist", { name: "Connections" })).toBeInTheDocument();
+    const [first, second] = screen.getAllByRole("tab");
+    expect(first).toHaveAttribute("tabindex", "-1");
+    expect(second).toHaveAttribute("tabindex", "0");
+    expect(second).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("moves between tabs with the arrow keys and selects with Enter", () => {
+    const setSelectedConnection = vi.fn();
+    storeState = { profiles, activeConnections: [c1, c3], selectedConnectionId: "c1", setSelectedConnection };
+    render(<ConnectionTabs />);
+    const [first, second] = screen.getAllByRole("tab");
+    first.focus();
+    key("ArrowRight");
+    expect(document.activeElement).toBe(second);
+    key("ArrowRight");
+    expect(document.activeElement).toBe(first);
+    key("End");
+    expect(document.activeElement).toBe(second);
+    key("Enter");
+    expect(setSelectedConnection).toHaveBeenCalledWith("c3");
+  });
+
+  it("opens the tab menu with Shift+F10 and with the Menu key", () => {
+    storeState = { profiles, activeConnections: [c1] };
+    render(<ConnectionTabs />);
+    screen.getByRole("tab").focus();
+    key("F10", { shiftKey: true });
+    expect(menuItems.map((i) => i.label)).toContain("Edit Connection");
+    menuItems.length = 0;
+    key("ContextMenu");
+    expect(menuItems.map((i) => i.label)).toContain("Disconnect");
   });
 });

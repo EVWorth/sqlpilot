@@ -19,6 +19,11 @@ export function useContextMenu() {
     [],
   );
 
+  /** Open at a point, for a menu asked for from the keyboard (Shift+F10, the Menu key). */
+  const showContextMenuAt = useCallback((x: number, y: number, items: MenuItem[]) => {
+    setState({ x, y, items });
+  }, []);
+
   const hideContextMenu = useCallback(() => {
     setState(null);
   }, []);
@@ -32,5 +37,5 @@ export function useContextMenu() {
     })
     : null;
 
-  return { contextMenu, showContextMenu, hideContextMenu };
+  return { contextMenu, showContextMenu, showContextMenuAt, hideContextMenu };
 }
