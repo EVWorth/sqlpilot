@@ -354,6 +354,31 @@ describe("historyStore", () => {
 
       expect(useHistoryStore.getState().entries.map((e) => e.id)).toEqual(["a"]);
     });
+
+    it("resets the match count and the filter facets (#828)", async () => {
+      useHistoryStore.setState({
+        entries: [entry()],
+        matchCount: 37,
+        facets: { connectionNames: ["Local dev"], databases: ["shop"], origins: ["editor"] },
+      });
+
+      await useHistoryStore.getState().clearHistory();
+
+      const state = useHistoryStore.getState();
+      expect(state.matchCount).toBe(0);
+      expect(state.facets).toEqual({ connectionNames: [], databases: [], origins: [] });
+    });
+
+    it("puts the count and facets back when the clear fails", async () => {
+      const facets = { connectionNames: ["Local dev"], databases: ["shop"], origins: ["editor"] };
+      useHistoryStore.setState({ entries: [entry()], matchCount: 37, facets });
+      historyClear.mockRejectedValue(new Error("locked"));
+
+      await useHistoryStore.getState().clearHistory();
+
+      expect(useHistoryStore.getState().matchCount).toBe(37);
+      expect(useHistoryStore.getState().facets).toEqual(facets);
+    });
   });
 
   describe("retention limit (#323)", () => {

@@ -79,3 +79,26 @@ export function isDestructiveStatement(sql: string): boolean {
   if (DESTRUCTIVE_RE.test(executable)) return true;
   return DESTRUCTIVE_PHRASES.some((re) => re.test(executable));
 }
+
+/**
+ * A statement without the comments in front of it, for showing to a person.
+ *
+ * A dump puts a banner before each DROP ("-- Table: `customers` --"), and the
+ * import dialog's list of destructive statements truncated the DROP itself off
+ * the end of the line (#836). Only leading comments go; MySQL's conditional
+ * `/*! … *\/` comments stay, because they execute.
+ */
+export function stripLeadingComments(sql: string): string {
+  let rest = sql.trimStart();
+  for (;;) {
+    if (/^--(\s|$)/.test(rest) || rest.startsWith("#")) {
+      const eol = rest.indexOf("\n");
+      rest = eol === -1 ? "" : rest.slice(eol + 1).trimStart();
+    } else if (rest.startsWith("/*") && !rest.startsWith("/*!")) {
+      const end = rest.indexOf("*/", 2);
+      rest = end === -1 ? "" : rest.slice(end + 2).trimStart();
+    } else {
+      return rest;
+    }
+  }
+}

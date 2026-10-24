@@ -245,13 +245,49 @@ describe("QueryHistory", () => {
     expect(screen.getByText("No history yet")).toBeDefined();
   });
 
-  it("searches through the store rather than filtering in memory (#585)", () => {
+  it("searches through the store rather than filtering in memory (#585)", async () => {
     render(<QueryHistory />);
     const searchInput = screen.getByPlaceholderText("Search history...");
     fireEvent.change(searchInput, { target: { value: "users" } });
 
     // The database answers the question now, so the panel's job is to ask it.
-    expect(mockSetFilters).toHaveBeenCalledWith({ search: "users" });
+    await waitFor(() => expect(mockSetFilters).toHaveBeenCalledWith({ search: "users" }));
+  });
+
+  it("waits for typing to pause before searching (#836)", () => {
+    vi.useFakeTimers();
+    try {
+      render(<QueryHistory />);
+      const searchInput = screen.getByPlaceholderText("Search history...");
+      for (const value of ["s", "se", "sel", "sele", "selec", "select"]) {
+        fireEvent.change(searchInput, { target: { value } });
+        act(() => {
+          vi.advanceTimersByTime(50);
+        });
+      }
+      // The box shows every keystroke; the store has not been asked yet.
+      expect((searchInput as HTMLInputElement).value).toBe("select");
+      expect(mockSetFilters).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.advanceTimersByTime(200);
+      });
+      expect(mockSetFilters).toHaveBeenCalledTimes(1);
+      expect(mockSetFilters).toHaveBeenCalledWith({ search: "select" });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("formats durations for reading (#836)", () => {
+    mockEntries = [
+      { ...baseEntries[0], id: "slow", sql: "SELECT SLEEP(184)", executionTimeMs: 184300 },
+      { ...baseEntries[1], id: "mid", sql: "SELECT SLEEP(51)", executionTimeMs: 51204 },
+    ];
+    render(<QueryHistory />);
+    expect(screen.getByText("3m 4s")).toBeDefined();
+    expect(screen.getByText("51.2s")).toBeDefined();
+    expect(screen.queryByText("184300ms")).toBeNull();
   });
 
   it("shows 'No matches' when a search returned nothing", () => {
@@ -369,6 +405,32 @@ describe("QueryHistory", () => {
     expect(mockRemoveEntry).toHaveBeenCalledWith("entry-3");
   });
 
+  describe("keyboard reach (#826)", () => {
+    it("has no interactive role nested inside another button", () => {
+      const { container } = render(<QueryHistory />);
+      expect(container.querySelectorAll("[role=button]")).toHaveLength(0);
+      for (const button of container.querySelectorAll("button")) {
+        expect(button.querySelector("button, [role=button]")).toBeNull();
+      }
+    });
+
+    it("makes Delete a real, focusable button", () => {
+      render(<QueryHistory />);
+      const del = screen.getAllByRole("button", { name: "Delete entry" })[0];
+      expect(del.tagName).toBe("BUTTON");
+      del.focus();
+      expect(document.activeElement).toBe(del);
+    });
+
+    it("makes the error toggle a real button", () => {
+      render(<QueryHistory />);
+      const toggle = screen.getByRole("button", { name: "Table 'otherdb.nonexistent' doesn't exist" });
+      expect(toggle).toHaveAttribute("aria-expanded", "false");
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute("aria-expanded", "true");
+    });
+  });
+
   describe("failed entries (#324)", () => {
     it("shows the error message inline", () => {
       render(<QueryHistory />);
@@ -460,8 +522,24 @@ describe("QueryHistory", () => {
       fireEvent.change(screen.getByLabelText("to"), { target: { value: "2026-01-03" } });
 
       expect(mockSetFilters).toHaveBeenCalledWith({
-        executedBefore: "2026-01-03T23:59:59Z",
+        executedBefore: new Date(2026, 0, 3, 23, 59, 59, 999).toISOString(),
       });
+    });
+
+    it("bounds the dates by local midnight, not UTC (#836)", () => {
+      const savedTz = process.env.TZ;
+      process.env.TZ = "America/Los_Angeles";
+      try {
+        render(<QueryHistory />);
+        openFilters();
+        fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-10-21" } });
+        fireEvent.change(screen.getByLabelText("to"), { target: { value: "2026-10-21" } });
+
+        expect(mockSetFilters).toHaveBeenCalledWith({ executedAfter: "2026-10-21T07:00:00.000Z" });
+        expect(mockSetFilters).toHaveBeenCalledWith({ executedBefore: "2026-10-22T06:59:59.999Z" });
+      } finally {
+        process.env.TZ = savedTz;
+      }
     });
 
     it("clears a date filter when the field is emptied", () => {

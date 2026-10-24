@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isDestructiveStatement, stripNonExecutable } from "../sql-safety";
+import { isDestructiveStatement, stripLeadingComments, stripNonExecutable } from "../sql-safety";
 
 describe("isDestructiveStatement", () => {
   it("catches what the original pattern caught", () => {
@@ -103,5 +103,34 @@ describe("stripNonExecutable", () => {
     it("is not fooled by GLOBAL appearing elsewhere", () => {
       expect(isDestructiveStatement("SELECT * FROM global_settings")).toBe(false);
     });
+  });
+});
+
+describe("stripLeadingComments (#836)", () => {
+  it("drops a dump's banner before the statement", () => {
+    const stmt =
+      "-- Read from a single consistent snapshot.\n--\n-- Table: `customers`\n--\nDROP TABLE IF EXISTS `customers`";
+    expect(stripLeadingComments(stmt)).toBe("DROP TABLE IF EXISTS `customers`");
+  });
+
+  it("drops block and hash comments too", () => {
+    expect(stripLeadingComments("/* header */\n# note\n  TRUNCATE t")).toBe("TRUNCATE t");
+  });
+
+  it("keeps conditional comments, which execute", () => {
+    expect(stripLeadingComments("/*!40101 DROP TABLE t */")).toBe("/*!40101 DROP TABLE t */");
+  });
+
+  it("leaves comments after the start of the statement alone", () => {
+    expect(stripLeadingComments("DROP TABLE t -- gone")).toBe("DROP TABLE t -- gone");
+  });
+
+  it("does not treat --x as a comment", () => {
+    // MySQL needs whitespace after the dashes.
+    expect(stripLeadingComments("--x")).toBe("--x");
+  });
+
+  it("returns empty for a statement that is only comments", () => {
+    expect(stripLeadingComments("-- nothing\n/* here")).toBe("");
   });
 });
