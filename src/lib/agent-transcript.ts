@@ -36,7 +36,9 @@ export type TranscriptItem =
     dismissed?: boolean;
   }
   | { kind: "plan"; entries: PlanEntry[] }
-  | { kind: "note"; text: string };
+  | { kind: "note"; text: string }
+  /** The harness failed: not a remark about the turn, the end of the session. */
+  | { kind: "error"; text: string };
 
 /** What the user typed, added before the agent answers it. */
 export function addUserMessage(items: TranscriptItem[], text: string): TranscriptItem[] {
@@ -122,7 +124,7 @@ export function applyEvent(items: TranscriptItem[], event: SessionEvent): Transc
         : [...items, { kind: "note", text: endingNote(event.reason) }];
 
     case "failed":
-      return [...items, { kind: "note", text: event.message }];
+      return [...items, { kind: "error", text: event.message }];
 
     case "started":
       return items;

@@ -45,6 +45,7 @@ beforeEach(() => {
     agent: null,
     toolsAvailable: false,
     thinking: false,
+    failed: false,
     transcript: [],
     error: null,
     starting: null,
@@ -327,6 +328,33 @@ describe("the transcript", () => {
     open();
     expect(screen.queryByRole("button", { name: "Allow once" })).toBeNull();
     expect(screen.getByText("Allow once")).toBeTruthy();
+  });
+
+  it("shows a harness failure as an error and offers a new session", async () => {
+    useAgentSessionStore.setState({
+      failed: true,
+      transcript: [
+        { kind: "user", text: "hello" },
+        {
+          kind: "error",
+          text: "GitHub Copilot is not signed in. Run `copilot` in a terminal, then start a new session.",
+        },
+      ],
+    });
+    const { container } = open();
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain("is not signed in");
+    expect(alert.className).toContain("color-error");
+    // The backticks are code, not literal punctuation.
+    expect(alert.querySelector("code")?.textContent).toBe("copilot");
+    expect(container.textContent).not.toContain("`");
+
+    // Nothing sent now would get an answer.
+    expect((screen.getByLabelText("Message the agent") as HTMLTextAreaElement).disabled).toBe(true);
+    expect(screen.queryByRole("button", { name: /Send/ })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Start a new session" }));
+    await waitFor(() => expect(apiMocks.stopAgentSession).toHaveBeenCalledWith("s1"));
   });
 
   it("shows a note when something went wrong", () => {

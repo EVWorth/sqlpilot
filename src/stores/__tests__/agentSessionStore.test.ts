@@ -38,6 +38,7 @@ beforeEach(() => {
     agent: null,
     toolsAvailable: false,
     thinking: false,
+    failed: false,
     transcript: [],
     error: null,
     starting: null,
@@ -140,6 +141,21 @@ describe("sending", () => {
     await useAgentSessionStore.getState().send("hi");
     arrive({ type: "failed", message: "The agent stopped." });
     expect(useAgentSessionStore.getState().thinking).toBe(false);
+  });
+
+  it("treats a failure as the end of the session", async () => {
+    // Every later message would fail the same way.
+    await useAgentSessionStore.getState().send("hi");
+    arrive({ type: "failed", message: "GitHub Copilot is not signed in." });
+    expect(useAgentSessionStore.getState().failed).toBe(true);
+
+    apiMocks.sendAgentMessage.mockClear();
+    await useAgentSessionStore.getState().send("hello again");
+    expect(apiMocks.sendAgentMessage).not.toHaveBeenCalled();
+
+    // A new session starts clean.
+    await useAgentSessionStore.getState().start("copilot");
+    expect(useAgentSessionStore.getState().failed).toBe(false);
   });
 
   it("stops thinking if the send itself fails", async () => {

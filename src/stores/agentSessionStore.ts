@@ -29,6 +29,12 @@ interface AgentSessionState {
   toolsAvailable: boolean;
   /** True between sending a message and the turn ending. */
   thinking: boolean;
+  /**
+   * True once the harness has failed. Every later message would fail the same
+   * way (not signed in, the process gone), so the panel stops offering to
+   * send one and offers a new session instead.
+   */
+  failed: boolean;
   transcript: TranscriptItem[];
   error: string | null;
   /**
@@ -54,6 +60,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   agent: null,
   toolsAvailable: false,
   thinking: false,
+  failed: false,
   transcript: [],
   error: null,
   starting: null,
@@ -79,6 +86,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
         // belonged to a process that is gone.
         transcript: [],
         thinking: false,
+        failed: false,
       });
     } catch (e) {
       set({ error: message(e) });
@@ -88,8 +96,8 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
   },
 
   send: async (text) => {
-    const { session } = get();
-    if (!session || !text.trim()) return;
+    const { session, failed } = get();
+    if (!session || failed || !text.trim()) return;
     // Shown immediately: waiting for the round trip to echo the user's own
     // message back reads as a dropped keystroke.
     set({ transcript: addUserMessage(get().transcript, text), thinking: true, error: null });
@@ -118,7 +126,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
     } catch (e) {
       set({ error: message(e) });
     }
-    set({ session: null, agent: null, thinking: false });
+    set({ session: null, agent: null, thinking: false, failed: false });
   },
 
   answer: async (requestId, optionId) => {
@@ -143,6 +151,7 @@ export const useAgentSessionStore = create<AgentSessionState>((set, get) => ({
       // A permission request pauses the turn, but the agent is still working
       // on it — only an ending stops the spinner.
       thinking: event.type === "turnEnded" || event.type === "failed" ? false : get().thinking,
+      failed: get().failed || event.type === "failed",
     });
   },
 

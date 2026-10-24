@@ -1,7 +1,8 @@
-import { Bot, Send, Square, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Bot, X } from "lucide-react";
+import { useEffect, useRef } from "react";
 import type { Harness } from "../../lib/bindings";
 import { useAgentSessionStore } from "../../stores/agentSessionStore";
+import { AgentComposer } from "./AgentComposer";
 import { Thinking, TranscriptBlock } from "./AgentTranscript";
 
 /**
@@ -27,6 +28,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
     agent,
     toolsAvailable,
     thinking,
+    failed,
     transcript,
     error,
     starting,
@@ -38,7 +40,6 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const stop = useAgentSessionStore((s) => s.stop);
   const answer = useAgentSessionStore((s) => s.answer);
 
-  const [draft, setDraft] = useState("");
   const bottom = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,12 +51,6 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: "end" });
   }, [transcript]);
-
-  const submit = () => {
-    if (!draft.trim() || thinking) return;
-    void send(draft);
-    setDraft("");
-  };
 
   const installed = harnesses.filter((h) => h.installed);
 
@@ -158,51 +153,13 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
               <div ref={bottom} />
             </div>
 
-            <div className="border-t border-[var(--color-border)] p-2">
-              <textarea
-                aria-label="Message the agent"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  // Enter sends, Shift+Enter breaks the line: the convention
-                  // every chat surface has, including the harnesses' own.
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    submit();
-                  }
-                }}
-                rows={3}
-                placeholder="Ask about this query…"
-                className="w-full resize-none rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1.5 text-xs text-[var(--color-text-primary)]"
-              />
-              <div className="mt-1 flex items-center justify-between">
-                <span className="text-[10px] text-[var(--color-text-muted)]">
-                  Writes are always approved in this window.
-                </span>
-                {thinking
-                  ? (
-                    <button
-                      type="button"
-                      onClick={() => void cancel()}
-                      className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
-                    >
-                      <Square className="h-3 w-3" />
-                      Stop
-                    </button>
-                  )
-                  : (
-                    <button
-                      type="button"
-                      onClick={submit}
-                      disabled={!draft.trim()}
-                      className="flex items-center gap-1 rounded bg-brand-600 px-2 py-1 text-xs text-white hover:bg-brand-700 disabled:opacity-50"
-                    >
-                      <Send className="h-3 w-3" />
-                      Send
-                    </button>
-                  )}
-              </div>
-            </div>
+            <AgentComposer
+              thinking={thinking}
+              failed={failed}
+              onSend={(text) => void send(text)}
+              onCancel={() => void cancel()}
+              onNewSession={() => void stop()}
+            />
           </>
         )}
     </div>

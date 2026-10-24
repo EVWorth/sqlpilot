@@ -1,7 +1,7 @@
 import { AlertTriangle, Check, ChevronDown, ChevronRight, CircleDot, Loader2, X } from "lucide-react";
 import { useState } from "react";
 import type { TranscriptItem } from "../../lib/agent-transcript";
-import { AgentMarkdown } from "./AgentMarkdown";
+import { AgentMarkdown, Inline } from "./AgentMarkdown";
 
 /**
  * One block of an agent session's transcript.
@@ -185,5 +185,17 @@ export function TranscriptBlock({ item, onAnswer }: {
       return <PlanRow item={item} />;
     case "note":
       return <p className="text-xs italic text-[var(--color-text-muted)]">{item.text}</p>;
+    case "error":
+      return (
+        <div
+          role="alert"
+          className="flex items-start gap-2 rounded surface-error px-2 py-1.5 text-xs text-[var(--color-error)]"
+        >
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <p className="min-w-0 break-words">
+            <Inline text={item.text} />
+          </p>
+        </div>
+      );
   }
 }

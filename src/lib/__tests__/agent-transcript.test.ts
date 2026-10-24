@@ -183,9 +183,11 @@ describe("endings", () => {
     expect((items[0] as { text: string }).text).toContain("something_new");
   });
 
-  it("shows a failure as a note in the transcript", () => {
+  it("shows a failure as an error, not as a note", () => {
+    // A note is "Stopped." after a cancel; a failure ends the session and has
+    // to look like it.
     const items = fold([{ type: "failed", message: "The agent stopped." }]);
-    expect(items[0]).toEqual({ kind: "note", text: "The agent stopped." });
+    expect(items[0]).toEqual({ kind: "error", text: "The agent stopped." });
   });
 });
 
