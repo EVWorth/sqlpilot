@@ -57,6 +57,6 @@ including the frontend half.
   `crates/<crate>/tests/`; each defines a `test_profile()` pointing at
   `127.0.0.1:13306` (or `MAS_TEST_PORT`). Run them with the
   `integration-tests` skill.
-- `tests/export_bindings.rs` regenerates `src/lib/bindings.ts`;
+- `tests/export_bindings.rs` regenerates the frontend's `src/lib/bindings.ts` (at the repo root);
   `tests/agent_end_to_end.rs` and the live harness tests run through
   `just test-agents` and need a logged-in harness.
