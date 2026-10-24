@@ -98,3 +98,52 @@ describe("ServerVariablesTab", () => {
     }
   });
 });
+
+describe("ServerVariablesTab filter and keyboard (#824)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(api.getServerVariables).mockResolvedValue(variables);
+  });
+
+  it("counts the filtered variables against the total", async () => {
+    render(<ServerVariablesTab connectionId="c1" />);
+    await screen.findByText("max_connections");
+    expect(screen.getByText("4 variables")).toBeDefined();
+    fireEvent.change(screen.getByPlaceholderText("Filter variables…"), { target: { value: "buffer" } });
+    expect(screen.getByText("2 of 4 variables")).toBeDefined();
+  });
+
+  it("says so when nothing matches the filter", async () => {
+    render(<ServerVariablesTab connectionId="c1" />);
+    await screen.findByText("max_connections");
+    fireEvent.change(screen.getByPlaceholderText("Filter variables…"), { target: { value: "zzzz" } });
+    expect(screen.getByText(/No variables match/)).toBeDefined();
+    expect(screen.getByText("0 of 4 variables")).toBeDefined();
+  });
+
+  it("sorts from a real button and reports the order with aria-sort", async () => {
+    render(<ServerVariablesTab connectionId="c1" />);
+    await screen.findByText("max_connections");
+    const nameHeader = screen.getByRole("columnheader", { name: /Variable Name/ });
+    const valueHeader = screen.getByRole("columnheader", { name: /Value/ });
+    expect(nameHeader.getAttribute("aria-sort")).toBe("ascending");
+    expect(valueHeader.getAttribute("aria-sort")).toBe("none");
+
+    fireEvent.click(screen.getByRole("button", { name: /Variable Name/ }));
+    expect(nameHeader.getAttribute("aria-sort")).toBe("descending");
+
+    fireEvent.click(screen.getByRole("button", { name: /^Value/ }));
+    expect(valueHeader.getAttribute("aria-sort")).toBe("ascending");
+    expect(nameHeader.getAttribute("aria-sort")).toBe("none");
+  });
+
+  it("collapses a group from a button with aria-expanded", async () => {
+    render(<ServerVariablesTab connectionId="c1" />);
+    await screen.findByText("innodb_buffer_pool_size");
+    const toggle = screen.getByRole("button", { name: /^innodb\s*\(2\)$/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText("innodb_buffer_pool_size")).toBeNull();
+  });
+});

@@ -76,7 +76,7 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
     });
   };
 
-  const grouped = useMemo(() => {
+  const { groups: grouped, matchCount } = useMemo(() => {
     const lc = filter.toLowerCase();
     const filtered = filter
       ? variables.filter((v) => v.name.toLowerCase().includes(lc) || v.value.toLowerCase().includes(lc))
@@ -97,7 +97,10 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
       groups[prefix].push(v);
     }
 
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+    return {
+      groups: Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)),
+      matchCount: filtered.length,
+    };
   }, [variables, filter, sortField, sortDir]);
 
   if (loading && variables.length === 0) {
@@ -123,8 +126,8 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
             className="h-7 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-brand-500 focus:outline-none"
           />
         </div>
-        <span className="text-xs text-[var(--color-text-muted)]">
-          {variables.length} variables
+        <span className="text-xs text-[var(--color-text-muted)]" aria-live="polite">
+          {filter ? `${matchCount} of ${variables.length} variables` : `${variables.length} variables`}
         </span>
       </div>
 
@@ -137,24 +140,14 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
         <table className="w-full text-xs">
           <thead>
             <tr className="sticky top-0 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-left text-[var(--color-text-secondary)]">
-              <th
-                className="cursor-pointer px-3 py-2 select-none hover:text-[var(--color-text-primary)]"
-                onClick={() => handleSort("name")}
-              >
-                <span className="flex items-center gap-1">
-                  Variable Name
-                  <ArrowUpDown className="h-3 w-3" />
-                </span>
-              </th>
-              <th
-                className="cursor-pointer px-3 py-2 select-none hover:text-[var(--color-text-primary)]"
-                onClick={() => handleSort("value")}
-              >
-                <span className="flex items-center gap-1">
-                  Value
-                  <ArrowUpDown className="h-3 w-3" />
-                </span>
-              </th>
+              <SortHeader
+                label="Variable Name"
+                field="name"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
+              <SortHeader label="Value" field="value" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
             </tr>
           </thead>
           <tbody>
@@ -171,6 +164,13 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
                 updatedName={updatedName}
               />
             ))}
+            {grouped.length === 0 && variables.length > 0 && (
+              <tr>
+                <td colSpan={2} className="px-3 py-6 text-center text-xs text-[var(--color-text-muted)]">
+                  No variables match “{filter}”
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -209,16 +209,18 @@ function GroupRows({
 }) {
   return (
     <>
-      <tr
-        className="cursor-pointer border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-secondary)]"
-        onClick={onToggle}
-      >
-        <td colSpan={2} className="px-3 py-1.5">
-          <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-secondary)]">
+      <tr className="border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-secondary)]">
+        <td colSpan={2} className="p-0">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={!collapsed}
+            className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs font-medium text-[var(--color-text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
+          >
             {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             {group}
             <span className="text-[var(--color-text-muted)]">({variables.length})</span>
-          </span>
+          </button>
         </td>
       </tr>
       {!collapsed
@@ -275,5 +277,36 @@ function GroupRows({
           </tr>
         ))}
     </>
+  );
+}
+
+function SortHeader({
+  label,
+  field,
+  sortField,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  field: SortField;
+  sortField: SortField;
+  sortDir: SortDir;
+  onSort: (field: SortField) => void;
+}) {
+  const active = sortField === field;
+  return (
+    <th
+      aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+      className="px-3 py-2"
+    >
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        className="flex items-center gap-1 rounded select-none hover:text-[var(--color-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
+      >
+        {label}
+        <ArrowUpDown className={cn("h-3 w-3", active && "text-[var(--color-text-primary)]")} />
+      </button>
+    </th>
   );
 }
