@@ -59,7 +59,7 @@ async fn a_session_accepts_sqlpilots_server_without_complaint() {
     let session = client
         .new_session(
             "/tmp",
-            &[McpServer::sqlpilot("http://127.0.0.1:1/mcp", "nope")],
+            &[McpServer::sqlpilot("http://127.0.0.1:1/mcp", "nope", None)],
         )
         .await
         .expect("a session opens");

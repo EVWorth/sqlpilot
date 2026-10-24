@@ -10,11 +10,13 @@
 //! that hits a wall with no alternative rephrases and tries again, and a model
 //! that is told "use `search_schema`" uses `search_schema`.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
+use rmcp::handler::server::tool::ToolCallContext;
 use rmcp::handler::server::wrapper::{Json, Parameters};
-use rmcp::model::{ServerCapabilities, ServerConfig};
-use rmcp::{tool, tool_handler, tool_router, ServerHandler};
+use rmcp::model::{CallToolRequestParams, CallToolResponse, ServerCapabilities, ServerConfig};
+use rmcp::service::RequestContext;
+use rmcp::{tool, tool_handler, tool_router, ErrorData, RoleServer, ServerHandler};
 use serde::{Deserialize, Serialize};
 
 use crate::analysis::{check_identifier, profile_column_sql, table_stats_sql, top_values_sql};
@@ -86,6 +88,42 @@ impl Default for Limits {
     }
 }
 
+/// The header that names the in-app agent session a request comes from.
+///
+/// SQLPilot's own harness sends it beside the token (`mas_agent` writes it
+/// into the harness config); an external client does not. The panel's Stop
+/// uses it to find the statements its agent is running (#868), and an
+/// approval request uses it to say who asked (#801).
+///
+/// It is a label, not a credential, and nothing it unlocks is more than the
+/// token already gives. A request reaches this far only with the token, and a
+/// token holder can already run, and so interrupt, anything a tool allows. A
+/// forged value can do two things: let the panel's Stop also cancel the
+/// forger's own statements, and make the forger's approval prompt read as the
+/// panel's agent. The second needs the id of a session that is running in
+/// the panel, which is a random UUID only the panel and that harness process
+/// know, and every prompt still shows the statement, the connection and the
+/// row count, and still needs the user's yes. No policy, grant or approval
+/// decision reads this value.
+pub const SESSION_HEADER: &str = "X-SQLPilot-Session";
+
+/// The longest client name passed on to the window. A name is a label in a
+/// dialog header; anything longer is not a name.
+const CLIENT_NAME_MAX: usize = 64;
+
+/// Who is on the other end of this MCP session, as far as it has said.
+///
+/// Learned from the first tool call that says, and fixed after that: one MCP
+/// session is one client process with one config, so a later request naming a
+/// different owner is not a change of owner but something to ignore.
+#[derive(Default)]
+struct Requester {
+    /// SQLPilot's id for the in-app session, from [`SESSION_HEADER`].
+    session: OnceLock<String>,
+    /// The client's own name, from its `initialize` request.
+    client: OnceLock<String>,
+}
+
 pub struct SqlPilot {
     workspace: Arc<dyn Workspace>,
     /// The window, when there is one to ask.
@@ -95,6 +133,7 @@ pub struct SqlPilot {
     /// window" rather than fail in some other way.
     surface: Option<Arc<dyn Surface>>,
     limits: Limits,
+    requester: Requester,
 }
 
 // ---------------------------------------------------------------- arguments
@@ -453,6 +492,7 @@ impl SqlPilot {
             workspace,
             surface: None,
             limits: Limits::default(),
+            requester: Requester::default(),
         }
     }
 
@@ -461,6 +501,7 @@ impl SqlPilot {
             workspace,
             surface: None,
             limits,
+            requester: Requester::default(),
         }
     }
 
@@ -1403,6 +1444,8 @@ impl SqlPilot {
                 rows_affected: Some(staged.rows_affected),
                 kind: "write".to_string(),
                 reason: Some(reason),
+                session: self.requester.session.get().cloned(),
+                client: self.requester.client.get().cloned(),
             })
             .await;
 
@@ -1496,6 +1539,8 @@ impl SqlPilot {
                 rows_affected: None,
                 kind: "schema".to_string(),
                 reason: Some(reason),
+                session: self.requester.session.get().cloned(),
+                client: self.requester.client.get().cloned(),
             })
             .await
             .map_err(refuse)?;
@@ -1603,6 +1648,45 @@ pub struct SharedConnection {
 }
 
 impl SqlPilot {
+    /// Learn who is asking, from a request's HTTP headers and the client's
+    /// handshake, the first time each is available.
+    ///
+    /// Called before every tool runs, so a session is bound to its owner
+    /// before its first statement reaches the database and the panel's Stop
+    /// can reach that statement too.
+    fn note_requester(&self, context: &RequestContext<RoleServer>) {
+        if self.requester.client.get().is_none() {
+            if let Some(name) = context
+                .peer
+                .peer_info()
+                .and_then(|info| client_name(&info.client_info.name))
+            {
+                let _ = self.requester.client.set(name);
+            }
+        }
+
+        let Some(owner) = context
+            .extensions
+            .get::<axum::http::request::Parts>()
+            .and_then(|parts| parts.headers.get(SESSION_HEADER))
+            .and_then(|value| value.to_str().ok())
+            .and_then(session_id)
+        else {
+            return;
+        };
+        match self.requester.session.get() {
+            Some(bound) if *bound == owner => {}
+            Some(_) => {
+                tracing::warn!("ignored a different in-app session id on a bound MCP session");
+            }
+            None => {
+                if self.requester.session.set(owner.clone()).is_ok() {
+                    self.workspace.bind_owner(&owner);
+                }
+            }
+        }
+    }
+
     /// Undo a staged write, logging if even that failed.
     ///
     /// A rollback that fails leaves a transaction open on a pooled connection,
@@ -1712,8 +1796,43 @@ impl SqlPilot {
     }
 }
 
+/// An in-app session id, if `value` is one.
+///
+/// SQLPilot's ids are UUIDs, so anything else did not come from SQLPilot and
+/// is dropped rather than carried into a registry key, a log line or a dialog.
+fn session_id(value: &str) -> Option<String> {
+    uuid::Uuid::parse_str(value.trim())
+        .ok()
+        .map(|id| id.hyphenated().to_string())
+}
+
+/// A client's name, made fit for a dialog header: control characters out,
+/// whitespace trimmed, length capped. `None` when nothing is left.
+fn client_name(raw: &str) -> Option<String> {
+    let cleaned: String = raw
+        .chars()
+        .filter(|c| !c.is_control())
+        .take(CLIENT_NAME_MAX)
+        .collect();
+    let trimmed = cleaned.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
 #[tool_handler]
 impl ServerHandler for SqlPilot {
+    /// Every tool call, through the router `#[tool_handler]` would use, after
+    /// noting who is asking. Written out so that this happens in one place
+    /// rather than in each of twenty tools.
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResponse, ErrorData> {
+        self.note_requester(&context);
+        let call = ToolCallContext::new(self, request, context);
+        Self::tool_router().call(call).await
+    }
+
     fn get_info(&self) -> ServerConfig {
         let mut info = ServerConfig::default();
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
@@ -1728,5 +1847,39 @@ impl ServerHandler for SqlPilot {
                 .to_string(),
         );
         info
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn only_a_uuid_is_taken_as_an_in_app_session() {
+        let id = "6f1c2a9e-3b4d-4e5f-8a6b-7c8d9e0f1a2b";
+        assert_eq!(session_id(id).as_deref(), Some(id));
+        assert_eq!(session_id(&format!(" {id}\t")).as_deref(), Some(id));
+        // Normalised, so the registry key matches the panel's id however the
+        // harness chose to spell it.
+        assert_eq!(
+            session_id("6F1C2A9E3B4D4E5F8A6B7C8D9E0F1A2B").as_deref(),
+            Some(id)
+        );
+        assert_eq!(session_id(""), None);
+        assert_eq!(session_id("the panel's agent"), None);
+    }
+
+    #[test]
+    fn a_client_name_is_cleaned_for_a_dialog_header() {
+        assert_eq!(
+            client_name("  claude-code ").as_deref(),
+            Some("claude-code")
+        );
+        assert_eq!(client_name("a\nb\u{7}c").as_deref(), Some("abc"));
+        assert_eq!(client_name(" \n "), None);
+        assert_eq!(
+            client_name(&"x".repeat(500)).map(|n| n.chars().count()),
+            Some(CLIENT_NAME_MAX)
+        );
     }
 }

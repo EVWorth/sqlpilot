@@ -53,14 +53,25 @@ pub struct McpHeader {
 
 impl McpServer {
     /// SQLPilot's endpoint, as an agent is told about it.
-    pub fn sqlpilot(url: impl Into<String>, token: &str) -> Self {
+    ///
+    /// `session` is SQLPilot's id for an in-app session, sent as
+    /// [`SESSION_HEADER`](crate::SESSION_HEADER) so the endpoint knows which
+    /// panel the agent belongs to. `None` for a harness that is not one.
+    pub fn sqlpilot(url: impl Into<String>, token: &str, session: Option<&str>) -> Self {
+        let mut headers = vec![McpHeader {
+            name: "Authorization".to_string(),
+            value: format!("Bearer {token}"),
+        }];
+        if let Some(session) = session {
+            headers.push(McpHeader {
+                name: crate::SESSION_HEADER.to_string(),
+                value: session.to_string(),
+            });
+        }
         Self {
             name: "sqlpilot".to_string(),
             url: url.into(),
-            headers: vec![McpHeader {
-                name: "Authorization".to_string(),
-                value: format!("Bearer {token}"),
-            }],
+            headers,
             kind: "http",
         }
     }

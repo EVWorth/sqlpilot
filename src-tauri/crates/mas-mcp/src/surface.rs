@@ -119,6 +119,17 @@ pub struct ApprovalRequest {
     /// the app's description of what will happen.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// The in-app agent session that asked, by SQLPilot's id for it. Absent
+    /// for an external client on the endpoint (#801).
+    ///
+    /// A label the client sent, not a credential: anything that can reach
+    /// this far already holds the endpoint's token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session: Option<String>,
+    /// The name the client gave itself when it connected (MCP `clientInfo`),
+    /// when it gave one. As much a claim as `reason` is.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client: Option<String>,
 }
 
 /// What the user did with a proposed edit.

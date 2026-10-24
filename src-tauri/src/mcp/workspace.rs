@@ -19,7 +19,7 @@
 //! repeated here would be a second rule to keep in step with the first.
 
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use mas_core::connection::{ConnectionManager, ConnectionStore, Route};
 use mas_core::error::CoreError;
@@ -63,6 +63,10 @@ pub struct AppWorkspace {
     /// its own, keyed by this, so neither the editor nor another agent waits
     /// on it (#731, FR-6.3.2).
     session: String,
+    /// The in-app agent session this belongs to, when the harness said so.
+    /// Set once, and linked to `session` in [`McpState`] so the panel's Stop
+    /// can reach what this runs (#868). Unset for an external client.
+    owner: OnceLock<String>,
 }
 
 impl AppWorkspace {
@@ -144,6 +148,7 @@ impl AppWorkspace {
             executor,
             state,
             session,
+            owner: OnceLock::new(),
         }
     }
 
@@ -157,6 +162,9 @@ impl Drop for AppWorkspace {
     /// The agent session is over: give its connections back now rather than
     /// when they next sit idle for a minute.
     fn drop(&mut self) {
+        if let Some(owner) = self.owner.get() {
+            self.state.unlink_route(owner, &self.session);
+        }
         if let Ok(runtime) = tokio::runtime::Handle::try_current() {
             let connections = self.connections.clone();
             let session = self.session.clone();
@@ -176,6 +184,14 @@ impl Workspace for AppWorkspace {
             self.executor.clone(),
             self.state.clone(),
         )))
+    }
+
+    fn bind_owner(&self, owner: &str) {
+        // Once: the server calls this only for the first owner it sees, and a
+        // second would leave a stale link behind for the first.
+        if self.owner.set(owner.to_string()).is_ok() {
+            self.state.link_route(owner, &self.session);
+        }
     }
 
     fn grants(&self) -> Grants {
