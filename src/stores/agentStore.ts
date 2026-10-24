@@ -47,6 +47,11 @@ export interface PendingApproval {
   /** "write" or "schema". */
   change: string;
   reason?: string;
+  /**
+   * Who asked, in words: "Claude Agent 2.1.14 (in-app session)" or a client
+   * on the endpoint. Absent when the backend does not say.
+   */
+  requester?: string;
 }
 
 interface AgentState {
