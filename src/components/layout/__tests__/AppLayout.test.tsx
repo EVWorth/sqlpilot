@@ -533,6 +533,25 @@ describe("AppLayout", () => {
       expect(seen).toEqual(["p1"]);
     });
 
+    it("routes a native-menu \"connect:<id>\" item to the connect flow (#863)", async () => {
+      // The macOS "Connect to" submenu, once menu.rs builds it, gives each
+      // item the id "connect:<profile id>"; on_menu_event emits it as
+      // "menu-action" like every other native item.
+      const seen: string[] = [];
+      const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+      window.addEventListener("connect-profile", listener);
+      render(<AppLayout />);
+      const call = mockListen.mock.calls.find(([name]) => name === "menu-action");
+      const handler = call?.[1] as (e: { payload: string }) => void;
+
+      await act(async () => {
+        handler({ payload: "connect:p2" });
+      });
+
+      window.removeEventListener("connect-profile", listener);
+      expect(seen).toEqual(["p2"]);
+    });
+
     it("handles select-all action", async () => {
       const origExec = document.execCommand;
       document.execCommand = vi.fn();
