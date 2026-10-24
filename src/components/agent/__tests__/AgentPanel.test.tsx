@@ -220,6 +220,43 @@ describe("the transcript", () => {
     expect(screen.getByText("run_select on shop")).toBeTruthy();
   });
 
+  it("shows the whole statement a tool ran, on request", () => {
+    const sql = "SELECT status, COUNT(*) FROM shop.orders GROUP BY status — 5 rows";
+    useAgentSessionStore.setState({
+      transcript: [{
+        kind: "tool",
+        id: "t1",
+        title: "run_select on Local dev",
+        toolKind: "execute",
+        status: "completed",
+        detail: sql,
+      }],
+    });
+    const { container } = open();
+    const toggle = screen.getByRole("button", { name: "Show what the agent ran" });
+    // Hovering is enough to read it; clicking shows it in full.
+    expect(toggle.getAttribute("title")).toBe(sql);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector("pre")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(container.querySelector("pre")?.textContent).toBe(sql);
+    expect(screen.getByRole("button", { name: "Hide what the agent ran" }).getAttribute("aria-expanded")).toBe(
+      "true",
+    );
+  });
+
+  it("renders the agent's lists and code rather than the markdown", () => {
+    useAgentSessionStore.setState({
+      transcript: [{ kind: "agent", text: "Counts:\n\n- paid: 1,939\n- shipped: 1,902\n\nUse `GROUP BY`." }],
+    });
+    const { container } = open();
+    const items = screen.getAllByRole("listitem").map((li) => li.textContent);
+    expect(items).toEqual(["paid: 1,939", "shipped: 1,902"]);
+    expect(container.querySelector("code")?.textContent).toBe("GROUP BY");
+    expect(screen.queryByText(/`/)).toBeNull();
+  });
+
   it("shows a plan with its progress", () => {
     useAgentSessionStore.setState({
       transcript: [{
