@@ -572,3 +572,34 @@ describe("by keyboard (#827)", () => {
     expect(menuItems.map((i) => i.label)).toContain("Disconnect");
   });
 });
+
+describe("environment and server on the tab (#835)", () => {
+  const prod = {
+    id: "p1",
+    name: "Production (read-only)",
+    host: "db.internal",
+    port: 3306,
+    username: "app",
+    environment: "production",
+    read_only: true,
+  };
+  const conn = { id: "c1", profile_id: "p1", name: "Production (read-only)", host: "db.internal", port: 3306 };
+
+  it("shows the environment badge and names the server in the tooltip", () => {
+    storeState = { profiles: [prod], activeConnections: [conn] };
+    render(<ConnectionTabs />);
+    const tab = screen.getByRole("tab");
+    expect(tab).toHaveAttribute("title", "Production (read-only) — app@db.internal:3306");
+    expect(tab).toContainElement(screen.getByText("PROD"));
+  });
+
+  it("shows the badge, read-only lock and server on connect-menu rows", () => {
+    storeState = { profiles: [{ ...prod, id: "p2", environment: "staging" }] };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByTitle("Connect to a server"));
+    const row = screen.getByRole("menuitem", { name: /^Production/ });
+    expect(row).toHaveTextContent("STG");
+    expect(row).toHaveAttribute("title", "app@db.internal:3306");
+    expect(row).toContainElement(screen.getByLabelText("Read-only connection"));
+  });
+});

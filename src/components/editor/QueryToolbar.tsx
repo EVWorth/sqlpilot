@@ -15,11 +15,13 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
 import { formatSql } from "../../lib/sql-format";
 import { sqlAtCursor } from "../../lib/statement-at-cursor";
+import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { EnvironmentBadge } from "../connection/EnvironmentBadge";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
 import { RowLimitInput } from "./RowLimitInput";
@@ -62,6 +64,9 @@ export function QueryToolbar() {
   const activeConnection = activeConnections.find(
     (c) => c.id === selectedConnectionId,
   );
+  const profiles = useConnectionStore((s) => s.profiles);
+  const activeProfile = activeConnection ? profiles.find((p) => p.id === activeConnection.profile_id) : undefined;
+  const environment = activeProfile?.environment ?? activeConnection?.environment ?? null;
 
   const handleExecute = () => {
     if (!hookCanExecute) return;
@@ -133,7 +138,15 @@ export function QueryToolbar() {
     "flex min-h-6 min-w-6 items-center justify-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
 
   return (
-    <div className="flex h-8 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2">
+    <div
+      data-environment={environment ?? undefined}
+      className={cn(
+        "flex h-8 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2",
+        // A production server tints the bar the Run button sits in, so the
+        // last thing seen before running is which kind of server it is (#835).
+        environment === "production" && "surface-error border-t-2 border-t-[var(--color-error)]",
+      )}
+    >
       <button
         onClick={isExecuting ? cancelActiveQuery : handleExecute}
         disabled={!isExecuting && !canExecute}
@@ -281,6 +294,7 @@ export function QueryToolbar() {
 
       {activeConnection && (
         <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
+          <EnvironmentBadge environment={environment} />
           <Database className="h-3 w-3" />
           <span>{activeConnection.name}</span>
           <span className="opacity-50">

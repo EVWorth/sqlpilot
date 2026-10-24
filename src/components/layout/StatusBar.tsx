@@ -19,15 +19,9 @@ import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { type StorageErrorKey, useStorageErrorStore } from "../../stores/storageErrorStore";
-import type { ConnectionEnvironment } from "../../types";
+import { EnvironmentBadge } from "../connection/EnvironmentBadge";
 import { ConnectionErrorChip } from "./ConnectionErrorChip";
 import { UpdateErrorDetails } from "./UpdateErrorDetails";
-
-const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
-  production: { label: "PROD", className: "surface-error-strong text-[var(--color-error)]" },
-  staging: { label: "STG", className: "surface-warning-strong text-[var(--color-warning)]" },
-  development: { label: "DEV", className: "surface-success-strong text-[var(--color-success)]" },
-};
 
 function formatTime(ms: number): string {
   if (ms < 1) return "<1ms";
@@ -149,9 +143,6 @@ export function StatusBar() {
   const activeProfile = activeConn
     ? profiles.find((p) => p.id === activeConn.profile_id)
     : undefined;
-  const envBadge = activeProfile?.environment
-    ? ENV_BADGES[activeProfile.environment]
-    : undefined;
   // What the backend's health checker last said about this connection.
   const health = useConnectionHealthStore((s) => selectedConnectionId ? s.health[selectedConnectionId] : undefined);
 
@@ -203,11 +194,7 @@ export function StatusBar() {
                   ? <Check className="h-2.5 w-2.5 text-[var(--color-success)]" />
                   : <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100" />}
               </button>
-              {envBadge && (
-                <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${envBadge.className}`}>
-                  {envBadge.label}
-                </span>
-              )}
+              <EnvironmentBadge environment={activeProfile?.environment} />
               {selectedDatabase && (
                 <span className="text-[10px] text-brand-400 font-medium">
                   {selectedDatabase}

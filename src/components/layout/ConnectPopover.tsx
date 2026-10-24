@@ -1,6 +1,7 @@
-import { Pencil, Plug, Plus } from "lucide-react";
+import { Lock, Pencil, Plug, Plus } from "lucide-react";
 import { useEffect, useRef } from "react";
 import type { ConnectionProfileSummary } from "../../types";
+import { EnvironmentBadge } from "../connection/EnvironmentBadge";
 
 interface ConnectPopoverProps {
   /** Fixed-position coordinates, just under the button that opened it. */
@@ -122,6 +123,8 @@ export function ConnectPopover({
                 data-row-item
                 tabIndex={-1}
                 onClick={() => onConnect(profile)}
+                // Which server a row is, before connecting to it (#835).
+                title={`${profile.username ? `${profile.username}@` : ""}${profile.host}:${profile.port}`}
                 className="flex flex-1 min-w-0 items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-text-secondary)] outline-none hover:text-[var(--color-text-primary)] focus-visible:text-[var(--color-text-primary)]"
               >
                 <Plug className="h-3 w-3 shrink-0 text-[var(--color-text-muted)]" />
@@ -132,6 +135,14 @@ export function ConnectPopover({
                   />
                 )}
                 <span className="truncate">{profile.name || profile.host}</span>
+                {profile.read_only && (
+                  <Lock
+                    role="img"
+                    aria-label="Read-only connection"
+                    className="h-3 w-3 shrink-0 text-[var(--color-warning)]"
+                  />
+                )}
+                <EnvironmentBadge environment={profile.environment} className="ml-auto" />
               </button>
               <button
                 role="menuitem"

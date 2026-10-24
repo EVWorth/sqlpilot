@@ -1,6 +1,7 @@
 import { Database, Lock, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import type { ConnectionInfo, ConnectionProfileSummary } from "../../types";
+import { EnvironmentBadge } from "../connection/EnvironmentBadge";
 
 interface ConnectionTabProps {
   conn: ConnectionInfo;
@@ -36,6 +37,10 @@ export function ConnectionTab({
   onMenu,
 }: ConnectionTabProps) {
   const label = profile?.name || profile?.host || conn.id;
+  // The name truncates at 180px, so the tooltip is where the whole of it,
+  // and the server it points at, can be read (#835).
+  const host = profile ? `${profile.host}:${profile.port}` : `${conn.host}:${conn.port}`;
+  const tooltip = `${label} — ${profile?.username ? `${profile.username}@` : ""}${host}`;
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
@@ -58,6 +63,7 @@ export function ConnectionTab({
       aria-selected={isSelected}
       tabIndex={focusable ? 0 : -1}
       data-connection-id={conn.id}
+      title={tooltip}
       className={cn(
         "group relative flex h-7 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1.5 rounded px-2 text-xs select-none outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
         isSelected
@@ -108,6 +114,8 @@ export function ConnectionTab({
           className="h-3 w-3 shrink-0 text-[var(--color-warning)]"
         />
       )}
+
+      <EnvironmentBadge environment={profile?.environment} />
 
       <span className="truncate">{label}</span>
 
