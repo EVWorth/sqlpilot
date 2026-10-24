@@ -1,4 +1,5 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { ContextMenu, type MenuAction, type MenuItem } from "../ContextMenu";
 
@@ -38,7 +39,8 @@ describe("ContextMenu", () => {
       <ContextMenu x={0} y={0} items={createItems()} onClose={vi.fn()} />,
     );
 
-    expect(screen.getAllByRole("button")).toHaveLength(3);
+    expect(screen.getAllByRole("menuitem")).toHaveLength(3);
+    expect(screen.getAllByRole("separator")).toHaveLength(1);
   });
 
   it("keeps a separator out of the tab order", () => {
@@ -46,7 +48,7 @@ describe("ContextMenu", () => {
       <ContextMenu x={0} y={0} items={[{ separator: true }]} onClose={vi.fn()} />,
     );
 
-    expect(screen.queryByRole("button")).not.toBeInTheDocument();
+    expect(screen.queryByRole("menuitem")).not.toBeInTheDocument();
     expect(document.querySelectorAll("[tabindex]")).toHaveLength(0);
   });
 
@@ -164,5 +166,111 @@ describe("ContextMenu", () => {
     render(<ContextMenu x={0} y={0} items={items} onClose={vi.fn()} />);
 
     expect(screen.getByTestId("menu-icon")).toBeInTheDocument();
+  });
+
+  describe("from the keyboard (#823)", () => {
+    const keys = (key: string) => fireEvent.keyDown(document.activeElement ?? document.body, { key });
+
+    it("is a menu of menu items", () => {
+      render(<ContextMenu x={0} y={0} items={createItems()} onClose={vi.fn()} />);
+
+      expect(screen.getByRole("menu")).toBeInTheDocument();
+      expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Copy", "Paste", "Delete"]);
+    });
+
+    it("focuses the first enabled item when it opens", () => {
+      render(
+        <ContextMenu x={0} y={0} items={createItems({ copy: { disabled: true } })} onClose={vi.fn()} />,
+      );
+
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Paste" }));
+    });
+
+    it("moves with Up, Down, Home and End, skipping separators and disabled items", () => {
+      render(
+        <ContextMenu x={0} y={0} items={createItems({ paste: { disabled: true } })} onClose={vi.fn()} />,
+      );
+      const focused = () => document.activeElement?.textContent;
+      expect(focused()).toBe("Copy");
+
+      keys("ArrowDown");
+      expect(focused()).toBe("Delete");
+      keys("ArrowDown");
+      expect(focused()).toBe("Copy"); // wraps
+      keys("ArrowUp");
+      expect(focused()).toBe("Delete");
+      keys("Home");
+      expect(focused()).toBe("Copy");
+      keys("End");
+      expect(focused()).toBe("Delete");
+    });
+
+    it("runs the focused item on Enter", () => {
+      const onPaste = vi.fn();
+      const onClose = vi.fn();
+      render(<ContextMenu x={0} y={0} items={createItems({ paste: { onClick: onPaste } })} onClose={onClose} />);
+
+      keys("ArrowDown");
+      // A button's Enter is a click; jsdom does not synthesise it.
+      fireEvent.click(document.activeElement as HTMLElement);
+
+      expect(onPaste).toHaveBeenCalledOnce();
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    it("closes on Tab", () => {
+      const onClose = vi.fn();
+      render(<ContextMenu x={0} y={0} items={createItems()} onClose={onClose} />);
+
+      keys("Tab");
+
+      expect(onClose).toHaveBeenCalledOnce();
+    });
+
+    /** A row that opens the menu, as the tree and the grid do. */
+    function Opener({ onPick }: { onPick?: () => void }) {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button onContextMenu={() => setOpen(true)}>row</button>
+          <input aria-label="elsewhere" />
+          {open && (
+            <ContextMenu
+              x={0}
+              y={0}
+              items={[{ label: "Pick", onClick: onPick ?? vi.fn() }]}
+              onClose={() => setOpen(false)}
+            />
+          )}
+        </>
+      );
+    }
+
+    it("gives focus back to what opened it when it closes", () => {
+      render(<Opener />);
+      const row = screen.getByRole("button", { name: "row" });
+      row.focus();
+
+      fireEvent.contextMenu(row);
+      expect(document.activeElement).toBe(screen.getByRole("menuitem", { name: "Pick" }));
+
+      act(() => {
+        fireEvent.keyDown(document, { key: "Escape" });
+      });
+
+      expect(screen.queryByRole("menu")).toBeNull();
+      expect(document.activeElement).toBe(row);
+    });
+
+    it("leaves focus where the chosen action put it", () => {
+      render(<Opener onPick={() => screen.getByLabelText("elsewhere").focus()} />);
+      const row = screen.getByRole("button", { name: "row" });
+      row.focus();
+      fireEvent.contextMenu(row);
+
+      fireEvent.click(screen.getByRole("menuitem", { name: "Pick" }));
+
+      expect(document.activeElement).toBe(screen.getByLabelText("elsewhere"));
+    });
   });
 });

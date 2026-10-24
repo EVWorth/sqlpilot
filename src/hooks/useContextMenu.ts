@@ -7,6 +7,21 @@ interface ContextMenuState {
   items: MenuItem[];
 }
 
+/**
+ * Where to put the menu.
+ *
+ * At the pointer for a right-click. A menu opened from the keyboard (Shift+F10
+ * or the context-menu key) can arrive with no pointer position, which put it
+ * in the window's top-left corner; it goes under the element instead (#823).
+ */
+function anchor(e: React.MouseEvent): { x: number; y: number } {
+  if (e.clientX !== 0 || e.clientY !== 0) return { x: e.clientX, y: e.clientY };
+  const el = e.currentTarget instanceof Element ? e.currentTarget : e.target;
+  if (!(el instanceof Element)) return { x: 0, y: 0 };
+  const rect = el.getBoundingClientRect();
+  return { x: rect.left + 16, y: rect.bottom };
+}
+
 export function useContextMenu() {
   const [state, setState] = useState<ContextMenuState | null>(null);
 
@@ -14,7 +29,7 @@ export function useContextMenu() {
     (e: React.MouseEvent, items: MenuItem[]) => {
       e.preventDefault();
       e.stopPropagation();
-      setState({ x: e.clientX, y: e.clientY, items });
+      setState({ ...anchor(e), items });
     },
     [],
   );

@@ -56,6 +56,7 @@ import type { DdlObjectType } from "../../types";
 import type { MenuItem } from "../common/ContextMenu";
 import { FolderNode } from "./FolderNode";
 import { HighlightedName } from "./HighlightedName";
+import { useTreeNavigation } from "./useTreeNavigation";
 
 export function SchemaTree({ connectionId }: { connectionId: string }) {
   // Whatever backend this connection belongs to. The tree asks it for
@@ -459,8 +460,12 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
       ? isFolderExpanded(dbName, folder) || filteredCount > 0
       : isFolderExpanded(dbName, folder);
 
+  // Up, Down, Home and End across the rows on screen, one tab stop (#823).
+  const firstDb = visibleDatabases[0];
+  const { rowProps, treeProps } = useTreeNavigation(firstDb ? `db:${firstDb.name}` : null);
+
   return (
-    <div role="tree" aria-label="Schema" className="ml-4 border-l border-[var(--color-border)] pl-1">
+    <div className="ml-4 border-l border-[var(--color-border)] pl-1">
       {/* Filter input */}
       <div className="relative mb-1 mt-0.5 px-1">
         <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3 w-3 -translate-y-1/2 text-[var(--color-text-muted)]" />
@@ -513,700 +518,735 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         </p>
       )}
 
-      {visibleDatabases.map((db) => (
-        <div key={db.name} role="treeitem" aria-expanded={isDbExpanded(db.name)} aria-label={db.name}>
-          <button
-            onKeyDown={(e) => {
-              // A tree opens and closes with Left and Right (F3.11 of #299).
-              if (e.key === "ArrowRight" && !isDbExpanded(db.name)) {
-                e.preventDefault();
-                void toggleDb(db.name);
-              } else if (e.key === "ArrowLeft" && isDbExpanded(db.name)) {
-                e.preventDefault();
-                void toggleDb(db.name);
-              }
-            }}
-            onClick={makeClickHandler(
-              `db:${db.name}`,
-              () =>
-                toggleDb(db.name),
-              () =>
-                selectDatabase(db.name),
-            )}
-            onContextMenu={(e) => {
-              showContextMenu(e, [
-                {
-                  label: "New Query",
-                  icon: <FileText className="h-3.5 w-3.5" />,
-                  onClick: () => {
-                    const tabId = addTab(connectionId, db.name);
-                    updateTabContent(tabId, `USE \`${db.name}\`;\n`);
-                  },
-                },
-                ...newTableItem(db.name),
-                {
-                  label: "Refresh",
-                  icon: <RefreshCw className="h-3.5 w-3.5" />,
-                  onClick: () =>
-                    refreshDatabase(db.name),
-                },
-                {
-                  // FR-4.3.2. Which database new tabs open against, which the
-                  // tree could show but not set (#293).
-                  label: selectedDb === db.name ? "Already the default" : "Set as Default",
-                  icon: <Check className="h-3.5 w-3.5" />,
-                  disabled: selectedDb === db.name,
-                  onClick: () =>
-                    selectDatabase(db.name),
-                },
-                {
-                  label: "Statistics",
-                  icon: <BarChart3 className="h-3.5 w-3.5" />,
-                  onClick: () => openDdlTab(db.name, db.name, databaseStatistics(db.name)),
-                },
-                { separator: true },
-                {
-                  label: "Create Database…",
-                  icon: <Database className="h-3.5 w-3.5" />,
-                  onClick: () => {
-                    const name = askForName("Name for the new database:");
-                    if (!name) return;
-                    void runSchemaChange(
-                      createDatabase(name),
-                      `Create database \`${name}\`?`,
-                      async () => {
-                        // The list itself changed, not one database's contents.
-                        useSchemaStore.getState().invalidate(connectionId);
-                        await useSchemaStore.getState().ensureDatabases(connectionId);
-                      },
-                    );
-                  },
-                },
-                {
-                  label: "Drop Database",
-                  icon: <Trash2 className="h-3.5 w-3.5" />,
-                  danger: true,
-                  onClick: () => {
-                    // Typed rather than clicked: dropping a database takes
-                    // every table in it, and a misplaced click should not be
-                    // able to do that.
-                    const typed = window.prompt(
-                      `This drops \`${db.name}\` and everything in it. `
-                        + `Type the database name to confirm:`,
-                    );
-                    if (typed !== db.name) return;
-                    void runSchemaChange(
-                      dropDatabase(db.name),
-                      `Drop database \`${db.name}\` and every table in it?`,
-                      async () => {
-                        useSchemaStore.getState().invalidate(connectionId);
-                        await useSchemaStore.getState().ensureDatabases(connectionId);
-                      },
-                    );
-                  },
-                },
-                { separator: true },
-                {
-                  label: "Backup Database",
-                  icon: <HardDriveDownload className="h-3.5 w-3.5" />,
-                  onClick: () => {
-                    window.dispatchEvent(
-                      new CustomEvent("open-backup", {
-                        detail: { connectionId, database: db.name },
-                      }),
-                    );
-                  },
-                },
-                {
-                  label: "Restore to Database",
-                  icon: <HardDriveUpload className="h-3.5 w-3.5" />,
-                  onClick: () => {
-                    window.dispatchEvent(
-                      new CustomEvent("open-restore", {
-                        detail: { connectionId, database: db.name },
-                      }),
-                    );
-                  },
-                },
-              ]);
-            }}
-            className={cn(
-              "flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] hover:text-[var(--color-text-secondary)]",
-              selectedDb === db.name
-                ? "font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent)]"
-                : "text-[var(--color-text-muted)]",
-            )}
-          >
-            {isDbExpanded(db.name) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-            <Database className={cn("h-3 w-3", selectedDb === db.name && "text-[var(--color-accent)]")} />
-            <span>{db.name}</span>
-            {selectedDb === db.name && (
-              <span className="ml-auto text-[9px] text-[var(--color-accent)] opacity-75">●</span>
-            )}
-          </button>
-          {isDbExpanded(db.name) && (
-            <div role="group" className="ml-3">
-              {isLoading(loadKey(db.name)) && !tables[db.name] && (
-                <div className="flex items-center gap-2 px-1.5 py-1 text-[11px] text-[var(--color-text-muted)]">
-                  <Loader2 className="h-3 w-3 animate-spin" />
-                  Loading...
-                </div>
+      {
+        /* The tree is the rows only: the filter and the toggle above it are
+          not tree items, and a tree containing them is not one a screen
+          reader can walk. */
+      }
+      <div role="tree" aria-label="Schema" {...treeProps}>
+        {visibleDatabases.map((db) => (
+          <div key={db.name} role="none">
+            <button
+              role="treeitem"
+              aria-expanded={isDbExpanded(db.name)}
+              aria-level={1}
+              aria-label={db.name}
+              {...rowProps(`db:${db.name}`)}
+              onKeyDown={(e) => {
+                // A tree opens and closes with Left and Right (F3.11 of #299).
+                if (e.key === "ArrowRight" && !isDbExpanded(db.name)) {
+                  e.preventDefault();
+                  void toggleDb(db.name);
+                } else if (e.key === "ArrowLeft" && isDbExpanded(db.name)) {
+                  e.preventDefault();
+                  void toggleDb(db.name);
+                }
+              }}
+              onClick={makeClickHandler(
+                `db:${db.name}`,
+                () => toggleDb(db.name),
+                () => selectDatabase(db.name),
               )}
-              {/* Tables folder */}
-              {isFolderVisible(filteredTables(db.name).length) && (
-                <FolderNode
-                  label="Tables"
-                  icon={<Table2 className="h-3 w-3" />}
-                  isExpanded={isFolderExpandedFiltered(db.name, "tables", filteredTables(db.name).length)}
-                  onToggle={() => toggleFolder(db.name, "tables")}
-                  onContextMenu={(e) => {
-                    showContextMenu(e, [
-                      ...newTableItem(db.name),
-                      {
-                        label: "Refresh",
-                        icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: () => refreshDatabase(db.name),
-                      },
-                    ]);
-                  }}
-                  count={tables[db.name]?.filter((t) => t.table_type !== "VIEW").length}
-                >
-                  {filteredTables(db.name).map((t) => (
-                    <div
-                      key={t.name}
-                      className="group/table flex items-center rounded hover:bg-[var(--color-bg-tertiary)]"
-                    >
+              onContextMenu={(e) => {
+                showContextMenu(e, [
+                  {
+                    label: "New Query",
+                    icon: <FileText className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      const tabId = addTab(connectionId, db.name);
+                      updateTabContent(tabId, `USE \`${db.name}\`;\n`);
+                    },
+                  },
+                  ...newTableItem(db.name),
+                  {
+                    label: "Refresh",
+                    icon: <RefreshCw className="h-3.5 w-3.5" />,
+                    onClick: () => refreshDatabase(db.name),
+                  },
+                  {
+                    // FR-4.3.2. Which database new tabs open against, which the
+                    // tree could show but not set (#293).
+                    label: selectedDb === db.name ? "Already the default" : "Set as Default",
+                    icon: <Check className="h-3.5 w-3.5" />,
+                    disabled: selectedDb === db.name,
+                    onClick: () => selectDatabase(db.name),
+                  },
+                  {
+                    label: "Statistics",
+                    icon: <BarChart3 className="h-3.5 w-3.5" />,
+                    onClick: () => openDdlTab(db.name, db.name, databaseStatistics(db.name)),
+                  },
+                  { separator: true },
+                  {
+                    label: "Create Database…",
+                    icon: <Database className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      const name = askForName("Name for the new database:");
+                      if (!name) return;
+                      void runSchemaChange(
+                        createDatabase(name),
+                        `Create database \`${name}\`?`,
+                        async () => {
+                          // The list itself changed, not one database's contents.
+                          useSchemaStore.getState().invalidate(connectionId);
+                          await useSchemaStore.getState().ensureDatabases(connectionId);
+                        },
+                      );
+                    },
+                  },
+                  {
+                    label: "Drop Database",
+                    icon: <Trash2 className="h-3.5 w-3.5" />,
+                    danger: true,
+                    onClick: () => {
+                      // Typed rather than clicked: dropping a database takes
+                      // every table in it, and a misplaced click should not be
+                      // able to do that.
+                      const typed = window.prompt(
+                        `This drops \`${db.name}\` and everything in it. `
+                          + `Type the database name to confirm:`,
+                      );
+                      if (typed !== db.name) return;
+                      void runSchemaChange(
+                        dropDatabase(db.name),
+                        `Drop database \`${db.name}\` and every table in it?`,
+                        async () => {
+                          useSchemaStore.getState().invalidate(connectionId);
+                          await useSchemaStore.getState().ensureDatabases(connectionId);
+                        },
+                      );
+                    },
+                  },
+                  { separator: true },
+                  {
+                    label: "Backup Database",
+                    icon: <HardDriveDownload className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      window.dispatchEvent(
+                        new CustomEvent("open-backup", {
+                          detail: { connectionId, database: db.name },
+                        }),
+                      );
+                    },
+                  },
+                  {
+                    label: "Restore to Database",
+                    icon: <HardDriveUpload className="h-3.5 w-3.5" />,
+                    onClick: () => {
+                      window.dispatchEvent(
+                        new CustomEvent("open-restore", {
+                          detail: { connectionId, database: db.name },
+                        }),
+                      );
+                    },
+                  },
+                ]);
+              }}
+              className={cn(
+                "flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] hover:text-[var(--color-text-secondary)]",
+                selectedDb === db.name
+                  ? "font-semibold text-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                  : "text-[var(--color-text-muted)]",
+              )}
+            >
+              {isDbExpanded(db.name) ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
+              <Database className={cn("h-3 w-3", selectedDb === db.name && "text-[var(--color-accent)]")} />
+              <span>{db.name}</span>
+              {selectedDb === db.name && (
+                <span className="ml-auto text-[9px] text-[var(--color-accent)] opacity-75">●</span>
+              )}
+            </button>
+            {isDbExpanded(db.name) && (
+              <div role="group" className="ml-3">
+                {isLoading(loadKey(db.name)) && !tables[db.name] && (
+                  <div className="flex items-center gap-2 px-1.5 py-1 text-[11px] text-[var(--color-text-muted)]">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Loading...
+                  </div>
+                )}
+                {/* Tables folder */}
+                {isFolderVisible(filteredTables(db.name).length) && (
+                  <FolderNode
+                    label="Tables"
+                    rowProps={rowProps(folderKey(db.name, "tables"))}
+                    icon={<Table2 className="h-3 w-3" />}
+                    isExpanded={isFolderExpandedFiltered(db.name, "tables", filteredTables(db.name).length)}
+                    onToggle={() => toggleFolder(db.name, "tables")}
+                    onContextMenu={(e) => {
+                      showContextMenu(e, [
+                        ...newTableItem(db.name),
+                        {
+                          label: "Refresh",
+                          icon: <RefreshCw className="h-3.5 w-3.5" />,
+                          onClick: () => refreshDatabase(db.name),
+                        },
+                      ]);
+                    }}
+                    count={tables[db.name]?.filter((t) => t.table_type !== "VIEW").length}
+                  >
+                    {filteredTables(db.name).map((t) => (
+                      <div
+                        key={t.name}
+                        role="none"
+                        className="group/table flex items-center rounded hover:bg-[var(--color-bg-tertiary)]"
+                      >
+                        <button
+                          role="treeitem"
+                          aria-level={3}
+                          {...rowProps(`${folderKey(db.name, "tables")}:${t.name}`)}
+                          // FR-4.1.4 (#291).
+                          draggable
+                          onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${t.name}\``)}
+                          onClick={handleTableClick(db.name, t.name)}
+                          onContextMenu={(e) => {
+                            showContextMenu(e, [
+                              {
+                                // Named for the limit it actually uses (#293).
+                                label: selectTopRowsLabel(maxResultRows),
+                                icon: <Search className="h-3.5 w-3.5" />,
+                                onClick: () => openObjectData(db.name, t.name),
+                              },
+                              {
+                                label: "View Structure",
+                                icon: <Columns3 className="h-3.5 w-3.5" />,
+                                onClick: () => addStructureTab(connectionId, db.name, t.name),
+                              },
+                              {
+                                label: "Design Table",
+                                icon: <PenLine className="h-3.5 w-3.5" />,
+                                onClick: () => addDesignerTab(connectionId, db.name, t.name),
+                              },
+                              {
+                                label: "Copy Name",
+                                icon: <Copy className="h-3.5 w-3.5" />,
+                                onClick: () => {
+                                  void navigator.clipboard.writeText(t.name);
+                                },
+                              },
+                              {
+                                label: "Show DDL",
+                                icon: <FileText className="h-3.5 w-3.5" />,
+                                onClick: () => openDdlView(db.name, t.name, "TABLE"),
+                              },
+                              {
+                                // Opened rather than run: an INSERT with every
+                                // value left NULL is a starting point, not a
+                                // statement anyone means to execute (#293).
+                                label: "INSERT Template",
+                                icon: <FilePlus className="h-3.5 w-3.5" />,
+                                onClick: () => {
+                                  void useSchemaStore
+                                    .getState()
+                                    .ensureColumns(connectionId, db.name, t.name)
+                                    .then((cols) => openInEditor(db.name, insertTemplate(db.name, t.name, cols)));
+                                },
+                              },
+                              { separator: true },
+                              {
+                                label: "Rename Table…",
+                                icon: <PenLine className="h-3.5 w-3.5" />,
+                                onClick: () => {
+                                  const name = askForName(`Rename \`${t.name}\` to:`, t.name);
+                                  if (!name || name === t.name) return;
+                                  void runSchemaChange(
+                                    renameTable(db.name, t.name, name),
+                                    `Rename \`${t.name}\` to \`${name}\`?`,
+                                    () => refreshFolder(db.name, "tables"),
+                                  );
+                                },
+                              },
+                              {
+                                label: "Duplicate Structure…",
+                                icon: <Copy className="h-3.5 w-3.5" />,
+                                onClick: () => {
+                                  const name = askForName("Name for the copy:", `${t.name}_copy`);
+                                  if (!name) return;
+                                  void runSchemaChange(
+                                    duplicateTableStructure(db.name, t.name, name),
+                                    `Create \`${name}\` with the same structure as \`${t.name}\`?`,
+                                    () => refreshFolder(db.name, "tables"),
+                                  );
+                                },
+                              },
+                              { separator: true },
+                              {
+                                label: "Truncate Table",
+                                icon: <Eraser className="h-3.5 w-3.5" />,
+                                danger: true,
+                                onClick: () =>
+                                  void runSchemaChange(
+                                    truncateTable(db.name, t.name),
+                                    // TRUNCATE is not transactional and takes
+                                    // every row; the confirmation has to say so.
+                                    `Delete every row in \`${db.name}\`.\`${t.name}\`? `
+                                      + `TRUNCATE cannot be rolled back.`,
+                                    () => refreshFolder(db.name, "tables"),
+                                  ),
+                              },
+                              { separator: true },
+                              {
+                                label: "Drop Table",
+                                icon: <Trash2 className="h-3.5 w-3.5" />,
+                                danger: true,
+                                onClick: () =>
+                                  void runSchemaChange(
+                                    dropTable(db.name, t.name),
+                                    `Drop table \`${db.name}\`.\`${t.name}\`?`,
+                                    () => refreshFolder(db.name, "tables"),
+                                  ),
+                              },
+                            ]);
+                          }}
+                          className="flex flex-1 items-center gap-1 px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                        >
+                          <Table2 className="h-3 w-3 shrink-0" />
+                          <span className="truncate">
+                            <HighlightedName name={t.name} match={filterText} />
+                          </span>
+                          {t.row_count != null && (
+                            <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
+                              ~{t.row_count.toLocaleString()}
+                            </span>
+                          )}
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            addStructureTab(connectionId, db.name, t.name);
+                          }}
+                          title="View Structure"
+                          className="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-primary)] hover:text-brand-400 group-hover/table:opacity-100"
+                        >
+                          <Columns3 className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ))}
+                  </FolderNode>
+                )}
+
+                {/* Views folder */}
+                {isFolderVisible(filteredViews(db.name).length) && (
+                  <FolderNode
+                    label="Views"
+                    rowProps={rowProps(folderKey(db.name, "views"))}
+                    icon={<Eye className="h-3 w-3" />}
+                    isExpanded={isFolderExpandedFiltered(db.name, "views", filteredViews(db.name).length)}
+                    onToggle={() => toggleFolder(db.name, "views")}
+                    loading={isLoading(loadKey(db.name, folderStoreKey("views")))}
+                    onContextMenu={(e) => {
+                      showContextMenu(e, [
+                        {
+                          label: "Refresh",
+                          icon: <RefreshCw className="h-3.5 w-3.5" />,
+                          onClick: () => refreshFolder(db.name, "views"),
+                        },
+                      ]);
+                    }}
+                    count={views[db.name]?.length}
+                  >
+                    {filteredViews(db.name).map((v) => (
                       <button
-                        // FR-4.1.4 (#291).
+                        key={v.name}
+                        role="treeitem"
+                        aria-level={3}
+                        {...rowProps(`${folderKey(db.name, "views")}:${v.name}`)}
                         draggable
-                        onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${t.name}\``)}
-                        onClick={handleTableClick(db.name, t.name)}
+                        onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${v.name}\``)}
+                        onClick={handleViewClick(db.name, v.name)}
                         onContextMenu={(e) => {
                           showContextMenu(e, [
                             {
-                              // Named for the limit it actually uses (#293).
+                              // The limit it uses, as on tables (#829).
                               label: selectTopRowsLabel(maxResultRows),
                               icon: <Search className="h-3.5 w-3.5" />,
-                              onClick: () => openObjectData(db.name, t.name),
-                            },
-                            {
-                              label: "View Structure",
-                              icon: <Columns3 className="h-3.5 w-3.5" />,
-                              onClick: () => addStructureTab(connectionId, db.name, t.name),
-                            },
-                            {
-                              label: "Design Table",
-                              icon: <PenLine className="h-3.5 w-3.5" />,
-                              onClick: () => addDesignerTab(connectionId, db.name, t.name),
+                              onClick: () => openObjectData(db.name, v.name),
                             },
                             {
                               label: "Copy Name",
                               icon: <Copy className="h-3.5 w-3.5" />,
                               onClick: () => {
-                                void navigator.clipboard.writeText(t.name);
+                                navigator.clipboard.writeText(v.name);
                               },
                             },
                             {
                               label: "Show DDL",
                               icon: <FileText className="h-3.5 w-3.5" />,
-                              onClick: () => openDdlView(db.name, t.name, "TABLE"),
-                            },
-                            {
-                              // Opened rather than run: an INSERT with every
-                              // value left NULL is a starting point, not a
-                              // statement anyone means to execute (#293).
-                              label: "INSERT Template",
-                              icon: <FilePlus className="h-3.5 w-3.5" />,
                               onClick: () => {
-                                void useSchemaStore
-                                  .getState()
-                                  .ensureColumns(connectionId, db.name, t.name)
-                                  .then((cols) => openInEditor(db.name, insertTemplate(db.name, t.name, cols)));
+                                openDdlView(db.name, v.name, "VIEW");
                               },
                             },
                             { separator: true },
                             {
-                              label: "Rename Table…",
-                              icon: <PenLine className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                const name = askForName(`Rename \`${t.name}\` to:`, t.name);
-                                if (!name || name === t.name) return;
-                                void runSchemaChange(
-                                  renameTable(db.name, t.name, name),
-                                  `Rename \`${t.name}\` to \`${name}\`?`,
-                                  () => refreshFolder(db.name, "tables"),
-                                );
-                              },
-                            },
-                            {
-                              label: "Duplicate Structure…",
-                              icon: <Copy className="h-3.5 w-3.5" />,
-                              onClick: () => {
-                                const name = askForName("Name for the copy:", `${t.name}_copy`);
-                                if (!name) return;
-                                void runSchemaChange(
-                                  duplicateTableStructure(db.name, t.name, name),
-                                  `Create \`${name}\` with the same structure as \`${t.name}\`?`,
-                                  () => refreshFolder(db.name, "tables"),
-                                );
-                              },
-                            },
-                            { separator: true },
-                            {
-                              label: "Truncate Table",
-                              icon: <Eraser className="h-3.5 w-3.5" />,
-                              danger: true,
-                              onClick: () =>
-                                void runSchemaChange(
-                                  truncateTable(db.name, t.name),
-                                  // TRUNCATE is not transactional and takes
-                                  // every row; the confirmation has to say so.
-                                  `Delete every row in \`${db.name}\`.\`${t.name}\`? `
-                                    + `TRUNCATE cannot be rolled back.`,
-                                  () => refreshFolder(db.name, "tables"),
-                                ),
-                            },
-                            { separator: true },
-                            {
-                              label: "Drop Table",
+                              label: "Drop View",
                               icon: <Trash2 className="h-3.5 w-3.5" />,
                               danger: true,
-                              onClick: () =>
-                                void runSchemaChange(
-                                  dropTable(db.name, t.name),
-                                  `Drop table \`${db.name}\`.\`${t.name}\`?`,
-                                  () => refreshFolder(db.name, "tables"),
-                                ),
+                              onClick: async () => {
+                                // Asked here off production; on production the
+                                // guard in runSchemaChange asks instead. Awaited,
+                                // so the refresh sees the drop (#829).
+                                if (!(await confirmDrop(connectionId, `view \`${db.name}\`.\`${v.name}\``))) return;
+                                await runSchemaChange(
+                                  `DROP VIEW \`${db.name}\`.\`${v.name}\``,
+                                  `Drop view \`${db.name}\`.\`${v.name}\`?`,
+                                  () => refreshFolder(db.name, "views"),
+                                );
+                              },
                             },
                           ]);
                         }}
-                        className="flex flex-1 items-center gap-1 px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]"
+                        className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
                       >
-                        <Table2 className="h-3 w-3 shrink-0" />
+                        <Eye className="h-3 w-3 shrink-0" />
+                        <span className="truncate">
+                          <HighlightedName name={v.name} match={filterText} />
+                        </span>
+                      </button>
+                    ))}
+                  </FolderNode>
+                )}
+
+                {/* Procedures folder */}
+                {isFolderVisible(filteredProcedures(db.name).length) && (
+                  <FolderNode
+                    label="Procedures"
+                    rowProps={rowProps(folderKey(db.name, "procedures"))}
+                    icon={<Cog className="h-3 w-3" />}
+                    isExpanded={isFolderExpandedFiltered(db.name, "procedures", filteredProcedures(db.name).length)}
+                    onToggle={() => toggleFolder(db.name, "procedures")}
+                    loading={isLoading(loadKey(db.name, folderStoreKey("procedures")))}
+                    onContextMenu={(e) => {
+                      showContextMenu(e, [
+                        {
+                          label: "Refresh",
+                          icon: <RefreshCw className="h-3.5 w-3.5" />,
+                          onClick: () => refreshFolder(db.name, "routines"),
+                        },
+                      ]);
+                    }}
+                    count={routines[db.name]?.filter((r) => r.routine_type === "PROCEDURE").length}
+                  >
+                    {filteredProcedures(db.name).map((r) => (
+                      <button
+                        key={r.name}
+                        role="treeitem"
+                        aria-level={3}
+                        {...rowProps(`${folderKey(db.name, "procedures")}:${r.name}`)}
+                        draggable
+                        onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${r.name}\``)}
+                        onClick={() => addRoutineTab(connectionId, db.name, r.name, "PROCEDURE")}
+                        onContextMenu={(e) => {
+                          showContextMenu(e, [
+                            {
+                              label: "Execute",
+                              icon: <Play className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                addRoutineTab(connectionId, db.name, r.name, "PROCEDURE");
+                              },
+                            },
+                            {
+                              label: "Copy Name",
+                              icon: <Copy className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                navigator.clipboard.writeText(r.name);
+                              },
+                            },
+                            {
+                              label: "View DDL",
+                              icon: <FileText className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                openDdlView(db.name, r.name, "PROCEDURE");
+                              },
+                            },
+                            { separator: true },
+                            {
+                              label: "Drop Procedure",
+                              icon: <Trash2 className="h-3.5 w-3.5" />,
+                              danger: true,
+                              onClick: async () => {
+                                // Asked here off production; on production the
+                                // guard in runSchemaChange asks instead. Awaited,
+                                // so the refresh sees the drop (#829).
+                                if (!(await confirmDrop(connectionId, `procedure \`${db.name}\`.\`${r.name}\``))) {
+                                  return;
+                                }
+                                await runSchemaChange(
+                                  `DROP PROCEDURE \`${db.name}\`.\`${r.name}\``,
+                                  `Drop procedure \`${db.name}\`.\`${r.name}\`?`,
+                                  () => refreshFolder(db.name, "routines"),
+                                );
+                              },
+                            },
+                          ]);
+                        }}
+                        className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
+                      >
+                        <Cog className="h-3 w-3 shrink-0" />
+                        <span className="truncate">
+                          <HighlightedName name={r.name} match={filterText} />
+                        </span>
+                      </button>
+                    ))}
+                  </FolderNode>
+                )}
+
+                {/* Functions folder */}
+                {isFolderVisible(filteredFunctions(db.name).length) && (
+                  <FolderNode
+                    label="Functions"
+                    rowProps={rowProps(folderKey(db.name, "functions"))}
+                    icon={<FunctionSquare className="h-3 w-3" />}
+                    isExpanded={isFolderExpandedFiltered(db.name, "functions", filteredFunctions(db.name).length)}
+                    onToggle={() => toggleFolder(db.name, "functions")}
+                    loading={isLoading(loadKey(db.name, folderStoreKey("functions")))}
+                    onContextMenu={(e) => {
+                      showContextMenu(e, [
+                        {
+                          label: "Refresh",
+                          icon: <RefreshCw className="h-3.5 w-3.5" />,
+                          onClick: () => refreshFolder(db.name, "routines"),
+                        },
+                      ]);
+                    }}
+                    count={routines[db.name]?.filter((r) => r.routine_type === "FUNCTION").length}
+                  >
+                    {filteredFunctions(db.name).map((r) => (
+                      <button
+                        key={r.name}
+                        role="treeitem"
+                        aria-level={3}
+                        {...rowProps(`${folderKey(db.name, "functions")}:${r.name}`)}
+                        draggable
+                        onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${r.name}\``)}
+                        onClick={() => addRoutineTab(connectionId, db.name, r.name, "FUNCTION")}
+                        onContextMenu={(e) => {
+                          showContextMenu(e, [
+                            {
+                              label: "Execute",
+                              icon: <Play className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                addRoutineTab(connectionId, db.name, r.name, "FUNCTION");
+                              },
+                            },
+                            {
+                              label: "Copy Name",
+                              icon: <Copy className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                navigator.clipboard.writeText(r.name);
+                              },
+                            },
+                            {
+                              label: "View DDL",
+                              icon: <FileText className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                openDdlView(db.name, r.name, "FUNCTION");
+                              },
+                            },
+                            { separator: true },
+                            {
+                              label: "Drop Function",
+                              icon: <Trash2 className="h-3.5 w-3.5" />,
+                              danger: true,
+                              onClick: async () => {
+                                // Asked here off production; on production the
+                                // guard in runSchemaChange asks instead. Awaited,
+                                // so the refresh sees the drop (#829).
+                                if (!(await confirmDrop(connectionId, `function \`${db.name}\`.\`${r.name}\``))) return;
+                                await runSchemaChange(
+                                  `DROP FUNCTION \`${db.name}\`.\`${r.name}\``,
+                                  `Drop function \`${db.name}\`.\`${r.name}\`?`,
+                                  () => refreshFolder(db.name, "routines"),
+                                );
+                              },
+                            },
+                          ]);
+                        }}
+                        className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
+                      >
+                        <FunctionSquare className="h-3 w-3 shrink-0" />
+                        <span className="truncate">
+                          <HighlightedName name={r.name} match={filterText} />
+                        </span>
+                      </button>
+                    ))}
+                  </FolderNode>
+                )}
+
+                {/* Triggers folder */}
+                {isFolderVisible(filteredTriggers(db.name).length) && (
+                  <FolderNode
+                    label="Triggers"
+                    rowProps={rowProps(folderKey(db.name, "triggers"))}
+                    icon={<Zap className="h-3 w-3" />}
+                    isExpanded={isFolderExpandedFiltered(db.name, "triggers", filteredTriggers(db.name).length)}
+                    onToggle={() => toggleFolder(db.name, "triggers")}
+                    loading={isLoading(loadKey(db.name, folderStoreKey("triggers")))}
+                    onContextMenu={(e) => {
+                      showContextMenu(e, [
+                        {
+                          label: "Refresh",
+                          icon: <RefreshCw className="h-3.5 w-3.5" />,
+                          onClick: () => refreshFolder(db.name, "triggers"),
+                        },
+                      ]);
+                    }}
+                    count={triggers[db.name]?.length}
+                  >
+                    {filteredTriggers(db.name).map((t) => (
+                      <button
+                        key={t.name}
+                        role="treeitem"
+                        aria-level={3}
+                        {...rowProps(`${folderKey(db.name, "triggers")}:${t.name}`)}
+                        draggable
+                        onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${t.name}\``)}
+                        onClick={() => openDdlView(db.name, t.name, "TRIGGER")}
+                        onContextMenu={(e) => {
+                          showContextMenu(e, [
+                            {
+                              label: "Copy Name",
+                              icon: <Copy className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                navigator.clipboard.writeText(t.name);
+                              },
+                            },
+                            {
+                              label: "Show DDL",
+                              icon: <FileText className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                openDdlView(db.name, t.name, "TRIGGER");
+                              },
+                            },
+                            { separator: true },
+                            {
+                              label: "Drop Trigger",
+                              icon: <Trash2 className="h-3.5 w-3.5" />,
+                              danger: true,
+                              onClick: async () => {
+                                // Asked here off production; on production the
+                                // guard in runSchemaChange asks instead. Awaited,
+                                // so the refresh sees the drop (#829).
+                                if (!(await confirmDrop(connectionId, `trigger \`${db.name}\`.\`${t.name}\``))) return;
+                                await runSchemaChange(
+                                  `DROP TRIGGER \`${db.name}\`.\`${t.name}\``,
+                                  `Drop trigger \`${db.name}\`.\`${t.name}\`?`,
+                                  () => refreshFolder(db.name, "triggers"),
+                                );
+                              },
+                            },
+                          ]);
+                        }}
+                        className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
+                      >
+                        <Zap className="h-3 w-3 shrink-0" />
                         <span className="truncate">
                           <HighlightedName name={t.name} match={filterText} />
                         </span>
-                        {t.row_count != null && (
-                          <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
-                            ~{t.row_count.toLocaleString()}
-                          </span>
-                        )}
+                        <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
+                          {t.timing} {t.event}
+                        </span>
                       </button>
+                    ))}
+                  </FolderNode>
+                )}
+
+                {/* Events folder (FR-4.1.1, #291) */}
+                {isFolderVisible(filteredEvents(db.name).length) && (
+                  <FolderNode
+                    label="Events"
+                    rowProps={rowProps(folderKey(db.name, "events"))}
+                    icon={<CalendarClock className="h-3 w-3" />}
+                    isExpanded={isFolderExpandedFiltered(db.name, "events", filteredEvents(db.name).length)}
+                    onToggle={() => toggleFolder(db.name, "events")}
+                    loading={isLoading(loadKey(db.name, "events"))}
+                    onContextMenu={(e) => {
+                      showContextMenu(e, [
+                        {
+                          label: "Refresh",
+                          icon: <RefreshCw className="h-3.5 w-3.5" />,
+                          onClick: () => refreshFolder(db.name, "events"),
+                        },
+                      ]);
+                    }}
+                    count={events[db.name]?.length}
+                  >
+                    {filteredEvents(db.name).map((ev) => (
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          addStructureTab(connectionId, db.name, t.name);
+                        key={ev.name}
+                        role="treeitem"
+                        aria-level={3}
+                        {...rowProps(`${folderKey(db.name, "events")}:${ev.name}`)}
+                        draggable
+                        onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${ev.name}\``)}
+                        onClick={() => openDdlTab(db.name, ev.name, `SHOW CREATE EVENT \`${db.name}\`.\`${ev.name}\``)}
+                        onContextMenu={(e) => {
+                          showContextMenu(e, [
+                            {
+                              label: "Copy Name",
+                              icon: <Copy className="h-3.5 w-3.5" />,
+                              onClick: () => {
+                                void navigator.clipboard.writeText(ev.name);
+                              },
+                            },
+                            {
+                              label: "Show DDL",
+                              icon: <FileText className="h-3.5 w-3.5" />,
+                              onClick: () =>
+                                openDdlTab(db.name, ev.name, `SHOW CREATE EVENT \`${db.name}\`.\`${ev.name}\``),
+                            },
+                            {
+                              // An event that is off is the usual reason one did
+                              // not run, and turning it back on is a statement
+                              // nobody remembers the syntax of.
+                              label: ev.status === "ENABLED" ? "Disable Event" : "Enable Event",
+                              icon: <CalendarClock className="h-3.5 w-3.5" />,
+                              onClick: () =>
+                                void runSchemaChange(
+                                  `ALTER EVENT \`${db.name}\`.\`${ev.name}\` ${
+                                    ev.status === "ENABLED" ? "DISABLE" : "ENABLE"
+                                  }`,
+                                  `${
+                                    ev.status === "ENABLED" ? "Disable" : "Enable"
+                                  } event \`${db.name}\`.\`${ev.name}\`?`,
+                                  () => refreshFolder(db.name, "events"),
+                                ),
+                            },
+                            { separator: true },
+                            {
+                              label: "Drop Event",
+                              icon: <Trash2 className="h-3.5 w-3.5" />,
+                              danger: true,
+                              onClick: async () => {
+                                // Asked here off production; on production the
+                                // guard in runSchemaChange asks instead. Awaited,
+                                // so the refresh sees the drop (#829).
+                                if (!(await confirmDrop(connectionId, `event \`${db.name}\`.\`${ev.name}\``))) return;
+                                await runSchemaChange(
+                                  `DROP EVENT \`${db.name}\`.\`${ev.name}\``,
+                                  `Drop event \`${db.name}\`.\`${ev.name}\`?`,
+                                  () => refreshFolder(db.name, "events"),
+                                );
+                              },
+                            },
+                          ]);
                         }}
-                        title="View Structure"
-                        className="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-primary)] hover:text-brand-400 group-hover/table:opacity-100"
+                        className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
                       >
-                        <Columns3 className="h-3 w-3" />
+                        <CalendarClock className="h-3 w-3 shrink-0" />
+                        <span className="truncate">
+                          <HighlightedName name={ev.name} match={filterText} />
+                        </span>
+                        <span className="ml-auto shrink-0 text-[10px] text-[var(--color-text-muted)]">
+                          {ev.status === "ENABLED" ? (ev.interval || "once") : "off"}
+                        </span>
                       </button>
-                    </div>
-                  ))}
-                </FolderNode>
-              )}
-
-              {/* Views folder */}
-              {isFolderVisible(filteredViews(db.name).length) && (
-                <FolderNode
-                  label="Views"
-                  icon={<Eye className="h-3 w-3" />}
-                  isExpanded={isFolderExpandedFiltered(db.name, "views", filteredViews(db.name).length)}
-                  onToggle={() => toggleFolder(db.name, "views")}
-                  loading={isLoading(loadKey(db.name, folderStoreKey("views")))}
-                  onContextMenu={(e) => {
-                    showContextMenu(e, [
-                      {
-                        label: "Refresh",
-                        icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: () => refreshFolder(db.name, "views"),
-                      },
-                    ]);
-                  }}
-                  count={views[db.name]?.length}
-                >
-                  {filteredViews(db.name).map((v) => (
-                    <button
-                      key={v.name}
-                      draggable
-                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${v.name}\``)}
-                      onClick={handleViewClick(db.name, v.name)}
-                      onContextMenu={(e) => {
-                        showContextMenu(e, [
-                          {
-                            // The limit it uses, as on tables (#829).
-                            label: selectTopRowsLabel(maxResultRows),
-                            icon: <Search className="h-3.5 w-3.5" />,
-                            onClick: () => openObjectData(db.name, v.name),
-                          },
-                          {
-                            label: "Copy Name",
-                            icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard.writeText(v.name);
-                            },
-                          },
-                          {
-                            label: "Show DDL",
-                            icon: <FileText className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              openDdlView(db.name, v.name, "VIEW");
-                            },
-                          },
-                          { separator: true },
-                          {
-                            label: "Drop View",
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            danger: true,
-                            onClick: async () => {
-                              // Asked here off production; on production the
-                              // guard in runSchemaChange asks instead. Awaited,
-                              // so the refresh sees the drop (#829).
-                              if (!(await confirmDrop(connectionId, `view \`${db.name}\`.\`${v.name}\``))) return;
-                              await runSchemaChange(
-                                `DROP VIEW \`${db.name}\`.\`${v.name}\``,
-                                `Drop view \`${db.name}\`.\`${v.name}\`?`,
-                                () => refreshFolder(db.name, "views"),
-                              );
-                            },
-                          },
-                        ]);
-                      }}
-                      className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
-                    >
-                      <Eye className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        <HighlightedName name={v.name} match={filterText} />
-                      </span>
-                    </button>
-                  ))}
-                </FolderNode>
-              )}
-
-              {/* Procedures folder */}
-              {isFolderVisible(filteredProcedures(db.name).length) && (
-                <FolderNode
-                  label="Procedures"
-                  icon={<Cog className="h-3 w-3" />}
-                  isExpanded={isFolderExpandedFiltered(db.name, "procedures", filteredProcedures(db.name).length)}
-                  onToggle={() => toggleFolder(db.name, "procedures")}
-                  loading={isLoading(loadKey(db.name, folderStoreKey("procedures")))}
-                  onContextMenu={(e) => {
-                    showContextMenu(e, [
-                      {
-                        label: "Refresh",
-                        icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: () => refreshFolder(db.name, "routines"),
-                      },
-                    ]);
-                  }}
-                  count={routines[db.name]?.filter((r) => r.routine_type === "PROCEDURE").length}
-                >
-                  {filteredProcedures(db.name).map((r) => (
-                    <button
-                      key={r.name}
-                      draggable
-                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${r.name}\``)}
-                      onClick={() => addRoutineTab(connectionId, db.name, r.name, "PROCEDURE")}
-                      onContextMenu={(e) => {
-                        showContextMenu(e, [
-                          {
-                            label: "Execute",
-                            icon: <Play className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              addRoutineTab(connectionId, db.name, r.name, "PROCEDURE");
-                            },
-                          },
-                          {
-                            label: "Copy Name",
-                            icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard.writeText(r.name);
-                            },
-                          },
-                          {
-                            label: "View DDL",
-                            icon: <FileText className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              openDdlView(db.name, r.name, "PROCEDURE");
-                            },
-                          },
-                          { separator: true },
-                          {
-                            label: "Drop Procedure",
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            danger: true,
-                            onClick: async () => {
-                              // Asked here off production; on production the
-                              // guard in runSchemaChange asks instead. Awaited,
-                              // so the refresh sees the drop (#829).
-                              if (!(await confirmDrop(connectionId, `procedure \`${db.name}\`.\`${r.name}\``))) return;
-                              await runSchemaChange(
-                                `DROP PROCEDURE \`${db.name}\`.\`${r.name}\``,
-                                `Drop procedure \`${db.name}\`.\`${r.name}\`?`,
-                                () => refreshFolder(db.name, "routines"),
-                              );
-                            },
-                          },
-                        ]);
-                      }}
-                      className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
-                    >
-                      <Cog className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        <HighlightedName name={r.name} match={filterText} />
-                      </span>
-                    </button>
-                  ))}
-                </FolderNode>
-              )}
-
-              {/* Functions folder */}
-              {isFolderVisible(filteredFunctions(db.name).length) && (
-                <FolderNode
-                  label="Functions"
-                  icon={<FunctionSquare className="h-3 w-3" />}
-                  isExpanded={isFolderExpandedFiltered(db.name, "functions", filteredFunctions(db.name).length)}
-                  onToggle={() => toggleFolder(db.name, "functions")}
-                  loading={isLoading(loadKey(db.name, folderStoreKey("functions")))}
-                  onContextMenu={(e) => {
-                    showContextMenu(e, [
-                      {
-                        label: "Refresh",
-                        icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: () => refreshFolder(db.name, "routines"),
-                      },
-                    ]);
-                  }}
-                  count={routines[db.name]?.filter((r) => r.routine_type === "FUNCTION").length}
-                >
-                  {filteredFunctions(db.name).map((r) => (
-                    <button
-                      key={r.name}
-                      draggable
-                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${r.name}\``)}
-                      onClick={() => addRoutineTab(connectionId, db.name, r.name, "FUNCTION")}
-                      onContextMenu={(e) => {
-                        showContextMenu(e, [
-                          {
-                            label: "Execute",
-                            icon: <Play className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              addRoutineTab(connectionId, db.name, r.name, "FUNCTION");
-                            },
-                          },
-                          {
-                            label: "Copy Name",
-                            icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard.writeText(r.name);
-                            },
-                          },
-                          {
-                            label: "View DDL",
-                            icon: <FileText className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              openDdlView(db.name, r.name, "FUNCTION");
-                            },
-                          },
-                          { separator: true },
-                          {
-                            label: "Drop Function",
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            danger: true,
-                            onClick: async () => {
-                              // Asked here off production; on production the
-                              // guard in runSchemaChange asks instead. Awaited,
-                              // so the refresh sees the drop (#829).
-                              if (!(await confirmDrop(connectionId, `function \`${db.name}\`.\`${r.name}\``))) return;
-                              await runSchemaChange(
-                                `DROP FUNCTION \`${db.name}\`.\`${r.name}\``,
-                                `Drop function \`${db.name}\`.\`${r.name}\`?`,
-                                () => refreshFolder(db.name, "routines"),
-                              );
-                            },
-                          },
-                        ]);
-                      }}
-                      className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
-                    >
-                      <FunctionSquare className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        <HighlightedName name={r.name} match={filterText} />
-                      </span>
-                    </button>
-                  ))}
-                </FolderNode>
-              )}
-
-              {/* Triggers folder */}
-              {isFolderVisible(filteredTriggers(db.name).length) && (
-                <FolderNode
-                  label="Triggers"
-                  icon={<Zap className="h-3 w-3" />}
-                  isExpanded={isFolderExpandedFiltered(db.name, "triggers", filteredTriggers(db.name).length)}
-                  onToggle={() => toggleFolder(db.name, "triggers")}
-                  loading={isLoading(loadKey(db.name, folderStoreKey("triggers")))}
-                  onContextMenu={(e) => {
-                    showContextMenu(e, [
-                      {
-                        label: "Refresh",
-                        icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: () => refreshFolder(db.name, "triggers"),
-                      },
-                    ]);
-                  }}
-                  count={triggers[db.name]?.length}
-                >
-                  {filteredTriggers(db.name).map((t) => (
-                    <button
-                      key={t.name}
-                      draggable
-                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${t.name}\``)}
-                      onClick={() => openDdlView(db.name, t.name, "TRIGGER")}
-                      onContextMenu={(e) => {
-                        showContextMenu(e, [
-                          {
-                            label: "Copy Name",
-                            icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              navigator.clipboard.writeText(t.name);
-                            },
-                          },
-                          {
-                            label: "Show DDL",
-                            icon: <FileText className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              openDdlView(db.name, t.name, "TRIGGER");
-                            },
-                          },
-                          { separator: true },
-                          {
-                            label: "Drop Trigger",
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            danger: true,
-                            onClick: async () => {
-                              // Asked here off production; on production the
-                              // guard in runSchemaChange asks instead. Awaited,
-                              // so the refresh sees the drop (#829).
-                              if (!(await confirmDrop(connectionId, `trigger \`${db.name}\`.\`${t.name}\``))) return;
-                              await runSchemaChange(
-                                `DROP TRIGGER \`${db.name}\`.\`${t.name}\``,
-                                `Drop trigger \`${db.name}\`.\`${t.name}\`?`,
-                                () => refreshFolder(db.name, "triggers"),
-                              );
-                            },
-                          },
-                        ]);
-                      }}
-                      className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
-                    >
-                      <Zap className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        <HighlightedName name={t.name} match={filterText} />
-                      </span>
-                      <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">
-                        {t.timing} {t.event}
-                      </span>
-                    </button>
-                  ))}
-                </FolderNode>
-              )}
-
-              {/* Events folder (FR-4.1.1, #291) */}
-              {isFolderVisible(filteredEvents(db.name).length) && (
-                <FolderNode
-                  label="Events"
-                  icon={<CalendarClock className="h-3 w-3" />}
-                  isExpanded={isFolderExpandedFiltered(db.name, "events", filteredEvents(db.name).length)}
-                  onToggle={() => toggleFolder(db.name, "events")}
-                  loading={isLoading(loadKey(db.name, "events"))}
-                  onContextMenu={(e) => {
-                    showContextMenu(e, [
-                      {
-                        label: "Refresh",
-                        icon: <RefreshCw className="h-3.5 w-3.5" />,
-                        onClick: () => refreshFolder(db.name, "events"),
-                      },
-                    ]);
-                  }}
-                  count={events[db.name]?.length}
-                >
-                  {filteredEvents(db.name).map((ev) => (
-                    <button
-                      key={ev.name}
-                      draggable
-                      onDragStart={(e) => startDrag(e, `\`${db.name}\`.\`${ev.name}\``)}
-                      onClick={() => openDdlTab(db.name, ev.name, `SHOW CREATE EVENT \`${db.name}\`.\`${ev.name}\``)}
-                      onContextMenu={(e) => {
-                        showContextMenu(e, [
-                          {
-                            label: "Copy Name",
-                            icon: <Copy className="h-3.5 w-3.5" />,
-                            onClick: () => {
-                              void navigator.clipboard.writeText(ev.name);
-                            },
-                          },
-                          {
-                            label: "Show DDL",
-                            icon: <FileText className="h-3.5 w-3.5" />,
-                            onClick: () =>
-                              openDdlTab(db.name, ev.name, `SHOW CREATE EVENT \`${db.name}\`.\`${ev.name}\``),
-                          },
-                          {
-                            // An event that is off is the usual reason one did
-                            // not run, and turning it back on is a statement
-                            // nobody remembers the syntax of.
-                            label: ev.status === "ENABLED" ? "Disable Event" : "Enable Event",
-                            icon: <CalendarClock className="h-3.5 w-3.5" />,
-                            onClick: () =>
-                              void runSchemaChange(
-                                `ALTER EVENT \`${db.name}\`.\`${ev.name}\` ${
-                                  ev.status === "ENABLED" ? "DISABLE" : "ENABLE"
-                                }`,
-                                `${
-                                  ev.status === "ENABLED" ? "Disable" : "Enable"
-                                } event \`${db.name}\`.\`${ev.name}\`?`,
-                                () => refreshFolder(db.name, "events"),
-                              ),
-                          },
-                          { separator: true },
-                          {
-                            label: "Drop Event",
-                            icon: <Trash2 className="h-3.5 w-3.5" />,
-                            danger: true,
-                            onClick: async () => {
-                              // Asked here off production; on production the
-                              // guard in runSchemaChange asks instead. Awaited,
-                              // so the refresh sees the drop (#829).
-                              if (!(await confirmDrop(connectionId, `event \`${db.name}\`.\`${ev.name}\``))) return;
-                              await runSchemaChange(
-                                `DROP EVENT \`${db.name}\`.\`${ev.name}\``,
-                                `Drop event \`${db.name}\`.\`${ev.name}\`?`,
-                                () => refreshFolder(db.name, "events"),
-                              );
-                            },
-                          },
-                        ]);
-                      }}
-                      className="flex w-full items-center gap-1 rounded px-1.5 py-0.5 text-[11px] text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-secondary)]"
-                    >
-                      <CalendarClock className="h-3 w-3 shrink-0" />
-                      <span className="truncate">
-                        <HighlightedName name={ev.name} match={filterText} />
-                      </span>
-                      <span className="ml-auto shrink-0 text-[10px] text-[var(--color-text-muted)]">
-                        {ev.status === "ENABLED" ? (ev.interval || "once") : "off"}
-                      </span>
-                    </button>
-                  ))}
-                </FolderNode>
-              )}
-            </div>
-          )}
-        </div>
-      ))}
+                    ))}
+                  </FolderNode>
+                )}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
       {contextMenu}
     </div>
   );

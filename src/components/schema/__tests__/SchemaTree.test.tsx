@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { SchemaTree } from "../SchemaTree";
@@ -1035,6 +1035,136 @@ describe("SchemaTree polish (#829)", () => {
     expect(item(menuOf("app_db"), "Already the default")?.disabled).toBe(true);
     expect(item(menuOf("logs"), "Set as Default")?.disabled).toBe(false);
     expect(screen.getByText("app_db").closest("button")?.className).toContain("font-semibold");
+  });
+});
+
+describe("SchemaTree keyboard navigation (#823)", () => {
+  beforeEach(() => {
+    useSchemaStore.setState({ byConnection: {} });
+    setupStores();
+  });
+
+  const row = (name: string) => screen.getByRole("treeitem", { name: new RegExp(`^${name}\\b`) });
+  const focused = () => document.activeElement?.getAttribute("aria-label") ?? document.activeElement?.textContent;
+
+  const renderTree = async () => {
+    const user = userEvent.setup({ applyAccept: false });
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    return user;
+  };
+
+  it("is one tab stop: the first row, then the row last focused", async () => {
+    const user = await renderTree();
+    const tabStops = () => screen.getAllByRole("treeitem").filter((r) => r.tabIndex === 0);
+
+    expect(tabStops()).toEqual([row("app_db")]);
+    expect(row("logs").tabIndex).toBe(-1);
+
+    await user.click(row("logs"));
+    expect(tabStops()).toEqual([row("logs")]);
+  });
+
+  it("moves down and up through the visible rows", async () => {
+    const user = await renderTree();
+    row("app_db").focus();
+
+    await user.keyboard("{ArrowDown}");
+    expect(focused()).toBe("logs");
+
+    await user.keyboard("{ArrowUp}");
+    expect(focused()).toBe("app_db");
+
+    // Into an opened database's folders, in the order they are shown.
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => screen.getByText("Tables"));
+    await user.keyboard("{ArrowDown}");
+    expect(focused()).toBe("Tables");
+  });
+
+  it("goes to the first child on Right and to the parent on Left", async () => {
+    const user = await renderTree();
+    row("app_db").focus();
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => screen.getByText("Tables"));
+
+    // Open already, so Right moves in rather than doing nothing.
+    await user.keyboard("{ArrowRight}");
+    expect(focused()).toBe("Tables");
+    await user.keyboard("{ArrowRight}");
+    await waitFor(() => screen.getByText("users"));
+    await user.keyboard("{ArrowRight}");
+    expect(document.activeElement).toBe(row("users"));
+
+    // A leaf goes to its folder, a closed folder to its database.
+    await user.keyboard("{ArrowLeft}");
+    expect(focused()).toBe("Tables");
+    await user.keyboard("{ArrowLeft}");
+    expect(screen.queryByText("users")).toBeNull();
+    await user.keyboard("{ArrowLeft}");
+    expect(focused()).toBe("app_db");
+  });
+
+  it("jumps to the first and last rows with Home and End", async () => {
+    const user = await renderTree();
+    row("app_db").focus();
+
+    await user.keyboard("{End}");
+    expect(focused()).toBe("logs");
+    await user.keyboard("{Home}");
+    expect(focused()).toBe("app_db");
+  });
+
+  it("makes every leaf a tree item, with its depth", async () => {
+    const user = await renderTree();
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await user.click(screen.getByText("Views"));
+    await user.click(screen.getByText("Procedures"));
+    await user.click(screen.getByText("Triggers"));
+    await waitFor(() => screen.getByText("users_audit"));
+
+    for (const name of ["users", "active_users", "do_cleanup", "users_audit"]) {
+      const leaf = screen.getByText(name).closest("[role='treeitem']");
+      expect(leaf, name).not.toBeNull();
+      expect(leaf?.getAttribute("aria-level"), name).toBe("3");
+    }
+    expect(row("app_db").getAttribute("aria-level")).toBe("1");
+    expect(row("Tables").getAttribute("aria-level")).toBe("2");
+  });
+
+  it("keeps the filter out of the tree", async () => {
+    await renderTree();
+
+    expect(screen.getByRole("tree").contains(screen.getByPlaceholderText(/Filter/))).toBe(false);
+  });
+
+  it("falls back to the first row when the focused one goes away", async () => {
+    const user = await renderTree();
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => screen.getByText("users"));
+    act(() => row("users").focus());
+    expect(row("users").tabIndex).toBe(0);
+
+    // The filter hides the row that was the tab stop.
+    await user.type(screen.getByPlaceholderText(/Filter/), "orders");
+    await waitFor(() => expect(screen.queryByText("users")).toBeNull());
+
+    expect(screen.getAllByRole("treeitem").filter((r) => r.tabIndex === 0)).toEqual([row("app_db")]);
+  });
+
+  it("opens a row's menu from the context-menu key", async () => {
+    // Shift+F10 and the menu key fire `contextmenu` on the focused row.
+    const user = await renderTree();
+    await user.click(screen.getByText("app_db"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => screen.getByText("users"));
+    shownMenus.length = 0;
+
+    fireEvent.contextMenu(row("users"));
+
+    expect(shownMenus.at(-1)?.some((i) => i.label === "Design Table")).toBe(true);
   });
 });
 

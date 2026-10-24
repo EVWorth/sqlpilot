@@ -1,4 +1,4 @@
-import { act, renderHook } from "@testing-library/react";
+import { act, render, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { MenuItem } from "../../components/common/ContextMenu";
 
@@ -120,5 +120,29 @@ describe("useContextMenu", () => {
     });
 
     expect(result.current.contextMenu).toBeNull();
+  });
+
+  it("puts a menu opened from the keyboard under the element, not in the corner (#823)", async () => {
+    const { ContextMenu } = await import("../../components/common/ContextMenu");
+    const row = document.createElement("button");
+    row.getBoundingClientRect =
+      () => ({ left: 40, bottom: 120, top: 100, right: 200, width: 160, height: 20 } as DOMRect);
+    // Shift+F10 can arrive with no pointer position at all.
+    const event = {
+      clientX: 0,
+      clientY: 0,
+      currentTarget: row,
+      target: row,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    };
+    const { result } = renderHook(() => useContextMenu());
+
+    act(() => {
+      result.current.showContextMenu(event as unknown as React.MouseEvent, mockItems);
+    });
+    render(result.current.contextMenu as React.ReactElement);
+
+    expect(vi.mocked(ContextMenu).mock.calls.at(-1)?.[0]).toMatchObject({ x: 56, y: 120 });
   });
 });

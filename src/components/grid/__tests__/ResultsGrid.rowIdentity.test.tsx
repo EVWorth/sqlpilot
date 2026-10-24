@@ -101,7 +101,7 @@ function rightClick(row: HTMLElement, colIdx = 1) {
 }
 
 function menuItem(label: RegExp) {
-  return within(document.body).getByRole("button", { name: label });
+  return within(document.body).getByRole("menuitem", { name: label });
 }
 
 // TruncatedCell measures itself; jsdom has no layout to measure.
