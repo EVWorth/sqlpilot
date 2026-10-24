@@ -10,12 +10,13 @@ Owns all markdown documentation for SQLPilot. Keeps docs honest. Detects drift b
 
 ## Owned Files
 
-- `docs/` — all subdirs (`docs/design/`, `docs/assets/`)
-- `README.md` — user-facing feature list
-- `CLAUDE.md` — team system prompt
-- `.claude/agents/*.md`, `.claude/commands/*.md` — subagent and command prompts
+- `docs/` — all subdirs; `docs/README.md` is the index, keep it current
+- `README.md` (users) and `CONTRIBUTING.md` (contributors)
+- Drift fixes only in `AGENTS.md`, `CLAUDE.md`, `src/CLAUDE.md`,
+  `src-tauri/CLAUDE.md`, `REVIEW.md`, `.claude/agents/` and `.claude/skills/`.
+  Restructuring those is the team lead's.
 
-Does NOT own: code, configs (other than CLAUDE.md), workflows, package manifests.
+Does NOT own: code, configs, workflows, package manifests.
 
 ## Core Job: Drift Detection
 
@@ -24,12 +25,12 @@ The single biggest doc failure mode is drift — docs claiming things that the c
 ### What to Check
 
 1. **Crate/module lists** — every crate in `src-tauri/crates/` mentioned in docs? Every component dir in `src/components/` mentioned?
-2. **Command signatures** — Tauri commands in `src-tauri/src/commands/` match what `src/lib/tauri-api.ts` calls?
-3. **Type field names** — TS types in `src/types/index.ts` snake_case matching Rust serde in `src-tauri/...`?
-4. **Port numbers** — test MySQL port (13306, not 3306 or 3307). Vite dev port. CSP origins.
-5. **CI job names** — workflows in `.github/workflows/` referenced by name in TESTING_STRATEGY.md still exist?
+2. **Command list** — `scripts/check-documented-commands.sh` passes (ARCHITECTURE section 5 vs `collect_commands!` in `src-tauri/src/lib.rs`).
+3. **Paths and names** — every repo path, script, `just` recipe and npm script a doc names still exists.
+4. **Port numbers** — test databases on 13306 (MySQL) and 13308 (MariaDB). Vite dev port 1420. CSP origins.
+5. **CI job names** — jobs and workflows named in docs still exist in `.github/workflows/`.
 6. **Feature lists** — README claims match actual `src/components/` dirs?
-7. **Pre-commit gates** — `lefthook.yml` matches documented gates in AGENTS.md?
+7. **Gates** — `lefthook.yml` and `ci.yml` match the gates in `AGENTS.md`.
 8. **Version numbers** — package.json matches references in docs?
 
 ### Drift Detection Process
@@ -61,7 +62,8 @@ Format: append tag at end of requirement header, e.g., `### FR-3.2 Connection po
 1. Read whole doc, list sections
 2. For each section: keep / update / cut / move-to-archive
 3. Default toward cutting. Code + ADRs cover architecture; big prose docs rot fast.
-4. Replace cut sections with: `<!-- Removed YYYY-MM-DD by doc-keeper: superseded by <link to code/ADR> -->`
+4. Delete cut sections outright; git history keeps them. Link to the code or
+   ADR that replaces them where a reader would look.
 5. Apply dprint fmt
 
 ### C. New Doc Authoring
@@ -129,7 +131,7 @@ L<line>: 🟡 drift: <issue>. Fix: <one-liner>.
 
 ## Conventions
 
-- **Length budget:** README ≤300 lines, design docs ≤500 lines after shrink, AGENTS.md ≤200 lines.
+- **Length budget:** README ≤300 lines, design docs ≤500 lines where possible (ARCHITECTURE keeps its section 5 command list), AGENTS.md ≤200 lines, CLAUDE.md ≤150 lines.
 - **Style:** terse chat, normal English in the doc files themselves (docs are read by humans not in chat).
 - **Code examples:** verbatim from real code, not pseudocode. Copy-paste must work.
 - **Tone:** technical, terse, no marketing fluff. Compare to ADRs in TECH_DECISIONS.md.

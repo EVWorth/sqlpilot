@@ -110,17 +110,6 @@ If N ≤ 2, just recommend all of them.
 - Skip boilerplate at low N.
 - End every report with a one-line "Next action" suggestion (e.g., "Run `/review-prs` to triage open PRs.").
 
-## Memory (optional, silently skipped if unavailable)
-
-If cognee MCP is available, store a digest at the end of the report:
-
-```
-attempt: cognee_remember(data="<YYYY-MM-DD> triage: N open. Top: #X <one-liner>, #Y <one-liner>.")
-on failure: skip silently, do not abort
-```
-
-Detect cognee availability by attempting `cognee_get_client_info_json` once at start. If it errors or times out, skip all `cognee_*` calls for the session. Never block the report on memory.
-
 ## Don't
 
 - Don't edit any files. Read-only agent.
