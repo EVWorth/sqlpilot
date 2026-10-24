@@ -76,6 +76,16 @@ vi.mock("../../../lib/tauri-api", () => ({
   CommandError: class CommandError extends Error {},
 }));
 
+// jsdom has no layout, so the real virtualizer shows nothing. This one shows
+// the first rows, which is all a test of the virtualized layout needs; the
+// table layout, used below 5000 rows, never asks it.
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getVirtualItems: () =>
+      Array.from({ length: Math.min(count, 10) }, (_, index) => ({ index, start: index * 32, size: 32 })),
+  }),
+}));
+
 function makeResult(): QueryResult {
   return {
     columns: [
@@ -230,5 +240,50 @@ describe("the row key comes from where the result was read (#857)", () => {
     expect(toggle).toBeDisabled();
     expect(toggle.getAttribute("title")).toMatch(/unknown/);
     expect(api.getColumns).not.toHaveBeenCalled();
+  });
+});
+
+describe("a sorted grid acts in screen order (#858)", () => {
+  it("moves Tab to the next row on screen, not the next in the result", async () => {
+    render(<ResultsGrid />);
+    fireEvent.click(screen.getByRole("button", { name: /edit mode/i }));
+    await sortByName();
+
+    // "bob" (id 3) is last in the result but second on screen, so Tab from
+    // its last column has a next row on screen ("cy", id 1) and none in the
+    // result.
+    fireEvent.doubleClick(screen.getByText("bob"));
+    fireEvent.keyDown(screen.getByDisplayValue("bob"), { key: "Tab" });
+
+    // The editor opens on the first column of "cy": id 1.
+    expect(screen.getByDisplayValue("1")).toBeDefined();
+  });
+
+  it("copies selected rows in the order they appear", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+
+    // Select all three on screen: ada (2), bob (3), cy (1).
+    fireEvent.click(bodyRows()[0]);
+    fireEvent.click(bodyRows()[2], { shiftKey: true });
+    rightClick(bodyRows()[0]);
+    fireEvent.click(menuItem(/^Copy 3 rows as Tab-separated$/));
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    const text = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
+    expect(text.split("\n").slice(1)).toEqual(["2\tada", "3\tbob", "1\tcy"]);
+  });
+
+  it("reads the clicked column in the virtualized layout", () => {
+    const big = makeResult();
+    big.rows = Array.from({ length: 5001 }, (_, i) => [i + 1, `n${i + 1}`]);
+    resultState.results = [big];
+    render(<ResultsGrid />);
+
+    // The second data cell of row 1 is the `name` column.
+    fireEvent.contextMenu(screen.getByText("n1"));
+    fireEvent.click(menuItem(/^Copy Cell$/));
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("n1");
   });
 });

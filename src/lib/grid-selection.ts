@@ -87,9 +87,22 @@ export function selectAll(rowCount: number): Selection {
  * picked has always meant everything, and making the user select 4000 rows
  * first would be worse than the old behaviour.
  */
-export function rowsToCopy(selection: Selection, rowCount: number): number[] {
+export function rowsToCopy(
+  selection: Selection,
+  rowCount: number,
+  /**
+   * Result indices in the order they are on screen. Selected rows are copied
+   * in that order, so a copy from a sorted grid reads as the grid does
+   * (#858). Rows not on screen (filtered out) follow in result order.
+   */
+  order?: readonly number[],
+): number[] {
   if (selection.rows.size === 0) return Array.from({ length: rowCount }, (_, i) => i);
-  return [...selection.rows].sort((a, b) => a - b);
+  const byIndex = [...selection.rows].sort((a, b) => a - b);
+  if (!order) return byIndex;
+  const onScreen = order.filter((i) => selection.rows.has(i));
+  const shown = new Set(onScreen);
+  return [...onScreen, ...byIndex.filter((i) => !shown.has(i))];
 }
 
 /** How to describe what a copy would take, for a menu label. */

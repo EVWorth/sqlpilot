@@ -164,6 +164,7 @@ export function VirtualGridRows({
               return (
                 <div
                   key={cell.id}
+                  data-col={cell.column.id}
                   className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-primary)] ${rowBg} ${
                     numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
                   }`}
@@ -224,6 +225,7 @@ export function TableGridRows({
             {row.getVisibleCells().map((cell) => (
               <td
                 key={cell.id}
+                data-col={cell.column.id}
                 className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)] ${
                   numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
                 }`}

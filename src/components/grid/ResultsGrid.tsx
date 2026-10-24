@@ -200,35 +200,6 @@ export function ResultsGrid() {
     if (droppedEdits) showToast(`Discarded ${droppedEdits.count} unsaved change(s): the results changed`);
   }, [droppedEdits, showToast]);
 
-  const { setCellNull } = useGridShortcuts({ result: activeResult, editing, editingCell });
-
-  const { copyAll, copyAs, exportAs } = useGridExport({
-    result: activeResult,
-    orderedColumns,
-    selection,
-    rowKey,
-    onMessage: showToast,
-  });
-
-  const handleRowContextMenu = useGridContextMenu({
-    result: activeResult,
-    orderedColumns,
-    selection,
-    editing,
-    showContextMenu,
-    onCopyAs: copyAs,
-    onSetNull: setCellNull,
-  });
-
-  const { isSaving, save } = useGridSave({
-    result: activeResult,
-    editing,
-    rowKey,
-    keyWarning,
-    columnTypes,
-    onMessage: showToast,
-  });
-
   const maxContentLen = useMemo<Record<string, number>>(() => {
     if (!activeResult) return {};
     const lens: Record<string, number> = {};
@@ -247,24 +218,6 @@ export function ResultsGrid() {
   }, [activeResult]);
 
   const columns = useGridColumns({ result: activeResult, maxContentLen });
-
-  // What the cells need that changes from render to render. Handed down by
-  // context rather than captured in the column definitions, so the cells keep
-  // their identity across a click and a double-click can land (#841).
-  const cellState = useMemo<GridCellState | null>(
-    () =>
-      activeResult
-        ? {
-          result: activeResult,
-          editing,
-          editingCell,
-          onEditCellAt: editCellAt,
-          onStopEditing: stopEditing,
-          onViewCell: setCellViewer,
-        }
-        : null,
-    [activeResult, editing, editingCell, editCellAt, stopEditing],
-  );
 
   const data = useMemo(() => {
     if (!activeResult) return [];
@@ -303,6 +256,63 @@ export function ResultsGrid() {
     sortDescFirst: false,
   });
 
+  /**
+   * Result indices in the order the rows are on screen, read when needed:
+   * Tab, a copy and a Shift range all follow what the user sees, which after
+   * a sort or filter is not the result's order (#839, #858).
+   */
+  const getScreenOrder = useCallback(() => table.getRowModel().rows.map((r) => r.index), [table]);
+
+  const { setCellNull } = useGridShortcuts({ result: activeResult, editing, editingCell });
+
+  const { copyAll, copyAs, exportAs } = useGridExport({
+    result: activeResult,
+    orderedColumns,
+    selection,
+    rowKey,
+    getScreenOrder,
+    onMessage: showToast,
+  });
+
+  const handleRowContextMenu = useGridContextMenu({
+    result: activeResult,
+    orderedColumns,
+    selection,
+    editing,
+    showContextMenu,
+    onCopyAs: copyAs,
+    onSetNull: setCellNull,
+  });
+
+  const { isSaving, save } = useGridSave({
+    result: activeResult,
+    editing,
+    rowKey,
+    keyWarning,
+    columnTypes,
+    onMessage: showToast,
+  });
+
+  // What the cells need that changes from render to render. Handed down by
+  // context rather than captured in the column definitions, so the cells keep
+  // their identity across a click and a double-click can land (#841).
+  const cellState = useMemo<GridCellState | null>(
+    () =>
+      activeResult
+        ? {
+          result: activeResult,
+          editing,
+          editingCell,
+          onEditCellAt: editCellAt,
+          onStopEditing: stopEditing,
+          onViewCell: setCellViewer,
+          getScreenOrder,
+          columnOrder: orderedColumns,
+        }
+        : null,
+    [activeResult, editing, editingCell, editCellAt, stopEditing, getScreenOrder, orderedColumns],
+  );
+
   /** Widen a column to fit its widest value, capped so one JSON blob cannot own the grid. */
   const autoSizeColumn = useCallback((colName: string) => {
     let maxLen = colName.length;
@@ -320,8 +330,8 @@ export function ResultsGrid() {
 
   /** A row click, with the on-screen order so Shift ranges follow the sort (#839). */
   const clickGridRow = useCallback((e: React.MouseEvent, dataIdx: number) => {
-    clickRow(e, dataIdx, table.getRowModel().rows.map((r) => r.index));
-  }, [clickRow, table]);
+    clickRow(e, dataIdx, getScreenOrder());
+  }, [clickRow, getScreenOrder]);
 
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row

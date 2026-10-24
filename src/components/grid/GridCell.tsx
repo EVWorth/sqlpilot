@@ -3,7 +3,7 @@ import { createContext, useContext } from "react";
 import type { useGridEditing } from "../../hooks/useGridEditing";
 import type { GridFeatures } from "../../lib/grid-features";
 import { nextEditableCell } from "../../lib/grid-navigation";
-import type { QueryResult, SqlValue } from "../../types";
+import type { ColumnMeta, QueryResult, SqlValue } from "../../types";
 import { EditableCell } from "./EditableCell";
 import { TruncatedCell } from "./TruncatedCell";
 
@@ -36,6 +36,10 @@ export interface GridCellState {
   onEditCellAt: (rowIndex: number, colIndex: number) => void;
   onStopEditing: () => void;
   onViewCell: (request: CellViewerRequest) => void;
+  /** Result row indices in on-screen order, so Tab follows a sort (#858). */
+  getScreenOrder: () => readonly number[];
+  /** The result's columns in display order, so Tab follows a drag. */
+  columnOrder: readonly ColumnMeta[];
 }
 
 export const GridCellContext = createContext<GridCellState | null>(null);
@@ -43,7 +47,16 @@ export const GridCellContext = createContext<GridCellState | null>(null);
 export function GridCell({ getValue, row, column }: CellContext<GridFeatures, Record<string, unknown>, unknown>) {
   const state = useContext(GridCellContext);
   if (!state) return null;
-  const { result, editing, editingCell, onEditCellAt: editCellAt, onStopEditing: stopEditing, onViewCell } = state;
+  const {
+    result,
+    editing,
+    editingCell,
+    onEditCellAt: editCellAt,
+    onStopEditing: stopEditing,
+    onViewCell,
+    getScreenOrder,
+    columnOrder,
+  } = state;
 
   const colIdx = result.columns.findIndex((c) => c.name === column.id);
   const col = result.columns[colIdx];
@@ -81,17 +94,24 @@ export function GridCell({ getValue, row, column }: CellContext<GridFeatures, Re
       editing={editingCell?.rowIndex === rowIdx && editingCell?.colIndex === colIdx}
       onEditingChange={(on) => (on ? editCellAt(rowIdx, colIdx) : stopEditing())}
       onTab={(shiftKey) => {
+        // Moved through in screen positions, then mapped back to the result's
+        // indices the edits are keyed by. Stepping through result indices
+        // jumped about a sorted grid (#858).
+        const rows = getScreenOrder();
+        const cols = columnOrder.map((c) => result.columns.findIndex((rc) => rc.name === c.name));
         const next = nextEditableCell(
-          { rowIndex: rowIdx, colIndex: colIdx },
+          { rowIndex: rows.indexOf(rowIdx), colIndex: cols.indexOf(colIdx) },
           shiftKey,
-          result.rows.length,
-          result.columns.length,
+          rows.length,
+          cols.length,
         );
-        if (!next) {
+        const nextRow = next ? rows[next.rowIndex] : undefined;
+        const nextCol = next ? cols[next.colIndex] : undefined;
+        if (nextRow === undefined || nextCol === undefined) {
           stopEditing();
           return;
         }
-        editCellAt(next.rowIndex, next.colIndex);
+        editCellAt(nextRow, nextCol);
       }}
     />
   );
