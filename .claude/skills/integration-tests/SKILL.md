@@ -34,8 +34,9 @@ The recipe runs `mas-core`, `mas-admin` and `mas-mcp` with
 cd src-tauri && cargo test -p mas-core --test paging_offset -- --ignored --test-threads=1
 ```
 
-In a cloud session, first free disk (delete `src-tauri/target/debug/incremental`
-and large files in `src-tauri/target/debug/deps`) and set `CARGO_INCREMENTAL=0`.
+In a cloud session, first free disk with `bash scripts/clean-debug.sh` and set
+`CARGO_INCREMENTAL=0`. If `just` isn't installed, run the recipe's `cargo test`
+line from the `justfile` directly.
 
 ## 3. Agent tests (separate)
 
