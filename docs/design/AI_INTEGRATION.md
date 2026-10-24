@@ -53,9 +53,13 @@ relies on the harness to ask the user is one flag away from not asking.
 
 So the tool implementation blocks on SQLPilot's own confirmation, the
 approval dialog in `src/components/agent/ApprovalDialog.tsx`, showing the
-exact statement, the connection and its environment, the agent's reason, and
-for a write the **measured** affected-row count (the statement has already run
-in a transaction that is not yet committed). The harness's own prompt, where
+exact statement, the connection and its environment, the agent's reason, who
+asked, and for a write the **measured** affected-row count (the statement has
+already run in a transaction that is not yet committed). "Who asked" is the
+request's `session` (SQLPilot's id for an in-app session, from the
+`X-SQLPilot-Session` header its harness sends) or, for an external client,
+`client` (the name it gave in the MCP handshake) (#801). Both are labels from
+a client that already holds the token; neither feeds a policy decision. The harness's own prompt, where
 it has one, is a second gate we are happy to have and never the only one.
 
 This is only possible because of BYOH: as a tool provider, the approval is

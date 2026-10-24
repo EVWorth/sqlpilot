@@ -287,6 +287,8 @@ async function writeTurn(session: Session, turn: Turn, verb: "delete" | "update"
     sql: write.sql,
     rowsAffected: write.rows,
     change: "write",
+    session: session.id,
+    client: null,
     reason: verb === "delete" ? "Clearing out refunded orders, as asked." : "Marking old shipments as delivered.",
   });
   if (turn.cancelled) throw new Cancelled();
@@ -347,6 +349,8 @@ function sendDemoRequest(): void {
       sql: "DELETE FROM shop.customers WHERE is_active = 0",
       rowsAffected: inactive,
       change: "write",
+      session: null,
+      client: "claude-code",
       reason: "Removing customers marked inactive before the export.",
     });
   }, 6000);

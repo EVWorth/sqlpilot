@@ -104,6 +104,8 @@ impl Surface for WindowSurface {
                         .map(|rows| u32::try_from(rows).unwrap_or(u32::MAX)),
                     change: request.kind,
                     reason: request.reason,
+                    session: request.session,
+                    client: request.client,
                 },
                 DECISION_TIMEOUT,
             )

@@ -20,6 +20,9 @@ use mas_core::schema::inspector::{
 use mas_mcp::endpoint;
 use mas_mcp::grants::{ConnectionFacts, Grant, Grants};
 use mas_mcp::server::SESSION_HEADER;
+use mas_mcp::surface::{
+    ApprovalRequest, EditOutcome, EditorContext, RawResult, Surface, SurfaceError,
+};
 use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, StagedWrite, Workspace};
 use serde_json::json;
 
@@ -575,4 +578,119 @@ async fn a_bound_session_cannot_be_moved_to_another_owner() {
     let other = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
     let bound = bound_by(&[Some(PANEL_SESSION), Some(other)]).await;
     assert_eq!(bound, vec![PANEL_SESSION.to_string()]);
+}
+
+/// A window that says no to every approval and remembers what it was asked.
+#[derive(Default)]
+struct Refusing {
+    asked: Mutex<Vec<ApprovalRequest>>,
+}
+
+#[async_trait::async_trait]
+impl Surface for Refusing {
+    async fn editor_context(&self) -> Result<EditorContext, SurfaceError> {
+        Err(SurfaceError::NoWindow)
+    }
+
+    async fn result_context(&self) -> Result<Option<RawResult>, SurfaceError> {
+        Ok(None)
+    }
+
+    async fn propose_edit(
+        &self,
+        _: Option<String>,
+        _: String,
+        _: String,
+    ) -> Result<EditOutcome, SurfaceError> {
+        Err(SurfaceError::NoWindow)
+    }
+
+    async fn approve(&self, request: ApprovalRequest) -> Result<bool, SurfaceError> {
+        self.asked.lock().unwrap().push(request);
+        Ok(false)
+    }
+
+    async fn open_draft(
+        &self,
+        _: String,
+        _: Option<String>,
+        _: Option<String>,
+        _: Option<String>,
+    ) -> Result<String, SurfaceError> {
+        Err(SurfaceError::NoWindow)
+    }
+}
+
+/// Ask for one write per entry in `owners`, each with that in-app session
+/// header, and return what the window was asked.
+async fn approvals_from(owners: &[Option<&str>]) -> Vec<ApprovalRequest> {
+    let surface = Arc::new(Refusing::default());
+    let endpoint = endpoint::start(
+        Arc::new(OneConnection::default()),
+        Some(surface.clone()),
+        "test-token".into(),
+        0,
+    )
+    .await
+    .expect("the endpoint starts");
+    let running = Running {
+        url: endpoint.url(),
+        token: endpoint.token.clone(),
+        endpoint: Some(endpoint),
+    };
+    let client = reqwest::Client::new();
+    let session = initialize(&client, &running).await;
+
+    for (id, owner) in owners.iter().enumerate() {
+        call_as(
+            &client,
+            &running,
+            &session,
+            *owner,
+            json!({
+                "jsonrpc": "2.0",
+                "id": id + 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "run_write",
+                    "arguments": {
+                        "connection": "c1",
+                        "sql": "DELETE FROM shop.customers WHERE id = 1",
+                        "reason": "Testing who asked."
+                    }
+                }
+            }),
+        )
+        .await;
+    }
+
+    let asked = surface.asked.lock().unwrap().clone();
+    asked
+}
+
+#[tokio::test]
+async fn an_approval_names_the_in_app_session_that_asked() {
+    // So the dialog can say it was the panel's own agent (#801).
+    let asked = approvals_from(&[Some(PANEL_SESSION)]).await;
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].session.as_deref(), Some(PANEL_SESSION));
+    assert_eq!(asked[0].client.as_deref(), Some("test"));
+}
+
+#[tokio::test]
+async fn an_approval_from_an_external_client_carries_its_own_name() {
+    let asked = approvals_from(&[None]).await;
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].session, None);
+    assert_eq!(asked[0].client.as_deref(), Some("test"));
+}
+
+#[tokio::test]
+async fn a_later_header_does_not_relabel_a_bound_session() {
+    let other = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    let asked = approvals_from(&[Some(PANEL_SESSION), Some(other), None]).await;
+    assert_eq!(asked.len(), 3);
+    for request in &asked {
+        assert_eq!(request.session.as_deref(), Some(PANEL_SESSION));
+    }
 }
