@@ -103,6 +103,14 @@ describe("RestoreDialog", () => {
     expect(screen.getByText("Connection")).toBeInTheDocument();
   });
 
+  it("ties every field label to its control (#836)", () => {
+    render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByLabelText("SQL File").tagName).toBe("INPUT");
+    expect(screen.getByLabelText("Connection").tagName).toBe("SELECT");
+    expect(screen.getByLabelText("Database").tagName).toBe("SELECT");
+    expect(screen.getByRole("group", { name: "Options" })).toBeInTheDocument();
+  });
+
   it("cannot restore before a file is chosen", () => {
     render(<RestoreDialog isOpen={true} onClose={vi.fn()} />);
     expect(screen.getByText("Restore")).toBeDisabled();

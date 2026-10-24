@@ -295,8 +295,9 @@ export function BackupDialog({
           {/* Connection + Database */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className={labelClasses}>Connection</label>
+              <label htmlFor="backup-connection" className={labelClasses}>Connection</label>
               <select
+                id="backup-connection"
                 className={selectClasses}
                 value={connectionId}
                 onChange={(e) => {
@@ -314,8 +315,9 @@ export function BackupDialog({
               </select>
             </div>
             <div>
-              <label className={labelClasses}>Database</label>
+              <label htmlFor="backup-database" className={labelClasses}>Database</label>
               <select
+                id="backup-database"
                 className={selectClasses}
                 value={database}
                 onChange={(e) => setDatabase(e.target.value)}
@@ -333,8 +335,8 @@ export function BackupDialog({
 
           {/* Table selection */}
           {database && tables.length > 0 && (
-            <div>
-              <label className={labelClasses}>Tables</label>
+            <fieldset className="min-w-0">
+              <legend className={labelClasses}>Tables</legend>
               <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-2">
                 <label className={checkboxLabelClasses + " mb-2"}>
                   <input
@@ -381,12 +383,12 @@ export function BackupDialog({
                   </div>
                 )}
               </div>
-            </div>
+            </fieldset>
           )}
 
           {/* Content type */}
-          <div>
-            <label className={labelClasses}>Content</label>
+          <fieldset className="min-w-0">
+            <legend className={labelClasses}>Content</legend>
             <div className="flex gap-4">
               {(
                 [
@@ -409,11 +411,11 @@ export function BackupDialog({
                 </label>
               ))}
             </div>
-          </div>
+          </fieldset>
 
           {/* Options */}
-          <div>
-            <label className={labelClasses}>Options</label>
+          <fieldset className="min-w-0">
+            <legend className={labelClasses}>Options</legend>
             <div className="grid grid-cols-2 gap-2">
               <label className={checkboxLabelClasses}>
                 <input
@@ -531,11 +533,11 @@ export function BackupDialog({
                 Include triggers
               </label>
             </div>
-          </div>
+          </fieldset>
 
           {/* Insert format */}
-          <div>
-            <label className={labelClasses}>Insert Format</label>
+          <fieldset className="min-w-0">
+            <legend className={labelClasses}>Insert Format</legend>
             <div className="flex items-center gap-4">
               <label className={checkboxLabelClasses}>
                 <input
@@ -562,6 +564,7 @@ export function BackupDialog({
               {options.multiRowInserts && (
                 <input
                   type="number"
+                  aria-label="Rows per INSERT"
                   min={1}
                   max={10000}
                   value={options.insertBatchSize}
@@ -578,13 +581,14 @@ export function BackupDialog({
                 />
               )}
             </div>
-          </div>
+          </fieldset>
 
           {/* Output file */}
           <div>
-            <label className={labelClasses}>Output File</label>
+            <label htmlFor="backup-output-file" className={labelClasses}>Output File</label>
             <div className="flex gap-2">
               <input
+                id="backup-output-file"
                 type="text"
                 readOnly
                 value={filePath ?? ""}
