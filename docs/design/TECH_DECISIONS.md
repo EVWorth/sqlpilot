@@ -2,6 +2,10 @@
 
 > Architecture Decision Records (ADRs) for major technology choices.
 > Each decision follows the format: Context → Decision → Rationale → Risks → Mitigations.
+>
+> Every ADR carries a `Status:` line: Accepted (in force) or Superseded (kept for
+> history, with a pointer to what replaced it). Where the code has moved on from
+> a detail in an accepted ADR, the ADR says what is there now.
 
 ---
 
@@ -57,9 +61,9 @@ Key advantages for our use case:
 
 ### Mitigations
 
-- **WebView differences:** Test on all three platforms in CI from day one. Use feature detection for WebView quirks. Avoid bleeding-edge CSS/JS features that may not be supported in WebKitGTK (Linux) or older WebKit (macOS).
+- **WebView differences:** CI tests run on Linux only; the release workflow builds on Linux, Windows and macOS (Intel and Apple Silicon). Use feature detection for WebView quirks. Avoid bleeding-edge CSS/JS features that may not be supported in WebKitGTK (Linux) or older WebKit (macOS).
 - **Ecosystem:** The React ecosystem (our frontend choice) is fully available in Tauri. Only Electron-specific Node.js APIs (like `electron-store`, `electron-updater`) need Tauri equivalents, and Tauri provides its own plugins for storage, updater, shell, etc.
-- **API stability:** Pin exact Tauri version, subscribe to release notes, budget time for migration if breaking changes occur.
+- **API stability:** Keep the Tauri npm packages and crates on matching minor versions (`scripts/check-tauri-versions.sh`, run in CI), read release notes, budget time for migration if breaking changes occur.
 - **Community:** Tauri's Discord and GitHub Discussions are active. The Tauri team is responsive. We contribute back fixes we find.
 
 ---
@@ -82,7 +86,7 @@ The Tauri WebView renders standard HTML/CSS/JS. We need a frontend framework to 
 
 Candidates evaluated:
 
-- **React 18+** — largest ecosystem, most component libraries
+- **React** — largest ecosystem, most component libraries
 - **Svelte/SvelteKit** — compiler-based, smaller bundle, less boilerplate
 - **Vue 3** — progressive framework, good DX
 - **Leptos** — Rust-based WASM framework (all-Rust stack)
@@ -90,17 +94,17 @@ Candidates evaluated:
 
 ### Decision
 
-**Use React 18+ with TypeScript.**
+**Use React with TypeScript.** React 18 at the time; React 19 today.
 
 ### Rationale
 
-1. **Ecosystem breadth** — The components we need already exist and are battle-tested:
+1. **Ecosystem breadth** — The components we need already exist and are battle-tested. In use today:
    - Monaco Editor → `@monaco-editor/react`
    - Data grid → TanStack Table + TanStack Virtual
-   - ERD → React Flow
-   - Charts → Recharts
-   - Command palette → cmdk
    - Resizable panels → react-resizable-panels
+   - Icons → lucide-react
+
+   The command palette and table designer are our own components; there is no ERD or chart library.
 
    For Svelte or Leptos, many of these would need to be built from scratch or use less-maintained wrappers.
 
@@ -108,7 +112,7 @@ Candidates evaluated:
 
 3. **TypeScript support** — React's TypeScript integration is excellent. Type inference for props, hooks, and context is mature and well-documented.
 
-4. **Concurrent features** — React 18's concurrent rendering (`useTransition`, `Suspense`) helps keep the UI responsive during heavy operations like rendering large data grids.
+4. **Concurrent features** — React's concurrent rendering (`useTransition`, `Suspense`) helps keep the UI responsive during heavy operations like rendering large data grids.
 
 5. **Stability** — React's API surface has been stable for years. Our UI code won't need frequent rewrites.
 
@@ -123,7 +127,7 @@ Candidates evaluated:
 ### Mitigations
 
 - **Bundle size:** Vite's tree-shaking eliminates unused code. React + ReactDOM is ~40 KB gzipped — acceptable for a desktop app with no bandwidth constraints.
-- **Virtual DOM overhead:** For the data grid (our most performance-sensitive component), we use TanStack Virtual which minimizes DOM nodes. For real-time charts, Recharts uses SVG directly. We profile with React DevTools and optimize with `React.memo`, `useMemo`, and `useCallback` where measured necessary.
+- **Virtual DOM overhead:** For the data grid (our most performance-sensitive component), we use TanStack Virtual which minimizes DOM nodes. We profile with React DevTools and optimize with `React.memo`, `useMemo`, and `useCallback` where measured necessary.
 - **Boilerplate:** Zustand (see ADR-006) eliminates Redux-style boilerplate while keeping state management simple.
 
 ---
@@ -147,7 +151,7 @@ The Rust backend needs a MySQL driver for:
 
 Candidates:
 
-- **sqlx** — async, compile-time checked queries, built-in pool
+- **sqlx** — async, optional compile-time checked queries, built-in pool
 - **Diesel** — ORM, synchronous by default, strong type safety
 - **mysql_async** — low-level async MySQL driver
 - **sea-orm** — async ORM built on sqlx
@@ -160,13 +164,13 @@ Candidates:
 
 1. **Async/Tokio native** — sqlx is built on Tokio, which is Tauri 2's async runtime. No runtime conflicts.
 
-2. **Compile-time query verification** — `sqlx::query!("SELECT id, name FROM users WHERE id = ?", user_id)` is checked against the database schema at compile time. This catches SQL errors before they reach production.
+2. **Compile-time query verification (not used)** — sqlx can check `query!` macros against a schema at build time. SQLPilot runs arbitrary user SQL against arbitrary schemas, so the code uses the runtime API (`sqlx::query`, `sqlx::raw_sql`) and no build needs a database.
 
 3. **Built-in connection pooling** — `sqlx::MySqlPool` provides connection pooling with configurable min/max connections, idle timeout, and health checks. No need for a separate pooling library.
 
 4. **Multi-database support** — sqlx supports MySQL, PostgreSQL, and SQLite. If we ever add PostgreSQL support, the migration is straightforward.
 
-5. **Streaming** — `sqlx::query().fetch()` returns a `Stream` that yields rows one at a time, enabling efficient handling of large result sets without loading everything into memory.
+5. **Streaming** — `fetch()` returns a `Stream` that yields rows one at a time. The backup writer uses it to dump tables without loading them into memory.
 
 6. **No ORM overhead** — We're building a database tool that needs to work with arbitrary schemas. An ORM's type mapping would fight us. sqlx's raw SQL with type checking is the perfect middle ground.
 
@@ -186,15 +190,13 @@ Candidates:
 
 | Risk                                                                    | Likelihood | Impact |
 | ----------------------------------------------------------------------- | ---------- | ------ |
-| Compile-time checks require database at build time                      | High       | Medium |
 | sqlx may not support MySQL-specific features (e.g., `LOAD DATA INFILE`) | Medium     | Low    |
 | Connection pool behavior differences across MySQL versions              | Low        | Medium |
 
 ### Mitigations
 
-- **Build-time DB requirement:** Use sqlx offline mode (`sqlx prepare`) to generate a JSON file of query metadata. CI and contributors can build without a running MySQL instance.
 - **MySQL-specific features:** For features sqlx doesn't directly support, we can drop down to raw TCP or use the `mysql_async` crate for specific operations.
-- **Version differences:** Integration tests run against MySQL 5.7, 8.0, and MariaDB 11 in CI (see Testing Strategy).
+- **Version differences:** Integration tests run against MySQL 8 and MariaDB 11 at release time (see [TESTING_STRATEGY.md](TESTING_STRATEGY.md)). MySQL 5.7 is end-of-life and not tested.
 
 ---
 
@@ -241,9 +243,9 @@ Candidates:
 
 3. **Large file handling** — Monaco virtualizes rendering and handles files with 100K+ lines smoothly. This matters for viewing large SQL dumps or stored procedures.
 
-4. **SQL language support** — `monaco-sql-languages` provides MySQL dialect highlighting and basic autocomplete out of the box. We extend it with schema-aware completions.
+4. **SQL language support** — Monaco's built-in `sql` and `mysql` language contributions provide highlighting. Completions are our own, schema-aware provider (`src/lib/schema-completion-provider.ts`).
 
-5. **Error markers** — Monaco's diagnostic API lets us underline SQL syntax errors with the exact line and column, just like VS Code does for TypeScript errors.
+5. **Error markers** — Monaco's diagnostic API can underline an error at an exact line and column. Not used today.
 
 ### Risks
 
@@ -282,13 +284,13 @@ The data grid is the second-most critical UI component (after the editor). Requi
 Candidates:
 
 - **AG Grid** — full-featured, commercial grid (free community edition available)
-- **TanStack Table v8** — headless table library + TanStack Virtual for virtualization
+- **TanStack Table** — headless table library + TanStack Virtual for virtualization
 - **React Data Grid** — open-source, opinionated grid
 - **MUI DataGrid** — Material UI's grid component
 
 ### Decision
 
-**Use TanStack Table v8 (headless) + TanStack Virtual** for the data grid.
+**Use TanStack Table (headless) + TanStack Virtual** for the data grid. v8 at the time; v9 today.
 
 ### Rationale
 
@@ -316,7 +318,7 @@ Candidates:
 
 ### Mitigations
 
-- **Custom code:** We build a reusable `<DataGrid>` component that encapsulates all TanStack Table configuration. Other parts of the app use this component, not TanStack Table directly. The upfront investment pays off in a component that exactly matches our UX requirements.
+- **Custom code:** One component, `ResultsGrid` (`src/components/grid/ResultsGrid.tsx`), encapsulates the TanStack Table configuration. Other parts of the app use this component, not TanStack Table directly. The upfront investment pays off in a component that exactly matches our UX requirements.
 - **Missing features:** We implement clipboard (Clipboard API), export (backend handles format conversion), and other features ourselves. These are straightforward and give us more control over the behavior.
 - **Performance:** We profile with React DevTools and Chrome Performance panel. TanStack Virtual's virtualization handles the majority of performance concerns. We memoize cell renderers and use `React.memo` on row components.
 
@@ -357,7 +359,7 @@ Candidates:
 
 ### Decision
 
-**Use Zustand v4.**
+**Use Zustand.** v4 at the time; v5 today.
 
 ### Rationale
 
@@ -386,9 +388,9 @@ Candidates:
    const activeId = useConnectionStore((s) => s.activeId);
    ```
 
-6. **DevTools integration** — Zustand has a devtools middleware that works with the Redux DevTools browser extension.
+6. **DevTools integration** — Zustand has a devtools middleware that works with the Redux DevTools browser extension. Not wired up today.
 
-7. **Slices pattern** — For large stores, Zustand supports splitting state into slices that compose into a single store. This provides Redux-like organization without Redux-like ceremony.
+7. **One store per domain** — Each concern (connections, editor, results, schema, history, favorites, settings, theme, and so on) is its own store in `src/stores/`, rather than slices of one store.
 
 ### Risks
 
@@ -400,9 +402,9 @@ Candidates:
 
 ### Mitigations
 
-- **Structure:** Use the slices pattern to organize related state (connection slice, editor slice, schema slice, etc.). Each slice is in its own file with its own types.
-- **Middleware:** Zustand provides `persist`, `devtools`, `immer`, and `subscribeWithSelector` middleware. These cover our needs. For anything else, Zustand middleware is a simple function wrapper.
-- **Familiarity:** Zustand's API can be learned in 15 minutes. We document patterns in the codebase README.
+- **Structure:** One store per domain in `src/stores/`, each in its own file with its own types. Store actions own loading and error state; components do not call `api.*` directly.
+- **Middleware:** Only `persist` is used (`favoritesStore`). Other stores that persist write `localStorage` themselves.
+- **Familiarity:** Zustand's API can be learned in 15 minutes.
 
 ---
 
@@ -412,88 +414,18 @@ Candidates:
 **Date:** 2024-01\
 **Category:** AI Integration
 
-> Superseded 2026-09. The rationale below assumed SQLPilot holds the model
-> session. It does not: the harness does. What this ADR promised and never
-> built — a rate limiter and a token budget — is the harness's concern now,
-> and the provider router it describes is unnecessary when the provider is
-> whatever the user already runs.
+**What was decided.** Embed the GitHub Copilot SDK in a `mas-ai` crate and hold
+the model session inside the app: natural language to SQL, query explanation,
+optimisation hints and inline completions, behind a provider router, a prompt
+engine, a rate limiter and a token budget. The reason was audience fit: the
+target users likely already pay for Copilot, so no extra key or bill.
 
-### Context
-
-AI features are a key differentiator for SQLPilot:
-
-- Natural language → SQL query generation
-- Query explanation in plain English
-- Query optimization suggestions
-- Schema documentation generation
-- Inline SQL completions in the editor
-
-We need an AI provider that:
-
-- Generates high-quality SQL
-- Understands database schemas
-- Streams responses for responsive UX
-- Is accessible to the target audience (developers)
-
-Candidates:
-
-- **GitHub Copilot SDK** — official SDK, GPT-4 class models, GitHub ecosystem
-- **OpenAI API** — direct API access, requires API key and billing
-- **Anthropic Claude API** — high-quality, requires API key
-
-### Decision
-
-**Use GitHub Copilot SDK as the AI provider.**
-
-### Rationale
-
-1. **Target audience alignment** — SQLPilot targets developers who very likely already have a GitHub Copilot subscription. No additional cost or API key management required.
-
-2. **High-quality models** — Copilot uses GPT-4 class models that produce excellent SQL. The quality of NL→SQL generation is critical for the AI features to be useful.
-
-3. **Official SDK** — The Copilot SDK handles authentication (GitHub token), rate limiting, and streaming. Less custom code than using raw OpenAI API.
-
-   - Free and offline
-   - Models like CodeLlama and SQLCoder are decent at SQL generation
-   - No data leaves the user's machine (privacy-sensitive environments)
-
-### Architecture
-
-```
-┌─────────────────────────────────────────────┐
-│              AI Service (mas-ai)             │
-│                                             │
-│  ┌──────────┐    ┌──────────┐    ┌───────┐  │
-│  │ Copilot  │───►│ Provider │───►│ Prompt│  │
-│  │   SDK    │    │ Router   │    │ Engine│  │
-│  └──────────┘    └──────────┘    └───────┘  │
-│  ┌──────────┐         │                     │
-│  │   HTTP   │                               │
-│  └──────────┘                               │
-└─────────────────────────────────────────────┘
-```
-
-The Provider Router selects the best available provider:
-
-1. If Copilot SDK is authenticated → use Copilot
-2. Otherwise → disable AI features
-
-### Risks
-
-| Risk                                        | Likelihood | Impact |
-| ------------------------------------------- | ---------- | ------ |
-| Copilot SDK requires active subscription    | High       | Medium |
-| AI generates incorrect/dangerous SQL        | Medium     | High   |
-| Copilot terms of service may restrict usage | Medium     | High   |
-| Schema context exceeds token limits         | Medium     | Medium |
-| AI latency disrupts UX                      | Medium     | Medium |
-
-### Mitigations
-
-- **Incorrect SQL:** Generated SQL is NEVER auto-executed. It's always inserted into the editor for user review. Dangerous statements (DROP, DELETE without WHERE) get a warning banner.
-- **Terms of service:** Review Copilot SDK terms before release. Ensure our usage (IDE-like SQL assistance) aligns with intended use cases. Consult legal if ambiguous.
-- **Token limits:** Intelligent schema pruning: only include tables and columns relevant to the conversation. For large schemas (200+ tables), use embedding-based relevance scoring to select the most pertinent tables.
-- **Latency:** Stream all AI responses token-by-token. Show a typing indicator. Allow cancellation. Cache common explanations.
+**Why it changed (2026-09).** Holding the session meant SQLPilot owned
+credentials, provider abstraction, metering and a system prompt that schema
+text was injected into, and it fixed the user's model choice. The rate limiter
+and token budget were never built. ADR-011 replaced the design: SQLPilot is an
+MCP server and the user's own harness holds the model session. `mas-ai` was
+removed.
 
 ---
 
@@ -557,87 +489,25 @@ Options:
 - **Frontend-only:** IndexedDB is only accessible from the WebView JavaScript context. We want the Rust backend to manage storage (closer to the encryption and keychain logic).
 - **API complexity:** IndexedDB's async, event-based API is notoriously awkward.
 
-### Data Model
+### What exists today
 
-```sql
--- Connection profiles
-CREATE TABLE connections (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    host        TEXT NOT NULL,
-    port        INTEGER NOT NULL DEFAULT 3306,
-    username    TEXT NOT NULL,
-    use_keychain BOOLEAN DEFAULT TRUE,
-    database_name TEXT,
-    ssl_config  TEXT,      -- JSON
-    ssh_config  TEXT,      -- JSON
-    options     TEXT,      -- JSON
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
+The decision held for app state the backend owns; the frontend keeps its own
+preferences in `localStorage`.
 
--- Query history
-CREATE TABLE query_history (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    connection_id TEXT REFERENCES connections(id),
-    database_name TEXT,
-    sql_text    TEXT NOT NULL,
-    row_count   INTEGER,
-    elapsed_ms  INTEGER,
-    is_favorite BOOLEAN DEFAULT FALSE,
-    executed_at TEXT NOT NULL
-);
-CREATE INDEX idx_history_connection ON query_history(connection_id);
-CREATE INDEX idx_history_executed ON query_history(executed_at);
-CREATE INDEX idx_history_favorite ON query_history(is_favorite);
-
--- Saved queries
-CREATE TABLE saved_queries (
-    id          TEXT PRIMARY KEY,
-    name        TEXT NOT NULL,
-    sql_text    TEXT NOT NULL,
-    connection_id TEXT REFERENCES connections(id),
-    folder      TEXT,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
-
--- Editor tabs (restore on app restart)
-CREATE TABLE editor_tabs (
-    id          TEXT PRIMARY KEY,
-    connection_id TEXT REFERENCES connections(id),
-    database_name TEXT,
-    title       TEXT NOT NULL,
-    sql_text    TEXT NOT NULL,
-    cursor_line INTEGER DEFAULT 1,
-    cursor_col  INTEGER DEFAULT 1,
-    is_active   BOOLEAN DEFAULT FALSE,
-    sort_order  INTEGER DEFAULT 0
-);
-
--- User preferences
-CREATE TABLE preferences (
-    key   TEXT PRIMARY KEY,
-    value TEXT NOT NULL
-);
-
--- AI chat history
-CREATE TABLE ai_conversations (
-    id          TEXT PRIMARY KEY,
-    title       TEXT,
-    connection_id TEXT REFERENCES connections(id),
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL
-);
-
-CREATE TABLE ai_messages (
-    id              INTEGER PRIMARY KEY AUTOINCREMENT,
-    conversation_id TEXT REFERENCES ai_conversations(id) ON DELETE CASCADE,
-    role            TEXT NOT NULL,  -- 'user' or 'assistant'
-    content         TEXT NOT NULL,
-    created_at      TEXT NOT NULL
-);
-```
+- **SQLite via rusqlite, in `mas-core`** (not `mas-sqlite`, which is the
+  user-facing SQLite file browser). Two files in the app data directory:
+  `connections.db` (`connection_profiles`, `agent_grants`) and `history.db`
+  (`query_history`, WAL mode).
+- **Migrations** are versioned in code, with `PRAGMA user_version` as the
+  cursor: `src-tauri/crates/mas-core/src/connection/migrations.rs` and
+  `src-tauri/crates/mas-core/src/history/migrations.rs`.
+- **Passwords** go to the OS credential store, not SQLite. Plaintext passwords
+  from older versions are moved to the keyring on load.
+- **In `localStorage`, not SQLite:** favorites, editor tabs, formatter and
+  query settings, history limits, themes, grid layouts.
+  [ARCHITECTURE.md](ARCHITECTURE.md) section 9 lists the keys.
+- There are no saved-query folders, editor-tab or preference tables, and no AI
+  conversation tables.
 
 ### Risks
 
@@ -650,70 +520,34 @@ CREATE TABLE ai_messages (
 ### Mitigations
 
 - **Dependency:** SQLite is embedded in rusqlite via bundled compilation. No system dependency required.
-- **Corruption:** Enable WAL mode for crash safety. Implement periodic backup of the database file. SQLite's built-in integrity check can verify database health on startup.
-- **Migrations:** Use a simple migration system (numbered SQL files in `migrations/` directory). Run pending migrations on app startup.
+- **Corruption:** `history.db` uses WAL mode. A database that fails to open is reported at startup rather than crashing the app.
+- **Migrations:** Numbered migrations in Rust source, applied on startup, each in a transaction.
 
 ---
 
 ## ADR-009: Docker-based E2E Testing
 
-**Status:** Accepted\
+**Status:** Superseded (E2E suite removed; Docker databases still used for integration tests)\
 **Date:** 2024-01\
 **Category:** Testing Infrastructure
 
-### Context
+**What was decided.** Use Docker Compose with MySQL 5.7, MySQL 8, MariaDB 11,
+an SSL-enabled MySQL and an SSH server, for both integration tests and a
+Playwright end-to-end suite. Real servers catch dialect, character-set and TLS
+differences that mocks miss.
 
-Testing a database GUI requires a real database. Options:
+**Why it changed.** The E2E suite never ran: it drove the Vite dev server, but
+the app needs a Tauri window. It was removed; the Rust-to-JS contract is
+covered by `src/lib/__tests__/tauri-command-contract.test.ts` and the bindings
+check instead.
 
-- **Mock the database driver** — fast, isolated, but doesn't test real SQL compatibility
-- **Embedded MySQL** — doesn't exist for Rust like H2 for Java
-- **Docker containers** — real MySQL instances, reproducible, isolated
-- **Remote test server** — shared, non-isolated, fragile
-
-### Decision
-
-**Use Docker Compose with multiple MySQL/MariaDB containers** for integration and E2E testing.
-
-### Rationale
-
-1. **Real database** — Our tests execute actual SQL against real MySQL. This catches compatibility issues that mocks would miss:
-   - Syntax differences between MySQL 5.7 and 8.0
-   - MariaDB-specific behavior
-   - SSL/TLS handshake issues
-   - Character set handling
-
-2. **Reproducible** — Every developer and CI run starts with the exact same database state. No "it works on my machine" issues.
-
-3. **Two servers, not one** — the suite runs against MySQL 8 and MariaDB 11, and every integration file takes `MAS_TEST_PORT` so the same tests run on either. That is not ceremony: running them against MariaDB for the first time found a connection lost after every query timeout (#658) and JSON columns arriving as binary, neither of which MySQL showed.
-
-4. **Isolated** — Each test run gets fresh containers with no leftover state. Tests can't interfere with each other.
-
-5. **What is not tested this way** — the compose file also defines MySQL 5.7 and an SSL-enabled MySQL, and nothing starts or uses them. 5.7 is end-of-life and unsupported (Appendix B). SSL configuration is real code with no test, which is a known gap rather than a claim. The SSH container is gone: tunnelling is not implemented, and a profile configured for one is refused.
-
-### Container Matrix
-
-| Container    | Port  | Purpose                                                             |
-| ------------ | ----- | ------------------------------------------------------------------- |
-| `mysql-8`    | 13306 | The default target for every integration test                       |
-| `mariadb-11` | 13308 | The same tests again, via `MAS_TEST_PORT=13308`                     |
-| `mysql-5_7`  | 13307 | Defined, never started. 5.7 is end-of-life and not supported        |
-| `mysql-ssl`  | 13309 | Defined, never started. SSL configuration has no test — a known gap |
-
-### Risks
-
-| Risk                                            | Likelihood | Impact |
-| ----------------------------------------------- | ---------- | ------ |
-| Docker required on developer machines           | High       | Medium |
-| Container startup time (30–60s)                 | High       | Low    |
-| Docker not available on all CI runners natively | Medium     | Medium |
-| Flaky tests due to container health timing      | Medium     | Medium |
-
-### Mitigations
-
-- **Developer machines:** `just db-up` starts the two containers and waits for them to be healthy. Without Docker, everything but the `#[ignore]`d tests still runs — which is most of the suite.
-- **Startup time:** Containers start in parallel. Health checks prevent tests from starting before MySQL is ready. In CI, Docker layer caching reduces pull times.
-- **CI runners:** GitHub Actions supports Docker on Ubuntu runners natively via `services`. For macOS/Windows runners (where Docker is limited), we run integration tests only on Ubuntu and run unit tests on all platforms.
-- **Flaky health checks:** health rather than a bare ping. While the seed scripts run, the server is a temporary local-only instance that then restarts, and a ping answers during that window — anything connecting on the strength of it meets an EOF moments later.
+**What still holds.** Docker databases are how the Rust integration tests run:
+MySQL 8 on 13306 and MariaDB 11 on 13308 from `docker-compose.test.yml`, the
+same tests against both via `MAS_TEST_PORT`. Running against MariaDB found a
+connection lost after every query timeout (#658) and JSON columns arriving as
+binary. The 5.7 and SSL services are defined but never started; the SSH
+container is gone because tunnelling is not implemented. See
+[TESTING_STRATEGY.md](TESTING_STRATEGY.md).
 
 ---
 
@@ -728,7 +562,7 @@ Testing a database GUI requires a real database. Options:
 The Rust backend has several distinct responsibilities:
 
 - Connection management, query execution, schema introspection (core)
-- AI service integration (AI)
+- AI integration (originally an embedded AI service; now the MCP server and agent harness integration)
 - Import/export functionality (data tools)
 - Database administration (admin)
 - Tauri app shell and command handlers (app)
@@ -746,91 +580,47 @@ Putting everything in a single crate would create:
 
 ### Structure
 
+Members are listed in [`src-tauri/Cargo.toml`](../../src-tauri/Cargo.toml).
+
 ```
 src-tauri/
-├── Cargo.toml              # Workspace root
-├── sqlpilot/        # Tauri app crate (binary)
-│   ├── Cargo.toml
-│   └── src/
-│       ├── main.rs          # Tauri entry point
-│       └── commands/        # Tauri command handlers
-│           ├── connection.rs
-│           ├── query.rs
-│           ├── schema.rs
-│           ├── ai.rs
-│           ├── export.rs
-│           └── admin.rs
-├── mas-core/               # Core library crate
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs
-│       ├── connection/      # Connection profiles, pool management
-│       ├── query/           # Query execution, cancellation, streaming
-│       ├── schema/          # Schema introspection, caching
-│       └── models/          # Shared data types
-├── mas-ai/                 # AI service crate
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs
-│       ├── copilot.rs       # GitHub Copilot SDK integration
-│       ├── prompts/         # Prompt templates
-│       └── router.rs        # Provider selection logic
-├── mas-export/             # Import/export crate
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs
-│       ├── csv.rs
-│       ├── json.rs
-│       ├── sql.rs
-│       ├── xlsx.rs
-│       ├── xml.rs
-│       ├── markdown.rs
-│       └── mapping.rs       # Column mapping engine
-├── mas-admin/              # Administration crate
-│   ├── Cargo.toml
-│   └── src/
-│       ├── lib.rs
-│       ├── users.rs          # User/role management
-│       ├── processes.rs      # Process list, kill
-│       ├── variables.rs      # Server variables
-│       ├── maintenance.rs    # Table maintenance operations
-│       ├── backup.rs         # Backup/restore
-│       └── metrics.rs        # Server status metrics
-└── mas-sqlite/             # Local SQLite storage crate
-    ├── Cargo.toml
-    └── src/
-        ├── lib.rs
-        ├── connection.rs     # Connection profile persistence
-        ├── query.rs          # Query history, favorites
-        ├── schema.rs         # Schema cache tables
-        └── error.rs
+├── Cargo.toml          # workspace root and the `sqlpilot` app crate (lib: sqlpilot_lib)
+├── src/                # app crate: Tauri setup, commands/, mcp/, menu
+├── tests/              # export_bindings.rs, agent_end_to_end.rs
+└── crates/
+    ├── mas-core/       # connections, queries, schema, backup/restore, history
+    ├── mas-admin/      # process list, kill, server variables
+    ├── mas-export/     # result export: CSV, JSON, SQL INSERT, Markdown
+    ├── mas-sqlite/     # open and browse user SQLite files
+    ├── mas-mcp/        # the MCP server agents use: tools, policy, grants, endpoint
+    └── mas-agent/      # agent harness integration (ACP client, harness spawning)
 ```
-
-> **Note:** The file layout above shows the intended structure. Actual current files: `mas-ai/src/{error.rs, lib.rs, models.rs, service.rs, tools.rs}`, `mas-admin/src/lib.rs` (single file), `mas-export/src/lib.rs` (single file containing CSV/JSON/SQL/Markdown exporters). The workspace membership list below is authoritative.
 
 ### Rationale
 
-1. **Parallel compilation** — Cargo compiles independent crates in parallel. Changing `mas-ai` doesn't recompile `mas-export`. On a 8-core machine, this can halve incremental build times.
+1. **Parallel compilation** — Cargo compiles independent crates in parallel. Changing `mas-mcp` doesn't recompile `mas-export`. On a 8-core machine, this can halve incremental build times.
 
-2. **Clear dependency boundaries** — Each crate declares its dependencies explicitly in `Cargo.toml`. `mas-export` depends on `mas-core` (for query execution), but NOT on `mas-ai`. This prevents accidental coupling.
+2. **Clear dependency boundaries** — Each crate declares its dependencies explicitly in `Cargo.toml`. `mas-export` depends on `mas-core` (for query execution), but NOT on `mas-mcp`. This prevents accidental coupling.
 
-3. **Independent testing** — `cargo test -p mas-core` runs only core tests. `cargo test -p mas-ai` runs only AI tests. Developers working on a specific feature run only relevant tests, getting faster feedback.
+3. **Independent testing** — `cargo test -p mas-core` runs only core tests. `cargo test -p mas-mcp` runs only MCP tests. Developers working on a specific feature run only relevant tests, getting faster feedback.
 
-4. **Reusability** — `mas-core` could be used by a CLI tool or a separate backend service without pulling in Tauri, AI, or export dependencies.
+4. **Reusability** — `mas-core` could be used by a CLI tool or a separate backend service without pulling in Tauri, MCP, or export dependencies.
 
 5. **Encapsulation** — Each crate exposes a public API and keeps implementation details private. The `sqlpilot` app crate depends on all library crates and wires them together via Tauri commands.
 
 ### Dependency Graph
 
+Normal dependencies only (`mas-core` also has `mas-admin` and `mas-export` as
+dev-dependencies for its tests):
+
 ```
 sqlpilot (Tauri app)
-├── mas-core     (connection, query, schema)
-├── mas-ai       (AI service)
-│   └── mas-core (schema context for AI prompts)
-├── mas-export   (import/export)
-│   └── mas-core (query execution for data access)
-└── mas-admin    (administration)
-    └── mas-core (connection and query execution)
+├── mas-core
+├── mas-admin   ──► mas-core
+├── mas-export  ──► mas-core
+├── mas-mcp     ──► mas-core
+├── mas-sqlite
+└── mas-agent
 ```
 
 ### Risks
@@ -845,26 +635,7 @@ sqlpilot (Tauri app)
 
 - **API design:** Start with a simple public API per crate. Refine boundaries as the codebase grows. Moving a module between crates is a mechanical refactor.
 - **Shared types:** Common types (data models, error types) live in `mas-core::models`. All crates depend on `mas-core` for shared types. Alternatively, a tiny `mas-types` crate could hold just the shared types if `mas-core` becomes too heavy.
-- **Workspace config:** Cargo workspaces are well-documented and widely used. The root `Cargo.toml` is simple:
-
-  ```toml
-  [workspace]
-  members = [
-    "sqlpilot",
-    "mas-core",
-    "mas-ai",
-    "mas-export",
-    "mas-admin",
-    "mas-sqlite",
-  ]
-
-  [workspace.dependencies]
-  serde = { version = "1", features = ["derive"] }
-  sqlx = { version = "0.7", features = ["mysql", "runtime-tokio", "tls-rustls"] }
-  tokio = { version = "1", features = ["full"] }
-  thiserror = "1"
-  anyhow = "1"
-  ```
+- **Workspace config:** Shared dependency versions live in `[workspace.dependencies]` in the root `Cargo.toml`; crates inherit them with `workspace = true`.
 
 ---
 
@@ -924,17 +695,20 @@ never calls a model, and never accounts for a token.
 - **The approval UI must be ours.** Harnesses have `--yolo`-shaped escape
   hatches, so a destructive action blocks on SQLPilot's own confirmation
   whatever is driving. See §2 of [AI_INTEGRATION.md](AI_INTEGRATION.md).
-- **One adapter per harness for the in-app view**, and they are not equal:
-  Claude Code exposes a structured stream and a permission-host hook; Copilot
-  CLI currently exposes neither. The tool surface must not depend on either.
+- **One adapter per harness for the in-app view.** Claude Code is driven
+  over its own NDJSON stream and Copilot CLI over the Agent Client Protocol
+  (`copilot --acp`); `mas-agent` normalises both. (When this ADR was written,
+  Copilot exposed neither a structured stream nor a permission hook; ACP
+  arrived later.) The tool surface does not depend on either.
 - **No inline completions.** Those need an in-process model call. Autocomplete
   stays schema-driven, which is arguably the better trade for SQL anyway.
 - **We do not embed an agent SDK.** Anthropic's terms do not permit a
   third-party product to offer claude.ai login through the Agent SDK; it
   expects an API key. Spawning the user's own CLI is what keeps this BYOH.
-- **`mas-ai` and its 13 open issues are obsolete** rather than fixed: the
-  prefix-check tool guards, the pinned git rev, the missing rate limiter and
-  the prompt-injection surface all belong to a design that is being replaced.
+- **`mas-ai` was removed** rather than fixed: the prefix-check tool guards,
+  the pinned git rev, the missing rate limiter and the prompt-injection
+  surface belonged to the replaced design. `mas-mcp` and `mas-agent` took its
+  place.
 
 ### Risks
 
