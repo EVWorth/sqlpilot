@@ -229,7 +229,16 @@ pub async fn list_connections(state: State<'_, AppState>) -> Result<Vec<Connecti
 
 // Query commands
 #[tauri::command]
-#[tracing::instrument(skip(state), fields(connection_id = %connection_id, sql_preview = %sql.chars().take(100).collect::<String>()))]
+// `sql` is skipped and only a redacted preview is recorded: the admin dialogs
+// send `CREATE USER ... IDENTIFIED BY '<password>'` through here, and the
+// span lands in the DEBUG log file (#875).
+#[tracing::instrument(
+    skip(state, sql),
+    fields(
+        connection_id = %connection_id,
+        sql_preview = %mas_core::query::redacted_preview(&sql, mas_core::query::LOG_PREVIEW_CHARS),
+    )
+)]
 #[specta::specta]
 pub async fn execute_query(
     state: State<'_, AppState>,

@@ -159,7 +159,8 @@ pub async fn apply_in_session(
 ) -> Result<Option<GridEditOutcome>, CoreError> {
     if manager.is_read_only(connection_id) {
         if let Some(write) = statements.iter().find(|s| is_write_statement(s)) {
-            let preview: String = write.chars().take(120).collect();
+            // Redacted: the caller logs this error (#875).
+            let preview = crate::query::redacted_preview(write, 120);
             return Err(CoreError::ReadOnly(format!(
                 "This connection is marked read-only, so it will not run: {preview}"
             )));

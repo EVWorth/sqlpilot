@@ -356,6 +356,26 @@ fn linux_webkit_env(get: impl Fn(&str) -> Option<String>) -> Vec<(&'static str, 
     vars
 }
 
+/// How many daily log files are kept before the oldest is deleted.
+///
+/// The file log is DEBUG and was kept forever (#875). Two weeks covers
+/// "it broke last week" bug reports without the folder growing for the life
+/// of the install.
+const LOG_RETENTION_DAYS: usize = 14;
+
+/// What the file log records.
+///
+/// DEBUG for the app's own crates. Two dependencies log payloads at DEBUG and
+/// are held back, because those payloads are SQL text and query results,
+/// credentials included (#875):
+///
+/// - `sqlx::query` logs every statement in full. The connection manager turns
+///   this off on every pool it builds; this is the backstop.
+/// - `rmcp` logs every MCP request an agent sends (`?request`, the SQL it
+///   runs) and every response (`?result`, the rows it got back).
+const FILE_LOG_FILTER: &str =
+    "debug,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug,sqlx::query=off,rmcp=info";
+
 pub fn run() {
     #[cfg(target_os = "macos")]
     augment_macos_path();
@@ -387,17 +407,29 @@ pub fn run() {
     });
     let console_layer = tracing_subscriber::fmt::layer().with_filter(console_filter);
 
-    // File layer: JSON-structured, rolling daily, DEBUG level. Skipped when
-    // the directory could not be made — logging to a file is worth having,
-    // and not worth refusing to start over.
+    // File layer: JSON-structured, rolling daily, DEBUG level, keeping the
+    // last LOG_RETENTION_DAYS files. Skipped when the directory could not be
+    // made or the appender could not open — logging to a file is worth
+    // having, and not worth refusing to start over.
     let mut guard = None;
-    let file_layer = file_logging.then(|| {
-        let file_appender = tracing_appender::rolling::daily(&log_dir, "sqlpilot.log");
+    let mut appender_error = None;
+    let file_appender = file_logging
+        .then(|| {
+            tracing_appender::rolling::Builder::new()
+                .rotation(tracing_appender::rolling::Rotation::DAILY)
+                // The same name `rolling::daily` used, so files written by
+                // older builds are counted, and pruned, with the rest.
+                .filename_prefix("sqlpilot.log")
+                .max_log_files(LOG_RETENTION_DAYS)
+                .build(&log_dir)
+                .map_err(|e| appender_error = Some(e))
+                .ok()
+        })
+        .flatten();
+    let file_layer = file_appender.map(|file_appender| {
         let (non_blocking, g) = tracing_appender::non_blocking(file_appender);
         guard = Some(g);
-        let file_filter = EnvFilter::new(
-            "debug,sqlpilot_lib=debug,mas_core=debug,mas_admin=debug,mas_export=debug",
-        );
+        let file_filter = EnvFilter::new(FILE_LOG_FILTER);
         tracing_subscriber::fmt::layer()
             .json()
             .with_writer(non_blocking)
@@ -409,6 +441,13 @@ pub fn run() {
         .with(file_layer)
         .init();
 
+    if let Some(e) = appender_error {
+        tracing::warn!(
+            error = %e,
+            log_dir = %log_dir.display(),
+            "Could not open the log file; logging to the console only"
+        );
+    }
     if !file_logging {
         tracing::warn!(
             log_dir = %log_dir.display(),
@@ -743,5 +782,78 @@ mod startup_tests {
         let (dir, problem) = usable_data_dir();
         assert!(problem.is_none(), "{problem:?}");
         assert!(dir.ends_with("sqlpilot"));
+    }
+}
+
+#[cfg(test)]
+mod file_log_tests {
+    use super::*;
+    use std::sync::{Arc, Mutex};
+
+    #[derive(Clone, Default)]
+    struct Captured(Arc<Mutex<Vec<u8>>>);
+
+    impl std::io::Write for Captured {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// Emit through a layer built the way the file log is, and return what
+    /// it wrote.
+    fn file_log(emit: impl FnOnce()) -> String {
+        let captured = Captured::default();
+        let writer = captured.clone();
+        let layer = tracing_subscriber::fmt::layer()
+            .json()
+            .with_writer(move || writer.clone())
+            .with_filter(EnvFilter::new(FILE_LOG_FILTER));
+        let subscriber = tracing_subscriber::registry().with(layer);
+        tracing::subscriber::with_default(subscriber, emit);
+        let bytes = captured.0.lock().unwrap().clone();
+        String::from_utf8(bytes).unwrap()
+    }
+
+    /// The payload-carrying DEBUG events from sqlx and rmcp are not written,
+    /// while the app's own DEBUG lines still are (#875).
+    #[test]
+    fn dependency_payloads_stay_out_of_the_file_log() {
+        let log = file_log(|| {
+            tracing::debug!(
+                target: "sqlx::query",
+                statement = "CREATE USER 'a'@'%' IDENTIFIED BY 'hunter2'",
+                "summary"
+            );
+            tracing::warn!(
+                target: "sqlx::query",
+                statement = "ALTER USER 'a'@'%' IDENTIFIED BY 'hunter3'",
+                "slow statement"
+            );
+            tracing::debug!(
+                target: "rmcp::service",
+                request = "run_query CREATE USER 'a'@'%' IDENTIFIED BY 'hunter4'",
+                "received request"
+            );
+            tracing::debug!(target: "sqlpilot_lib::commands", "kept");
+            tracing::debug!(target: "mas_core::query::executor", "kept too");
+            tracing::info!(target: "rmcp::service", "serve finished");
+        });
+
+        for secret in ["hunter2", "hunter3", "hunter4"] {
+            assert!(!log.contains(secret), "{secret} written: {log}");
+        }
+        assert!(log.contains("\"kept\""), "{log}");
+        assert!(log.contains("kept too"), "{log}");
+        assert!(log.contains("serve finished"), "{log}");
+    }
+
+    #[test]
+    fn retention_is_bounded() {
+        // Zero would mean "keep every file", which is what #875 was about.
+        const { assert!(LOG_RETENTION_DAYS > 0) };
     }
 }

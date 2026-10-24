@@ -1,6 +1,7 @@
 use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
+use crate::query::redact::{redact_credentials, redacted_preview, LOG_PREVIEW_CHARS};
 use dashmap::DashMap;
 use futures::StreamExt;
 use sqlx::{AssertSqlSafe, Column, Either, Row, TypeInfo};
@@ -117,7 +118,9 @@ impl QueryExecutor {
         }
     }
 
-    #[tracing::instrument(skip(self), fields(connection_id = %connection_id, statement_count))]
+    // `sql` is never recorded as an argument: it can carry a password (#875).
+    // The routed span below logs a redacted preview.
+    #[tracing::instrument(skip(self, sql), fields(connection_id = %connection_id, statement_count))]
     pub async fn execute(
         &self,
         connection_id: &str,
@@ -136,7 +139,7 @@ impl QueryExecutor {
         .await
     }
 
-    #[tracing::instrument(skip(self), fields(connection_id = %connection_id, statement_count))]
+    #[tracing::instrument(skip(self, sql), fields(connection_id = %connection_id, statement_count))]
     pub async fn execute_owned(
         &self,
         connection_id: String,
@@ -212,7 +215,15 @@ impl QueryExecutor {
         .await
     }
 
-    #[tracing::instrument(skip(self), fields(connection_id = %connection_id, ?route, statement_count))]
+    #[tracing::instrument(
+        skip(self, sql),
+        fields(
+            connection_id = %connection_id,
+            ?route,
+            statement_count,
+            sql_preview = %redacted_preview(&sql, LOG_PREVIEW_CHARS),
+        )
+    )]
     pub(crate) async fn execute_routed(
         &self,
         route: Route,
@@ -263,7 +274,9 @@ impl QueryExecutor {
                 .iter()
                 .find(|stmt| crate::query::statement::is_write_statement(stmt))
             {
-                let preview: String = offending.chars().take(120).collect();
+                // Redacted in the error as well as the log line: the error is
+                // logged by the caller too.
+                let preview = redacted_preview(offending, 120);
                 tracing::warn!(
                     connection_id = %connection_id,
                     sql_preview = %preview,
@@ -280,7 +293,7 @@ impl QueryExecutor {
         let mut mem_guard = MemoryGuard::new(self.memory_floor_mb);
 
         tracing::Span::current().record("statement_count", statements.len());
-        tracing::trace!(sql = %sql, "Full SQL input");
+        tracing::trace!(sql = %redact_credentials(&sql).sql, "Full SQL input");
 
         if statements.is_empty() {
             return Ok(vec![]);
@@ -499,14 +512,18 @@ impl QueryExecutor {
                         call_in_progress = crate::query::statement::effective_verb(stmt) == "CALL";
                         let query_id = uuid::Uuid::new_v4().to_string();
                         let execution_time = start.elapsed().as_millis() as u64;
-                        let preview: String = stmt.chars().take(200).collect();
+                        let preview = redacted_preview(stmt, 200);
                         tracing::debug!(
                             query_id = %query_id,
                             statement_index = idx,
                             sql_preview = %preview,
                             "Executing statement"
                         );
-                        tracing::trace!(query_id = %query_id, sql = %stmt, "Full statement SQL");
+                        tracing::trace!(
+                            query_id = %query_id,
+                            sql = %redact_credentials(stmt).sql,
+                            "Full statement SQL"
+                        );
 
                         // Whether this is a result set cannot come from the
                         // verb alone. CALL is not in the row-returning list and
@@ -1451,6 +1468,120 @@ mod tests {
             let mut bytes = b"{".to_vec();
             bytes.extend_from_slice(&[0xff, 0xfe]);
             assert!(matches!(blob_value(bytes), SqlValue::Bytes(_)));
+        }
+    }
+
+    /// The log never holds a password the user typed into a statement (#875).
+    ///
+    /// `#[tracing::instrument]` records every argument it is not told to skip,
+    /// so the span for `CREATE USER ... IDENTIFIED BY '<pw>'` used to carry the
+    /// whole statement. This captures what a JSON log layer, like the app's
+    /// file log, would write while the executor's spans open.
+    mod log_redaction {
+        use super::*;
+        use std::sync::Mutex;
+        use tracing_subscriber::fmt::format::FmtSpan;
+
+        #[derive(Clone, Default)]
+        struct Captured(Arc<Mutex<Vec<u8>>>);
+
+        impl std::io::Write for Captured {
+            fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+                self.0.lock().unwrap().extend_from_slice(buf);
+                Ok(buf.len())
+            }
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        const SECRET_SQL: &str = "CREATE USER 'a'@'%' IDENTIFIED BY 'hunter2'";
+
+        /// Run `f` under a TRACE-level JSON subscriber that writes span opens
+        /// and events, and return everything it wrote.
+        async fn capture<F: std::future::Future>(f: F) -> String {
+            let captured = Captured::default();
+            let writer = captured.clone();
+            let subscriber = tracing_subscriber::fmt()
+                .json()
+                .with_max_level(tracing::Level::TRACE)
+                .with_span_events(FmtSpan::NEW)
+                .with_writer(move || writer.clone())
+                .finish();
+            let _guard = tracing::subscriber::set_default(subscriber);
+            f.await;
+            let bytes = captured.0.lock().unwrap().clone();
+            String::from_utf8(bytes).unwrap()
+        }
+
+        fn executor() -> QueryExecutor {
+            QueryExecutor::new(Arc::new(ConnectionManager::new()))
+        }
+
+        fn assert_redacted(log: &str) {
+            assert!(!log.is_empty(), "nothing was captured");
+            assert!(!log.contains("hunter2"), "password logged: {log}");
+            // The preview is still there, so the log says what ran.
+            assert!(log.contains("IDENTIFIED BY <redacted>"), "{log}");
+        }
+
+        #[tokio::test]
+        async fn execute_spans_do_not_record_the_password() {
+            let exec = executor();
+            let log = capture(async {
+                // No such connection: the call fails after its spans open,
+                // which is all this needs.
+                let result = exec.execute("missing", SECRET_SQL, None, None, None).await;
+                assert!(result.is_err());
+            })
+            .await;
+            assert_redacted(&log);
+        }
+
+        #[tokio::test]
+        async fn execute_owned_spans_do_not_record_the_password() {
+            let exec = executor();
+            let log = capture(async {
+                let result = exec
+                    .execute_owned("missing".into(), SECRET_SQL.into(), None, None, None)
+                    .await;
+                assert!(result.is_err());
+            })
+            .await;
+            assert_redacted(&log);
+        }
+
+        #[tokio::test]
+        async fn agent_route_does_not_record_the_password() {
+            // The path MCP tools take.
+            let exec = executor();
+            let log = capture(async {
+                let result = exec
+                    .execute_in(
+                        Route::Agent("agent".into()),
+                        "missing",
+                        SECRET_SQL,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await;
+                assert!(result.is_err());
+            })
+            .await;
+            assert_redacted(&log);
+        }
+
+        #[tokio::test]
+        async fn capture_would_see_an_unskipped_argument() {
+            // Guards the tests above against passing vacuously: an
+            // instrumented function that does not skip its SQL argument shows
+            // up in the same capture.
+            #[tracing::instrument]
+            async fn leaky(sql: &str) {}
+
+            let log = capture(leaky(SECRET_SQL)).await;
+            assert!(log.contains("hunter2"), "{log}");
         }
     }
 }
