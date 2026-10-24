@@ -203,6 +203,48 @@ describe("ProcessListTab", () => {
     expect(api.killProcess).not.toHaveBeenCalled();
   });
 
+  it("offers only Kill connection for an idle session (#833)", async () => {
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    await screen.findAllByText("root");
+    // Process 2 is a Sleep session with no statement.
+    fireEvent.click(screen.getByTitle("Kill process 2"));
+    expect(screen.queryByText("Kill query")).toBeNull();
+    expect(screen.getByText("Kill connection")).toBeDefined();
+  });
+
+  it("focuses the first kill choice and closes on Escape (#833)", async () => {
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    await screen.findAllByText("root");
+    const skull = screen.getByTitle("Kill process 1");
+    skull.focus();
+    fireEvent.click(skull);
+    const killQuery = screen.getByText("Kill query");
+    expect(document.activeElement).toBe(killQuery);
+
+    fireEvent.keyDown(killQuery, { key: "Escape" });
+    expect(screen.queryByText("Kill query")).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTitle("Kill process 1"));
+  });
+
+  it("focuses Kill connection when there is no query to kill", async () => {
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    await screen.findAllByText("root");
+    fireEvent.click(screen.getByTitle("Kill process 2"));
+    expect(document.activeElement).toBe(screen.getByText("Kill connection"));
+  });
+
+  it("formats Time and only colours it for running statements (#833)", async () => {
+    render(<AdminPanel connectionId={mockConnectionId} />);
+    const table = await screen.findByRole("table");
+    // 120s running Query: red, shown as minutes.
+    const running = within(table).getByText("2m 0s");
+    expect(running.className).toContain("color-error");
+    // 60s idle Sleep: muted, not alarming.
+    const idle = within(table).getByText("1m 0s");
+    expect(idle.className).toContain("color-text-muted");
+    expect(idle.className).not.toContain("color-error");
+  });
+
   it("shows error on kill failure", async () => {
     vi.mocked(api.killProcess).mockRejectedValue("Kill failed");
     render(<AdminPanel connectionId={mockConnectionId} />);
