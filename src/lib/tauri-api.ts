@@ -49,18 +49,38 @@ type CommandResult<T, E> = { status: "ok"; data: T } | { status: "error"; error:
 export class CommandError extends Error {
   readonly code?: number;
   readonly sqlState?: string;
+  /** Which statement of a multi-statement run failed, zero-based (#845). */
+  readonly statementIndex?: number;
+  /**
+   * The results of the statements that ran before the failing one, when the
+   * backend reports them, so a script's earlier results are not lost with
+   * its error (#845).
+   */
+  readonly completedResults?: QueryResult[];
 
-  constructor(message: string, fields?: { code?: number | null; sqlState?: string | null }) {
+  constructor(
+    message: string,
+    fields?: {
+      code?: number | null;
+      sqlState?: string | null;
+      statementIndex?: number | null;
+      completedResults?: unknown;
+    },
+  ) {
     super(message);
     // Left as "Error" deliberately: the app shows raw `String(e)` in
     // several places, and renaming would prefix every one of them.
     if (fields?.code != null) this.code = fields.code;
     if (fields?.sqlState != null) this.sqlState = fields.sqlState;
+    if (fields?.statementIndex != null) this.statementIndex = fields.statementIndex;
+    if (Array.isArray(fields?.completedResults)) this.completedResults = fields.completedResults as QueryResult[];
   }
 }
 
 /** True for the structured payload the query commands reject with. */
-function isQueryError(e: unknown): e is { message: string; code: number | null; sqlState: string | null } {
+function isQueryError(
+  e: unknown,
+): e is { message: string; code: number | null; sqlState: string | null; statementIndex?: number | null } {
   return typeof e === "object" && e !== null && typeof (e as { message?: unknown }).message === "string";
 }
 

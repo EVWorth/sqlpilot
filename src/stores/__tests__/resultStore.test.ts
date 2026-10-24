@@ -28,12 +28,24 @@ vi.mock("../../lib/tauri-api", () => ({
   CommandError: class CommandError extends Error {
     code?: number;
     sqlState?: string;
-    constructor(message: string, fields?: { code?: number | null; sqlState?: string | null }) {
+    statementIndex?: number;
+    completedResults?: unknown[];
+    constructor(
+      message: string,
+      fields?: {
+        code?: number | null;
+        sqlState?: string | null;
+        statementIndex?: number | null;
+        completedResults?: unknown[];
+      },
+    ) {
       super(message);
       // Left as "Error" deliberately: the app shows raw `String(e)` in
       // several places, and renaming would prefix every one of them.
       if (fields?.code != null) this.code = fields.code;
       if (fields?.sqlState != null) this.sqlState = fields.sqlState;
+      if (fields?.statementIndex != null) this.statementIndex = fields.statementIndex;
+      if (fields?.completedResults) this.completedResults = fields.completedResults;
     }
   },
 }));
@@ -58,6 +70,7 @@ vi.mock("../settingsStore", () => ({
   },
 }));
 
+import { CommandError } from "../../lib/tauri-api";
 import { noteGridEdits, resetGridEdits } from "../../lib/unsaved-grid-edits";
 import type { EditorTab, QueryResult } from "../../types";
 import { useEditorStore } from "../editorStore";
@@ -1124,6 +1137,49 @@ describe("resultStore", () => {
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({ status: "error", connectionName: "Test DB" }),
       );
+    });
+  });
+
+  describe("a script that fails part-way (#845)", () => {
+    const SCRIPT = "SELECT * FROM products;\nSELECT * FROM nope;\nSELECT 1;";
+
+    it("says which statement failed, with its text and code, and no doubled prefix", async () => {
+      executeQueryMock.mockRejectedValue(
+        new CommandError("Table 'shop.nope' doesn't exist", { code: 1146, sqlState: "42S02", statementIndex: 1 }),
+      );
+
+      await useResultStore.getState().executeQuery("conn-1", SCRIPT);
+
+      const state = useResultStore.getState();
+      expect(state.error).toBe("Table 'shop.nope' doesn't exist");
+      expect(state.failedStatement).toEqual({ index: 1, count: 3, sql: "SELECT * FROM nope", code: 1146 });
+    });
+
+    it("keeps what the statements before it returned, when the backend reports them", async () => {
+      const first = makeQueryResult({ query_id: "first", columns: [{ name: "id" }] });
+      executeQueryMock.mockRejectedValue(
+        new CommandError("Table 'shop.nope' doesn't exist", {
+          code: 1146,
+          statementIndex: 1,
+          completedResults: [first],
+        }),
+      );
+
+      await useResultStore.getState().executeQuery("conn-1", SCRIPT);
+
+      const state = useResultStore.getState();
+      expect(state.results).toEqual([first]);
+      expect(state.resultSource?.connectionId).toBe("conn-1");
+      expect(state.error).toBe("Table 'shop.nope' doesn't exist");
+    });
+
+    it("clears the failure when the next run starts", async () => {
+      executeQueryMock.mockRejectedValueOnce(new CommandError("bad", { statementIndex: 0 }));
+      await useResultStore.getState().executeQuery("conn-1", "SELECT nope");
+      executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+
+      expect(useResultStore.getState().failedStatement).toBeNull();
     });
   });
 

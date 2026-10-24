@@ -657,3 +657,23 @@ describe("every result of a script is reachable", () => {
     expect(screen.getAllByRole("tab")[1].getAttribute("aria-selected")).toBe("true");
   });
 });
+
+// #845: a failure part-way through a script kept nothing of what ran before it.
+describe("a script that failed part-way", () => {
+  it("shows the earlier results under the error", () => {
+    state.results = [{ ...baseResult, sql: "SELECT * FROM products", rows: [[1], [2]] }];
+    state.activeResultIndex = 0;
+    state.error = "Table 'shop.nope' doesn't exist";
+    (state as Record<string, unknown>).failedStatement = { index: 1, count: 3, sql: "SELECT * FROM nope", code: 1146 };
+    try {
+      render(<ResultsGrid />);
+
+      expect(screen.getByRole("alert").textContent).toContain("Statement 2 of 3 failed (1146)");
+      // The grid itself, not the placeholder, is drawn under the error.
+      expect(document.querySelector("table")).not.toBeNull();
+    } finally {
+      state.error = null;
+      delete (state as Record<string, unknown>).failedStatement;
+    }
+  });
+});

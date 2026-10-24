@@ -36,3 +36,20 @@ describe("GridPlaceholder", () => {
     expect(screen.getByText("2.0 s")).toBeInTheDocument();
   });
 });
+
+// #845: the box said only "Query Error", not which statement of the script.
+describe("GridPlaceholder failed statement", () => {
+  it("names the statement, its position and its code, and shows its text", () => {
+    render(
+      <GridPlaceholder
+        isExecuting={false}
+        error="Table 'shop.nope' doesn't exist"
+        result={undefined}
+        failedStatement={{ index: 1, count: 3, sql: "SELECT * FROM nope", code: 1146 }}
+      />,
+    );
+
+    expect(screen.getByText("Statement 2 of 3 failed (1146)")).toBeInTheDocument();
+    expect(screen.getByText("SELECT * FROM nope")).toBeInTheDocument();
+  });
+});

@@ -4,6 +4,7 @@ import { connectionKind, dataSourceFor } from "../lib/datasource";
 import { forgetGridMemory } from "../lib/grid-memory";
 import { firstGridIndex } from "../lib/result-label";
 import { noteSession } from "../lib/server-sessions";
+import { splitSqlStatements } from "../lib/sql-import";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
 import { forgetGridEdits, gridEditsIn } from "../lib/unsaved-grid-edits";
@@ -102,6 +103,18 @@ interface PageState {
   hasMore: boolean;
 }
 
+/** Which statement of a script failed, for the error box and the editor (#845). */
+export interface FailedStatement {
+  /** Zero-based. */
+  index: number;
+  /** How many statements the run had. */
+  count: number;
+  /** The statement's text, as it appears in the SQL that ran. */
+  sql: string | null;
+  /** The driver's error number, when it gave one. */
+  code: number | null;
+}
+
 /** The connection, database and editor tab session a result was read on. */
 export interface ResultSource {
   connectionId: string;
@@ -117,6 +130,8 @@ interface ResultState {
   /** When the statement on screen started, for the elapsed-time counter. */
   executionStartedAt: number | null;
   error: string | null;
+  /** Set alongside `error` when a script failed at a known statement (#845). */
+  failedStatement: FailedStatement | null;
   /**
    * How long the statement had run when the user cancelled it. A cancel is
    * something the user asked for, so it is shown as information rather than
@@ -243,6 +258,7 @@ export type TabResultSlice = Pick<
   | "isExecuting"
   | "executionStartedAt"
   | "error"
+  | "failedStatement"
   | "cancelledAfterMs"
   | "page"
   | "resultSource"
@@ -263,6 +279,7 @@ const EMPTY_SLICE: TabResultSlice = {
   isExecuting: false,
   executionStartedAt: null,
   error: null,
+  failedStatement: null,
   cancelledAfterMs: null,
   page: null,
   resultSource: null,
@@ -538,6 +555,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
   isExecuting: false,
   executionStartedAt: null,
   error: null,
+  failedStatement: null,
   cancelledAfterMs: null,
   page: null,
   resultSource: null,
@@ -633,6 +651,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
         results: [],
         activeResultIndex: 0,
         error: null,
+        failedStatement: null,
         cancelledAfterMs: null,
         page: null,
         resultSource: null,
@@ -732,6 +751,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       isExecuting: tabBusy(tab),
       executionStartedAt: null,
       error: null,
+      failedStatement: null,
       cancelledAfterMs: startedAt === null ? 0 : Math.max(0, Date.now() - startedAt),
       results: [],
       activeResultIndex: 0,
@@ -800,6 +820,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       results: [],
       activeResultIndex: 0,
       error: null,
+      failedStatement: null,
       cancelledAfterMs: null,
       page: null,
       resultSource: null,
@@ -807,7 +828,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       explainNotice: null,
       showExplain: false,
     }),
-  clearError: () => set({ error: null }),
+  clearError: () => set({ error: null, failedStatement: null }),
 
   executeExplain: async (connectionId, sql, database, format, session) => {
     await doExplain(connectionId, sql, false, targetFor(session), database, format, session);
@@ -865,6 +886,7 @@ async function doExplain(
       isExecuting: true,
       executionStartedAt: Date.now(),
       error: null,
+      failedStatement: null,
       cancelledAfterMs: null,
       explainNotice: null,
       explainRequestedFormat: format,
@@ -944,7 +966,13 @@ async function doExecuteQuery(
   let shown = false;
 
   try {
-    set({ isExecuting: true, executionStartedAt: Date.now(), error: null, cancelledAfterMs: null });
+    set({
+      isExecuting: true,
+      executionStartedAt: Date.now(),
+      error: null,
+      failedStatement: null,
+      cancelledAfterMs: null,
+    });
     // Through the data source, so the editor runs a statement the same way
     // whichever backend the connection belongs to (#461).
     // Noted before the call: the backend opens the session as the statement
@@ -1015,10 +1043,10 @@ async function doExecuteQuery(
     // entry would record an attempt rather than a query — and fifty rows
     // saying "Unknown connection" are fifty rows a user cannot act on or
     // trace back to anything (#328).
+    // The driver's code and SQLSTATE ride along where it supplied them, so
+    // the history panel can say which failure this was (#324).
+    const structured = e instanceof CommandError ? e : undefined;
     if (conn) {
-      // The driver's code and SQLSTATE ride along where it supplied them, so
-      // the history panel can say which failure this was (#324).
-      const structured = e instanceof CommandError ? e : undefined;
       void useHistoryStore.getState().addEntry({
         id: crypto.randomUUID(),
         sql,
@@ -1037,12 +1065,43 @@ async function doExecuteQuery(
 
     if (isCurrent(run)) {
       shown = true;
-      set({ error: String(e), isExecuting: tabBusy(run.tab, run), results: [], page: null, resultSource: null });
+      // What the statements before the failing one returned stays on screen,
+      // when the backend reports it, and the error says which one failed
+      // (#845). The message alone: the box is already titled as an error, and
+      // `String(e)` prefixed it with "Error: " (#853).
+      const completed = structured?.completedResults ?? [];
+      set({
+        error: e instanceof Error ? e.message : String(e),
+        failedStatement: failedStatementOf(sql, structured),
+        isExecuting: tabBusy(run.tab, run),
+        results: completed,
+        activeResultIndex: firstGridIndex(completed),
+        page: null,
+        resultSource: completed.length > 0
+          ? {
+            connectionId,
+            database: effectiveDatabase,
+            session: dataSourceFor(connectionId).kind === "mysql" ? session : undefined,
+          }
+          : null,
+      });
     }
     return { status: "failed", error: String(e) };
   } finally {
     endExecution(run, shown);
   }
+}
+
+/** Which statement of `sql` the error names, when it names one (#845). */
+function failedStatementOf(sql: string, e: CommandError | undefined): FailedStatement | null {
+  if (e?.statementIndex === undefined) return null;
+  const statements = splitSqlStatements(sql);
+  return {
+    index: e.statementIndex,
+    count: Math.max(statements.length, e.statementIndex + 1),
+    sql: statements[e.statementIndex] ?? null,
+    code: e.code ?? null,
+  };
 }
 
 /** One history entry per statement of a run that succeeded. */

@@ -25,7 +25,7 @@ import { GridBanners } from "./GridBanners";
 import { GridCellContext, type GridCellState } from "./GridCell";
 import { GridFooter } from "./GridFooter";
 import { GridHeaderRow } from "./GridHeaderRow";
-import { GridPlaceholder } from "./GridPlaceholder";
+import { GridPlaceholder, QueryErrorBox } from "./GridPlaceholder";
 import { TableGridRows, VirtualGridRows } from "./GridRows";
 import { ResultTabs } from "./ResultTabs";
 
@@ -42,6 +42,7 @@ export function ResultsGrid() {
   const activeResultIndex = useResultStore((s) => s.activeResultIndex);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const error = useResultStore((s) => s.error);
+  const failedStatement = useResultStore((s) => s.failedStatement);
   const executionStartedAt = useResultStore((s) => s.executionStartedAt);
   const cancelledAfterMs = useResultStore((s) => s.cancelledAfterMs);
   const page = useResultStore((s) => s.page);
@@ -361,7 +362,10 @@ export function ResultsGrid() {
 
   // Running, failed, a statement that returned a count, or nothing run yet —
   // none of which is a grid.
-  if (isExecuting || error || !activeResult || activeResult.columns.length === 0) {
+  // A script that failed part-way still shows what the statements before the
+  // failing one returned, under the error (#845).
+  const errorOverResults = error !== null && results.length > 0;
+  if (isExecuting || (error && !errorOverResults) || !activeResult || activeResult.columns.length === 0) {
     const placeholder = (
       <GridPlaceholder
         isExecuting={isExecuting}
@@ -369,6 +373,7 @@ export function ResultsGrid() {
         result={activeResult}
         startedAt={executionStartedAt}
         cancelledAfterMs={cancelledAfterMs}
+        failedStatement={failedStatement}
       />
     );
     if (!resultTabs || results.length < 2) return placeholder;
@@ -383,6 +388,10 @@ export function ResultsGrid() {
   return (
     // tabIndex so the grid can hold focus, which is what scopes Ctrl+A to it.
     <div ref={gridRef} tabIndex={-1} className="flex h-full flex-col min-h-0 outline-none">
+      {errorOverResults && error && (
+        <QueryErrorBox error={error} failedStatement={failedStatement} className="m-2 shrink-0 p-2" />
+      )}
+
       {resultTabs}
 
       {/* Edit toolbar */}

@@ -2,6 +2,7 @@ import Editor, { type OnMount, useMonaco } from "@monaco-editor/react";
 import type { editor, IDisposable } from "monaco-editor";
 import { useCallback, useEffect, useRef } from "react";
 import { useSchemaCompletion } from "../../hooks/useSchemaCompletion";
+import { statementRange } from "../../lib/error-marker";
 import { runConnectionId } from "../../lib/run-connection";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { formatSql } from "../../lib/sql-format";
@@ -37,6 +38,9 @@ function activeTabContext(): { connectionId?: string; database?: string; session
     session: tab?.type === "query" ? tab.id : undefined,
   };
 }
+
+/** Who owns the markers a failed run leaves, so they replace only each other. */
+const RUN_MARKER_OWNER = "sqlpilot-run";
 
 export function SQLEditor() {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
@@ -141,6 +145,28 @@ export function SQLEditor() {
     schemaCache.fetchViews,
     schemaCache.fetchColumns,
   ]);
+
+  // Mark the statement a script failed at, so the user is shown where to look
+  // rather than having to count statements (#845). Cleared by the next run.
+  const failedStatement = useResultStore((s) => s.failedStatement);
+  const failedError = useResultStore((s) => s.error);
+  useEffect(() => {
+    const model = editorRef.current?.getModel();
+    if (!monaco || !model) return;
+    const range = failedStatement?.sql ? statementRange(model.getValue(), failedStatement.sql) : null;
+    monaco.editor.setModelMarkers(
+      model,
+      RUN_MARKER_OWNER,
+      range
+        ? [{
+          ...range,
+          severity: monaco.MarkerSeverity.Error,
+          message: failedError ?? "This statement failed",
+          code: failedStatement?.code != null ? String(failedStatement.code) : undefined,
+        }]
+        : [],
+    );
+  }, [monaco, failedStatement, failedError, activeTabId]);
 
   const handleMount: OnMount = useCallback(
     (editor, _monacoInstance) => {
