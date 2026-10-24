@@ -103,8 +103,12 @@ export function applyEvent(items: TranscriptItem[], event: SessionEvent): Transc
 
     case "plan": {
       // Replaced rather than appended: a plan that is revised three times
-      // should show once, as it stands now.
-      const index = items.findIndex((item) => item.kind === "plan");
+      // should show once, as it stands now. Only within the current turn,
+      // though — the next question gets a plan of its own, next to its own
+      // answer, rather than rewriting one that has scrolled out of view.
+      const turnStart = currentTurnStart(items);
+      const offset = items.slice(turnStart).findIndex((item) => item.kind === "plan");
+      const index = offset === -1 ? -1 : turnStart + offset;
       const entry: TranscriptItem = { kind: "plan", entries: event.entries };
       if (index === -1) return [...items, entry];
       return [...items.slice(0, index), entry, ...items.slice(index + 1)];
@@ -123,6 +127,14 @@ export function applyEvent(items: TranscriptItem[], event: SessionEvent): Transc
     case "started":
       return items;
   }
+}
+
+/** Where the turn in progress begins: just after the user's latest message. */
+function currentTurnStart(items: TranscriptItem[]): number {
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind === "user") return i + 1;
+  }
+  return 0;
 }
 
 /** Mark a permission as answered, so its buttons stop inviting a second click. */

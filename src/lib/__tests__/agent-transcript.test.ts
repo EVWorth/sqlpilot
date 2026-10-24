@@ -115,6 +115,16 @@ describe("plans", () => {
     expect(items[0].kind).toBe("plan");
     expect(items[1].kind).toBe("agent");
   });
+
+  it("gives each turn its own plan", () => {
+    // The second question's plan belongs next to the second answer, not in
+    // the first turn's box at the top of the transcript.
+    const first = fold([plan(["completed"]), text("first answer")], addUserMessage([], "one"));
+    const items = fold([plan(["in_progress"]), plan(["completed"])], addUserMessage(first, "two"));
+    expect(items.map((item) => item.kind)).toEqual(["user", "plan", "agent", "user", "plan"]);
+    expect((items[1] as Extract<TranscriptItem, { kind: "plan" }>).entries[0].status).toBe("completed");
+    expect((items[4] as Extract<TranscriptItem, { kind: "plan" }>).entries[0].status).toBe("completed");
+  });
 });
 
 describe("permissions", () => {
