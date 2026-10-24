@@ -1,5 +1,6 @@
 import { CheckCircle, Clock, X, XCircle } from "lucide-react";
 import type { MouseEvent } from "react";
+import { formatDurationMs } from "../../lib/format-duration";
 import { cn } from "../../lib/utils";
 import type { HistoryEntry } from "../../stores/historyStore";
 
@@ -66,7 +67,9 @@ export function HistoryEntryRow({
               <Clock className="h-2.5 w-2.5" />
               {formatRelativeTime(entry.executedAt)}
             </span>
-            <span>{entry.executionTimeMs}ms</span>
+            <span title={`${entry.executionTimeMs.toLocaleString()} ms`}>
+              {formatDurationMs(entry.executionTimeMs)}
+            </span>
             {entry.origin !== "editor" && (
               <span
                 className="rounded bg-[var(--color-bg-tertiary)] px-1 text-[9px]"

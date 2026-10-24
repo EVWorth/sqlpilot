@@ -1,7 +1,8 @@
 import { Download, FileText, Play, Search, SlidersHorizontal, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { groupConsecutive } from "../../lib/history-grouping";
+import { localDayEnd, localDayStart, toLocalYmd } from "../../lib/local-date";
 import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -16,6 +17,13 @@ import {
 } from "../../stores/historyStore";
 import { useResultStore } from "../../stores/resultStore";
 import { HistoryEntryRow } from "./HistoryEntryRow";
+
+/**
+ * How long typing has to pause before the search is sent. Each search is two
+ * IPC reads (the page and the count), and typing "select" used to make twelve
+ * of them (#836).
+ */
+const SEARCH_DEBOUNCE_MS = 200;
 
 /** Shared class for the small filter controls, so they line up. */
 const CONTROL =
@@ -75,6 +83,26 @@ export function QueryHistory() {
 
   const { contextMenu, showContextMenu } = useContextMenu();
   const [showFilters, setShowFilters] = useState(false);
+  // The box is edited locally and sent to the store after a pause. A change
+  // from elsewhere (Reset) is copied back in when the store's value moves.
+  const [searchDraft, setSearchDraft] = useState(filters.search);
+  const [seenSearch, setSeenSearch] = useState(filters.search);
+  if (filters.search !== seenSearch) {
+    setSeenSearch(filters.search);
+    setSearchDraft(filters.search);
+  }
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+  }, []);
+  const handleSearchChange = (value: string) => {
+    setSearchDraft(value);
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      searchTimer.current = null;
+      void setFilters({ search: value });
+    }, SEARCH_DEBOUNCE_MS);
+  };
   const [exporting, setExporting] = useState(false);
 
   // Entries come from the database now, so the panel has to ask for them.
@@ -192,8 +220,9 @@ export function QueryHistory() {
           <input
             type="text"
             placeholder="Search history..."
-            value={filters.search}
-            onChange={(e) => void setFilters({ search: e.target.value })}
+            aria-label="Search history"
+            value={searchDraft}
+            onChange={(e) => handleSearchChange(e.target.value)}
             className="w-full rounded bg-[var(--color-bg-primary)] py-1 pl-6 pr-2 text-[11px] text-[var(--color-text-primary)] placeholder-[var(--color-text-muted)] outline-none ring-1 ring-[var(--color-border)] focus:ring-brand-500"
           />
         </div>
@@ -250,24 +279,22 @@ export function QueryHistory() {
             <input
               id="history-after"
               type="date"
-              value={filters.executedAfter.slice(0, 10)}
+              value={toLocalYmd(filters.executedAfter)}
               onChange={(e) =>
-                void setFilters({
-                  executedAfter: e.target.value ? `${e.target.value}T00:00:00Z` : "",
-                })}
+                // Local midnight: the picker's day is the user's day, not
+                // UTC's (#836).
+                void setFilters({ executedAfter: localDayStart(e.target.value) })}
               className={CONTROL}
             />
             <label htmlFor="history-before">to</label>
             <input
               id="history-before"
               type="date"
-              value={filters.executedBefore.slice(0, 10)}
+              value={toLocalYmd(filters.executedBefore)}
               onChange={(e) =>
-                // End of day, so "to the 3rd" includes the 3rd rather than
-                // stopping at midnight before it.
-                void setFilters({
-                  executedBefore: e.target.value ? `${e.target.value}T23:59:59Z` : "",
-                })}
+                // End of the local day, so "to the 3rd" includes the 3rd
+                // rather than stopping at midnight before it.
+                void setFilters({ executedBefore: localDayEnd(e.target.value) })}
               className={CONTROL}
             />
           </div>
