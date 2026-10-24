@@ -854,6 +854,36 @@ describe("resultStore", () => {
   });
 
   describe("cancelActiveQuery", () => {
+    // #860: the previous plan stayed up, reading as the cancelled one's.
+    it("clears the previous plan when the run cancelled is an Explain", async () => {
+      useResultStore.setState({
+        explainResult: makeQueryResult({ query_id: "old-plan" }) as QueryResult,
+        showExplain: true,
+        explainNotice: "old notice",
+      });
+      explainQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
+      void useResultStore.getState().executeExplain("conn-1", "SELECT * FROM big");
+
+      await useResultStore.getState().cancelActiveQuery();
+
+      const state = useResultStore.getState();
+      expect(state.explainResult).toBeNull();
+      expect(state.showExplain).toBe(false);
+      expect(state.explainNotice).toBeNull();
+      expect(state.cancelledAfterMs).not.toBeNull();
+    });
+
+    it("keeps the plan when the run cancelled is a query", async () => {
+      const plan = makeQueryResult({ query_id: "plan" }) as QueryResult;
+      useResultStore.setState({ explainResult: plan, showExplain: true });
+      executeQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
+      void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)");
+
+      await useResultStore.getState().cancelActiveQuery();
+
+      expect(useResultStore.getState().explainResult).toBe(plan);
+    });
+
     it("sets isExecuting to false", async () => {
       useResultStore.setState({ isExecuting: true });
 

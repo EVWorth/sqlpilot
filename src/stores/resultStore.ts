@@ -350,6 +350,8 @@ interface Execution extends RunTarget {
   cancelled: boolean;
   /** Set when its tab closed, so nothing is written for it any more. */
   orphaned: boolean;
+  /** True for an Explain or Explain Analyze, whose cancel clears the plan (#860). */
+  explain?: boolean;
 }
 
 /**
@@ -717,6 +719,11 @@ export const useResultStore = create<ResultState>((set, get) => ({
       activeResultIndex: 0,
       page: null,
       resultSource: null,
+      // The plan on screen is the previous statement's, and left there it
+      // read as the plan of the one just cancelled (#860).
+      ...(running?.explain
+        ? { explainResult: null, explainNotice: null, explainAnalyze: false, explainTabular: false, showExplain: false }
+        : {}),
     });
     if (!connectionId) return;
     try {
@@ -829,6 +836,7 @@ async function doExplain(
   }
 
   const run = startExecution(target, connectionId, session);
+  run.explain = true;
   // Looked up at each write: a run started under no tab moves to the tab
   // that adopts it (see adoptUntabbed).
   const set: SliceWriter = (partial) => tabWriter(run.tab)(partial);
