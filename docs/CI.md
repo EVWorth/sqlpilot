@@ -17,20 +17,20 @@ The first job in `ci.yml`, `detect-changes`, runs `dorny/paths-filter` against
 the PR's base and publishes one output per area. Every other job is gated on
 those outputs, so a docs-only PR runs neither the Rust nor the frontend suite.
 
-| Output      | Paths                                                                                         | Jobs it turns on                                         |
-| ----------- | --------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
-| `frontend`  | `src/**`, `package*.json`, `vitest*.config.ts`, `eslint.config.js`, `.node-version`, `ci.yml` | `lint-ts`, `test-frontend`, `check-test-mocks`, `dprint` |
-| `rust`      | `src-tauri/**`, `rust-toolchain.toml`, `ci.yml`                                               | `lint-rust`, `test-rust`, `check-docs`                   |
-| `npm`       | `package.json`, `package-lock.json`                                                           | `npm-audit`, `check-versions`                            |
-| `cargo`     | `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`                                                | `cargo-audit`, `check-versions`                          |
-| `docs`      | `docs/**`, `README.md`, `CLAUDE.md`, `.claude/**`                                             | `check-docs`, `dprint`                                   |
-| `workflows` | `.github/workflows/**`, `scripts/**`                                                          | `lint-workflows`, `check-docs`, `check-test-mocks`       |
-| `config`    | `lefthook.yml`, `eslint.config.js`, `dprint.json`, `vitest*.config.ts`                        | `dprint`                                                 |
+| Output      | Paths                                                                                             | Jobs it turns on                                         |
+| ----------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `frontend`  | `src/**`, `package*.json`, `vitest*.config.ts`, `eslint.config.js`, `.node-version`, `ci.yml`     | `lint-ts`, `test-frontend`, `check-test-mocks`, `dprint` |
+| `rust`      | `src-tauri/**`, `rust-toolchain.toml`, `ci.yml`                                                   | `lint-rust`, `test-rust`, `check-docs`                   |
+| `npm`       | `package.json`, `package-lock.json`                                                               | `npm-audit`, `check-versions`                            |
+| `cargo`     | `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`                                                    | `cargo-audit`, `check-versions`                          |
+| `docs`      | `docs/**`, `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, `REVIEW.md`, `**/CLAUDE.md`, `.claude/**` | `check-docs`, `dprint`                                   |
+| `workflows` | `.github/workflows/**`, `scripts/**`                                                              | `lint-workflows`, `check-docs`, `check-test-mocks`       |
+| `config`    | `lefthook.yml`, `eslint.config.js`, `dprint.json`, `vitest*.config.ts`                            | `dprint`                                                 |
 
 `ci.yml` is in both `frontend` and `rust` so that editing the workflow runs
 the jobs it defines. The `dprint` job checks only the files the PR changed.
-Root files outside every filter (for example `CONTRIBUTING.md` or
-`justfile`) trigger no job at all.
+Root files outside every filter (for example `justfile`) trigger no job at
+all.
 
 ## Workflow lint
 

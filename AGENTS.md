@@ -66,7 +66,9 @@ and don't report one as passing that you didn't run.
    `just bindings`, never by hand), `src/lib/tauri-api.ts`, a mock handler in
    `src/dev/mock/handlers/`, and tests. `src/dev/mock/__tests__/coverage.test.ts`
    fails if the mock is missing.
-3. **TS types are snake_case**, matching Rust serde. Don't camelCase them.
+3. **TS field names follow Rust serde**, which is snake_case by default. A
+   few types opt into `#[serde(rename_all = "camelCase")]` (`QueryError`,
+   `StartupProblem`); check the Rust type rather than guessing.
 4. **`@/` is a test-only alias.** It resolves in `vitest.config.ts` and
    `tsconfig.json`, not in `vite.config.ts`. App code imports relatively; tests
    may use `@/`.
