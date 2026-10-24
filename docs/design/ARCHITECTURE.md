@@ -661,7 +661,8 @@ mas_core::connection::store
 OS credential store (keyring-core, one native store per platform)
   Windows: Credential Manager   (windows-native-keyring-store)
   macOS:   Keychain             (apple-native-keyring-store)
-  Linux:   kernel keyutils      (linux-keyutils-keyring-store)
+  Linux:   Secret Service       (dbus-secret-service-keyring-store)
+           falls back to kernel keyutils (linux-keyutils-keyring-store)
 ```
 
 - The `password` column in `connection_profiles` is left empty. Plaintext
@@ -669,6 +670,9 @@ OS credential store (keyring-core, one native store per platform)
   column cleared. SSH passwords and passphrases use their own keyring slots.
 - Passwords are never serialized back to the frontend
   (`#[serde(skip_serializing)]`).
+- On Linux the Secret Service (GNOME Keyring, KWallet) is used whenever the
+  session has one. Without it the app falls back to kernel keyutils, which
+  is in memory only: saved passwords last until the next reboot (#877).
 - With no credential store at startup, the app runs anyway: profiles work,
   passwords are not remembered, and the status bar says so (#278). A store
   that is merely locked is not treated as "no password", so a save cannot

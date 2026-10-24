@@ -24,11 +24,27 @@ use tracing_subscriber::EnvFilter;
 /// a fatal condition: profiles still work, passwords just are not remembered.
 fn init_keyring() {
     let result: Result<(), String> = {
+        // The Secret Service (GNOME Keyring, KWallet) keeps passwords on disk.
+        // Kernel keyutils is only a fallback for sessions without one: it
+        // lives in memory, so what it holds is gone after a reboot (#877).
         #[cfg(target_os = "linux")]
         {
-            linux_keyutils_keyring_store::Store::new()
-                .map(|store| mas_core::connection::init_keyring(store))
-                .map_err(|e| e.to_string())
+            match dbus_secret_service_keyring_store::Store::new() {
+                Ok(store) => {
+                    mas_core::connection::init_keyring(store);
+                    Ok(())
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "No Secret Service — falling back to the kernel keyring. \
+                         Saved passwords will last until the next reboot."
+                    );
+                    linux_keyutils_keyring_store::Store::new()
+                        .map(|store| mas_core::connection::init_keyring(store))
+                        .map_err(|e| e.to_string())
+                }
+            }
         }
         #[cfg(target_os = "windows")]
         {

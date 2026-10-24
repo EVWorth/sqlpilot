@@ -73,8 +73,8 @@ It assumes:
 ## Credentials
 
 Connection passwords and SSH secrets are stored in the OS credential store via
-`keyring-core` (Windows Credential Manager, macOS Keychain, Linux kernel
-keyutils), never in SQLite, and never sent back to the frontend. Details:
+`keyring-core` (Windows Credential Manager, macOS Keychain, the Linux Secret
+Service, with kernel keyutils as an in-memory fallback), never in SQLite, and never sent back to the frontend. Details:
 [ARCHITECTURE.md](./design/ARCHITECTURE.md) section 6.1.
 
 ## Agent Endpoint
