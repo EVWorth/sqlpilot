@@ -15,6 +15,12 @@ interface EditToolbarProps {
    * responses from the user.
    */
   keyWarning: string | null;
+  /**
+   * Why Edit Mode cannot be entered at all, or null when it can: the result's
+   * source is unknown, so there is no table to look the key up in (#857).
+   * Leaving Edit Mode stays possible.
+   */
+  editBlockedReason?: string | null;
   isSaving: boolean;
   onAddRow: () => void;
   onSave: () => void;
@@ -31,6 +37,7 @@ export function EditToolbar({
   pendingCount,
   hasChanges,
   keyWarning,
+  editBlockedReason = null,
   isSaving,
   onAddRow,
   onSave,
@@ -44,12 +51,14 @@ export function EditToolbar({
     <div className="flex items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1">
       <button
         onClick={onToggleEditMode}
-        className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors ${
+        disabled={!editMode && editBlockedReason !== null}
+        aria-pressed={editMode}
+        className={`flex items-center gap-1 rounded px-2 py-0.5 text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
           editMode
             ? "bg-brand-600 text-white"
             : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
         }`}
-        title={editMode ? "Exit edit mode" : "Enter edit mode"}
+        title={editMode ? "Exit edit mode" : editBlockedReason ?? "Enter edit mode"}
       >
         <Pencil className="h-3 w-3" />
         Edit Mode

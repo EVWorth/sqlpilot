@@ -17,8 +17,6 @@ import { gridFeatures } from "../../lib/grid-features";
 import { recallGrid, useKeepGridOnUnmount } from "../../lib/grid-memory";
 import { columnTypesOf } from "../../lib/sql-generator";
 import { isNumericSqlType } from "../../lib/sql-types";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import type { SqlValue } from "../../types";
 import { CellViewerModal } from "./CellViewerModal";
@@ -107,10 +105,17 @@ export function ResultsGrid() {
 
   const activeResult = results[activeResultIndex];
 
-  const activeEditorTab = useEditorStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
-  const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
-  const gridConnectionId = activeEditorTab?.connectionId ?? selectedConnectionId;
-  const gridDatabase = activeEditorTab?.database ?? null;
+  // Where the result on screen was read, never the editor tab's current
+  // connection and database: the tab can be pointed elsewhere after the query
+  // ran, and a row key read from another server's table of the same name puts
+  // the wrong columns in the WHERE of an UPDATE or DELETE (#857).
+  const resultSource = useResultStore((s) => s.resultSource);
+  const gridConnectionId = resultSource?.connectionId ?? null;
+  const gridDatabase = resultSource?.database ?? null;
+  // Saving needs the source too; without it there is nowhere safe to write.
+  const editBlockedReason = resultSource
+    ? null
+    : "Editing is unavailable: the connection this result came from is unknown. Run the query again.";
 
   // FR-3.1.5: a dragged column order outlives the query that produced it.
   const layout = useColumnLayout(gridConnectionId, gridDatabase, activeResult?.columns);
@@ -354,6 +359,7 @@ export function ResultsGrid() {
       <EditToolbar
         editMode={editing.editMode}
         onToggleEditMode={editing.toggleEditMode}
+        editBlockedReason={editBlockedReason}
         pendingCount={editing.pendingCount}
         hasChanges={editing.hasChanges}
         keyWarning={keyWarning}

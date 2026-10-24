@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { layoutKey } from "../../../lib/grid-layout";
 import { runStatement } from "../../../lib/run-statement";
+import { api } from "../../../lib/tauri-api";
 import type { QueryResult } from "../../../types";
 import { ResultsGrid } from "../ResultsGrid";
 
@@ -190,5 +192,43 @@ describe("cells keep their DOM node across a row click (#841)", () => {
     fireEvent.doubleClick(cell);
 
     expect(screen.getByDisplayValue("ada")).toBeDefined();
+  });
+});
+
+describe("the row key comes from where the result was read (#857)", () => {
+  it("looks the key up on the result's connection, not the tab's current one", async () => {
+    // The tab was pointed at another server after the query ran there.
+    editorTabs = [{ id: "tab-1", content: "SELECT * FROM users", connectionId: "conn-2", database: "other" }];
+    render(<ResultsGrid />);
+
+    await waitFor(() => expect(api.getColumns).toHaveBeenCalled());
+    expect(vi.mocked(api.getColumns).mock.calls.every(([conn, db]) => conn === "conn-1" && db === "app")).toBe(true);
+  });
+
+  it("keys the column layout by the result's connection and database", async () => {
+    editorTabs = [{ id: "tab-1", content: "SELECT * FROM users", connectionId: "conn-2", database: "other" }];
+    localStorage.setItem(
+      layoutKey("conn-1", "app", ["id", "name"]) ?? "",
+      JSON.stringify({ columnOrder: ["name", "id"] }),
+    );
+    render(<ResultsGrid />);
+
+    await waitFor(() =>
+      expect([...document.querySelectorAll("thead th")].slice(1).map((th) => th.textContent?.trim())).toEqual([
+        "namevarchar",
+        "idint",
+      ])
+    );
+    localStorage.clear();
+  });
+
+  it("refuses Edit Mode when the result's source is unknown", () => {
+    resultState.resultSource = null;
+    render(<ResultsGrid />);
+
+    const toggle = screen.getByRole("button", { name: /edit mode/i });
+    expect(toggle).toBeDisabled();
+    expect(toggle.getAttribute("title")).toMatch(/unknown/);
+    expect(api.getColumns).not.toHaveBeenCalled();
   });
 });

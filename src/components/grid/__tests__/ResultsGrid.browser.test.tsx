@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useContextMenu } from "../../../hooks/useContextMenu";
@@ -24,6 +24,7 @@ const resultState = {
       hasMore: boolean;
     }
     | null,
+  resultSource: null as { connectionId: string; database?: string; session?: string } | null,
 };
 
 const mockGoToPage = vi.fn();
@@ -293,6 +294,7 @@ function resetState() {
   resultState.isExecuting = false;
   resultState.error = null;
   resultState.page = null;
+  resultState.resultSource = null;
   mockGoToPage.mockReset();
   editorTabs = [];
   editorActiveTabId = null;
@@ -337,6 +339,7 @@ describe("ResultsGrid (browser)", () => {
         connectionId: "conn-1",
         database: "app",
       }];
+      resultState.resultSource = { connectionId: "conn-1", database: "app" };
       editorActiveTabId = "tab-0";
     });
 
@@ -1467,6 +1470,7 @@ describe("Copy as INSERT", () => {
     } as never);
     resultState.results = [makeResult()];
     editorTabs = [{ id: "tab-0", content: "SELECT id, name FROM users", connectionId: "conn-1" }];
+    resultState.resultSource = { connectionId: "conn-1" };
     editorActiveTabId = "tab-0";
   });
 
@@ -1631,6 +1635,7 @@ describe("setting a cell to NULL", () => {
     } as never);
     resultState.results = [makeResult()];
     editorTabs = [{ id: "tab-0", content: "SELECT id, name FROM users", connectionId: "conn-1" }];
+    resultState.resultSource = { connectionId: "conn-1" };
     editorActiveTabId = "tab-0";
     mockGridEditing.editMode = true;
     mockGridEditing.editCell.mockClear();
@@ -1666,6 +1671,7 @@ describe("setting a cell to NULL", () => {
       connectionId: "conn-1",
       database: "app",
     }];
+    resultState.resultSource = { connectionId: "conn-1", database: "app" };
     localStorage.setItem(
       layoutKey("conn-1", "app", ["id", "name"])!,
       JSON.stringify({ columnOrder: ["name", "id"] }),
@@ -1725,6 +1731,7 @@ describe("row count", () => {
       connectionId: "conn-1",
       database: "app",
     }];
+    resultState.resultSource = { connectionId: "conn-1", database: "app" };
     editorActiveTabId = "tab-0";
     vi.mocked(runStatement).mockReset();
     vi.mocked(runStatement).mockResolvedValue([] as never);
@@ -1826,6 +1833,7 @@ describe("row selection", () => {
     } as never);
     resultState.results = [makeResult()];
     editorTabs = [{ id: "tab-0", content: "SELECT id, name FROM users", connectionId: "conn-1" }];
+    resultState.resultSource = { connectionId: "conn-1" };
     editorActiveTabId = "tab-0";
     vi.mocked(resolveEditTarget).mockReturnValue({ editable: true, table: "users" } as never);
   });
@@ -1878,6 +1886,7 @@ describe("row selection", () => {
       connectionId: "conn-1",
       database: "app",
     }];
+    resultState.resultSource = { connectionId: "conn-1", database: "app" };
     const { rerender } = render(<ResultsGrid />);
     fireEvent.click(bodyRows()[0]);
     expect(selected()).toHaveLength(1);
