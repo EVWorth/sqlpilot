@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { apiMocks } = vi.hoisted(() => ({
@@ -11,6 +11,7 @@ const { apiMocks } = vi.hoisted(() => ({
     answerAgentPermission: vi.fn(),
     agentEndpointStatus: vi.fn(),
     listAgentConnections: vi.fn(),
+    answerAgentRequest: vi.fn(),
   },
 }));
 
@@ -20,6 +21,7 @@ import { useAgentSessionStore } from "../../../stores/agentSessionStore";
 import { useAgentStore } from "../../../stores/agentStore";
 import { useDialogStore } from "../../../stores/dialogStore";
 import { AgentPanel } from "../AgentPanel";
+import { ApprovalDialog } from "../ApprovalDialog";
 
 const copilot = {
   harness: "copilot" as const,
@@ -67,7 +69,8 @@ beforeEach(() => {
   apiMocks.answerAgentPermission.mockResolvedValue(null);
   apiMocks.agentEndpointStatus.mockResolvedValue({ running: true, url: null, token: null });
   apiMocks.listAgentConnections.mockResolvedValue([]);
-  useAgentStore.setState({ connections: [], error: null });
+  apiMocks.answerAgentRequest.mockResolvedValue(null);
+  useAgentStore.setState({ connections: [], error: null, approval: null, approvals: [], proposal: null });
   useDialogStore.setState({ open: null });
 });
 
@@ -126,6 +129,73 @@ describe("before a session", () => {
     open();
     fireEvent.click(await screen.findByRole("button", { name: /Start GitHub Copilot/ }));
     await waitFor(() => expect(apiMocks.startAgentSession).toHaveBeenCalledWith("copilot"));
+  });
+});
+
+describe("focus", () => {
+  // Monaco keeps Tab, so without this a keyboard user cannot reach the panel.
+  it("moves to the first Start button when the panel opens", async () => {
+    open();
+    const startButton = await screen.findByRole("button", { name: /Start GitHub Copilot/ });
+    await waitFor(() => expect(document.activeElement).toBe(startButton));
+  });
+
+  it("moves to the message box when a session is already running", () => {
+    useAgentSessionStore.setState(running);
+    open();
+    expect(document.activeElement).toBe(screen.getByLabelText("Message the agent"));
+  });
+
+  it("moves to the message box once a session starts", async () => {
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: /Start GitHub Copilot/ }));
+    const box = await screen.findByLabelText("Message the agent");
+    await waitFor(() => expect(document.activeElement).toBe(box));
+  });
+
+  it("comes back to the message box after an approval closes", async () => {
+    useAgentSessionStore.setState(running);
+    render(
+      <>
+        <AgentPanel onClose={() => {}} />
+        <ApprovalDialog />
+      </>,
+    );
+    const box = screen.getByLabelText("Message the agent");
+    // Arriving while focus was nowhere: the dialog would hand it back to
+    // <body> when it closes.
+    box.blur();
+    act(() => {
+      useAgentStore.getState().showApproval({
+        id: "a1",
+        connection: "Local dev",
+        environment: "development",
+        sql: "DELETE FROM t",
+        change: "write",
+      });
+    });
+    expect(screen.getByRole("dialog").contains(document.activeElement)).toBe(true);
+
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    await waitFor(() => expect(document.activeElement).toBe(box));
+  });
+
+  it("comes back to the message box after answering a permission", async () => {
+    useAgentSessionStore.setState({
+      ...running,
+      transcript: [{
+        kind: "permission",
+        id: "p1",
+        title: "Run `ls`",
+        options: [{ id: "yes", label: "Allow once", kind: "allow_once" }],
+      }],
+    });
+    open();
+    const allow = screen.getByRole("button", { name: "Allow once" });
+    allow.focus();
+    fireEvent.click(allow);
+    expect(document.activeElement).toBe(screen.getByLabelText("Message the agent"));
   });
 });
 

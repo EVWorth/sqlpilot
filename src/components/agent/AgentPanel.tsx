@@ -1,6 +1,7 @@
 import { Bot, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useAgentSessionStore } from "../../stores/agentSessionStore";
+import { useAgentStore } from "../../stores/agentStore";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { AgentComposer } from "./AgentComposer";
 import { AgentSharingStrip } from "./AgentSharingStrip";
@@ -43,7 +44,51 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
   const answer = useAgentSessionStore((s) => s.answer);
 
   const bottom = useRef<HTMLDivElement>(null);
+  const input = useRef<HTMLTextAreaElement>(null);
+  const firstStart = useRef<HTMLButtonElement>(null);
   const [confirmEnd, setConfirmEnd] = useState(false);
+
+  // Keyboard users have no other way in: the panel sits after Monaco in the
+  // tab order, and Monaco keeps Tab for itself. So focus moves into the panel
+  // when it opens and whenever what it should land on changes — the message
+  // box once a session is running, the first Start button when none is. The
+  // target may not exist yet (the harness list is still loading), so the
+  // request waits for the render that brings it.
+  const wantsFocus = useRef(true);
+  useEffect(() => {
+    wantsFocus.current = true;
+  }, [session]);
+  useEffect(() => {
+    if (!wantsFocus.current) return;
+    const target = session ? input.current : firstStart.current;
+    if (target) {
+      target.focus();
+      wantsFocus.current = false;
+    }
+  });
+
+  // An approval or a proposed edit opens on its own, often while focus is
+  // nowhere in particular; when it closes, focus would fall to <body>. Back
+  // to the message box instead, unless something else has already taken it.
+  const dialogOpen = useAgentStore((s) => s.approval !== null || s.proposal !== null);
+  const wasOpen = useRef(dialogOpen);
+  useEffect(() => {
+    const closed = wasOpen.current && !dialogOpen;
+    wasOpen.current = dialogOpen;
+    if (!closed) return;
+    // After the dialog's own focus restore, which runs as it unmounts.
+    const timer = setTimeout(() => {
+      const active = document.activeElement;
+      if (!active || active === document.body) (input.current ?? firstStart.current)?.focus();
+    }, 0);
+    return () => clearTimeout(timer);
+  }, [dialogOpen]);
+
+  // An answered prompt loses its buttons, and with them the focus.
+  const answerAndReturn = (id: string, option?: string) => {
+    void answer(id, option);
+    input.current?.focus();
+  };
 
   useEffect(() => {
     void findHarnesses();
@@ -113,7 +158,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
               Ask about a query, a schema, or the error you just hit.
             </p>
           )}
-          {transcript.map((item, i) => <TranscriptBlock key={i} item={item} onAnswer={answer} />)}
+          {transcript.map((item, i) => <TranscriptBlock key={i} item={item} onAnswer={answerAndReturn} />)}
           {thinking && (
             <div className="flex items-center gap-2 text-xs text-[var(--color-text-muted)]">
               <Thinking />
@@ -132,6 +177,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
             onSend={(text) => void send(text)}
             onCancel={() => void cancel()}
             onNewSession={() => void stop()}
+            inputRef={input}
           />
         )
         : (
@@ -140,6 +186,7 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
             starting={starting}
             onStart={(harness) => void start(harness)}
             compact={transcript.length > 0}
+            firstButtonRef={firstStart}
           />
         )}
 
