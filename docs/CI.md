@@ -11,13 +11,38 @@ need. For cutting a release see [RELEASING.md](RELEASING.md).
 | [`release.yml`](../.github/workflows/release.yml)             | `v*` tag, manual dispatch    | Validates the tag against manifests, runs the database integration tests, builds. |
 | [`dprint-update.yml`](../.github/workflows/dprint-update.yml) | Mondays 09:00 UTC, manual    | Bumps dprint plugins and opens a PR if anything drifted.                          |
 
-`ci.yml` skips work it does not need: a docs-only PR runs neither the Rust nor
-the frontend suite. A PR touching any workflow file runs `Lint (workflows)`,
-which is actionlint plus
-[`scripts/check-action-pins.sh`](../scripts/check-action-pins.sh) — the latter
-verifies every pinned action SHA is 40 hex characters and resolves upstream.
-That check exists because a 41-character pin once sat in `dprint-update.yml`
-and failed every scheduled run for months without anyone noticing (#534).
+## Path filters
+
+The first job in `ci.yml`, `detect-changes`, runs `dorny/paths-filter` against
+the PR's base and publishes one output per area. Every other job is gated on
+those outputs, so a docs-only PR runs neither the Rust nor the frontend suite.
+
+| Output      | Paths                                                                                             | Jobs it turns on                                         |
+| ----------- | ------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `frontend`  | `src/**`, `package*.json`, `vitest*.config.ts`, `eslint.config.js`, `.node-version`, `ci.yml`     | `lint-ts`, `test-frontend`, `check-test-mocks`, `dprint` |
+| `rust`      | `src-tauri/**`, `rust-toolchain.toml`, `ci.yml`                                                   | `lint-rust`, `test-rust`, `check-docs`                   |
+| `npm`       | `package.json`, `package-lock.json`                                                               | `npm-audit`, `check-versions`                            |
+| `cargo`     | `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock`                                                    | `cargo-audit`, `check-versions`                          |
+| `docs`      | `docs/**`, `README.md`, `CONTRIBUTING.md`, `AGENTS.md`, `REVIEW.md`, `**/CLAUDE.md`, `.claude/**` | `check-docs`, `dprint`                                   |
+| `workflows` | `.github/workflows/**`, `scripts/**`                                                              | `lint-workflows`, `check-docs`, `check-test-mocks`       |
+| `config`    | `lefthook.yml`, `eslint.config.js`, `dprint.json`, `vitest*.config.ts`                            | `dprint`                                                 |
+
+`ci.yml` is in both `frontend` and `rust` so that editing the workflow runs
+the jobs it defines. The `dprint` job checks only the files the PR changed.
+Root files outside every filter (for example `justfile`) trigger no job at
+all.
+
+## Workflow lint
+
+A PR touching any workflow file or anything under `scripts/` runs
+`Lint (workflows)`: actionlint plus
+[`scripts/check-action-pins.sh`](../scripts/check-action-pins.sh), which
+verifies every pinned action SHA is 40 hex characters, resolves upstream, and
+matches the version comment beside it. That check exists because a
+41-character pin once sat in `dprint-update.yml` and failed every scheduled
+run for months without anyone noticing (#534). The same job runs the tests for
+the release scripts (update manifest builder, cargo-audit gate, Tauri version
+check).
 
 Run the same checks locally with `just lint-workflows`.
 

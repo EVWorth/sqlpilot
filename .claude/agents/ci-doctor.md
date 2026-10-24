@@ -13,6 +13,9 @@ Triage failing CI runs for SQLPilot. Read logs, identify root cause, propose min
 - Failing run ID or URL
 - Or job name (e.g., "lint-rust", "test-frontend")
 - Or branch name + "latest failed run on <branch>"
+- Or the failed job's log text, pasted by the caller. Use this where `gh` isn't
+  available (cloud sessions): the team lead fetches the log with the GitHub MCP
+  tools and hands it over.
 
 ## Diagnostic Process
 
@@ -41,16 +44,24 @@ gh run view <id> --job <job-id> --log
 
 Common SQLPilot CI jobs:
 
-| Job              | Tool        | Common Failures                       |
-| ---------------- | ----------- | ------------------------------------- |
-| `npm-audit`      | npm         | Critical vuln in dep                  |
-| `cargo-audit`    | cargo       | RustSec advisory                      |
-| `check-versions` | bash        | version drift between 3 files         |
-| `deps-age`       | node        | Package <7 days old (Dependabot gate) |
-| `lint-ts`        | eslint, tsc | TS error, eslint violation            |
-| `lint-rust`      | clippy, fmt | clippy `-D warnings`, unformatted     |
-| `test-rust`      | cargo       | Test failed, MySQL connection issue   |
-| `test-frontend`  | vitest      | Unit test failed                      |
+Jobs in `.github/workflows/ci.yml` (names as shown on the PR):
+
+| Job                           | Tool                          | Common failures                               |
+| ----------------------------- | ----------------------------- | --------------------------------------------- |
+| `Detect changed paths`        | path filters                  | a new path not mapped to a job                |
+| `Lint (workflows)`            | actionlint, check-action-pins | bad workflow syntax, malformed action SHA     |
+| `Check (documented commands)` | check-documented-commands.sh  | ARCHITECTURE section 5 vs registered commands |
+| `Check (vi.mock paths)`       | check-test-mocks.sh           | `vi.mock` path that no longer resolves        |
+| `npm Audit` / `cargo Audit`   | npm, cargo-audit              | new advisory in the dependency tree           |
+| `Version Consistency`         | bash                          | the three manifests disagree                  |
+| `Lint (TypeScript)`           | eslint, tsc                   | lint or type error                            |
+| `Lint (Rust)`                 | rustfmt, clippy               | unformatted code, clippy `-D warnings`        |
+| `Test Rust`                   | cargo test                    | failing unit test, stale `bindings.ts`        |
+| `Test Frontend`               | vitest (jsdom and browser)    | failing test, browser test timeout            |
+| `Format Check (dprint)`       | dprint                        | unformatted TS/JSON/MD/YAML/TOML              |
+
+`release.yml` adds the database integration tests and the four platform
+builds; its pitfalls are in `docs/RELEASING.md`.
 
 ### 4. Root Cause Analysis
 
@@ -78,22 +89,14 @@ Verdict: <one line>
 
 ## Common Patterns + Fixes
 
-### Version drift (`check-versions`)
+### Version drift (`Version Consistency`)
 
 ```
 Cause: package.json != Cargo.toml != tauri.conf.json
 Fix:   just bump patch   # or manual sync
 ```
 
-### Dep age gate (`deps-age`)
-
-```
-Cause: Dependabot bumped package <7 days old
-Fix:   Wait 7 days OR pin to older version in Dependabot config
-       OR add to allowlist in scripts/check-deps.mjs
-```
-
-### Clippy `-D warnings` (`lint-rust`)
+### Clippy `-D warnings` (`Lint (Rust)`)
 
 ```
 Cause: New clippy lint violation
@@ -101,29 +104,29 @@ Fix:   cd src-tauri && cargo clippy --fix --allow-dirty
        # then review and commit the autofix
 ```
 
-### Rust format (`lint-rust` fmt check)
+### Rust format (`Lint (Rust)`)
 
 ```
 Cause: Unformatted Rust
 Fix:   cd src-tauri && cargo fmt --all
 ```
 
-### dprint (`lint-ts` indirectly)
+### dprint (`Format Check (dprint)`)
 
 ```
 Cause: Unformatted TS/JSON/MD
 Fix:   npx dprint fmt
 ```
 
-### Rust test fail (`test-rust`)
+### Rust test fail (`Test Rust`)
 
 ```
-Cause: Test assertion fail OR MySQL connection issue
-Fix:   If connection: check MySQL 8 service container health
+Cause: Test assertion fail, or src/lib/bindings.ts stale against the Rust commands
+Fix:   If bindings: just bindings, commit the result
        If test: cd src-tauri && cargo test -p <crate> <test_name> -- --nocapture
 ```
 
-### Frontend test fail (`test-frontend`)
+### Frontend test fail (`Test Frontend`)
 
 ```
 Cause: Vitest assertion fail
@@ -131,7 +134,7 @@ Fix:   npx vitest run <test-file>   # see full output
        npx vitest run -t "<test name>"   # single test
 ```
 
-### npm audit critical (`npm-audit`)
+### npm audit (`npm Audit`)
 
 ```
 Cause: Critical CVE in dep tree
@@ -139,7 +142,7 @@ Fix:   npm audit fix   # or pin to safe version
        Verify no breaking changes
 ```
 
-### cargo audit (`cargo-audit`)
+### cargo audit (`cargo Audit`)
 
 ```
 Cause: RustSec advisory in crate

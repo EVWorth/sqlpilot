@@ -78,7 +78,10 @@ jobs:
             docs:
               - 'docs/**'
               - 'README.md'
-              - 'CLAUDE.md'
+              - 'CONTRIBUTING.md'
+              - 'AGENTS.md'
+              - 'REVIEW.md'
+              - '**/CLAUDE.md'
               - '.claude/**'
             workflows:
               - '.github/workflows/**'

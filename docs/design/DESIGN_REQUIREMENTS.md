@@ -1,9 +1,6 @@
 # SQLPilot — Design Requirements Document
 
-**Version:** 1.0\
-**Last Updated:** 2025-01-15\
-**Status:** Draft\
-**Authors:** SQLPilot Core Team
+**Status:** Living document. Status flags were last checked against the code on 2026-10-24.
 
 ---
 
@@ -74,6 +71,8 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 
 ### 2.1 Feature Comparison Matrix
 
+SQLPilot's column describes what ships today, not the plan.
+
 | Feature                   | MySQL Workbench |   DBeaver   |   SQLyog    | TablePlus | DataGrip  | **SQLPilot** |
 | ------------------------- | :-------------: | :---------: | :---------: | :-------: | :-------: | :----------: |
 | Cross-platform            |       ✅        |     ✅      | ❌ Win only |    ✅     |    ✅     |      ✅      |
@@ -81,114 +80,25 @@ There is a clear gap in the market for an **open-source, cross-platform, high-pe
 | Fast startup              |       ❌        |     ❌      |     ✅      |    ✅     |    ❌     |      ✅      |
 | Low memory usage          |       ❌        |     ❌      |     ✅      |    ✅     |    ❌     |      ✅      |
 | Modern UI                 |       ❌        |     ⚠️      |     ❌      |    ✅     |    ✅     |      ✅      |
-| AI-powered SQL            |       ❌        |     ❌      |     ❌      |    ❌     | ✅ (paid) |      ✅      |
+| AI agent access           |       ❌        |     ❌      |     ❌      |    ❌     | ✅ (paid) |   ✅ (MCP)   |
 | Schema-aware autocomplete |       ⚠️        |     ⚠️      |     ✅      |    ✅     |    ✅     |      ✅      |
-| Visual ERD                |       ✅        |  ✅ (paid)  |     ❌      |    ❌     |    ✅     |      ✅      |
-| SSH tunneling             |       ✅        |     ✅      |     ✅      |    ✅     |    ✅     |      ✅      |
+| Visual ERD                |       ✅        |  ✅ (paid)  |     ❌      |    ❌     |    ✅     |      ❌      |
+| SSH tunneling             |       ✅        |     ✅      |     ✅      |    ✅     |    ✅     |      ❌      |
 | Data grid performance     |       ❌        |     ⚠️      |     ✅      |    ✅     |    ✅     |      ✅      |
 | Keyboard-first UX         |       ❌        |     ❌      |     ❌      |    ✅     |    ✅     |      ✅      |
 | Dark mode                 |       ❌        |     ✅      |     ❌      |    ✅     |    ✅     |      ✅      |
 | Custom themes             |       ❌        |     ⚠️      |     ❌      |    ❌     |    ✅     |      ✅      |
-| Plugin/extension API      |       ❌        |     ✅      |     ❌      |    ❌     |    ✅     |      ✅      |
+| Plugin/extension API      |       ❌        |     ✅      |     ❌      |    ❌     |    ✅     |      ❌      |
+| Native performance        |       ⚠️        |     ❌      |     ✅      |    ✅     |    ❌     |      ✅      |
 
-| Native performance | ⚠️ | ❌ | ✅ | ✅ | ❌ | ✅ |
+### 2.2 Lessons from Each Tool
 
-### 2.2 MySQL Workbench — Detailed Analysis
-
-**Architecture:** C++ / GTK / Python scripting\
-**License:** GPL v2
-
-**Strengths:**
-
-- Official Oracle tool with direct MySQL team involvement
-- Comprehensive feature set (modeling, migration, admin)
-- Free and open source
-- Server administration capabilities
-
-**Weaknesses:**
-
-- Extremely slow: startup times of 10-30 seconds, sluggish UI interactions
-- Frequent crashes, especially on macOS (GTK rendering issues)
-- Dated UI design that hasn't evolved in years
-- Poor autocomplete — limited schema awareness, slow suggestions
-- No AI or intelligent assistance features
-- Data export is cumbersome and limited
-- Memory consumption grows unbounded with large result sets
-- Python scripting API is poorly documented and fragile
-
-**Lessons:** Cover the same feature breadth but with modern performance and UX. Never sacrifice responsiveness for features.
-
-### 2.3 DBeaver — Detailed Analysis
-
-**Architecture:** Java / Eclipse Platform (SWT) / Plugin-based\
-**License:** Apache 2.0 (Community), proprietary (Enterprise)
-
-**Strengths:**
-
-- Model-UI separation: clean data model layer that's reusable and testable
-- Lazy plugin loading: features load on-demand, not at startup
-- Extension point system: well-defined plugin interfaces
-- 100+ database driver support via JDBC
-- Comprehensive feature set rivaling commercial tools
-- Active community and regular releases
-
-**Weaknesses:**
-
-- Java/SWT results in 500 MB+ memory at idle, 1 GB+ under load
-- Slow startup (5-15 seconds) due to Eclipse platform initialization
-- Platform-specific SWT crashes on macOS (Cocoa bridge) and Linux (GTK3/4 conflicts)
-- Autocomplete has significant gaps, especially after `FROM` and in subqueries
-- Plugin system breaks across version updates — community plugins frequently stop working
-- Window scaling and DPI issues on high-resolution displays
-- Certificate popup spam when connecting to servers with self-signed certs
-- Enterprise features (ERD, NoSQL, etc.) are paywalled
-
-**Lessons:** Adopt the model-UI separation pattern and lazy loading approach. Avoid the Java/SWT platform tax. Design the plugin API for stability across versions.
-
-### 2.4 SQLyog — Detailed Analysis
-
-**Architecture:** C++ / MFC / Direct MySQL C API\
-**License:** Proprietary (Community edition discontinued)
-
-**Strengths:**
-
-- Zero runtime dependencies — ships as a single executable
-- Direct MySQL C API usage — the fastest possible wire protocol communication
-- Multi-threaded async query execution — UI never blocks
-- SSH and HTTP tunneling as a first-class abstraction
-- Extremely lightweight and responsive — the benchmark for MySQL GUI speed
-- Connection-centric design that maps well to real-world workflows
-
-**Weaknesses:**
-
-- Windows-only (MFC dependency makes cross-platform impossible)
-- Aging C++ codebase with MFC makes modern features difficult to add
-- No visual ERD or schema designer
-- Limited export formats
-- Community edition discontinued; commercial license required
-- No AI features
-
-**Lessons:** Match SQLyog's speed by using direct async MySQL protocol communication (via sqlx). Adopt its connection-centric UX model. Beat it on cross-platform support and modern features.
-
-### 2.5 Paid Tool Analysis (TablePlus, DataGrip)
-
-**What They Get Right:**
-
-- Clean, modern, native-feeling UI with careful typography and spacing
-- Fast and responsive — no perceptible lag on any interaction
-- Keyboard-driven workflows with discoverable shortcuts
-- Smart autocomplete that truly understands schema context
-- Dark mode that looks polished, not like an afterthought
-- Inline editing that feels natural and safe (with clear commit/rollback)
-- Minimal onboarding friction — connect and go
-
-**What We Can Beat Them On:**
-
-- Open source with no per-seat licensing
-- AI-native features (neither has deep AI integration in the free tier)
-- Community-driven development and extensibility
-- Full-featured ERD without enterprise paywalls
-- Transparent development process
+| Tool                | Stack                       | Main weaknesses                                                                           | Lesson for SQLPilot                                                   |
+| ------------------- | --------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| MySQL Workbench     | C++ / GTK / Python, GPL v2  | Slow startup and UI, crashes on macOS, weak autocomplete, cumbersome export               | Cover the breadth without giving up responsiveness                    |
+| DBeaver             | Java / Eclipse SWT          | 500 MB+ idle memory, slow startup, SWT rendering bugs, autocomplete gaps, plugin breakage | Keep model-UI separation and lazy loading; avoid the JVM platform tax |
+| SQLyog              | C++ / MFC, proprietary      | Windows-only, aging codebase, no ERD, limited export                                      | Match its speed and connection-centric UX, cross-platform             |
+| TablePlus, DataGrip | Native / JVM, paid per seat | Licensing; closed source                                                                  | Match their polish and keyboard flow; stay open source and free       |
 
 ---
 
@@ -259,9 +169,13 @@ contradicts a criterion, the section is `[partial]` until the issue closes.
 
 ### FR-2: SQL Editor [partial]
 
-> Outstanding: no Ctrl+. cancel binding (#282), `query_timeout` is not
-> enforced (#283), streaming is not implemented (#284), no query parameters
-> (#285), and a cancel race remains (#287).
+> The issues once listed here (#282, #283, #284, #285, #287) are closed:
+> Ctrl+. cancels, the per-profile query timeout is enforced, and streaming
+> and query parameters were decided against (ARCHITECTURE §4.2).
+>
+> **Not met:** SQL linting and error markers (FR-2.3.3), a visual countdown
+> for the query timeout (FR-2.2.7), and the rows marked not built in FR-2.3.
+> EXPLAIN is Ctrl+Shift+E, not Ctrl+E (FR-2.2.5).
 
 **Priority:** P0 — Critical\
 **Description:** A Monaco-based SQL editor with rich language features, schema awareness, and multi-tab support.
@@ -310,10 +224,14 @@ row rather than the section reading as done (#295).
 
 ### FR-3: Data Grid / Results [partial]
 
-> Outstanding: no in-grid filters or pagination (#391), no column reorder or
-> multi-sort (#392), no BLOB preview (#401), no total row count (#402), the
-> Set NULL context item is missing (#403), no column type indicators (#414),
-> selection and copy are incomplete (#416), and a ResizeObserver leak (#417).
+> The issues once listed here (#391, #392, #401, #402, #403, #414, #416,
+> #417) are closed: column filters, offset paging, column reorder and
+> multi-sort, the BLOB viewer, row counts, Set NULL, type indicators, copy
+> formats, and grid undo/redo are in the grid.
+>
+> **Not met:** export to Excel, XML or SQL `REPLACE` (FR-3.4.3) and export
+> progress with cancel (FR-3.4.4). Export formats are CSV, JSON, SQL `INSERT`
+> and Markdown.
 
 **Priority:** P0 — Critical\
 **Description:** A high-performance, virtualized data grid for displaying and editing query results.
@@ -371,10 +289,9 @@ row rather than the section reading as done (#295).
 
 ### FR-4: Schema Browser / Object Explorer [partial]
 
-> Outstanding: a connection-switch leak (#288), refresh does not refresh
-> (#289), `USE` and `SHOW CREATE` can land on different pooled connections
-> (#290), Events, drag and system databases are missing (#291), object details
-> are incomplete (#292), and most context-menu operations do not exist (#293).
+> The issues once listed here (#288, #289, #290, #291, #292, #293) are
+> closed. Refresh is F5 or Ctrl+Shift+R, not Ctrl+R (FR-4.1.5). Column and
+> index operations live in the table designer (FR-4.3.3, FR-4.3.4).
 
 **Priority:** P0 — Critical\
 **Description:** A tree-view navigator for browsing and managing database objects.
@@ -410,7 +327,12 @@ row rather than the section reading as done (#295).
 
 ---
 
-### FR-5: Visual Schema Designer (ERD) [partial]
+### FR-5: Visual Schema Designer (ERD) [dropped]
+
+> Dropped by the maintainer: SQLPilot will not get a diagram view, so none of
+> the criteria below are planned. They stay here as a record of what was
+> considered. Tables are created and altered one at a time in the table
+> designer (`src/components/designer/`), which is FR-4.3.
 
 **Priority:** P1 — High\
 **Description:** A visual entity-relationship diagram tool for designing and understanding database schemas.
@@ -451,11 +373,19 @@ row rather than the section reading as done (#295).
 
 ---
 
-### FR-6: AI — bring your own harness [designed, not built]
+### FR-6: AI — bring your own harness [partial]
 
-> Rewritten by ADR-011. The embedded Copilot assistant this section used to
-> describe has been removed, along with the twelve issues it carried. Nothing
-> here is shipped; the design is [AI_INTEGRATION.md](AI_INTEGRATION.md).
+> Rewritten by ADR-011; the design is [AI_INTEGRATION.md](AI_INTEGRATION.md).
+> Built: the MCP server (`mas-mcp`) with schema, analysis, read, write, DDL
+> and app-awareness tools; per-connection grants with posture and
+> redaction; staged writes approved in SQLPilot's window; in-app sessions for
+> Claude Code and Copilot (`mas-agent`); harness setup snippets.
+>
+> **Not met:** "undo what this session did" (FR-6.3.4), and cancelling a turn
+> sends the harness's cancel rather than `KILL QUERY` (FR-6.3.3). There is no
+> production-specific posture default (FR-6.2.1): every connection starts
+> unshared and the user picks a posture. MCP resources and prompts are not
+> implemented.
 
 **Priority:** P0 — Critical\
 **Description:** SQLPilot does not call a model. It exposes its live
@@ -502,6 +432,9 @@ pays for — Claude Code, Copilot, or anything else that speaks MCP.
 
 ### FR-7: Database Administration [partial]
 
+> **Not met:** table maintenance (FR-7.3.2) and flush operations (FR-7.3.5)
+> have no UI. Backups do not include events (FR-7.3.3).
+
 **Priority:** P1 — High\
 **Description:** Server administration features for managing users, monitoring performance, and maintaining databases.
 
@@ -514,7 +447,7 @@ pays for — Claude Code, Copilot, or anything else that speaks MCP.
 | FR-7.1.3 | Edit user               | Password, account lock/unlock, password expiry (now, interval, never, server default), connection limit, and host (which renames the user). Every control defaults to "leave unchanged" and only what is set is emitted — MariaDB does not report lock or expiry state, so a pre-filled form would be pre-filled with guesses. |
 | FR-7.1.4 | Drop user               | Drop user with confirmation dialog; show dependent grants that will be removed                                                                                                                                                                                                                                                 |
 | FR-7.1.5 | Grant/Revoke privileges | Visual privilege editor: select database > table > columns > privileges; generate GRANT/REVOKE statements; preview before execution                                                                                                                                                                                            |
-| FR-7.1.6 | Role management         | Create and drop roles, grant and revoke them, and set or clear a user's default role, from the Roles tab. The catalog queries and the `SET DEFAULT ROLE` spelling both fork between MySQL and MariaDB; see `lib/admin/roles.ts`.                                                                                               |
+| FR-7.1.6 | Role management         | Create and drop roles, grant and revoke them, and set or clear a user's default role, from the Roles tab. The catalog queries and the `SET DEFAULT ROLE` spelling both fork between MySQL and MariaDB; see `src/lib/admin/roles.ts`.                                                                                           |
 
 #### FR-7.2: Server Monitoring
 
@@ -538,6 +471,15 @@ pays for — Claude Code, Copilot, or anything else that speaks MCP.
 ---
 
 ### FR-8: Import / Export [partial]
+
+> Built: CSV, JSON, SQL `INSERT` and Markdown export of a result; CSV import
+> (parsed in the renderer, batched inserts); streamed SQL dump import.
+>
+> **Not met:** Excel and XML export (FR-8.1.4, FR-8.1.5), `REPLACE` and
+> `CREATE TABLE` options (FR-8.1.3), JSON and Excel import (FR-8.2.2,
+> FR-8.2.4), type conversion and defaults in column mapping (FR-8.2.5; CSV
+> columns can be mapped to table columns), pause/resume (FR-8.2.6), and
+> data migration (FR-8.3).
 
 **Priority:** P1 — High\
 **Description:** Comprehensive data import and export with support for multiple formats and intelligent mapping.
@@ -579,11 +521,12 @@ pays for — Claude Code, Copilot, or anything else that speaks MCP.
 > tagged by origin (#586), never stores credentials (#587), and filters, sorts
 > and exports (#589).
 >
-> Favorites: credentials are stripped before a favorite is stored, and a new
-> category can be created before saving. Outstanding: no hierarchical folders (#334), no
-> import/export (#335), context-menu focus traps (#336), the +New category
-> commit is invisible (#338), no scrubbing (#339), a god-component (#340), and
-> no Save as Favorite button in the toolbar (#342).
+> Favorites: credentials are stripped before a favorite is stored, categories
+> nest as paths, and favorites export and import as JSON. The issues once
+> listed here (#334 to #342) are closed.
+>
+> **Not met:** AI categorization (FR-9.1.5). Under ADR-011 the app calls no
+> model, so this would have to come from an agent.
 
 **Priority:** P1 — High\
 **Description:** Persistent query history and favorites system for efficient query management.
@@ -610,6 +553,11 @@ pays for — Claude Code, Copilot, or anything else that speaks MCP.
 ---
 
 ### FR-10: Performance Monitoring [dropped]
+
+> Not built as a separate dashboard. The parts that did ship live elsewhere:
+> visual EXPLAIN with a format picker (FR-2.2.5, `src/components/explain/`)
+> and server status (FR-7.2.3). No slow-log viewer, index-usage statistics or
+> recommendations exist.
 
 **Priority:** P1 — High\
 **Description:** Real-time monitoring dashboard and query analysis tools.
@@ -661,7 +609,7 @@ pays for — Claude Code, Copilot, or anything else that speaks MCP.
 
 | ID      | Requirement                        | Implementation                                                                                                                                           |
 | ------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| NFR-2.1 | Credential storage                 | All passwords and tokens stored in the OS keychain via the `keyring` crate (macOS Keychain, Windows Credential Manager, Linux Secret Service / KWallet)  |
+| NFR-2.1 | Credential storage                 | Passwords stored in the OS credential store via `keyring-core` (macOS Keychain, Windows Credential Manager, Linux kernel keyutils)                       |
 | NFR-2.2 | No plaintext secrets               | Config files never contain plaintext passwords, tokens, or private keys; audit CI pipeline to verify                                                     |
 | NFR-2.3 | SSL/TLS by default                 | New connections default to SSL/TLS verification enabled; show warning for unencrypted connections                                                        |
 | NFR-2.4 | SSH key passphrase                 | Support encrypted private keys; prompt for passphrase; optional keychain storage of passphrase                                                           |
@@ -864,7 +812,7 @@ System font stack: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 | MySQL 8.0+ and MariaDB 11+  | What the integration suite runs against, on every release. MySQL 5.7 reached end of life in October 2023 and nothing tests it; it may work, and that is not the same as being supported |
 | No Oracle Cloud integration | Focus on self-hosted and standard cloud MySQL instances; avoid Oracle ecosystem lock-in                                                                                                 |
 | Tauri 2.0 minimum           | Tauri 2.0 provides essential features (multi-window, tray, plugins) not available in 1.x                                                                                                |
-| Node.js 20+ for development | LTS version with modern features needed by Vite and tooling                                                                                                                             |
+| Node.js 24 for development  | Pinned in `.node-version` and `mise.toml`; `package.json` requires `>=24`                                                                                                               |
 | Rust 1.95 for the backend   | Pinned in `rust-toolchain.toml`, so every machine and CI job builds with the same one                                                                                                   |
 | npm as package manager      | `package-lock.json` is what is committed and what CI installs from                                                                                                                      |
 
@@ -872,7 +820,7 @@ System font stack: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 
 These features are explicitly out of scope for v1.0 but should be considered for future releases:
 
-- **Multi-database support** — PostgreSQL, MariaDB, SQLite (architecture should not preclude this)
+- **Multi-database support** — PostgreSQL (MariaDB is supported; SQLite files can be opened and queried)
 - **Cloud sync** — Sync connections, favorites, and settings across devices
 - **Collaboration** — Share queries and results with team members in real-time
 - **Data visualization** — Built-in charting from query results

@@ -12,9 +12,7 @@
 <p align="center">
   <a href="#-features">Features</a> •
   <a href="#-quick-start">Quick Start</a> •
-  <a href="#-development">Development</a> •
   <a href="#-tech-stack">Tech Stack</a> •
-  <a href="#-project-structure">Structure</a> •
   <a href="#-contributing">Contributing</a> •
   <a href="#-license">License</a>
 </p>
@@ -28,17 +26,16 @@
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/rust-1.95-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/node-24%2B-brightgreen" alt="Node.js" />
-  <img src="https://img.shields.io/badge/tests-1488%2B%20passing-brightgreen" alt="Tests" />
 </p>
 
 ---
 
-SQLPilot is a modern, open-source, cross-platform MySQL database management tool. It combines a Rust backend (via [Tauri 2](https://v2.tauri.app/)) with a React frontend to deliver native desktop performance in a **~22 MB binary** — no Electron bloat, no JVM overhead.
+SQLPilot is a modern, open-source, cross-platform MySQL database management tool. It combines a Rust backend (via [Tauri 2](https://v2.tauri.app/)) with a React frontend to deliver native desktop performance in a small binary — no Electron bloat, no JVM overhead. It works with MySQL 8 and MariaDB 11, and can also open local SQLite files.
 
 **Why this over MySQL Workbench, DBeaver, or SQLyog?**
 
 - ⚡ **Instant startup** — native binary, not Java
-- 🪶 **Tiny footprint** — ~22 MB vs 300+ MB for Workbench
+- 🪶 **Small footprint** — the OS webview instead of a bundled browser or JVM
 - 🎯 **Covers the most-used SQLyog features** — everything you need, nothing you don't
 - 🔓 **Fully open source** — MIT licensed, no telemetry, no paywalls
 
@@ -47,11 +44,11 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 ### SQL Editor
 
 - **Monaco Editor** — the same editor engine as VS Code
-- **Schema-aware autocomplete** — suggests tables after `FROM`, columns after `SELECT`, databases after `USE`, plus 90+ MySQL keywords and 40+ functions
+- **Schema-aware autocomplete** — suggests tables after `FROM`, columns after `SELECT`, databases after `USE`, plus MySQL keywords and functions
 - **SQL formatting** — one-click beautify with `Ctrl+Shift+F`
 - **Find & replace** — `Ctrl+F` / `Ctrl+H` with Monaco's built-in search
 - **Multi-tab editor** — drag to reorder, middle-click to close, double-click to rename, unsaved indicators
-- **Query execution** — `Ctrl+Enter` or `F5`, multi-statement support with result tabs
+- **Query execution** — `Ctrl+Enter` or `F9` for the statement at the cursor, `Ctrl+Shift+Enter` for all; multi-statement support with result tabs; `Ctrl+.` cancels
 
 ### Results Grid
 
@@ -94,9 +91,12 @@ SQLPilot is a modern, open-source, cross-platform MySQL database management tool
 
 - **Connection profiles** — save, test, color-code, and label connections
 - **SSL/TLS** — configurable SSL mode (disabled → verify identity), CA cert, client cert/key
-- **SSH tunnels** — host, port, username, password or key file authentication
 - **Environment labels** — tag connections as Development, Staging, or Production
-- **Production safety** — confirmation dialogs before running `DROP`/`DELETE`/`TRUNCATE` on production
+- **Production safety** — confirmation dialogs before running `DROP`/`DELETE`/`TRUNCATE` and other destructive statements on production
+- **Read-only connections** — enforced in the backend, not just the UI
+- **SQLite files** — open a local SQLite database file and browse and query it in the same panes
+
+SSH tunnelling is not supported yet: a profile configured for a tunnel is refused rather than connected directly.
 
 ### Query Management
 
@@ -115,8 +115,8 @@ set, over the [Model Context Protocol](https://modelcontextprotocol.io).
   app, logged in as you. Any other MCP client can use the same endpoint from a
   terminal or an editor
 - **Nothing is shared until you share it** — per connection, with a posture:
-  schema only, samples, or full. Production defaults to schema only, and a
-  connection can be shared for one database out of twenty
+  schema only, samples, or full, and optionally for one database out of
+  twenty
 - **Writes are approved in SQLPilot's window** — the statement runs inside a
   transaction that is not committed, so the question you answer says _4,213
   rows_, not _some rows_. Saying no rolls it back. No harness flag, `--yolo`
@@ -136,9 +136,9 @@ set, over the [Model Context Protocol](https://modelcontextprotocol.io).
 ### UX & Polish
 
 - **Dark & light themes** — toggle with one click, or follow system preference; Monaco editor theme syncs automatically
-- **Keyboard shortcuts** — `Ctrl+N` new tab, `Ctrl+W` close, `Ctrl+Tab` cycle, `F1` shortcuts help, `F5` execute, and more
+- **Keyboard shortcuts** — `Ctrl+N` new tab, `Ctrl+W` close, `Ctrl+Tab` cycle, `F1` shortcuts help, `F9` execute, `F5` refresh schema, and more
 - **Color-coded tabs** — connection color stripe on every tab for quick identification
-- **Structured logging** — multi-layer tracing (console + rolling JSON file), all commands instrumented, passwords redacted
+- **Structured logging** — console plus a daily JSON log file in the app data folder; connection passwords are never logged
 
 ## 🚀 Quick Start
 
@@ -154,253 +154,32 @@ Pre-built binaries are available on the [Releases](https://github.com/EVWorth/sq
 
 1. Download and install for your platform
 2. Open SQLPilot
-3. Click **+ New Connection** and enter your MySQL server details
-4. Configure SSL or SSH tunnel if needed (tabs in the connection dialog)
+3. Click **Connect** in the connection bar, then **New Connection…**, and enter your MySQL or MariaDB server details
+4. Configure SSL if needed (a tab in the connection dialog)
 5. Click **Test Connection** to verify, then **Save**
-6. Double-click the connection to connect and start querying!
-
-## 🛠️ Development
-
-### Prerequisites
-
-Versions live in `.node-version` and `rust-toolchain.toml`, which rustup,
-CI and mise all read. `scripts/setup.sh` installs everything for you.
-
-| Tool                              | Version | Purpose                     |
-| --------------------------------- | ------- | --------------------------- |
-| [Rust](https://rustup.rs/)        | 1.95.0  | Backend compilation         |
-| [Node.js](https://nodejs.org/)    | 24+     | Frontend tooling            |
-| [Docker](https://www.docker.com/) | 24+     | Integration test containers |
-
-**Linux/WSL system dependencies** (for Tauri desktop builds):
-
-```bash
-sudo apt install -y pkg-config libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev
-```
-
-### Setup
-
-```bash
-# Clone the repository
-git clone https://github.com/EVWorth/sqlpilot.git
-cd sqlpilot
-
-# Toolchains: Node, Rust and the just task runner
-mise install
-
-# Everything else: system deps, npm deps, git hooks, Playwright
-just setup
-```
-
-`just` with no arguments lists every task. `mise install` is what pins the
-toolchain versions, so prefer it over whatever `node` and `cargo` happen to be
-on your `PATH`.
-
-### Running
-
-```bash
-# Full desktop app (native window via Tauri)
-just dev
-# or: npx tauri dev
-
-# Web preview in browser (no system deps needed, great for UI work)
-just dev-web
-# Then open http://localhost:1420
-```
-
-**Desktop shortcut:** Double-click "SQLPilot (Dev)" on your desktop. It shows a progress
-dialog while compiling, then opens the app window automatically.
-
-### Testing
-
-```bash
-# Run everything
-just test
-
-# Frontend unit tests (stores, parsers, generators, diff engine)
-just test-frontend
-# or: npx vitest run
-
-# Rust unit tests — no database needed
-just test-rust
-
-# Rust integration tests against real servers (59 tests).
-# These are #[ignore]d by default, so `just test-rust` stays container-free;
-# CI runs them at release time, so run them locally before touching the
-# query executor, connection manager or admin service.
-just db-up              # MySQL 8 on 13306, MariaDB 11 on 13308
-just test-integration
-
-# Type checking
-npx tsc --noEmit                    # TypeScript
-cd src-tauri && cargo clippy         # Rust
-```
-
-### Building for Production
-
-```bash
-# Build optimized desktop binary
-npx tauri build
-
-# Output:
-#   src-tauri/target/release/bundle/
-#     ├── msi/        (Windows .msi installer)
-#     ├── nsis/       (Windows NSIS setup)
-#     ├── deb/        (Linux .deb)
-#     └── appimage/   (Linux .AppImage)
-```
-
-### Release & Auto-Update
-
-Tagging a commit with `v*` triggers the release workflow in CI, which builds binaries and generates a signed update manifest.
-
-**To set up update signing (one-time):**
-
-```bash
-# Generate a signing key pair (keep the private key secret!)
-npx tauri signer generate -w ~/.tauri/sqlpilot-updater.key
-
-# Add the private key as a GitHub secret:
-#   Name: TAURI_SIGNING_PRIVATE_KEY
-#   Value: contents of ~/.tauri/sqlpilot-updater.key
-
-# Store the public key securely — it's already in tauri.conf.json
-cat ~/.tauri/sqlpilot-updater.key.pub
-```
-
-The `TAURI_SIGNING_PRIVATE_KEY` secret must exist for the `generate-update-manifest` job to succeed. Without it, releases will build but the update manifest won't be signed.
-
-### Tasks
-
-Tasks live in the `justfile`. Run `just` to list them all with descriptions —
-that listing is the source of truth, so this table is only an orientation.
-
-| Command                 | Description                                 |
-| ----------------------- | ------------------------------------------- |
-| `just dev`              | Run desktop app in development mode         |
-| `just test`             | Run all tests (Rust + frontend), no DB      |
-| `just test-integration` | Run Rust tests needing a live MySQL/MariaDB |
-| `just lint`             | Run clippy + TypeScript type checking       |
-| `just db-up`            | Start MySQL 8 (13306) + MariaDB 11 (13308)  |
-| `just bump minor`       | Bump the version across all manifests       |
-
-### Environment Variables
-
-```bash
-# Optional: Override log level (default: info for console, debug for file)
-RUST_LOG=debug
-```
+6. Pick the profile from the **Connect** list to connect and start querying
 
 ## 🏗️ Tech Stack
 
-### Frontend
+**Frontend:** [React 19](https://react.dev/), [TypeScript](https://www.typescriptlang.org/),
+[Vite](https://vitejs.dev/), [Monaco Editor](https://microsoft.github.io/monaco-editor/),
+[TanStack Table](https://tanstack.com/table) and TanStack Virtual,
+[Zustand](https://zustand-demo.pmnd.rs/), [Tailwind CSS](https://tailwindcss.com/),
+[sql-formatter](https://github.com/sql-formatter-org/sql-formatter),
+[Lucide](https://lucide.dev/).
 
-| Technology                                                          | Purpose                                         |
-| ------------------------------------------------------------------- | ----------------------------------------------- |
-| [React 18](https://react.dev/)                                      | UI framework                                    |
-| [TypeScript](https://www.typescriptlang.org/)                       | Type safety                                     |
-| [Vite](https://vitejs.dev/)                                         | Build tooling and HMR                           |
-| [Monaco Editor](https://microsoft.github.io/monaco-editor/)         | SQL editor (same engine as VS Code)             |
-| [TanStack Table v8](https://tanstack.com/table)                     | Data grid with sorting and virtualization       |
-| [Zustand](https://zustand-demo.pmnd.rs/)                            | Lightweight state management (7 stores)         |
-| [Tailwind CSS](https://tailwindcss.com/)                            | Utility-first styling with CSS variable theming |
-| [sql-formatter](https://github.com/sql-formatter-org/sql-formatter) | SQL beautification                              |
-| [Lucide React](https://lucide.dev/)                                 | Icon library                                    |
+**Backend (Rust):** [Tauri 2](https://v2.tauri.app/), [sqlx](https://github.com/launchbadge/sqlx)
+for MySQL/MariaDB, [tokio](https://tokio.rs/), [rusqlite](https://github.com/rusqlite/rusqlite)
+for local storage and SQLite files, the OS credential store for passwords,
+[rmcp](https://github.com/modelcontextprotocol/rust-sdk) for the agent endpoint,
+[tracing](https://docs.rs/tracing/) for logs.
 
-### Backend (Rust)
-
-| Technology                                       | Purpose                                       |
-| ------------------------------------------------ | --------------------------------------------- |
-| [Tauri 2.0](https://v2.tauri.app/)               | Desktop app framework (WebView, not Electron) |
-| [sqlx](https://github.com/launchbadge/sqlx)      | Async MySQL driver with connection pooling    |
-| [tokio](https://tokio.rs/)                       | Async runtime                                 |
-| [rusqlite](https://github.com/rusqlite/rusqlite) | Local SQLite for connection profile storage   |
-| [tracing](https://docs.rs/tracing/)              | Structured logging with JSON file output      |
-| [serde](https://serde.rs/)                       | Serialization / deserialization               |
-| [DashMap](https://docs.rs/dashmap/)              | Thread-safe concurrent connection registry    |
-| [rfd](https://docs.rs/rfd/)                      | Native file dialogs                           |
-
-### Testing
-
-| Technology                                     | Purpose                                                        |
-| ---------------------------------------------- | -------------------------------------------------------------- |
-| [Vitest](https://vitest.dev/)                  | Frontend unit tests (1488 tests)                               |
-| [cargo test](https://doc.rust-lang.org/cargo/) | Rust unit tests, plus 59 integration tests run at release time |
-| [Docker](https://www.docker.com/)              | MySQL 8, MySQL 5.7, MariaDB 11 test containers                 |
-
-## 📁 Project Structure
-
-```
-sqlpilot/
-├── src/                           # React frontend
-│   ├── components/                #   46 UI components
-│   │   ├── admin/                 #     AdminPanel, UserManagement, CreateUser, ChangePassword
-│   │   ├── backup/                #     BackupDialog, RestoreDialog
-│   │   ├── common/                #     ContextMenu, ConfirmDialog, ShortcutsDialog, SQLPreviewDialog
-│   │   ├── connection/            #     ConnectionDialog (General, SSL, SSH, Advanced tabs)
-│   │   ├── designer/              #     TableDesigner
-│   │   ├── editor/                #     SQLEditor, EditorTabs, QueryToolbar
-│   │   ├── explain/               #     ExplainPanel (table view + tree view)
-│   │   ├── favorites/             #     QueryFavorites, SaveFavoriteDialog
-│   │   ├── grid/                  #     ResultsGrid, EditableCell, EditToolbar
-│   │   ├── history/               #     QueryHistory
-│   │   ├── import/                #     ImportDialog (CSV + SQL modes)
-│   │   ├── layout/                #     AppLayout, Sidebar, MainPanel, Toolbar, StatusBar
-│   │   ├── routine/               #     RoutineViewer (procedure/function executor)
-│   │   └── schema/                #     TableStructure (columns, indexes, DDL)
-│   ├── hooks/                     #   7 custom hooks (context menu, keyboard, theme, schema cache, grid editing, query execution, click handler)
-│   ├── lib/                       #   Tauri IPC bridge, SQL generators, parsers, diff engine
-│   ├── stores/                    #   8 Zustand stores (connection, editor, result, history, favorites, ai, theme, settings)
-│   ├── types/                     #   TypeScript type definitions
-│   └── styles/                    #   Dark + light theme CSS variables
-├── src-tauri/                     # Rust backend
-│   ├── src/
-│   │   ├── commands/              #   Tauri IPC command handlers
-│   │   └── lib.rs                 #   App state, tracing init, command registration
-│   ├── crates/
-│   │   ├── mas-core/              #   Connection manager, query executor, schema inspector
-│   │   ├── mas-sqlite/            #   SQLite wrapper for connection profile + history storage
-│   │   ├── mas-export/            #   CSV, JSON, SQL, Markdown exporters
-│   │   └── mas-admin/             #   Process list, server variables, kill process
-│   ├── Cargo.toml                 #   Workspace with shared dependencies
-│   └── tauri.conf.json            #   Tauri app configuration
-├── tests/fixtures/sql/            # Test seed data (tables, views, procedures, triggers)
-├── docs/design/                   # Design documentation
-│   ├── ARCHITECTURE.md            #   System architecture
-│   ├── DESIGN_REQUIREMENTS.md     #   Requirements & competitive analysis
-│   ├── TESTING_STRATEGY.md        #   Test strategy & coverage
-│   └── TECH_DECISIONS.md          #   Architecture Decision Records
-├── docker-compose.test.yml        # MySQL 8 (13306), MariaDB 11 (13308)
-├── justfile                       # Dev commands
-└── package.json                   # Frontend dependencies
-```
+Architecture and design notes are indexed in [docs/README.md](docs/README.md).
 
 ## 🤝 Contributing
 
-We welcome contributions! Here's how to get started:
-
-1. **Fork** the repository and create a feature branch from `main`
-2. **Set up** the dev environment: `mise install && just setup`
-3. **Make your changes** with clear, focused commits
-4. **Test** your changes: `just test && just lint`
-5. **Submit a pull request** with a clear description of what and why
-
-### Guidelines
-
-- Follow existing code style — run `cargo clippy` and `npx tsc --noEmit` before submitting
-- Write tests for new features and bug fixes
-- Keep PRs focused — one feature or fix per PR
-- Update documentation for user-facing changes
-
-### Areas We'd Love Help With
-
-- 🧪 More integration tests for edge cases
-- 🌍 Internationalization (i18n)
-- ♿ Accessibility improvements
-- 📱 Mobile-responsive layout
-- 🗄️ PostgreSQL / SQLite adapter support
-- 📊 Query plan visualization improvements
-- 🔌 Plugin system for custom extensions
+Contributions are welcome. Setup, tasks, tests and the PR workflow are in
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## 🙏 Acknowledgements
 
