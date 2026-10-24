@@ -18,6 +18,7 @@ import {
   Loader2,
   PenLine,
   Play,
+  Plus,
   RefreshCw,
   Search,
   Table2,
@@ -28,6 +29,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { useClickHandler } from "../../hooks/useClickHandler";
 import { useContextMenu } from "../../hooks/useContextMenu";
+import { connectionKind } from "../../lib/datasource";
 import { runStatement } from "../../lib/run-statement";
 import {
   createDatabase,
@@ -51,6 +53,7 @@ import { useResultStore } from "../../stores/resultStore";
 import { loadKey, type SchemaFolder, schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import type { DdlObjectType } from "../../types";
+import type { MenuItem } from "../common/ContextMenu";
 import { FolderNode } from "./FolderNode";
 import { HighlightedName } from "./HighlightedName";
 
@@ -349,6 +352,18 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
     else await store.ensureTables(connectionId, dbName);
   };
 
+  /**
+   * "New Table…", for the database menu and the Tables folder: the designer's
+   * create mode was unreachable from anywhere (#818). Not offered for SQLite,
+   * whose tables the designer's MySQL DDL cannot create.
+   */
+  const newTableItem = (dbName: string): MenuItem[] =>
+    connectionKind(connectionId) === "sqlite" ? [] : [{
+      label: "New Table…",
+      icon: <Plus className="h-3.5 w-3.5" />,
+      onClick: () => addDesignerTab(connectionId, dbName),
+    }];
+
   const isFolderExpanded = (dbName: string, folder: string) => !!expandedFolders[folderKey(dbName, folder)];
 
   // --- Filter helpers ---
@@ -491,6 +506,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                     updateTabContent(tabId, `USE \`${db.name}\`;\n`);
                   },
                 },
+                ...newTableItem(db.name),
                 {
                   label: "Refresh",
                   icon: <RefreshCw className="h-3.5 w-3.5" />,
@@ -608,6 +624,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                   onToggle={() => toggleFolder(db.name, "tables")}
                   onContextMenu={(e) => {
                     showContextMenu(e, [
+                      ...newTableItem(db.name),
                       {
                         label: "Refresh",
                         icon: <RefreshCw className="h-3.5 w-3.5" />,

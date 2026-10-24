@@ -817,6 +817,35 @@ describe("SchemaTree menus (#293)", () => {
     });
   });
 
+  describe("New Table (#818)", () => {
+    it("opens the designer on a new table from the database menu", async () => {
+      useEditorStore.setState({ tabs: [], activeTabId: null });
+
+      item(await openDatabaseMenu(), "New Table…")?.onClick?.();
+
+      const { tabs, activeTabId } = useEditorStore.getState();
+      expect(tabs).toHaveLength(1);
+      expect(tabs[0]).toMatchObject({ type: "designer", connectionId: "conn-1", database: "app_db" });
+      expect(tabs[0].tableName).toBeUndefined();
+      expect(activeTabId).toBe(tabs[0].id);
+    });
+
+    it("offers it on the Tables folder", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      useEditorStore.setState({ tabs: [], activeTabId: null });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+      await user.click(screen.getByText("app_db"));
+      await waitFor(() => screen.getByText("Tables"));
+      shownMenus.length = 0;
+
+      fireEvent.contextMenu(screen.getByText("Tables"));
+      item(shownMenus.at(-1) ?? [], "New Table…")?.onClick?.();
+
+      expect(useEditorStore.getState().tabs[0]).toMatchObject({ type: "designer", database: "app_db" });
+    });
+  });
+
   it("marks Set as Default disabled for the database already in use", async () => {
     useEditorStore.setState({
       tabs: [{
