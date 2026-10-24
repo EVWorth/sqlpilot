@@ -5,7 +5,7 @@ import { events } from "../../lib/bindings";
 import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
 import { runStatement } from "../../lib/run-statement";
 import { generateBatchInsert, splitSqlStatements } from "../../lib/sql-import";
-import { isDestructiveStatement } from "../../lib/sql-safety";
+import { isDestructiveStatement, stripLeadingComments } from "../../lib/sql-safety";
 import { api } from "../../lib/tauri-api";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import type { ColumnInfo, TableInfo } from "../../types";
@@ -512,11 +512,15 @@ export function ImportDialog({
                   {scanTruncated ? "in the scanned part of this file" : "in this file"} will drop or overwrite data
                 </p>
                 <ul className="mt-1.5 space-y-0.5 font-mono">
-                  {destructiveStatements.slice(0, 5).map((stmt, i) => (
-                    <li key={i} className="truncate" title={stmt}>
-                      {stmt.trim().slice(0, 120)}
-                    </li>
-                  ))}
+                  {destructiveStatements.slice(0, 5).map((stmt, i) => {
+                    // Without its leading banner, so the DROP is what shows.
+                    const shown = stripLeadingComments(stmt) || stmt.trim();
+                    return (
+                      <li key={i} className="truncate" title={shown}>
+                        {shown.slice(0, 120)}
+                      </li>
+                    );
+                  })}
                 </ul>
                 {destructiveStatements.length > 5 && (
                   <p className="mt-1 text-[var(--color-warning)]/80">

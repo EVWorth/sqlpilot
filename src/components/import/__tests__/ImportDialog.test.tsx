@@ -277,6 +277,15 @@ describe("ImportDialog", () => {
       expect(warning.textContent).toContain("TRUNCATE TABLE audit_log");
     });
 
+    it("lists the DROP itself, not the comments in front of it (#836)", async () => {
+      await pickFile([
+        "-- Read from a single consistent snapshot.\n--\n-- Table: `customers`\n--\nDROP TABLE IF EXISTS `customers`",
+      ]);
+
+      const item = screen.getByTestId("destructive-warning").querySelector("li");
+      expect(item?.textContent).toBe("DROP TABLE IF EXISTS `customers`");
+    });
+
     it("says nothing about a dump that only inserts", async () => {
       await pickFile(["INSERT INTO t1 VALUES (1)", "INSERT INTO t1 VALUES (2)"]);
       expect(screen.queryByTestId("destructive-warning")).toBeNull();
