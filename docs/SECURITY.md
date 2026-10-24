@@ -1,8 +1,14 @@
 # Security Architecture
 
+Read before touching the CSP, Tauri capabilities, credential storage or the
+agent endpoint. The wider picture (credential flow, network, destructive
+operation safeguards) is in [ARCHITECTURE.md](./design/ARCHITECTURE.md)
+section 6.
+
 ## Content Security Policy (CSP)
 
-SQLPilot uses a layered security model with Tauri's built-in protections and a configured Content Security Policy.
+SQLPilot uses Tauri's built-in protections plus a Content Security Policy set
+in `security.csp` of [`src-tauri/tauri.conf.json`](../src-tauri/tauri.conf.json).
 
 ### Current Policy
 
@@ -14,73 +20,79 @@ worker-src 'self' blob:;
 connect-src ipc: http://ipc.localhost http://localhost:* http://127.0.0.1:*
 ```
 
+The same policy applies to development and production builds; there is no
+separate `devCsp`.
+
 ### CSP Directive Rationale
 
-| Directive     | Value                | Reason                                                              |
-| ------------- | -------------------- | ------------------------------------------------------------------- |
-| `default-src` | `'self'`             | Baseline: all resources must come from the application package      |
-| `script-src`  | `'self'`             | Loaded scripts must be bundled with the app                         |
-| `script-src`  | `'unsafe-eval'`      | Required by Monaco Editor's WebWorker and dynamic module loading    |
-| `script-src`  | `blob:`              | Needed for Monaco worker bootstrapping in the embedded webview      |
-| `style-src`   | `'self'`             | Bundled stylesheets (Tailwind build)                                |
-| `style-src`   | `'unsafe-inline'`    | Inline styles for dynamic layout values (width/height calculations) |
-| `worker-src`  | `'self' blob:`       | WebWorkers (Monaco Editor parsing, syntax highlighting)             |
-| `connect-src` | `ipc:`               | Tauri IPC command channel                                           |
-| `connect-src` | `http://localhost:*` | Development: Vite dev server (removed in production builds)         |
-| `connect-src` | `http://127.0.0.1:*` | Development: Local testing servers                                  |
+| Directive     | Value                       | Reason                                                              |
+| ------------- | --------------------------- | ------------------------------------------------------------------- |
+| `default-src` | `'self'`                    | Baseline: all resources must come from the application package      |
+| `script-src`  | `'self'`                    | Loaded scripts must be bundled with the app                         |
+| `script-src`  | `'unsafe-eval'`             | Required by Monaco Editor's worker and dynamic module loading       |
+| `script-src`  | `blob:`                     | Needed for Monaco worker bootstrapping in the embedded webview      |
+| `style-src`   | `'self'`                    | Bundled stylesheets (Tailwind build)                                |
+| `style-src`   | `'unsafe-inline'`           | Inline styles for dynamic layout values (width/height calculations) |
+| `worker-src`  | `'self' blob:`              | Monaco's `editor.worker`, set up in `src/main.tsx`                  |
+| `connect-src` | `ipc: http://ipc.localhost` | Tauri IPC command channel                                           |
+| `connect-src` | `http://localhost:*`        | The Vite dev server (`devUrl` is `http://localhost:1420`)           |
+| `connect-src` | `http://127.0.0.1:*`        | Local servers during development                                    |
+
+The two loopback `connect-src` entries ship in production builds too. The
+frontend makes no `fetch` calls to them; the agent endpoint is reached by the
+harness, not by the webview.
 
 ### Accepted Trade-offs
 
-1. **unsafe-eval**: Monaco Editor is fundamental to the app's functionality. Modern versions (~0.55+) have reduced eval dependencies, but WebWorkers and dynamic module loading still require this directive.
-
-2. **unsafe-inline for styles**: Inline styles are still used for dynamic layout values. Removing this would require:
-   - Pre-computing all possible dynamic values (impractical)
-   - Or using CSS custom properties + external stylesheets (significant refactor)
-   - Or generating style nonces at runtime (complex Tauri integration)
-
-### Future Improvements
-
-1. **Evaluate Monaco pinning**: Monitor Monaco Editor releases for improved CSP compatibility. Versions ≥0.60 may reduce eval dependencies.
-
-2. **Tailwind extraction**: Consider pre-extracting frequently-used dynamic values to reduce reliance on runtime style injection.
-
-3. **Nonce-based inline scripts**: If inline script injection becomes necessary (currently not), implement script-time nonce generation in Tauri:
-   ```rust
-   // In Tauri command handler
-   let nonce = generate_secure_nonce();
-   // Pass nonce to frontend, use in <script nonce="...">
-   ```
+1. **`unsafe-eval`**: Monaco Editor is fundamental to the app. Its worker and
+   dynamic module loading still require this directive. Don't try to "fix" it.
+2. **`unsafe-inline` for styles**: inline styles are used for dynamic layout
+   values. Removing it would need every dynamic value pre-computed, moved to
+   CSS custom properties, or nonce-injected at runtime.
 
 ### Threat Model
 
 This CSP protects against:
 
-- ✅ XSS attacks injecting external scripts (default-src 'self')
-- ✅ Remote resource loading (images, fonts, stylesheets from untrusted CDNs)
-- ⚠️ Inline XSS (partially mitigated by Tauri's native context + origin verification)
+- XSS injecting external scripts (`default-src 'self'`)
+- Remote resource loading (images, fonts, stylesheets from untrusted CDNs)
+- Inline XSS only partially: `unsafe-inline` styles and `unsafe-eval` remain
 
-Assumes:
+It assumes:
 
-- ✅ App dependencies are from trusted sources (npm packages are vetted)
-- ✅ Tauri's IPC origin check prevents injected script communication
-- ✅ No untrusted user content is evaluated (no `eval(user_input)`)
+- App dependencies come from trusted sources (npm and crates.io, with
+  `npm audit`, `npm audit signatures` and `cargo audit` in CI)
+- Only the commands registered in `src-tauri/src/lib.rs` are callable, and
+  the window's plugin permissions are limited by
+  [`src-tauri/capabilities/`](../src-tauri/capabilities/)
+- No untrusted user content is evaluated (no `eval(user_input)`)
 
-### Related Security Layers
+## Credentials
 
-See [ARCHITECTURE.md](./design/ARCHITECTURE.md) Section 6.2 "Tauri Security Model" for:
+Connection passwords and SSH secrets are stored in the OS credential store via
+`keyring-core` (Windows Credential Manager, macOS Keychain, Linux kernel
+keyutils), never in SQLite, and never sent back to the frontend. Details:
+[ARCHITECTURE.md](./design/ARCHITECTURE.md) section 6.1.
 
-- Command allowlist restrictions
-- IPC origin validation
-- Permission scopes enforcement
-- Absence of remote content loading
+## Agent Endpoint
 
-### Release Signing
+The MCP endpoint ([`mas-mcp/src/endpoint.rs`](../src-tauri/crates/mas-mcp/src/endpoint.rs))
+listens on `127.0.0.1` only, behind a bearer token kept in a 0600 file in the
+data directory and rotatable from Tools → Agents…. Requests carrying an
+`Origin` header are refused: no harness sends one, and it is what a
+DNS-rebinding web page would need. Nothing is exposed to an agent until the
+user shares a connection, columns whose names indicate credentials return no
+values at any posture, and every agent write or schema change is approved in
+SQLPilot's own window. Design: [AI_INTEGRATION.md](./design/AI_INTEGRATION.md).
 
-The release workflow conditionally signs Windows artifacts when the required secrets are available:
+## Release Signing
 
-- `WINDOWS_CERTIFICATE`
-- `WINDOWS_CERTIFICATE_PASSWORD`
-
-The workflow injects the Windows certificate thumbprint into the build config at runtime so the repository does not need to store machine-specific signing metadata. macOS builds are produced but not signed or notarized.
-
-## ci/path-filters
+- **Updater artifacts** are signed during `tauri build` with
+  `TAURI_SIGNING_PRIVATE_KEY`, because `bundle.createUpdaterArtifacts` is on.
+  See [RELEASING.md](RELEASING.md).
+- **Windows** artifacts are code-signed only when `WINDOWS_CERTIFICATE` and
+  `WINDOWS_CERTIFICATE_PASSWORD` are set. The workflow imports the
+  certificate and writes its thumbprint into the build config at runtime, so
+  the repository stores no machine-specific signing metadata. Without the
+  secrets it skips signing.
+- **macOS** builds are produced but not signed or notarized.

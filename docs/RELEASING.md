@@ -1,47 +1,49 @@
 # Releasing SQLPilot
 
-End-to-end checklist + hard-won lessons for cutting a release. Updated whenever a new gotcha surfaces.
+End-to-end checklist and hard-won lessons for cutting a release. Updated
+whenever a new gotcha surfaces. The short form is also in `CLAUDE.md` (Release
+Flow).
 
 ---
 
 ## TL;DR
 
 ```bash
-# On main, with no local changes
+# 1. From a clean, up-to-date main
 git checkout main && git pull
+bash scripts/check-release-readiness.sh --strict
 
-# Make sure all open PRs that should ship in this release are merged.
-# If a release prep PR is open (e.g. release/0.4.0), merge it first.
+# 2. Bump: minor if features landed, patch if only fixes
+git checkout -b release/<NEW_VERSION>
+just bump minor        # package.json, tauri.conf.json, Cargo.toml and both lockfiles
+git commit -am "release: <NEW_VERSION>"
+git push -u origin release/<NEW_VERSION>
+# Open the release PR and get CI green. Fix any new advisories in this PR.
 
-# Bump the version
-just bump minor
-# confirm with `y`
+# 3. Merge the PR, then on the merge commit
+git checkout main && git pull
+bash scripts/check-release-readiness.sh <NEW_VERSION>
 
-# Commit
-git add package.json src-tauri/Cargo.toml src-tauri/tauri.conf.json
-git commit -m "chore: bump version to <NEW_VERSION>"
-
-# Tag + push (triggers the release workflow)
-git tag v<NEW_VERSION>
+# 4. Tag the merge commit and push the tag (triggers release.yml)
+git tag -a v<NEW_VERSION> -m "v<NEW_VERSION>"
 git push origin v<NEW_VERSION>
 
-# Watch the workflow:
-#   https://github.com/EVWorth/sqlpilot/actions/workflows/release.yml
-# Confirm ALL 4 builds + upload + generate-update-manifest succeed.
+# 5. Watch https://github.com/EVWorth/sqlpilot/actions/workflows/release.yml
+#    validate → integration-db → build (4 platforms) → upload → generate-update-manifest
 
-# If a build fails (lost runner, flaky test, etc.):
-git tag -d v<NEW_VERSION>
-git push origin :refs/tags/v<NEW_VERSION>
-# fix, re-bump if needed, then re-tag
-
-# Final verification:
-gh release view v<NEW_VERSION> --json assets | \
-  python3 -c "import json,sys; d=json.load(sys.stdin); \
-    print(f'{len(d[\"assets\"])} assets'); \
-    [print(' ', a['name']) for a in sorted(d['assets'], key=lambda x: x['name'])]"
+# 6. The workflow leaves a DRAFT release. Publish it once every platform's
+#    build is attached and latest.json is there:
+gh release view v<NEW_VERSION> --json assets -q '.assets[].name'
+gh release edit v<NEW_VERSION> --draft=false
 ```
 
-Expected output: 18 assets including `latest.json`, `*.AppImage`, `*.deb`, `*x86_64.rpm` (Linux), `*aarch64.dmg` + `*x64.dmg` (macOS), `*x64-setup.exe` + `*x64_en-US.msi` (Windows), `SQLPilot.exe` (Windows portable).
+The four builds are Linux x86_64 (`.AppImage`, `.deb`, `.rpm`), Windows
+x86_64 (`.msi`, `-setup.exe`, portable `SQLPilot.exe`), macOS Apple Silicon
+and macOS Intel (`.dmg` and `.app.tar.gz` each), plus a `.sig` beside every
+updater artifact and `latest.json`.
+
+If a build fails (lost runner, flaky test), see gotcha 4 for the re-tag
+protocol.
 
 ---
 
@@ -49,9 +51,11 @@ Expected output: 18 assets including `latest.json`, `*.AppImage`, `*.deb`, `*x86
 
 The release pipeline splits build from release-creation to keep creation single-sourced:
 
-- `build` job (matrix) — runs `tauri build` only, no release. Uploads bundles + `.sig` to GH artifact store via `actions/upload-artifact@v7`.
-- `upload` job (single ubuntu-22.04) — downloads all build artifacts, then `softprops/action-gh-release@v2` creates the draft release ONCE and uploads all assets.
-- `generate-update-manifest` job runs after `upload` so `gh release download` sees the release.
+- `validate` job — `scripts/check-release-readiness.sh <tag version>` fails fast if the tag does not match the manifests.
+- `integration-db` job — the `#[ignore]`d database tests against MySQL 8 and MariaDB 11, plus coverage. `build` depends on it, so a database regression blocks the release.
+- `build` job (matrix of 4) — runs `tauri build` only, no release. Uploads bundles + `.sig` to the artifact store via `actions/upload-artifact`.
+- `upload` job (single ubuntu-22.04) — downloads all build artifacts, then `softprops/action-gh-release` creates the draft release ONCE and uploads all assets.
+- `generate-update-manifest` job runs after `upload` so `gh release download` sees the release. It runs [`scripts/build-update-manifest.sh`](../scripts/build-update-manifest.sh) and uploads `latest.json`. It has no signing key: it reads the `.sig` files the build produced.
 
 tauri-action's "build only" mode is achieved by omitting `tagName`, `releaseName`, and `releaseId` (per the action's README). The signing key is still passed to the build step because tauri itself signs during `tauri build` when `bundle.createUpdaterArtifacts: true`.
 
@@ -60,7 +64,7 @@ tauri-action's "build only" mode is achieved by omitting `tagName`, `releaseName
 ```bash
 gh api repos/EVWorth/sqlpilot/releases | \
   jq '.[] | select(.tag_name == "v<X.Y.Z>") | {id, name, draft, assets: (.assets | length)}'
-# Expect: exactly one entry, draft=true, ~17 assets.
+# Expect: exactly one entry, draft=true until you publish it.
 ```
 
 ---
@@ -93,25 +97,27 @@ gh api repos/EVWorth/sqlpilot/releases | \
 
 ---
 
-### 2. `linux-rpm` platform key in `latest.json`
+### 2. Every updater platform key in `latest.json`
 
-**Symptom.** App installed via `.rpm` on Fedora/Bazzite. Status bar never shows an update chip. The `.rpm` is built and uploaded to the release (12 MB), but `latest.json` only lists `linux-x86_64` (AppImage) and `linux-deb`.
+**Symptom.** App installed via `.rpm` on Fedora/Bazzite. The status bar never
+shows an update chip, although the `.rpm` is on the release.
 
-**Root cause.** `release.yml`'s bash manifest generator must have a `*_x86_64.rpm` case branch. The default `*` skips silently and the `.rpm` is left orphaned.
+**Root cause.** The updater looks up `{os}-{arch}-{installer}` first
+(`appimage`, `deb`, `rpm`, `app`, `msi`, `nsis`) and `{os}-{arch}` as a
+fallback. A missing suffixed key means an `.rpm` or `.deb` install finds
+nothing for its own installer. #572 removed the suffixed keys believing
+nothing read them; a 1.0.0 log searching for `linux-x86_64-rpm` proved
+otherwise, and #691 put them back.
 
-**Current shape:**
+**Current shape.** [`scripts/build-update-manifest.sh`](../scripts/build-update-manifest.sh)
+maps each of the eleven keys to a filename glob, requires exactly one match
+per glob, and checks the written manifest against the expected key set. Its
+test is `scripts/test-build-update-manifest.sh`, run by CI's
+`lint-workflows` job.
 
-```bash
-case "$base" in
-  *_amd64.AppImage)     key="linux-x86_64" ;;
-  *_amd64.deb)          key="linux-deb" ;;
-  *aarch64.rpm)         key="linux-aarch64" ;;
-  *x86_64.rpm)          key="linux-rpm" ;;
-  ...
-esac
-```
-
-**Pattern note.** Tauri's `.rpm` filename uses period before arch (`SQLPilot-0.4.0-1.x86_64.rpm`). `.deb` uses underscore (`SQLPilot_0.4.0_amd64.deb`). Different conventions — patterns differ.
+**Pattern note.** Tauri's `.rpm` filename uses a period before the arch
+(`SQLPilot-0.4.0-1.x86_64.rpm`); `.deb` uses an underscore
+(`SQLPilot_0.4.0_amd64.deb`).
 
 ---
 
@@ -132,45 +138,40 @@ Note: these match what tauri-action's own CI matrix uses, so they're verified.
 
 ---
 
-### 4. Tag a fresh commit, not a re-pushed existing one
+### 4. Re-tag protocol
 
-If the previous tag-push produced a partial / broken release, simply pushing the same SHA again does nothing. GitHub doesn't re-trigger the workflow on a tag that already exists.
+If a tag push produced a partial or broken release, pushing the same tag again
+does nothing: GitHub does not re-trigger the workflow for a tag that already
+exists. Delete the draft release, delete the tag, then re-tag.
 
 ```bash
-# Delete + re-push
-git tag -d v0.4.0
-git push origin --delete v0.4.0
-# Re-tag (now points to the same commit; workflow re-triggers)
-git tag v0.4.0
-git push origin v0.4.0
+gh release delete v<X.Y.Z> --yes          # the draft, if one was created
+git tag -d v<X.Y.Z>
+git push origin --delete v<X.Y.Z>
+# If a fix is needed, land it through a PR first and tag the new merge commit.
+git tag -a v<X.Y.Z> -m "v<X.Y.Z>"
+git push origin v<X.Y.Z>
 ```
 
 ---
 
-## Release cut checklist (TL;DR form)
+## Release cut checklist
 
 ```
 [ ] All PRs queued for this release are merged to main
-[ ] Branch: main, working tree clean
-[ ] Version bump PR opened, reviewed, merged
-[ ] Pre-tag validation:
-    bash scripts/check-release-readiness.sh --strict <NEW_VERSION>
-[ ] Tag pushed
-[ ] Workflow run URL bookmarked
+[ ] bash scripts/check-release-readiness.sh --strict      (clean main)
+[ ] just bump <minor|patch>; release PR opened; CI green; merged
+[ ] bash scripts/check-release-readiness.sh <X.Y.Z>       (on the merge commit)
+[ ] git tag -a v<X.Y.Z> on the merge commit; tag pushed
+[ ] validate, integration-db: SUCCESS
 [ ] All 4 build jobs: SUCCESS
 [ ] upload job: SUCCESS (one draft release created)
-[ ] generate-update-manifest job: SUCCESS
-[ ] gh release view v<X.Y.Z> --json assets shows >=17 assets
-[ ] gh release view v<X.Y.Z> --json assets | jq '.assets[].name' | grep -E '\.(AppImage|deb|rpm|dmg|msi|exe)$'
-    → all 4 platform families present
+[ ] generate-update-manifest job: SUCCESS (latest.json attached)
+[ ] gh release view v<X.Y.Z> --json assets -q '.assets[].name'
+    → AppImage, deb, rpm, msi, setup.exe, SQLPilot.exe, two dmg, two app.tar.gz, .sig files, latest.json
 [ ] gh api repos/EVWorth/sqlpilot/releases | jq '.[] | select(.tag_name == "v<X.Y.Z>") | .draft'
-    → exactly ONE release for the tag, draft=true
-[ ] latest.json has all eleven platform keys. The updater looks up
-    `{os}-{arch}-{installer}` first — appimage, deb, rpm, app, msi, nsis —
-    and `{os}-{arch}` as a fallback, so a .deb install finds the .deb and an
-    .rpm install finds the .rpm. #572 removed the suffixed keys believing
-    nothing read them; a 1.0.0 log searching for `linux-x86_64-rpm` proved
-    otherwise, and #691 put them back.
+    → exactly ONE release for the tag
+[ ] Draft published
 [ ] (Optional but recommended) Manual smoke test of update from previous version
 ```
 

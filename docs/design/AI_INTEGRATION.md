@@ -1,6 +1,8 @@
 # AI Integration — Design
 
-**Status:** Draft, for review\
+**Status:** Implemented, except where a section says otherwise. Tools live in
+`src-tauri/crates/mas-mcp/src/server.rs`; sessions in `mas-agent` and
+`src-tauri/src/mcp/`.\
 **Supersedes:** the `mas-ai` crate and ADR-007's embedded-provider design\
 **Companion ADR:** ADR-011 in [TECH_DECISIONS.md](TECH_DECISIONS.md)
 
@@ -49,15 +51,15 @@ Harnesses have escape hatches. Copilot CLI has `--allow-all` and `--yolo`;
 Claude Code has `--permission-mode` and `--allowedTools`. Any design that
 relies on the harness to ask the user is one flag away from not asking.
 
-So the tool implementation blocks on SQLPilot's own confirmation — the same
-`confirmDestructive` dialog the grid, the restore and the schema tree already
-use, showing the exact statement, the environment badge, and a dry-run
-affected-row count. The harness's own prompt, where it has one, is a second
-gate we are happy to have and never the only one.
+So the tool implementation blocks on SQLPilot's own confirmation, the
+approval dialog in `src/components/agent/ApprovalDialog.tsx`, showing the
+exact statement, the connection and its environment, the agent's reason, and
+for a write the **measured** affected-row count (the statement has already run
+in a transaction that is not yet committed). The harness's own prompt, where
+it has one, is a second gate we are happy to have and never the only one.
 
-This is only possible because of BYOH. An embedded agent would have had to
-invent its own approval UI; as a tool provider we get to reuse the one the app
-already has, which the user already trusts for the same actions.
+This is only possible because of BYOH: as a tool provider, the approval is
+ours to show, whatever is driving.
 
 ---
 
@@ -112,11 +114,11 @@ questions about data without reading data.
 
 ### 4.3 Query
 
-| Tool         | Arguments                     | Enforced                                                                                                                                                                                                                                     |
-| ------------ | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `run_select` | `connection`, `sql`, `limit?` | **Single statement** — the SQL is split and refused if it is more than one. Verb checked with `effective_verb`, so `WITH … DELETE` is not a read. Row cap and query timeout from the connection. Redaction and posture applied to the result |
-| `run_write`  | `connection`, `sql`           | Single statement. `estimate_impact` first. Approval in SQLPilot's window. Executed inside a transaction the app can roll back. Refused outright on a read-only profile — the executor already refuses, this is the second lock               |
-| `run_ddl`    | `connection`, `sql`           | As above, and refused by default on production                                                                                                                                                                                               |
+| Tool         | Arguments                     | Enforced                                                                                                                                                                                                                                                             |
+| ------------ | ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `run_select` | `connection`, `sql`, `limit?` | **Single statement** — the SQL is split and refused if it is more than one. Verb checked with `effective_verb`, so `WITH … DELETE` is not a read. Row cap and query timeout from the connection. Redaction and posture applied to the result                         |
+| `run_write`  | `connection`, `sql`           | Single statement. Runs inside a transaction that is not committed; approval in SQLPilot's window shows the measured row count, and the answer commits or rolls back. Refused outright on a read-only profile — the executor already refuses, this is the second lock |
+| `run_ddl`    | `connection`, `sql`           | As above, and refused by default on production                                                                                                                                                                                                                       |
 
 The multi-statement rule is the lesson of the old implementation, which checked
 `sql.to_uppercase().starts_with("SELECT")` on the whole string and then handed
@@ -141,7 +143,8 @@ in-app session is worth building rather than telling people to use a terminal.
 
 ### 4.5 Resources and prompts
 
-MCP's other two primitives, used as intended:
+**Not implemented.** The server advertises tools only. The plan was MCP's
+other two primitives, used as intended:
 
 - **Resources** — the attached database's schema as a browsable tree, and the
   active tab, so a harness can offer them as `@`-mentions without a tool call.
@@ -155,13 +158,15 @@ MCP's other two primitives, used as intended:
 Three axes decide every call. All three already exist in the app; none of them
 is new machinery.
 
-**Data posture**, per connection profile:
+**Data posture**, per connection profile. A connection starts not shared at
+all; the user picks a posture when sharing it. There is no
+environment-specific default:
 
-| Posture                               | What a tool may return                                               |
-| ------------------------------------- | -------------------------------------------------------------------- |
-| `schema-only` (default on production) | Names, types, relationships, and aggregates. No row values, no top-N |
-| `samples`                             | Up to N rows, redacted, for tables the user has allowed              |
-| `full`                                | Rows up to the connection's row cap, redacted                        |
+| Posture       | What a tool may return                                               |
+| ------------- | -------------------------------------------------------------------- |
+| `schema-only` | Names, types, relationships, and aggregates. No row values, no top-N |
+| `samples`     | Up to N rows, redacted, for tables the user has allowed              |
+| `full`        | Rows up to the connection's row cap, redacted                        |
 
 Redaction sits _across_ the postures rather than inside them: a column whose
 name says it holds a credential returns no values at any posture, including
@@ -181,7 +186,7 @@ Together:
 |                             | development | staging     | production                                            |
 | --------------------------- | ----------- | ----------- | ----------------------------------------------------- |
 | shape and analysis          | auto        | auto        | auto                                                  |
-| `run_select`                | auto        | auto        | auto, `schema-only` posture by default                |
+| `run_select`                | auto        | auto        | auto, values only as the posture allows               |
 | `run_write`                 | ask         | ask         | ask, with dry-run count, per statement                |
 | `run_ddl`                   | ask         | ask         | **refused** unless the session is explicitly unlocked |
 | admin (users, grants, kill) | not exposed | not exposed | not exposed                                           |
@@ -203,17 +208,19 @@ A session is a harness process attached to a connection and a database.
   tools in parallel; opened on first use, closed when idle or when the
   session ends), its own query timeout and its own grants, so a runaway agent
   query can hold up neither the user nor another agent (#731).
-- Grants are per session and expire with it. "This session may read values from
-  `customers`" is a thing the user says once, to one session, not a global
-  setting they forget about.
-- It is **cancellable**, and cancelling issues `KILL QUERY` for anything in
-  flight — abandoning the future is what #658 was about.
-- Several may run at once. Background work ("find out why the nightly job is
-  slow") reports progress and surfaces when it needs an answer.
+- Grants are per connection, not per session: the user shares a connection
+  from Tools → Agents… with a posture, an optional list of databases and
+  redaction patterns, and the grant persists (`agent_grants` in
+  `connections.db`) until revoked. Unlocking DDL on production is the one
+  per-session permission; it lapses when the app closes.
+- A turn is **cancellable**: `cancel_agent_turn` sends the harness's own
+  cancel (`session/cancel` over ACP, an interrupt for Claude Code). The app
+  does not itself issue `KILL QUERY` for a statement in flight.
+- Several may run at once.
 - Everything it runs lands in query history tagged with the session and the
-  harness, so **"what did this thing do"** is answerable afterwards — and
-  **"undo what this session did"** is offered where the statements were
-  transactional.
+  harness, so **"what did this thing do"** is answerable afterwards. A
+  session-level "undo what this session did" is not built; a staged write
+  that is declined is rolled back.
 
 ### Long-running work
 
@@ -247,10 +254,8 @@ inside the running app to reach live connections, not be spawned by the harness.
 
 ### Claude Code — full in-app session
 
-_Not yet re-verified live: the CLI is not installed on this machine. The table
-below is from the documentation as of 2026-09-12._
-
-The CLI has everything a host needs:
+Verified against Claude Code 2.1.270 on 2026-09-12 by running it
+(`src-tauri/crates/mas-agent/src/claude.rs`). The CLI has everything a host needs:
 
 | Need                    | Mechanism                                                                                                                                                                                                                                                                              |
 | ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -324,7 +329,9 @@ approvals do not care.
    without the question. `run_ddl` cannot work that way, because both servers
    commit the open transaction before a schema change (verified on 8.0.46 and
    MariaDB 11.8), so it is approved before it runs and says so.
-4. **Background and multi-session.**
+4. **Background work.** Not built.
+
+The tool count has grown since step 1: 21 tools today, listed in §4.
 
 Reads before writes, even in-app. A session that can only look is a useful
 product and a much smaller blast radius.
