@@ -91,6 +91,39 @@ pub fn redacted_preview(sql: &str, max_chars: usize) -> String {
     redact_credentials(&sql[..cut]).sql.into_owned()
 }
 
+/// Remove the statement text a server error quotes back, for logging.
+///
+/// MySQL and MariaDB syntax errors end with `near '<the rest of the
+/// statement>' at line N`. The quoting there is not SQL quoting — quotes inside
+/// the echoed text are not escaped — so [`redact_credentials`] cannot find a
+/// password in it, and a mistyped `CREATE USER … IDENTIFIED BY 'pw'` put the
+/// password in the log file (#881). The echo is replaced whole: the error code,
+/// SQLSTATE and the line number are what a log reader needs.
+///
+/// Only for log lines. The user still sees the full message in the app.
+pub fn redact_server_echo(message: &str) -> Cow<'_, str> {
+    const OPEN: &str = "near '";
+    const CLOSE: &str = "' at line ";
+    let Some(open) = message.find(OPEN) else {
+        return Cow::Borrowed(message);
+    };
+    let start = open + OPEN.len();
+    // The last close marker: the echoed text may itself contain one.
+    let end = message[start..]
+        .rfind(CLOSE)
+        .map_or(message.len(), |i| start + i);
+    let mut out = String::with_capacity(message.len());
+    out.push_str(&message[..start]);
+    out.push_str(REDACTION);
+    out.push_str(&message[end..]);
+    Cow::Owned(out)
+}
+
+/// An error formatted for a log line, with any server echo removed.
+pub fn log_safe_error(error: &impl std::fmt::Display) -> String {
+    redact_server_echo(&error.to_string()).into_owned()
+}
+
 /// The last `n` characters of `s`.
 fn tail(s: &str, n: usize) -> Vec<char> {
     let start = s
@@ -621,5 +654,50 @@ mod tests {
     #[test]
     fn preview_counts_characters_not_bytes() {
         assert_eq!(redacted_preview("ééééé", 3), "ééé");
+    }
+}
+
+#[cfg(test)]
+mod server_echo_tests {
+    use super::*;
+
+    const MYSQL: &str =
+        "error returned from database: 1064 (42000): You have an error in your SQL \
+        syntax; check the manual that corresponds to your MySQL server version for the right \
+        syntax to use near 'USR 'a'@'%' IDENTIFIED BY 'hunter2'' at line 1";
+
+    #[test]
+    fn removes_the_echoed_statement() {
+        let out = redact_server_echo(MYSQL);
+        assert!(!out.contains("hunter2"), "{out}");
+        assert!(out.ends_with("near '<redacted>' at line 1"), "{out}");
+        assert!(out.contains("1064 (42000)"));
+    }
+
+    #[test]
+    fn echo_containing_the_close_marker_is_removed_whole() {
+        let msg = "syntax to use near 'x' at line 'hunter2' at line 3";
+        assert_eq!(
+            redact_server_echo(msg),
+            "syntax to use near '<redacted>' at line 3"
+        );
+    }
+
+    #[test]
+    fn truncated_echo_is_removed_to_the_end() {
+        let msg = "syntax to use near 'IDENTIFIED BY 'hunter2";
+        assert_eq!(redact_server_echo(msg), "syntax to use near '<redacted>");
+    }
+
+    #[test]
+    fn messages_without_an_echo_are_untouched() {
+        let msg = "1146 (42S02): Table 'shop.nope' doesn't exist";
+        assert!(matches!(redact_server_echo(msg), Cow::Borrowed(m) if m == msg));
+    }
+
+    #[test]
+    fn log_safe_error_formats_and_redacts() {
+        let err = std::io::Error::other(MYSQL);
+        assert!(!log_safe_error(&err).contains("hunter2"));
     }
 }

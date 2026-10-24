@@ -276,7 +276,7 @@ pub async fn execute_query(
     // missing table from a syntax error, and the driver already knows which
     // it was (#324).
     let results = results.map_err(|e| {
-        tracing::error!(error = %e, "Query execution failed");
+        tracing::error!(error = %mas_core::query::log_safe_error(&e), "Query execution failed");
         QueryError::from_core(&e)
     })?;
     let total_rows: u64 = results.iter().map(|r| r.rows_affected).sum();
@@ -418,7 +418,7 @@ pub async fn explain_query(
     )
     .await
     .map_err(|e| {
-        tracing::error!(error = %e, "EXPLAIN failed");
+        tracing::error!(error = %mas_core::query::log_safe_error(&e), "EXPLAIN failed");
         e.to_string()
     })
 }
@@ -508,7 +508,7 @@ pub async fn apply_grid_edits(
     )
     .await
     .map_err(|e| {
-        tracing::error!(error = %e, "Grid edits failed");
+        tracing::error!(error = %mas_core::query::log_safe_error(&e), "Grid edits failed");
         QueryError::from_core(&e)
     })
 }

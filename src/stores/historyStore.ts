@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistorySort } from "../lib/bindings";
 import { USER_ORIGINS } from "../lib/run-statement";
-import { redactCredentials, redactLiterals } from "../lib/sql-redact";
+import { redactCredentials, redactLiterals, redactServerEcho } from "../lib/sql-redact";
 import { api } from "../lib/tauri-api";
 
 export type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistorySort };
@@ -344,8 +344,10 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     const scrub = get().redactLiterals ? redactLiterals : redactCredentials;
     const { sql, redacted } = scrub(entry.sql);
     // A driver message can quote the statement back, so it gets the same
-    // treatment. Nothing sensitive should reach storage by either route.
-    const redactedError = entry.error ? scrub(entry.error) : null;
+    // treatment. Nothing sensitive should reach storage by either route. The
+    // echo in a syntax error is not quoted like SQL, so it is removed first;
+    // that alone does not mark the entry redacted, since its SQL still runs.
+    const redactedError = entry.error ? scrub(redactServerEcho(entry.error).sql) : null;
 
     const stored: HistoryEntry = {
       ...entry,
