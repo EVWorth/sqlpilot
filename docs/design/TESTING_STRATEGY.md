@@ -1,1073 +1,220 @@
 # SQLPilot — Testing Strategy
 
----
+How the tests are laid out, what each layer covers, and where each one runs.
+For the commands, see the [`justfile`](../../justfile) (`just --list`).
 
-## 1. Testing Philosophy
+## Layers at a glance
 
-### Test Pyramid
+| Layer                     | Tool                             | Needs                     | On PRs | At release     |
+| ------------------------- | -------------------------------- | ------------------------- | ------ | -------------- |
+| Frontend unit             | Vitest + jsdom + RTL             | nothing                   | yes    | no             |
+| Frontend browser          | Vitest browser mode + Playwright | Chromium                  | yes    | no             |
+| Rust unit                 | `cargo test`                     | nothing                   | yes    | yes (coverage) |
+| Rust integration, no DB   | `cargo test` (`tests/` dirs)     | nothing                   | yes    | yes (coverage) |
+| Rust database integration | `cargo test -- --ignored`        | MySQL 8 and MariaDB 11    | no     | yes            |
+| Live agent tests          | `cargo test -- --ignored`        | databases + logged-in CLI | no     | no             |
+| Contract checks           | Vitest, `cargo test`, shell      | nothing                   | yes    | no             |
 
-```
-     ╱  E2E  ╲           ← Few, focused, high-value user journeys
-    ╱──────────╲
-   ╱ Integration ╲       ← Every Tauri command, DB interaction
-  ╱────────────────╲
- ╱    Unit Tests     ╲   ← Every function, component, utility
-╱──────────────────────╲
-```
+There is no end-to-end suite. One existed, never ran, and was removed: it drove
+the Vite dev server, but the app needs a Tauri window.
 
-| Layer        | Target                                     | Tooling                        | Approximate Count |
-| ------------ | ------------------------------------------ | ------------------------------ | ----------------- |
-| Unit (Rust)  | Pure functions, data models, serialization | `cargo test`                   | 200+              |
-| Unit (React) | Components, hooks, utilities               | Vitest + React Testing Library | 300+              |
-| Integration  | Tauri commands against real MySQL          | `cargo test` + Docker MySQL    | 100+              |
-| E2E          | Full user workflows through the UI         | Playwright + Tauri test driver | 50+               |
+## Frontend
 
-### Core Principles
+### Unit tests (jsdom)
 
-1. **Every Tauri command must have integration tests** — commands are the API boundary; a bug here means a broken feature.
-2. **Every UI component must have unit tests** — rendering, props, state, error states.
-3. **Every user workflow must have E2E tests** — connect, query, edit, export, admin.
-4. **Tests must be deterministic** — no random data, no time-dependent assertions, no flaky waits.
-5. **Tests must be isolated** — each test suite operates on its own database or uses transactions that roll back.
-6. **Tests must be fast** — unit tests < 30s total, integration tests < 2 min, E2E tests < 10 min.
+- Config: [`vitest.config.ts`](../../vitest.config.ts). Picks up
+  `src/**/*.{test,spec}.{ts,tsx}` and excludes `*.browser.*` files.
+- Setup: [`src/test-setup.ts`](../../src/test-setup.ts) loads jest-dom and the
+  app stylesheet, mocks the updater and process plugins, and polyfills
+  `localStorage`.
+- Tests are co-located in `__tests__/` next to the source:
+  `src/components/*/__tests__/`, `src/stores/__tests__/`,
+  `src/lib/__tests__/`, `src/hooks/__tests__/`, `src/types/__tests__/`.
+- The `@/` alias resolves to `src/` here (and in `tsconfig.json`) but not in
+  `vite.config.ts`. Tests may use it; app code must not.
+- Coverage excludes `src/dev/**` (the mock backend is dev tooling).
 
----
+Run: `just test-frontend`, `npm run test:unit`, or `npx vitest run <file>`.
 
-## 2. Testing Infrastructure
+### Browser tests (real Chromium)
 
-### Docker MySQL Test Environment
+- Config: [`vitest.browser.config.ts`](../../vitest.browser.config.ts). Picks
+  up `src/**/*.browser.{test,spec}.{ts,tsx}` only.
+- Used where jsdom cannot answer the question: layout and geometry, focus,
+  Monaco, resizable panels. Examples:
+  [`AppLayout.browser.test.tsx`](../../src/components/layout/__tests__/AppLayout.browser.test.tsx),
+  [`SQLEditor.browser.test.tsx`](../../src/components/editor/__tests__/SQLEditor.browser.test.tsx),
+  [`ResultsGrid.browser.test.tsx`](../../src/components/grid/__tests__/ResultsGrid.browser.test.tsx),
+  [`main.browser.test.tsx`](../../src/__tests__/main.browser.test.tsx).
+- The viewport is fixed at 1280x800, a desktop window. Monaco is pre-bundled
+  through `optimizeDeps` so a cold cache does not reload the page mid-run.
+- `CHROMIUM_PATH` overrides the browser binary when Playwright's own build is
+  missing (CI images, cloud containers).
 
-```yaml
-# docker-compose.test.yml
-services:
-  mysql-8:
-    image: mysql:8.0
-    environment:
-      MYSQL_ROOT_PASSWORD: test_root_password
-      MYSQL_DATABASE: test_db
-      MYSQL_USER: test_user
-      MYSQL_PASSWORD: test_password
-    ports:
-      - "13306:3306"
-    volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
-      - ./tests/fixtures/sql/seed_large.sql:/docker-entrypoint-initdb.d/02-seed-large.sql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
+Run: `npm run test:browser` or `just test-browser`.
 
-  mysql-5_7:
-    image: mysql:5.7
-    environment:
-      MYSQL_ROOT_PASSWORD: test_root_password
-      MYSQL_DATABASE: test_db
-    ports:
-      - "13307:3306"
-    volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
+Chromium is not the app's webview (WebKitGTK on Linux, WebView2 on Windows,
+WKWebView on macOS). These tests check layout and behaviour, not
+webview-specific rendering.
 
-  mariadb-11:
-    image: mariadb:11
-    environment:
-      MYSQL_ROOT_PASSWORD: test_root_password
-      MYSQL_DATABASE: test_db
-    ports:
-      - "13308:3306"
-    volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql
-    healthcheck:
-      test: ["CMD", "mariadb-admin", "ping", "-h", "localhost"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
+### Mock backend
 
-  mysql-ssl:
-    image: mysql:8.0
-    command: >
-      --require-secure-transport=ON
-      --ssl-ca=/etc/mysql/ssl/ca-cert.pem
-      --ssl-cert=/etc/mysql/ssl/server-cert.pem
-      --ssl-key=/etc/mysql/ssl/server-key.pem
-    environment:
-      MYSQL_ROOT_PASSWORD: test_root_password
-      MYSQL_DATABASE: test_db
-    ports:
-      - "13309:3306"
-    volumes:
-      - ./tests/fixtures/ssl/server-cert.pem:/etc/mysql/ssl/server-cert.pem
-      - ./tests/fixtures/ssl/server-key.pem:/etc/mysql/ssl/server-key.pem
-      - ./tests/fixtures/ssl/ca-cert.pem:/etc/mysql/ssl/ca-cert.pem
-      - ./tests/fixtures/ssl/my.cnf:/etc/mysql/conf.d/ssl.cnf
-    healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      interval: 5s
-      timeout: 3s
-      retries: 30
+[`src/dev/mock/`](../../src/dev/mock/) answers every Tauri command with fixed
+fixture data, so the UI runs in a plain browser (`just dev-web`, then
+`http://localhost:1420/?mock`). Handlers live in
+[`src/dev/mock/handlers/`](../../src/dev/mock/handlers/).
 
-  ssh-server:
-    image: lscr.io/linuxserver/openssh-server:latest
-    environment:
-      - PASSWORD_ACCESS=true
-      - USER_PASSWORD=test_ssh_password
-      - USER_NAME=test_ssh_user
-    ports:
-      - "12222:2222"
-```
+[`src/dev/mock/__tests__/coverage.test.ts`](../../src/dev/mock/__tests__/coverage.test.ts)
+fails when a command in the generated bindings has no handler, or when a
+handler exists for a command that no longer does. Adding a Tauri command
+therefore means adding a mock handler.
 
-### Container Lifecycle
+`just ui-snapshots` ([`scripts/ui-snapshots.mjs`](../../scripts/ui-snapshots.mjs))
+screenshots the main screens on the mock backend into `ui-snapshots/`. It is a
+review aid, not a test.
 
-1. **Before test suite:** `docker compose -f docker-compose.test.yml up -d --wait`
-2. **Health check:** Wait for all containers to report healthy.
-3. **Seed data:** Applied automatically via `docker-entrypoint-initdb.d/seed.sql`.
-4. **Between test suites:** Reset test databases to known state via truncation + re-seed.
-5. **After test suite:** `docker compose -f docker-compose.test.yml down -v`
+## Rust
 
----
+### Unit tests
 
-## 3. Test Seed Data
+`#[cfg(test)]` modules inside `src-tauri/src/` and `src-tauri/crates/*/src/`.
+No database, no network.
 
-### Database Schema
+### Integration tests
 
-```sql
--- =============================================================================
--- tests/fixtures/seed.sql
--- Comprehensive test database covering all MySQL data types and edge cases
--- =============================================================================
+Each crate's `tests/` directory:
 
--- ---------------------------------------------------------------------------
--- test_db: Standard test data
--- ---------------------------------------------------------------------------
-CREATE DATABASE IF NOT EXISTS test_db;
-USE test_db;
+| Location                                                                         | Covers                                              |
+| -------------------------------------------------------------------------------- | --------------------------------------------------- |
+| [`src-tauri/crates/mas-core/tests/`](../../src-tauri/crates/mas-core/tests/)     | connections, queries, schema, backup/restore, edits |
+| [`src-tauri/crates/mas-admin/tests/`](../../src-tauri/crates/mas-admin/tests/)   | process list, kill, server variables, user DDL      |
+| [`src-tauri/crates/mas-mcp/tests/`](../../src-tauri/crates/mas-mcp/tests/)       | MCP tools, the endpoint, generated SQL              |
+| [`src-tauri/crates/mas-sqlite/tests/`](../../src-tauri/crates/mas-sqlite/tests/) | the local store, on in-memory SQLite                |
+| [`src-tauri/crates/mas-agent/tests/`](../../src-tauri/crates/mas-agent/tests/)   | the ACP client; live harness tests                  |
+| [`src-tauri/tests/`](../../src-tauri/tests/)                                     | bindings export, agent end-to-end                   |
 
--- Categories (self-referential FK)
-CREATE TABLE categories (
-    id          INT AUTO_INCREMENT PRIMARY KEY,
-    name        VARCHAR(100) NOT NULL,
-    parent_id   INT NULL,
-    created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL
-);
+Tests that need a live database are marked `#[ignore]`, so the default
+`cargo test` stays container-free. Files with no ignored tests (for example
+`mas-mcp/tests/tools.rs`, `mas-mcp/tests/endpoint.rs`,
+`mas-core/tests/connect_diagnosis.rs`, `mas-agent/tests/acp.rs`,
+`mas-sqlite/tests/integration_tests.rs`) run on every PR.
 
--- Users (covers many data types)
-CREATE TABLE users (
-    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
-    username        VARCHAR(50) NOT NULL UNIQUE,
-    email           VARCHAR(255) NOT NULL,
-    password_hash   BINARY(60) NOT NULL,
-    full_name       VARCHAR(200),
-    bio             TEXT,
-    avatar          BLOB,
-    balance         DECIMAL(12,2) DEFAULT 0.00,
-    rating          FLOAT DEFAULT 0.0,
-    latitude        DOUBLE,
-    longitude       DOUBLE,
-    status          ENUM('active', 'inactive', 'banned') DEFAULT 'active',
-    roles           SET('admin', 'editor', 'viewer') DEFAULT 'viewer',
-    preferences     JSON,
-    birth_date      DATE,
-    last_login      DATETIME,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_status (status),
-    INDEX idx_email (email),
-    FULLTEXT INDEX ft_bio (bio)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+Run the PR set locally with `just test-rust`. It runs the library crates with
+all targets, then `cargo test -p sqlpilot --lib`, because the app crate's own
+`tests/` need a harness or a database.
 
--- Products
-CREATE TABLE products (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
-    sku             VARCHAR(50) NOT NULL UNIQUE,
-    name            VARCHAR(200) NOT NULL,
-    description     MEDIUMTEXT,
-    price           DECIMAL(10,2) NOT NULL,
-    weight_kg       FLOAT,
-    category_id     INT,
-    metadata        JSON,
-    image           MEDIUMBLOB,
-    is_active       TINYINT(1) DEFAULT 1,
-    stock_count     INT UNSIGNED DEFAULT 0,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE SET NULL,
-    INDEX idx_category (category_id),
-    INDEX idx_price (price)
-) ENGINE=InnoDB;
+### Database integration tests
 
--- Orders
-CREATE TABLE orders (
-    id              BIGINT AUTO_INCREMENT PRIMARY KEY,
-    user_id         BIGINT NOT NULL,
-    order_number    VARCHAR(20) NOT NULL UNIQUE,
-    status          ENUM('pending', 'processing', 'shipped', 'delivered', 'cancelled') DEFAULT 'pending',
-    total           DECIMAL(12,2) NOT NULL,
-    notes           TEXT,
-    shipping_address JSON,
-    ordered_at      DATETIME NOT NULL,
-    shipped_at      DATETIME,
-    delivered_at    DATETIME,
-    created_at      TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-    INDEX idx_user (user_id),
-    INDEX idx_status (status),
-    INDEX idx_ordered_at (ordered_at)
-) ENGINE=InnoDB;
+These run against two servers from
+[`docker-compose.test.yml`](../../docker-compose.test.yml):
 
--- Order Items (junction table)
-CREATE TABLE order_items (
-    id          BIGINT AUTO_INCREMENT PRIMARY KEY,
-    order_id    BIGINT NOT NULL,
-    product_id  INT NOT NULL,
-    quantity    INT NOT NULL DEFAULT 1,
-    unit_price  DECIMAL(10,2) NOT NULL,
-    FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
-    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE RESTRICT,
-    INDEX idx_order (order_id),
-    INDEX idx_product (product_id)
-) ENGINE=InnoDB;
+| Service      | Container        | Host port | Started by `just db-up` |
+| ------------ | ---------------- | --------- | ----------------------- |
+| `mysql-8`    | `mas-mysql-8`    | 13306     | yes                     |
+| `mariadb-11` | `mas-mariadb-11` | 13308     | yes                     |
+| `mysql-5_7`  | `mas-mysql-57`   | 13307     | no (defined, unused)    |
+| `mysql-ssl`  | `mas-mysql-ssl`  | 13309     | no (defined, untested)  |
 
--- All-types reference table (for data type round-trip testing)
-CREATE TABLE all_types (
-    id              INT AUTO_INCREMENT PRIMARY KEY,
-    col_tinyint     TINYINT,
-    col_smallint    SMALLINT,
-    col_mediumint   MEDIUMINT,
-    col_int         INT,
-    col_bigint      BIGINT,
-    col_float       FLOAT,
-    col_double      DOUBLE,
-    col_decimal     DECIMAL(20,10),
-    col_bit         BIT(8),
-    col_char        CHAR(10),
-    col_varchar     VARCHAR(255),
-    col_tinytext    TINYTEXT,
-    col_text        TEXT,
-    col_mediumtext  MEDIUMTEXT,
-    col_longtext    LONGTEXT,
-    col_binary      BINARY(16),
-    col_varbinary   VARBINARY(255),
-    col_tinyblob    TINYBLOB,
-    col_blob        BLOB,
-    col_mediumblob  MEDIUMBLOB,
-    col_longblob    LONGBLOB,
-    col_date        DATE,
-    col_time        TIME,
-    col_datetime    DATETIME,
-    col_timestamp   TIMESTAMP NULL,
-    col_year        YEAR,
-    col_enum        ENUM('a', 'b', 'c'),
-    col_set         SET('x', 'y', 'z'),
-    col_json        JSON,
-    col_geometry    GEOMETRY
-) ENGINE=InnoDB;
+Credentials: root / `test_root_password`, plus `test_user` / `test_password`
+on `test_db`. Nothing uses port 3306.
 
--- ---------------------------------------------------------------------------
--- Views
--- ---------------------------------------------------------------------------
-CREATE VIEW active_users AS
-    SELECT id, username, email, full_name, last_login
-    FROM users
-    WHERE status = 'active';
+Seed data is in [`tests/fixtures/sql/`](../../tests/fixtures/sql/).
+[`seed.sql`](../../tests/fixtures/sql/seed.sql) builds `test_db` (tables
+covering the MySQL type range, relations, Unicode, views, routines, triggers,
+events) and an empty `test_db_empty`.
+[`seed_large.sql`](../../tests/fixtures/sql/seed_large.sql) adds `large_table`
+for paging and memory tests; only the MySQL container loads it. Some suites
+(`backup_dump`, `restore_file`, `ddl_pool_safety`, `paging_offset`) create and
+drop their own databases.
 
-CREATE VIEW order_summary AS
-    SELECT
-        o.id AS order_id,
-        o.order_number,
-        u.username,
-        o.status,
-        o.total,
-        COUNT(oi.id) AS item_count,
-        o.ordered_at
-    FROM orders o
-    JOIN users u ON o.user_id = u.id
-    JOIN order_items oi ON oi.order_id = o.id
-    GROUP BY o.id;
+Every database test reads `MAS_TEST_PORT`, defaulting to 13306. Run both
+servers:
 
--- ---------------------------------------------------------------------------
--- Stored Procedures
--- ---------------------------------------------------------------------------
-DELIMITER //
-
-CREATE PROCEDURE get_user_orders(IN p_user_id BIGINT)
-BEGIN
-    SELECT o.*, COUNT(oi.id) AS item_count
-    FROM orders o
-    LEFT JOIN order_items oi ON oi.order_id = o.id
-    WHERE o.user_id = p_user_id
-    GROUP BY o.id
-    ORDER BY o.ordered_at DESC;
-END //
-
-CREATE PROCEDURE create_order(
-    IN p_user_id BIGINT,
-    IN p_order_number VARCHAR(20),
-    IN p_total DECIMAL(12,2),
-    OUT p_order_id BIGINT
-)
-BEGIN
-    INSERT INTO orders (user_id, order_number, total, ordered_at)
-    VALUES (p_user_id, p_order_number, p_total, NOW());
-    SET p_order_id = LAST_INSERT_ID();
-END //
-
--- ---------------------------------------------------------------------------
--- Functions
--- ---------------------------------------------------------------------------
-CREATE FUNCTION calculate_discount(
-    p_total DECIMAL(12,2),
-    p_percentage DECIMAL(5,2)
-) RETURNS DECIMAL(12,2)
-DETERMINISTIC
-BEGIN
-    RETURN p_total * (1 - p_percentage / 100);
-END //
-
--- ---------------------------------------------------------------------------
--- Triggers
--- ---------------------------------------------------------------------------
-CREATE TRIGGER update_stock_on_order
-AFTER INSERT ON order_items
-FOR EACH ROW
-BEGIN
-    UPDATE products
-    SET stock_count = stock_count - NEW.quantity
-    WHERE id = NEW.product_id;
-END //
-
-DELIMITER ;
-
--- ---------------------------------------------------------------------------
--- Sample Data
--- ---------------------------------------------------------------------------
-INSERT INTO categories (name, parent_id) VALUES
-    ('Electronics', NULL),
-    ('Clothing', NULL),
-    ('Phones', 1),
-    ('Laptops', 1),
-    ('T-Shirts', 2);
-
-INSERT INTO users (username, email, password_hash, full_name, bio, balance, rating, status, roles, preferences, birth_date, last_login) VALUES
-    ('alice',   'alice@example.com',   UNHEX(SHA2('password1', 256)), 'Alice Johnson',  'Software engineer from NYC',  1500.50, 4.8, 'active',   'admin,editor', '{"theme":"dark","lang":"en"}', '1990-03-15', '2024-01-15 10:30:00'),
-    ('bob',     'bob@example.com',     UNHEX(SHA2('password2', 256)), 'Bob Smith',      'DBA with 10 years experience', 2300.00, 4.2, 'active',   'editor',       '{"theme":"light","lang":"en"}', '1985-07-22', '2024-01-14 08:00:00'),
-    ('charlie', 'charlie@example.com', UNHEX(SHA2('password3', 256)), 'Charlie Brown',  NULL,                           0.00,    3.5, 'inactive', 'viewer',       NULL,                           '1995-11-01', NULL),
-    ('diana',   'diana@example.com',   UNHEX(SHA2('password4', 256)), 'Diana Prince',   'Database administrator',       5000.75, 4.9, 'active',   'admin',        '{"theme":"dark","lang":"es"}', '1988-06-30', '2024-01-15 14:22:00'),
-    ('eve',     'eve@example.com',     UNHEX(SHA2('password5', 256)), 'Eve Wilson',     'Junior developer — learning SQL! 🚀', 100.00, 2.1, 'active', 'viewer', '{"theme":"light","lang":"fr"}', '2000-01-01', '2024-01-10 09:15:00');
-
-INSERT INTO products (sku, name, description, price, weight_kg, category_id, metadata, is_active, stock_count) VALUES
-    ('PHONE-001', 'Smartphone X',    'Latest flagship phone',           999.99, 0.18, 3, '{"color":"black","storage":"128GB"}', 1, 500),
-    ('PHONE-002', 'Budget Phone Y',  'Affordable smartphone',           299.99, 0.15, 3, '{"color":"white","storage":"64GB"}',  1, 1000),
-    ('LAPTOP-001','Pro Laptop 15"',  'Professional laptop for devs',   1999.99, 1.80, 4, '{"ram":"32GB","ssd":"1TB"}',           1, 200),
-    ('SHIRT-001', 'Classic T-Shirt', 'Comfortable cotton t-shirt',      29.99, 0.20, 5, '{"sizes":["S","M","L","XL"]}',         1, 5000),
-    ('SHIRT-002', 'Premium Polo',    'Premium cotton polo shirt',       59.99, 0.25, 5, NULL,                                   0, 0);
-
-INSERT INTO orders (user_id, order_number, status, total, notes, shipping_address, ordered_at, shipped_at, delivered_at) VALUES
-    (1, 'ORD-2024-001', 'delivered',   1029.98, 'Gift wrap please',   '{"street":"123 Main St","city":"NYC","zip":"10001"}',   '2024-01-01 10:00:00', '2024-01-02 08:00:00', '2024-01-05 14:00:00'),
-    (1, 'ORD-2024-002', 'shipped',     1999.99, NULL,                 '{"street":"123 Main St","city":"NYC","zip":"10001"}',   '2024-01-10 15:30:00', '2024-01-11 09:00:00', NULL),
-    (2, 'ORD-2024-003', 'processing',   329.98, 'Leave at door',     '{"street":"456 Oak Ave","city":"LA","zip":"90001"}',    '2024-01-14 12:00:00', NULL, NULL),
-    (4, 'ORD-2024-004', 'pending',       59.99, NULL,                 '{"street":"789 Pine Rd","city":"Chicago","zip":"60601"}','2024-01-15 09:00:00', NULL, NULL),
-    (5, 'ORD-2024-005', 'cancelled',    299.99, 'Changed my mind',   '{"street":"321 Elm St","city":"Seattle","zip":"98101"}', '2024-01-13 11:00:00', NULL, NULL);
-
-INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES
-    (1, 1, 1, 999.99),
-    (1, 4, 1,  29.99),
-    (2, 3, 1, 1999.99),
-    (3, 2, 1,  299.99),
-    (3, 4, 1,   29.99),
-    (4, 5, 1,   59.99),
-    (5, 2, 1,  299.99);
-
--- ---------------------------------------------------------------------------
--- test_db_empty: Edge case testing (empty database)
--- ---------------------------------------------------------------------------
-CREATE DATABASE IF NOT EXISTS test_db_empty;
-
--- ---------------------------------------------------------------------------
--- test_db_large: Performance testing (populated by test setup scripts)
--- ---------------------------------------------------------------------------
-CREATE DATABASE IF NOT EXISTS test_db_large;
+```bash
+just db-up
+just test-integration                       # MySQL 8
+MAS_TEST_PORT=13308 just test-integration   # MariaDB 11
 ```
 
-### Large Dataset Generation
-
-The `test_db_large` database is populated by a separate setup script (`tests/fixtures/generate_large_data.sql` or a Rust/Python script) that:
-
-- Creates a `large_table` with 1,000,000 rows
-- Includes varied data types, NULL values, and unicode text
-- Creates indexes to enable meaningful performance testing
-- Is generated deterministically (seeded PRNG) for reproducibility
-
----
-
-## 4. Backend Unit Tests (Rust — `cargo test`)
-
-### Connection tests
-
-They live in `integration_tests.rs` (which covers connect, disconnect and the
-schema surface) and `connection_health.rs`, not in a `connection_tests.rs`.
-This table used to name thirteen tests, of which five existed.
-
-| Test                               | Description                                                                                                                                                                                                                                   | Type        |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `test_connect_mysql8`              | Connect to the MySQL 8 container on 13306                                                                                                                                                                                                     | Integration |
-| `test_connect_invalid_credentials` | The wrong password is refused, with the server's own message                                                                                                                                                                                  | Integration |
-| `test_connect_invalid_host`        | A host that is not there fails rather than hanging                                                                                                                                                                                            | Integration |
-| `test_test_connection_success`     | Test Connection reports a version and a latency                                                                                                                                                                                               | Integration |
-| `test_test_connection_failure`     | Test Connection reports why, rather than just failing                                                                                                                                                                                         | Integration |
-| `test_disconnect_cleanup`          | Disconnecting closes the pool and forgets the connection                                                                                                                                                                                      | Integration |
-| `test_disconnect_nonexistent`      | Disconnecting something that is not there is an error, not a panic                                                                                                                                                                            | Integration |
-| `test_concurrent_connections`      | Several connections at once, all usable                                                                                                                                                                                                       | Integration |
-| `connection_health.rs`             | Four: a new connection starts healthy and can be pinged; a disconnected one stops being watched; a ping against a dead pool fails promptly rather than hanging; a pool size stored by an older build is ignored, even one out of range (#731) | Integration |
-| `query_timeout.rs`                 | Six, including ten timeouts through a pool of two — a timed-out statement that keeps its connection exhausts the pool and stops the timeout working at all (#658)                                                                             | Integration |
-
-**Named here before and still not written.** `test_connect_mysql57` is not
-coming: 5.7 reached end of life in October 2023 and is not supported.
-`test_connect_with_ssl` needs the SSL container started and certificates
-generated — a real gap. `test_connect_with_ssh_tunnel` needs a feature that is
-not built (FR-1.2.1), and a profile using one is refused.
-
-Every integration file takes `MAS_TEST_PORT`, so the whole suite runs against
-MariaDB on 13308 as well as MySQL on 13306 — and the release workflow runs it
-both ways. That is not decoration: running it there for the first time found a
-lost connection after every query timeout (#658) and JSON columns arriving as
-binary. Three tests skip themselves on MariaDB, each saying why — functional
-indexes, the `TABLE` statement and a CTE-prefixed DELETE are MySQL-only
-syntax, so there is nothing there to assert.
-
-**Not tested, and worth naming rather than implying:** SSL configuration. The
-compose file defines an SSL-enabled server and nothing starts it, so
-`apply_ssl_config` has no test against a server that requires a certificate.
-
-### `query_tests.rs`
-
-| Test Name                         | Description                                                                                                                                                                                                                                                          | Type        |
-| --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| `test_execute_select`             | `SELECT * FROM users` returns expected columns and rows                                                                                                                                                                                                              | Integration |
-| `test_execute_insert`             | `INSERT INTO users (...)` returns affected rows = 1                                                                                                                                                                                                                  | Integration |
-| `test_execute_update`             | `UPDATE users SET ...` returns correct affected count                                                                                                                                                                                                                | Integration |
-| `test_execute_delete`             | `DELETE FROM users WHERE ...` returns correct affected count                                                                                                                                                                                                         | Integration |
-| `test_execute_ddl`                | `CREATE TABLE temp_test (...)` succeeds, table exists                                                                                                                                                                                                                | Integration |
-| `test_execute_multi_statement`    | Two SELECT statements return two result sets                                                                                                                                                                                                                         | Integration |
-| `test_quoting_prevents_injection` | A value built to end the string it is in stays data, in both SQL modes — `sql-quote.test.ts`, and `backup::escape` in Rust. Replaces a planned `test_execute_with_params`: `execute_query` runs the user's own SQL, so there is no application value to bind (#285). | Unit        |
-| `test_cancel_long_query`          | Cancel `SELECT SLEEP(60)` within 2 seconds                                                                                                                                                                                                                           | Integration |
-| `test_query_timeout`              | Query exceeding timeout returns timeout error                                                                                                                                                                                                                        | Integration |
-| `test_row_limit_bounds_the_reply` | A result larger than the limit comes back at the limit and says it was truncated — `paging_offset.rs`, `memory_guard.rs`. Replaces a planned streaming test: the reply is bounded rather than streamed (#284).                                                       | Integration |
-| `test_binary_data_handling`       | Insert and retrieve BLOB data, verify byte equality                                                                                                                                                                                                                  | Integration |
-| `test_null_handling`              | NULL values round-trip correctly for all column types                                                                                                                                                                                                                | Integration |
-| `test_all_data_types`             | Insert/select all MySQL types via `all_types` table                                                                                                                                                                                                                  | Integration |
-| `test_unicode_data`               | Insert and retrieve emoji and CJK characters                                                                                                                                                                                                                         | Integration |
-| `test_json_data_type`             | Insert JSON object, query with `JSON_EXTRACT`                                                                                                                                                                                                                        | Integration |
-| `test_transaction_commit`         | Begin → Insert → Commit → verify row exists                                                                                                                                                                                                                          | Integration |
-| `test_transaction_rollback`       | Begin → Insert → Rollback → verify row absent                                                                                                                                                                                                                        | Integration |
-| `test_concurrent_queries`         | Run 10 queries in parallel on same pool, all return correct results                                                                                                                                                                                                  | Integration |
-
-### Schema tests
-
-Planned as one `schema_tests.rs`; they live in
-`src-tauri/crates/mas-core/tests/` split by what they cover —
-`schema_objects.rs` (events, foreign keys, partitions), `ddl_pool_safety.rs`
-(DDL reads at any pool size), `functional_index_regression.rs`, and the schema
-cases in `integration_tests.rs`. One file per concern rather than one per
-subsystem: a file named after a crate grows until nobody reads it (#296).
-
-The cache tests below moved to the frontend with the cache itself —
-`src/stores/__tests__/schemaStore.test.ts` — since there is no backend cache
-to test. See ARCHITECTURE §3.3.
-
-| Test Name                     | Description                                                                                | Type        |
-| ----------------------------- | ------------------------------------------------------------------------------------------ | ----------- |
-| `test_list_databases`         | Returns at least `test_db`, `test_db_empty`, `test_db_large`                               | Integration |
-| `test_list_tables`            | `test_db` contains `users`, `orders`, `products`, `categories`, `order_items`, `all_types` | Integration |
-| `test_list_views`             | `test_db` contains `active_users`, `order_summary`                                         | Integration |
-| `test_list_columns_all_types` | `all_types` table returns correct column names and types                                   | Integration |
-| `test_list_indexes`           | `users` table has PK, `idx_status`, `idx_email`, `ft_bio`                                  | Integration |
-| `test_list_foreign_keys`      | `orders.user_id` → `users.id` FK detected                                                  | Integration |
-| `test_list_triggers`          | `update_stock_on_order` trigger found on `order_items`                                     | Integration |
-| `test_list_procedures`        | `get_user_orders` and `create_order` found                                                 | Integration |
-| `test_list_functions`         | `calculate_discount` found with correct parameter types                                    | Integration |
-| `test_list_events`            | Events listing works (empty set is valid)                                                  | Integration |
-| `test_get_table_ddl`          | `SHOW CREATE TABLE users` returns valid DDL string                                         | Integration |
-| `test_list_partitions`        | A RANGE-partitioned table reports its partitions in declared order                         | Integration |
-| `test_ddl_at_any_pool_size`   | DDL names its database, so `pool_max > 1` cannot read another one's object (#290)          | Integration |
-
-### `export_tests.rs`
-
-| Test Name                             | Description                                                | Type        |
-| ------------------------------------- | ---------------------------------------------------------- | ----------- |
-| `test_export_csv`                     | Export `users` → valid CSV with headers, correct row count | Integration |
-| `test_export_json`                    | Export `users` → valid JSON array of objects               | Integration |
-| `test_export_sql_insert`              | Export `users` → valid `INSERT INTO` statements            | Integration |
-| `test_export_sql_replace`             | Export `users` → valid `REPLACE INTO` statements           | Integration |
-| `test_export_xlsx`                    | Export `users` → valid XLSX file readable by calamine      | Integration |
-| `test_export_xml`                     | Export `users` → valid XML document                        | Integration |
-| `test_export_markdown`                | Export `users` → valid Markdown table                      | Integration |
-| `test_export_large_dataset_streaming` | Export 100K rows to CSV without exceeding 200MB RAM        | Integration |
-| `test_import_csv`                     | Import CSV into empty table → verify row count and data    | Integration |
-| `test_import_json`                    | Import JSON array into table → verify data                 | Integration |
-| `test_import_sql_dump`                | Import SQL dump → verify tables and data created           | Integration |
-| `test_import_column_mapping`          | Import CSV with remapped columns → verify correct mapping  | Integration |
-
-### `admin_tests.rs`
-
-| Test Name                    | Description                                                                                                                                                                                                                                                                                                                                                                                                                                            | Type        |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------- |
-| `test_list_users`            | `SELECT user FROM mysql.user` returns results                                                                                                                                                                                                                                                                                                                                                                                                          | Integration |
-| `test_create_user`           | `CREATE USER` succeeds, user appears in user list                                                                                                                                                                                                                                                                                                                                                                                                      | Integration |
-| `test_grant_privileges`      | `GRANT SELECT ON test_db.*` succeeds, privilege verified                                                                                                                                                                                                                                                                                                                                                                                               | Integration |
-| `test_revoke_privileges`     | `REVOKE SELECT ON test_db.*` succeeds, privilege removed                                                                                                                                                                                                                                                                                                                                                                                               | Integration |
-| `test_drop_user`             | `DROP USER` succeeds, user absent from user list                                                                                                                                                                                                                                                                                                                                                                                                       | Integration |
-| `test_show_process_list`     | `SHOW PROCESSLIST` returns at least current connection                                                                                                                                                                                                                                                                                                                                                                                                 | Integration |
-| `test_kill_process`          | Start `SLEEP(60)`, kill its process ID, verify terminated                                                                                                                                                                                                                                                                                                                                                                                              | Integration |
-| `test_show_server_variables` | Returns `version`, `max_connections`, etc.                                                                                                                                                                                                                                                                                                                                                                                                             | Integration |
-| `test_set_server_variable`   | `SET GLOBAL wait_timeout = 300` succeeds, variable changed                                                                                                                                                                                                                                                                                                                                                                                             | Integration |
-| `test_optimize_table`        | `OPTIMIZE TABLE products` returns status                                                                                                                                                                                                                                                                                                                                                                                                               | Integration |
-| `test_repair_table`          | `REPAIR TABLE products` returns status                                                                                                                                                                                                                                                                                                                                                                                                                 | Integration |
-| `test_analyze_table`         | `ANALYZE TABLE products` returns status                                                                                                                                                                                                                                                                                                                                                                                                                | Integration |
-| `test_check_table`           | `CHECK TABLE products` returns status                                                                                                                                                                                                                                                                                                                                                                                                                  | Integration |
-| `test_create_database`       | `CREATE DATABASE test_temp` succeeds                                                                                                                                                                                                                                                                                                                                                                                                                   | Integration |
-| `test_drop_database`         | `DROP DATABASE test_temp` succeeds                                                                                                                                                                                                                                                                                                                                                                                                                     | Integration |
-| `backup_dump.rs`             | Ten tests: values written exactly as the server printed them (DECIMAL, BIGINT, DATETIME(6), binary), a hostile value that stays data through a real restore under `NO_BACKSLASH_ESCAPES`, views/routines/triggers, structure-only and data-only, dropping the table AUTO_INCREMENT without the column's, batch sizes, a cancelled dump leaving no file, mid-table progress, the completion marker, and the snapshot transaction not outliving the dump | Integration |
-| `restore_file.rs`            | Eleven tests: a dump restoring on one session, a stored program restoring whole, a truncated one reporting rather than hanging, what a stop-on-error leaves behind, a data-only file rolling back completely, carrying on past errors, foreign-key order, the session's checks going back on, byte progress, a read-only connection refusing, and a full round trip — dump, restore elsewhere, compare a checksum over every column of every row       | Integration |
-
-### `ai_tests.rs`
-
-| Test Name                                 | Description                                                                   | Type             |
-| ----------------------------------------- | ----------------------------------------------------------------------------- | ---------------- |
-| `test_generate_sql_from_natural_language` | "List active users" → valid `SELECT` query                                    | Unit (mocked AI) |
-| `test_explain_query`                      | Complex JOIN → readable explanation text                                      | Unit (mocked AI) |
-| `test_optimize_query_suggestion`          | Query without index → suggests `CREATE INDEX`                                 | Unit (mocked AI) |
-| `test_schema_context_building`            | Schema with 10 tables → correctly serialized prompt context under token limit | Unit             |
-| `test_rate_limiting`                      | 100 rapid requests → rate limiter queues/rejects appropriately                | Unit             |
-
----
-
-## 5. Frontend Unit Tests (Vitest + React Testing Library)
-
-### `ConnectionDialog.test.tsx`
-
-| Test                               | Description                                                                  |
-| ---------------------------------- | ---------------------------------------------------------------------------- |
-| renders form fields correctly      | Host, port, username, password, database, SSL toggle, SSH toggle all present |
-| validates required fields          | Submit with empty host shows validation error                                |
-| shows port default                 | Port field defaults to 3306                                                  |
-| tests connection on button click   | "Test Connection" calls Tauri command and shows spinner                      |
-| shows success feedback             | Successful test shows green checkmark and "Connection successful"            |
-| shows error feedback               | Failed test shows red error message with details                             |
-| saves profile on submit            | "Save" calls Tauri save command and closes dialog                            |
-| loads existing profile for editing | Opening with existing profile pre-fills all fields                           |
-| handles SSH tunnel fields          | Enabling SSH toggle reveals SSH host, port, username, key fields             |
-| handles SSL fields                 | Enabling SSL toggle reveals CA cert, client cert, client key fields          |
-
-### `SQLEditor.test.tsx`
-
-| Test                            | Description                                                         |
-| ------------------------------- | ------------------------------------------------------------------- |
-| renders Monaco editor           | Editor container is in the DOM with correct dimensions              |
-| executes query on Ctrl+Enter    | Pressing Ctrl+Enter calls execute Tauri command with editor content |
-| executes selected text only     | With selection active, Ctrl+Enter sends only selected text          |
-| supports multiple tabs          | Renders tab bar with correct tab titles                             |
-| switches between tabs           | Clicking a tab shows that tab's editor content                      |
-| closes tab                      | Clicking close button removes tab and switches to adjacent          |
-| autocomplete triggers on typing | Typing `SELECT * FROM u` shows autocomplete suggestions             |
-| formats SQL on command          | Triggering format command reformats SQL in editor                   |
-| shows line numbers              | Line number gutter is visible                                       |
-| shows error markers             | After query error, editor shows red squiggly on error line          |
-| handles read-only mode          | In read-only mode, typing does not modify content                   |
-
-### `DataGrid.test.tsx`
-
-| Test                          | Description                                                |
-| ----------------------------- | ---------------------------------------------------------- |
-| renders column headers        | Column names from result metadata appear as headers        |
-| renders row data              | First page of data rendered in grid cells                  |
-| handles empty result set      | Shows "No results" message when query returns zero rows    |
-| handles query with no columns | Shows "Query executed successfully" for non-SELECT         |
-| sorts on column click         | Clicking column header toggles sort indicator              |
-| multi-sort with shift-click   | Shift-clicking adds secondary sort                         |
-| filters with search input     | Typing in column filter reduces visible rows               |
-| handles inline editing        | Double-clicking a cell enters edit mode                    |
-| commits edit on Enter         | Pressing Enter in edit mode saves the value                |
-| reverts edit on Escape        | Pressing Escape in edit mode restores original value       |
-| copies selected cells         | Ctrl+C on selected cells copies to clipboard               |
-| handles NULL display          | NULL values render as styled "NULL" text                   |
-| handles boolean display       | TINYINT(1) renders as checkbox or true/false               |
-| handles large datasets        | Rendering 10K rows uses virtualization (only ~50 DOM rows) |
-| resizes columns               | Dragging column edge changes column width                  |
-| reorders columns              | Dragging column header moves column                        |
-
-### `SchemaTree.test.tsx`
-
-| Test                      | Description                                                   |
-| ------------------------- | ------------------------------------------------------------- |
-| renders database list     | Shows database names from schema query                        |
-| expands database          | Clicking database shows Tables, Views, etc. folders           |
-| lazy loads table children | Table columns load on expand, not on initial render           |
-| shows loading indicator   | Expanding a node shows spinner while loading                  |
-| refreshes on demand       | Clicking refresh re-fetches schema from server                |
-| filters objects by search | Typing in search box filters tree nodes                       |
-| drag object to editor     | Dragging table name starts drag event with table identifier   |
-| context menu on table     | Right-clicking table shows Open, Script as, Drop options      |
-| context menu on database  | Right-clicking database shows New Query, Create Table options |
-| shows object icons        | Tables, views, procedures have distinct icons                 |
-
-### `AIChat.test.tsx`
-
-| Test                    | Description                                                    |
-| ----------------------- | -------------------------------------------------------------- |
-| renders chat panel      | Chat input and message list are present                        |
-| sends message           | Typing and pressing Enter sends message to AI service          |
-| displays AI response    | AI response renders as Markdown in chat                        |
-| streams response        | Tokens appear incrementally during streaming                   |
-| inserts SQL into editor | "Insert into editor" button copies generated SQL to active tab |
-| shows loading state     | Spinner shown while waiting for AI response                    |
-| handles error           | AI error shows user-friendly error message                     |
-| clears conversation     | "New chat" button clears message history                       |
-| maintains context       | Follow-up messages include conversation history                |
-
-### `StatusBar.test.tsx`
-
-| Test                     | Description                                     |
-| ------------------------ | ----------------------------------------------- |
-| shows connection name    | Displays active connection profile name         |
-| shows disconnected state | Shows "Not connected" when no active connection |
-| shows query timing       | After query execution, shows elapsed time in ms |
-| shows row count          | After SELECT, shows "N rows returned"           |
-| shows affected rows      | After UPDATE/DELETE, shows "N rows affected"    |
-
-### `UserManagement.test.tsx`
-
-| Test                        | Description                                         |
-| --------------------------- | --------------------------------------------------- |
-| renders user list           | Displays users from MySQL user table                |
-| opens create user dialog    | "New User" button opens form                        |
-| validates username required | Empty username shows validation error               |
-| shows privilege checkboxes  | Privilege matrix renders with correct columns       |
-| confirms drop user          | Drop button shows confirmation dialog with username |
-
-### `ExportWizard.test.tsx`
-
-| Test                          | Description                                             |
-| ----------------------------- | ------------------------------------------------------- |
-| renders format options        | CSV, JSON, SQL, XLSX, XML, Markdown options shown       |
-| shows format-specific options | Selecting CSV shows delimiter, encoding options         |
-| shows preview                 | Preview section renders first N rows in selected format |
-| shows progress                | Progress bar appears during export                      |
-| handles completion            | "Export complete" message with file path shown          |
-
-### `ServerDashboard.test.tsx`
-
-| Test                    | Description                                     |
-| ----------------------- | ----------------------------------------------- |
-| renders metric charts   | QPS, connections, buffer pool charts present    |
-| updates on interval     | Charts update with new data on refresh interval |
-| handles connection loss | Shows error state when connection drops         |
-| pauses auto-refresh     | Pause button stops metric updates               |
-
----
-
-## 6. End-to-End Tests (Playwright + Tauri)
-
-### E2E Test Setup
-
-```typescript
-// tests/e2e/global-setup.ts
-import { execSync } from "child_process";
-
-export default async function globalSetup() {
-  // 1. Start Docker MySQL containers
-  execSync("docker compose -f docker-compose.test.yml up -d --wait", {
-    timeout: 120_000,
-  });
-
-  // 2. Wait for all health checks
-  await waitForMySQL(13306); // MySQL 8.0
-  await waitForMySQL(13307); // MySQL 5.7
-  await waitForMySQL(13308); // MariaDB 11
-  await waitForMySQL(13309); // MySQL SSL
-
-  // 3. Seed test data (handled by docker-entrypoint-initdb.d)
-  console.log("All MySQL containers healthy and seeded.");
-}
-
-export async function globalTeardown() {
-  execSync("docker compose -f docker-compose.test.yml down -v");
-}
-```
-
-### E2E Test Suites
-
-#### `connection.e2e.ts`
-
-| Test                            | Steps                                                                 | Expected Result                             |
-| ------------------------------- | --------------------------------------------------------------------- | ------------------------------------------- |
-| Create and connect to MySQL 8   | Open connection dialog → fill in host/port/user/pass → Save → Connect | Status bar shows "Connected to MySQL 8.0"   |
-| Create and connect to MySQL 5.7 | Same as above with port 13307                                         | Status bar shows "Connected to MySQL 5.7"   |
-| Create and connect to MariaDB   | Same as above with port 13308                                         | Status bar shows "Connected to MariaDB 11"  |
-| Test SSH tunnel connection      | Fill SSH tunnel fields → Connect                                      | Connection established through tunnel       |
-| Test SSL connection             | Enable SSL → provide certs → Connect                                  | SSL indicator visible in status bar         |
-| Invalid credentials             | Enter wrong password → Connect                                        | Error message: "Access denied for user..."  |
-| Edit existing connection        | Right-click connection → Edit → change port → Save                    | Profile updated, reconnects on new port     |
-| Delete connection               | Right-click connection → Delete → Confirm                             | Connection removed from sidebar             |
-| Test connection before saving   | Click "Test Connection" in dialog                                     | Green checkmark and "Connection successful" |
-| Auto-reconnect                  | Connect → kill connection server-side → execute query                 | Query succeeds after brief reconnection     |
-
-#### `query-editor.e2e.ts`
-
-| Test                     | Steps                                          | Expected Result                            |
-| ------------------------ | ---------------------------------------------- | ------------------------------------------ |
-| Open new query tab       | Click "+" tab button                           | New empty editor tab appears               |
-| Execute SELECT query     | Type `SELECT * FROM users;` → Ctrl+Enter       | Results grid shows 5 user rows             |
-| Execute multi-statement  | Type two SELECTs separated by `;` → Ctrl+Enter | Two result set tabs appear                 |
-| Cancel running query     | Execute `SELECT SLEEP(60);` → click Cancel     | Query cancelled, editor ready              |
-| View EXPLAIN plan        | Select query → click "Explain"                 | EXPLAIN results shown in panel             |
-| Format SQL               | Type unformatted SQL → Ctrl+Shift+F            | SQL reformatted with proper indentation    |
-| Table name autocomplete  | Type `SELECT * FROM u` → trigger autocomplete  | `users` appears in suggestion list         |
-| Column name autocomplete | Type `SELECT users.` → trigger autocomplete    | Column names appear in suggestion list     |
-| Query with error         | Execute `SELECTT * FROM users;`                | Error message with line/column information |
-| Query history            | Execute 3 queries → open history               | All 3 queries listed with timestamps       |
-| Save query as favorite   | Right-click query → Save as favorite → name it | Query appears in favorites panel           |
-
-#### `data-grid.e2e.ts`
-
-| Test                       | Steps                                          | Expected Result                            |
-| -------------------------- | ---------------------------------------------- | ------------------------------------------ |
-| Large result set scrolling | Query 100K rows → scroll to bottom             | Smooth scroll, last row visible            |
-| Sort by column             | Click "username" header                        | Rows sorted alphabetically by username     |
-| Filter data                | Enter "alice" in username filter               | Only Alice's row visible                   |
-| Edit cell inline           | Double-click email cell → change value → Enter | Cell updated, UPDATE executed on server    |
-| Insert new row             | Click "+" button → fill fields → Submit        | New row appears, INSERT executed           |
-| Delete row                 | Select row → click Delete → Confirm            | Row removed, DELETE executed               |
-| Copy as INSERT             | Select row → right-click → Copy as INSERT      | Clipboard contains valid INSERT statement  |
-| Copy as CSV                | Select rows → Ctrl+C                           | Clipboard contains CSV-formatted data      |
-| Export to CSV              | Click Export → CSV → Save                      | CSV file saved with correct data           |
-| Export to JSON             | Click Export → JSON → Save                     | JSON file saved with correct data          |
-| NULL value display         | Query row with NULL bio                        | Cell shows styled "NULL" text              |
-| BLOB display               | Query row with avatar BLOB                     | Cell shows "(BLOB: N bytes)" with download |
-| JSON display               | Click JSON cell → expand                       | Formatted JSON viewer appears              |
-
-#### `schema-browser.e2e.ts`
-
-| Test                         | Steps                                                     | Expected Result                                     |
-| ---------------------------- | --------------------------------------------------------- | --------------------------------------------------- |
-| Browse databases             | Connect → expand schema tree                              | `test_db`, `test_db_empty`, `test_db_large` visible |
-| Browse tables                | Expand `test_db` → Tables                                 | `users`, `orders`, `products`, etc. listed          |
-| Browse views                 | Expand `test_db` → Views                                  | `active_users`, `order_summary` listed              |
-| Browse procedures            | Expand `test_db` → Procedures                             | `get_user_orders`, `create_order` listed            |
-| View table structure         | Click `users` table → Structure tab                       | All columns with types, keys, defaults shown        |
-| View table indexes           | Click `users` table → Indexes tab                         | PK, `idx_status`, `idx_email`, `ft_bio` shown       |
-| View foreign keys            | Click `orders` table → Foreign Keys tab                   | `user_id → users.id` relationship shown             |
-| Create new table             | Right-click database → New Table → fill fields → Apply    | Table created, appears in tree                      |
-| Alter table                  | Right-click table → Alter → add column → Apply            | Column added to table                               |
-| Drop table with confirmation | Right-click temp table → Drop → type table name → Confirm | Table removed from tree                             |
-| Drag table to editor         | Drag `users` from tree into editor                        | `` `users` `` inserted at cursor position           |
-| Refresh schema tree          | Click refresh button                                      | Tree reloads from server                            |
-| Search schema objects        | Type "user" in search box                                 | `users` table and `active_users` view shown         |
-
-#### `admin.e2e.ts`
-
-| Test                  | Steps                                                   | Expected Result                                 |
-| --------------------- | ------------------------------------------------------- | ----------------------------------------------- |
-| View process list     | Open Admin → Process List                               | At least one process (current connection) shown |
-| Kill a process        | Start `SLEEP(60)` in another tab → Kill in process list | Process terminated, status updates              |
-| View server variables | Open Admin → Server Variables                           | Variables listed with values                    |
-| Create database user  | Open Admin → Users → Create → fill form → Apply         | User created, appears in user list              |
-| Grant privileges      | Select user → Grant SELECT on test_db → Apply           | Privilege granted, verified in privilege list   |
-| Revoke privileges     | Select user → Revoke SELECT → Apply                     | Privilege revoked                               |
-| Drop user             | Select temp user → Drop → Confirm                       | User removed from list                          |
-| Create database       | Open Admin → right-click → New Database → name it       | Database created, appears in tree               |
-| Drop database         | Right-click temp database → Drop → type name → Confirm  | Database removed                                |
-| Table maintenance     | Select table → Optimize → Run                           | Operation completes with status message         |
-| Backup database       | Open Admin → Backup → select `test_db` → Run            | Dump file created with valid SQL                |
-| Restore from backup   | Open Admin → Restore → select dump file → Run           | Data restored to target database                |
-
-#### `ai-features.e2e.ts`
-
-| Test                        | Steps                                               | Expected Result                            |
-| --------------------------- | --------------------------------------------------- | ------------------------------------------ |
-| Generate SQL from NL        | Open AI chat → type "Show all active users" → Send  | Valid SELECT query generated               |
-| Insert generated SQL        | Click "Insert into editor" on generated SQL         | SQL appears in active editor tab           |
-| Explain a query             | Select JOIN query in editor → click "Explain"       | Human-readable explanation in AI panel     |
-| Get optimization suggestion | Select unindexed query → click "Optimize"           | Suggestion card with recommended index     |
-| AI chat conversation        | Send follow-up message referencing previous context | AI response considers conversation history |
-
-#### `import-export.e2e.ts`
-
-| Test                 | Steps                                           | Expected Result                             |
-| -------------------- | ----------------------------------------------- | ------------------------------------------- |
-| Export table to CSV  | Right-click `users` → Export → CSV → Save       | Valid CSV file with headers and 5 data rows |
-| Export table to JSON | Right-click `users` → Export → JSON → Save      | Valid JSON array with 5 objects             |
-| Export table to SQL  | Right-click `users` → Export → SQL → Save       | Valid INSERT statements                     |
-| Import CSV           | Open Import → select CSV → map columns → Import | Data inserted into target table             |
-| Import JSON          | Open Import → select JSON → map fields → Import | Data inserted into target table             |
-| Import SQL dump      | Open Import → select SQL file → Import          | Tables and data created                     |
-
-#### `performance.e2e.ts`
-
-| Test                        | Steps                                              | Expected Result                      |
-| --------------------------- | -------------------------------------------------- | ------------------------------------ |
-| Query 100K rows             | Execute SELECT on large table → measure time       | Results displayed in < 3 seconds     |
-| Scroll large result set     | Scroll through 100K rows → measure FPS             | Maintains ≥ 30 FPS throughout        |
-| Sequential query throughput | Execute 100 simple SELECTs → measure total time    | Completes in < 30 seconds            |
-| Multi-tab memory            | Open 10 editor tabs with results → measure memory  | Memory stays under 500MB             |
-| Concurrent connections      | Connect to 5 databases simultaneously → query each | All queries succeed within 5 seconds |
-
----
-
-## 7. Performance Benchmarks
-
-### Benchmark Suite
-
-| Metric                       | Measurement Method                              | Target              |
-| ---------------------------- | ----------------------------------------------- | ------------------- |
-| **Cold startup time**        | Time from process launch to first paint         | < 1.5 seconds       |
-| **Warm startup time**        | Time from process launch with cached state      | < 0.8 seconds       |
-| **Connection establishment** | Time from "Connect" click to "Connected" status | < 2 seconds (local) |
-| **Simple query latency**     | `SELECT 1` round-trip time                      | < 50ms              |
-| **Complex query rendering**  | 10K-row result set fully rendered               | < 500ms             |
-| **Large query streaming**    | 100K-row result set fully streamed              | < 3 seconds         |
-| **Data grid FPS**            | Scrolling through 100K rows                     | ≥ 60 FPS            |
-| **Schema tree loading**      | Load schema for database with 200 tables        | < 2 seconds         |
-| **Export throughput**        | Export 100K rows to CSV                         | < 5 seconds         |
-| **Memory (idle)**            | Memory usage with one connection, no query      | < 100MB             |
-| **Memory (active)**          | Memory with 5 tabs, 10K rows each               | < 300MB             |
-| **Memory (stress)**          | Memory with 10 tabs, 100K rows visible          | < 500MB             |
-
-### Benchmark Tooling
-
-- **Rust:** `criterion` benchmarks in `benches/` directory
-- **Frontend:** Lighthouse performance audits, custom performance marks via `performance.measure()`
-- **E2E:** Playwright's `page.evaluate(() => performance.now())` for timing measurements
-- **Memory:** Process memory via `process.memoryUsage()` (Chromium) and Tauri system info
-
----
-
-## 8. CI/CD Testing Pipeline
-
-```yaml
-# .github/workflows/test.yml
-name: Test Suite
-
-on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
-
-env:
-  CARGO_TERM_COLOR: always
-  RUSTFLAGS: "-D warnings"
-
-jobs:
-  rust-tests:
-    name: Rust Tests (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-
-    services:
-      mysql-8:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: test_root_password
-          MYSQL_DATABASE: test_db
-        ports:
-          - 13306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h localhost"
-          --health-interval=5s
-          --health-timeout=3s
-          --health-retries=10
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-
-      - name: Cache cargo registry
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-
-      - name: Run rustfmt check
-        run: cargo fmt --all -- --check
-
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Run unit tests
-        run: cargo test --lib --all
-
-      - name: Run integration tests
-        run: cargo test --test '*' --all
-        env:
-          TEST_MYSQL_HOST: localhost
-          TEST_MYSQL_PORT: 13306
-          TEST_MYSQL_USER: root
-          TEST_MYSQL_PASSWORD: test_root_password
-
-  frontend-tests:
-    name: Frontend Tests
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run ESLint
-        run: npm run lint
-
-      - name: Run Prettier check
-        run: npm run format:check
-
-      - name: Run Vitest
-        run: npm run test -- --coverage
-
-      - name: Upload coverage
-        uses: codecov/codecov-action@v4
-        with:
-          files: ./coverage/lcov.info
-
-  e2e-tests:
-    name: E2E Tests
-    runs-on: ubuntu-latest
-    needs: [rust-tests, frontend-tests]
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: "npm"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Install Playwright browsers
-        run: npx playwright install --with-deps chromium
-
-      - name: Start Docker services
-        run: docker compose -f docker-compose.test.yml up -d --wait
-
-      - name: Build Tauri app (test mode)
-        run: npm run tauri build -- --debug
-        env:
-          TAURI_TEST_MODE: true
-
-      - name: Run Playwright E2E tests
-        run: npx playwright test
-        env:
-          TEST_MYSQL_HOST: localhost
-          TEST_MYSQL_PORT: 13306
-
-      - name: Upload Playwright report
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: playwright-report
-          path: playwright-report/
-
-      - name: Stop Docker services
-        if: always()
-        run: docker compose -f docker-compose.test.yml down -v
-```
-
----
-
-## 9. Test Data Management
-
-### Principles
-
-1. **Deterministic:** All test data is defined in `seed.sql` — no random generation.
-2. **Isolated:** Each test suite uses its own database or wraps operations in transactions.
-3. **Repeatable:** Running tests twice produces the same results.
-4. **Minimal:** Just enough data to exercise the feature; not a data warehouse.
-
-### File Structure
-
-```
-tests/
-├── fixtures/
-│   ├── seed.sql                    # Main seed data (auto-loaded by Docker)
-│   ├── generate_large_data.sql     # Script to populate test_db_large
-│   ├── ssl/
-│   │   ├── ca.pem                  # Test CA certificate
-│   │   ├── server-cert.pem         # Test server certificate
-│   │   ├── server-key.pem          # Test server key
-│   │   ├── client-cert.pem         # Test client certificate
-│   │   └── client-key.pem          # Test client key
-│   └── import/
-│       ├── sample.csv              # Test CSV for import tests
-│       ├── sample.json             # Test JSON for import tests
-│       └── sample.sql              # Test SQL dump for import tests
-├── rust/
-│   ├── connection_tests.rs
-│   ├── query_tests.rs
-│   ├── schema_objects.rs
-│   ├── ddl_pool_safety.rs
-│   ├── export_tests.rs
-│   ├── admin_tests.rs
-│   └── ai_tests.rs
-├── frontend/
-│   ├── components/
-│   │   ├── ConnectionDialog.test.tsx
-│   │   ├── SQLEditor.test.tsx
-│   │   ├── DataGrid.test.tsx
-│   │   ├── SchemaTree.test.tsx
-│   │   ├── AIChat.test.tsx
-│   │   ├── StatusBar.test.tsx
-│   │   ├── UserManagement.test.tsx
-│   │   ├── ExportWizard.test.tsx
-│   │   └── ServerDashboard.test.tsx
-│   └── setup.ts                    # Vitest global setup
-└── e2e/
-    ├── global-setup.ts             # Docker startup/teardown
-    ├── connection.e2e.ts
-    ├── query-editor.e2e.ts
-    ├── data-grid.e2e.ts
-    ├── schema-browser.e2e.ts
-    ├── admin.e2e.ts
-    ├── ai-features.e2e.ts
-    ├── import-export.e2e.ts
-    └── performance.e2e.ts
-```
-
-### Cleanup Strategy
-
-| Scope                    | Strategy                                                          |
-| ------------------------ | ----------------------------------------------------------------- |
-| Between individual tests | Transaction rollback where possible; otherwise, targeted `DELETE` |
-| Between test suites      | Drop and recreate test databases from seed                        |
-| After full test run      | `docker compose down -v` removes all containers and volumes       |
-| CI environment           | Fresh Docker containers on every run (no persistent state)        |
+`test-integration` runs `mas-core`, `mas-admin` and `mas-mcp` with
+`--ignored --test-threads=1`. One thread is required: the suites share fixture
+databases and collide when run in parallel.
+
+Other recipes: `just db-seed` re-applies `seed.sql`, `just db-reset`
+recreates the containers, `just db-down` removes them, and `just ssl-certs`
+generates certificates for the unused SSL service.
+
+Run these before touching the connection manager, query executor, schema
+inspector, backup/restore or admin service. CI does not run them on PRs.
+
+### Live agent tests
+
+`mas-agent/tests/live_copilot.rs`, `mas-agent/tests/live_claude.rs` and
+[`src-tauri/tests/agent_end_to_end.rs`](../../src-tauri/tests/agent_end_to_end.rs)
+drive a real agent CLI against the MCP endpoint and a live database. They need
+`just db-up` and the CLI installed and logged in, and they spend the user's
+quota.
+
+Run: `just test-agents`. No CI job runs them.
+
+## Contract checks
+
+These catch drift between layers rather than behaviour.
+
+| Check                                                                                                        | Catches                                                  | CI job             |
+| ------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------- | ------------------ |
+| [`src-tauri/tests/export_bindings.rs`](../../src-tauri/tests/export_bindings.rs)                             | `src/lib/bindings.ts` out of date with the Rust commands | `lint-rust`        |
+| [`src/lib/__tests__/tauri-command-contract.test.ts`](../../src/lib/__tests__/tauri-command-contract.test.ts) | Rust commands that nothing in `tauri-api.ts` calls       | `test-frontend`    |
+| [`src/dev/mock/__tests__/coverage.test.ts`](../../src/dev/mock/__tests__/coverage.test.ts)                   | commands with no mock handler, stale handlers            | `test-frontend`    |
+| [`scripts/check-test-mocks.sh`](../../scripts/check-test-mocks.sh)                                           | relative `vi.mock` paths that resolve to nothing         | `check-test-mocks` |
+| [`scripts/check-documented-commands.sh`](../../scripts/check-documented-commands.sh)                         | ARCHITECTURE section 5 naming commands that do not exist | `check-docs`       |
+
+Removing a command from Rust breaks `tsc`, because `tauri-api.ts` calls the
+generated `commands.*`. Run `just bindings` after changing a command.
+
+## Where tests run
+
+### Pre-commit ([`lefthook.yml`](../../lefthook.yml))
+
+When staged files include `ts`, `tsx` or `rs`: `npm run test:unit`. The hook
+also runs lint, type check, dprint, `cargo fmt --check`, clippy, and the
+lockfile and version checks. Browser tests and Rust tests are not in the hook.
+
+### Pull requests ([`.github/workflows/ci.yml`](../../.github/workflows/ci.yml))
+
+`detect-changes` path-filters the PR; each job runs only when its paths
+change.
+
+| Job                | Runs                                                                                                       |
+| ------------------ | ---------------------------------------------------------------------------------------------------------- |
+| `test-frontend`    | `npm run test:unit -- --coverage`, then `npm run test:browser`                                             |
+| `test-rust`        | library crates' tests; `cargo test -p sqlpilot --lib`; `cargo test -p mas-mcp -p sqlpilot --test endpoint` |
+| `lint-rust`        | fmt, clippy, bindings freshness                                                                            |
+| `check-test-mocks` | `scripts/check-test-mocks.sh`                                                                              |
+| `check-docs`       | `scripts/check-documented-commands.sh`                                                                     |
+| `lint-workflows`   | actionlint, action pins, and the tests for the release scripts                                             |
+
+The extra `endpoint` step builds `mas-mcp`'s endpoint tests together with the
+app crate. Only that build unifies `reqwest` features with the updater plugin,
+which is where the TLS provider panic showed up (#717, #773).
+
+### Release ([`.github/workflows/release.yml`](../../.github/workflows/release.yml))
+
+The `integration-db` job runs before any platform build, with MySQL 8 and
+MariaDB 11 as service containers on 13306 and 13308. It seeds both, runs the
+ignored tests against each (`MAS_TEST_PORT=13308` for MariaDB), then runs
+`cargo tarpaulin` over `mas-core`, `mas-export`, `mas-admin` and `mas-mcp`
+with `--include-ignored` and uploads the coverage. A failure blocks the
+release. Live agent tests are not run.
+
+## Writing tests
+
+- Frontend: put the test in the nearest `__tests__/`. Mock `api.*`
+  (`src/lib/tauri-api`) or the store rather than reaching into Tauri. Relative
+  `vi.mock` paths must resolve; the CI check enforces it.
+- Use a browser test only when the assertion depends on real layout or a real
+  browser API.
+- Rust: a test that needs a server gets `#[ignore]`, reads `MAS_TEST_PORT`
+  with 13306 as the default, and must pass on both MySQL 8 and MariaDB 11.
+- A test that creates databases should use its own name (or a random suffix,
+  as `agent_end_to_end.rs` does) and clean up after itself.
