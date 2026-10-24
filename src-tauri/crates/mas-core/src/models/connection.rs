@@ -31,7 +31,8 @@ impl std::fmt::Display for ConnectionEnvironment {
     }
 }
 
-/// `Debug` is written by hand so a password never reaches a log line (#882).
+// `Debug` is written by hand so a password never reaches a log line (#882).
+// A plain comment, so it stays out of the generated TypeScript.
 #[derive(Clone, Serialize, Deserialize, specta::Type)]
 pub struct ConnectionProfile {
     pub id: String,
@@ -119,8 +120,8 @@ impl Default for ConnectionProfile {
     }
 }
 
-/// `Debug` is written by hand so a password or passphrase never reaches a
-/// log line (#882).
+// `Debug` is written by hand so a password or passphrase never reaches a
+// log line (#882).
 #[derive(Clone, Serialize, Deserialize, specta::Type)]
 pub struct SSHConfig {
     pub host: String,
