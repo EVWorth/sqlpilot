@@ -35,7 +35,12 @@ pub async fn sqlite_list(state: State<'_, AppState>) -> Result<Vec<String>, Stri
 }
 
 #[tauri::command]
-#[tracing::instrument(skip(state))]
+// The SQL text is not recorded whole: it can carry data the log should not
+// keep. A redacted preview is enough to tell runs apart (#875).
+#[tracing::instrument(
+    skip(state, sql),
+    fields(sql_preview = %mas_core::query::redacted_preview(&sql, mas_core::query::LOG_PREVIEW_CHARS))
+)]
 #[specta::specta]
 pub async fn sqlite_execute(
     state: State<'_, AppState>,

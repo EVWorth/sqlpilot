@@ -27,3 +27,4 @@ mas-admin = { path = "../mas-admin" }
 mas-export = { path = "../mas-export" }
 tempfile = "3"
 tokio = { workspace = true, features = ["test-util"] }
+tracing-subscriber = { workspace = true }
