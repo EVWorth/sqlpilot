@@ -113,7 +113,6 @@ and P1 issues, because nobody had said what the word claimed (#459).
 | `[done]`    | Every acceptance criterion in the section is met, and no open issue contradicts one.                    |
 | `[partial]` | Some criteria are met. The section says which are not, so the flag can be checked rather than believed. |
 | `[dropped]` | Deliberately not built. The section says why.                                                           |
-| `[planned]` | No criterion is met yet; still intended.                                                                |
 
 A flag is a claim about the code, not an aspiration. If an open issue
 contradicts a criterion, the section is `[partial]` until the issue closes.
@@ -328,11 +327,12 @@ row rather than the section reading as done (#295).
 
 ---
 
-### FR-5: Visual Schema Designer (ERD) [planned]
+### FR-5: Visual Schema Designer (ERD) [dropped]
 
-> No ERD exists: there is no diagram view, layout or diagram export. The table
-> designer (`src/components/designer/`) creates and alters one table at a
-> time, which is FR-4.3, not this section.
+> Dropped by the maintainer: SQLPilot will not get a diagram view, so none of
+> the criteria below are planned. They stay here as a record of what was
+> considered. Tables are created and altered one at a time in the table
+> designer (`src/components/designer/`), which is FR-4.3.
 
 **Priority:** P1 — High\
 **Description:** A visual entity-relationship diagram tool for designing and understanding database schemas.
