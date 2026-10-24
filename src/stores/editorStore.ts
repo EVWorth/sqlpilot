@@ -31,6 +31,18 @@ export function holdsUnsavedWork(tab: EditorTab): boolean {
   return tab.type === "query" && tab.isDirty && tab.content.trim().length > 0;
 }
 
+/**
+ * Writes the editor's typing that is still waiting on its debounce into the
+ * store. Registered by the editor; a close asks it first, so SQL typed in the
+ * last 150 ms counts as the tab's content (#861).
+ */
+let pendingContentFlush: (() => void) | null = null;
+
+/** Register (or, with null, drop) the editor's pending-content flush. */
+export function setPendingContentFlush(flush: (() => void) | null) {
+  pendingContentFlush = flush;
+}
+
 interface EditorState {
   tabs: EditorTab[];
   activeTabId: string | null;
@@ -100,6 +112,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   pendingClose: null,
 
   requestClose: (kind, id) => {
+    pendingContentFlush?.();
     const atRisk = tabsClosedBy(get().tabs, kind, id).filter(holdsUnsavedWork);
     if (atRisk.length > 0) {
       set({ pendingClose: { kind, targetId: id, atRisk } });

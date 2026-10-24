@@ -68,6 +68,7 @@ let editorStoreTabs: any[] = [
 ];
 
 vi.mock("../../../stores/editorStore", () => ({
+  setPendingContentFlush: vi.fn(),
   useEditorStore: Object.assign(
     vi.fn((selector?: (s: any) => any) => {
       const state = {

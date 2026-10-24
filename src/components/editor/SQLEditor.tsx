@@ -7,7 +7,7 @@ import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { formatSql } from "../../lib/sql-format";
 import { sqlAtCursor } from "../../lib/statement-at-cursor";
 import { useConnectionStore } from "../../stores/connectionStore";
-import { useEditorStore } from "../../stores/editorStore";
+import { setPendingContentFlush, useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -68,6 +68,13 @@ export function SQLEditor() {
   // of typing was lost — switching tabs or closing the window at the wrong
   // moment silently threw away a line (#298 F-backlog). Flush instead.
   useEffect(() => flushPending, [flushPending]);
+
+  // A close reads the store, which is up to 150 ms behind the keyboard: Ctrl+W
+  // right after typing found an empty tab and closed it unasked (#861).
+  useEffect(() => {
+    setPendingContentFlush(flushPending);
+    return () => setPendingContentFlush(null);
+  }, [flushPending]);
 
   const debouncedUpdateTabContent = useCallback(
     (tabId: string, content: string) => {
