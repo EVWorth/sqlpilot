@@ -7,7 +7,7 @@
 //! cannot reach a tool. Those are wiring failures, and wiring failures are
 //! invisible to every test that does not use a socket.
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use mas_core::error::CoreError;
 use mas_core::history::HistoryEntry;
@@ -19,14 +19,26 @@ use mas_core::schema::inspector::{
 };
 use mas_mcp::endpoint;
 use mas_mcp::grants::{ConnectionFacts, Grant, Grants};
+use mas_mcp::server::SESSION_HEADER;
+use mas_mcp::surface::{
+    ApprovalRequest, EditOutcome, EditorContext, RawResult, Surface, SurfaceError,
+};
 use mas_mcp::workspace::{HistoryFilter, LiveConnection, ObjectKind, StagedWrite, Workspace};
 use serde_json::json;
 
 /// A workspace with one shared connection and nothing else.
-struct OneConnection;
+#[derive(Default)]
+struct OneConnection {
+    /// Every in-app session it was bound to, in order.
+    owners: Mutex<Vec<String>>,
+}
 
 #[async_trait::async_trait]
 impl Workspace for OneConnection {
+    fn bind_owner(&self, owner: &str) {
+        self.owners.lock().unwrap().push(owner.to_string());
+    }
+
     fn grants(&self) -> Grants {
         let mut grants = Grants::default();
         grants.set(Grant::new("c1"));
@@ -209,9 +221,14 @@ impl Drop for Running {
 async fn start() -> Running {
     // Port 0: these tests must not fight each other, or the user's own running
     // copy of the app, over the preferred port.
-    let endpoint = endpoint::start(Arc::new(OneConnection), None, "test-token".into(), 0)
-        .await
-        .expect("the endpoint starts");
+    let endpoint = endpoint::start(
+        Arc::new(OneConnection::default()),
+        None,
+        "test-token".into(),
+        0,
+    )
+    .await
+    .expect("the endpoint starts");
     Running {
         url: endpoint.url(),
         token: endpoint.token.clone(),
@@ -259,11 +276,26 @@ async fn call(
     session: &str,
     body: serde_json::Value,
 ) -> String {
-    client
+    call_as(client, running, session, None, body).await
+}
+
+/// As `call`, with SQLPilot's in-app session header when there is one.
+async fn call_as(
+    client: &reqwest::Client,
+    running: &Running,
+    session: &str,
+    owner: Option<&str>,
+    body: serde_json::Value,
+) -> String {
+    let mut request = client
         .post(&running.url)
         .bearer_auth(&running.token)
         .header("Accept", "application/json, text/event-stream")
-        .header("mcp-session-id", session)
+        .header("mcp-session-id", session);
+    if let Some(owner) = owner {
+        request = request.header(SESSION_HEADER, owner);
+    }
+    request
         .json(&body)
         .send()
         .await
@@ -307,7 +339,7 @@ async fn a_request_with_the_wrong_token_is_refused() {
 #[tokio::test]
 async fn the_endpoint_only_listens_on_loopback() {
     // The one property of this server that would be a disaster to get wrong.
-    let endpoint = endpoint::start(Arc::new(OneConnection), None, "t".into(), 0)
+    let endpoint = endpoint::start(Arc::new(OneConnection::default()), None, "t".into(), 0)
         .await
         .unwrap();
     assert!(endpoint.address.ip().is_loopback(), "{}", endpoint.address);
@@ -478,4 +510,187 @@ async fn a_page_pretending_to_be_the_app_itself_is_refused_too() {
         .unwrap();
 
     assert_eq!(response.status(), 403);
+}
+
+/// Call a tool once per entry in `owners`, each with that in-app session
+/// header, and return what the workspace was bound to.
+async fn bound_by(owners: &[Option<&str>]) -> Vec<String> {
+    let workspace = Arc::new(OneConnection::default());
+    let endpoint = endpoint::start(workspace.clone(), None, "test-token".into(), 0)
+        .await
+        .expect("the endpoint starts");
+    let running = Running {
+        url: endpoint.url(),
+        token: endpoint.token.clone(),
+        endpoint: Some(endpoint),
+    };
+    let client = reqwest::Client::new();
+    let session = initialize(&client, &running).await;
+
+    for (id, owner) in owners.iter().enumerate() {
+        let body = call_as(
+            &client,
+            &running,
+            &session,
+            *owner,
+            json!({
+                "jsonrpc": "2.0",
+                "id": id + 2,
+                "method": "tools/call",
+                "params": {"name": "list_connections", "arguments": {}}
+            }),
+        )
+        .await;
+        assert!(body.contains("shop"), "{body}");
+    }
+
+    let bound = workspace.owners.lock().unwrap().clone();
+    bound
+}
+
+const PANEL_SESSION: &str = "6f1c2a9e-3b4d-4e5f-8a6b-7c8d9e0f1a2b";
+
+#[tokio::test]
+async fn an_in_app_session_is_bound_to_its_owner_once() {
+    // The panel's agent sends its session id, and the workspace learns it on
+    // the first tool call, before anything runs, so the panel's Stop can reach
+    // what it runs (#868).
+    let bound = bound_by(&[Some(PANEL_SESSION), Some(PANEL_SESSION)]).await;
+    assert_eq!(bound, vec![PANEL_SESSION.to_string()]);
+}
+
+#[tokio::test]
+async fn an_external_client_is_bound_to_nothing() {
+    assert!(bound_by(&[None, None]).await.is_empty());
+}
+
+#[tokio::test]
+async fn a_session_header_that_is_not_an_id_is_ignored() {
+    assert!(bound_by(&[Some("the panel's agent, honest")])
+        .await
+        .is_empty());
+}
+
+#[tokio::test]
+async fn a_bound_session_cannot_be_moved_to_another_owner() {
+    // One MCP session is one client with one config. A different id later is
+    // not a change of owner.
+    let other = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    let bound = bound_by(&[Some(PANEL_SESSION), Some(other)]).await;
+    assert_eq!(bound, vec![PANEL_SESSION.to_string()]);
+}
+
+/// A window that says no to every approval and remembers what it was asked.
+#[derive(Default)]
+struct Refusing {
+    asked: Mutex<Vec<ApprovalRequest>>,
+}
+
+#[async_trait::async_trait]
+impl Surface for Refusing {
+    async fn editor_context(&self) -> Result<EditorContext, SurfaceError> {
+        Err(SurfaceError::NoWindow)
+    }
+
+    async fn result_context(&self) -> Result<Option<RawResult>, SurfaceError> {
+        Ok(None)
+    }
+
+    async fn propose_edit(
+        &self,
+        _: Option<String>,
+        _: String,
+        _: String,
+    ) -> Result<EditOutcome, SurfaceError> {
+        Err(SurfaceError::NoWindow)
+    }
+
+    async fn approve(&self, request: ApprovalRequest) -> Result<bool, SurfaceError> {
+        self.asked.lock().unwrap().push(request);
+        Ok(false)
+    }
+
+    async fn open_draft(
+        &self,
+        _: String,
+        _: Option<String>,
+        _: Option<String>,
+        _: Option<String>,
+    ) -> Result<String, SurfaceError> {
+        Err(SurfaceError::NoWindow)
+    }
+}
+
+/// Ask for one write per entry in `owners`, each with that in-app session
+/// header, and return what the window was asked.
+async fn approvals_from(owners: &[Option<&str>]) -> Vec<ApprovalRequest> {
+    let surface = Arc::new(Refusing::default());
+    let endpoint = endpoint::start(
+        Arc::new(OneConnection::default()),
+        Some(surface.clone()),
+        "test-token".into(),
+        0,
+    )
+    .await
+    .expect("the endpoint starts");
+    let running = Running {
+        url: endpoint.url(),
+        token: endpoint.token.clone(),
+        endpoint: Some(endpoint),
+    };
+    let client = reqwest::Client::new();
+    let session = initialize(&client, &running).await;
+
+    for (id, owner) in owners.iter().enumerate() {
+        call_as(
+            &client,
+            &running,
+            &session,
+            *owner,
+            json!({
+                "jsonrpc": "2.0",
+                "id": id + 2,
+                "method": "tools/call",
+                "params": {
+                    "name": "run_write",
+                    "arguments": {
+                        "connection": "c1",
+                        "sql": "DELETE FROM shop.customers WHERE id = 1",
+                        "reason": "Testing who asked."
+                    }
+                }
+            }),
+        )
+        .await;
+    }
+
+    let asked = surface.asked.lock().unwrap().clone();
+    asked
+}
+
+#[tokio::test]
+async fn an_approval_names_the_in_app_session_that_asked() {
+    // So the dialog can say it was the panel's own agent (#801).
+    let asked = approvals_from(&[Some(PANEL_SESSION)]).await;
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].session.as_deref(), Some(PANEL_SESSION));
+    assert_eq!(asked[0].client.as_deref(), Some("test"));
+}
+
+#[tokio::test]
+async fn an_approval_from_an_external_client_carries_its_own_name() {
+    let asked = approvals_from(&[None]).await;
+    assert_eq!(asked.len(), 1);
+    assert_eq!(asked[0].session, None);
+    assert_eq!(asked[0].client.as_deref(), Some("test"));
+}
+
+#[tokio::test]
+async fn a_later_header_does_not_relabel_a_bound_session() {
+    let other = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d";
+    let asked = approvals_from(&[Some(PANEL_SESSION), Some(other), None]).await;
+    assert_eq!(asked.len(), 3);
+    for request in &asked {
+        assert_eq!(request.session.as_deref(), Some(PANEL_SESSION));
+    }
 }

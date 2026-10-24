@@ -158,7 +158,7 @@ async fn ask(url: &str, token: &str, question: &str) -> (String, Vec<String>) {
 
     client.initialize().await.expect("the handshake completes");
     let session = client
-        .new_session("/tmp", &[McpServer::sqlpilot(url, token)])
+        .new_session("/tmp", &[McpServer::sqlpilot(url, token, None)])
         .await
         .expect("a session opens");
 

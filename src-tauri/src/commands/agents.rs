@@ -396,14 +396,61 @@ pub async fn send_agent_message(
     })
 }
 
-/// Stop the turn in progress. The session stays open.
+/// Stop the turn in progress, and any SQL it has running. The session stays
+/// open.
+///
+/// The harness is asked to stop first, so it does not answer a killed
+/// statement by starting another. Then every statement on the agent's own
+/// connections is cancelled (#868): the editor's Cancel no longer reaches
+/// them (#866), so this is the one control that does. The SQL is stopped even
+/// when the harness could not be asked, because a statement left running is
+/// the worse outcome, and the harness's answer is what the command returns.
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_agent_turn(
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
     sessions: State<'_, AgentSessions>,
     session: String,
 ) -> Result<(), String> {
-    sessions.cancel(&session).await
+    let stopped = sessions.cancel(&session).await;
+    cancel_agent_statements(
+        &state.query_executor,
+        &state.connection_manager,
+        &agents.state,
+        &session,
+    )
+    .await;
+    stopped
+}
+
+/// Cancel what the in-app session `owner` has running, on every connection.
+///
+/// Scoped to that session's own `Route::Agent` lanes, so the editor and other
+/// agents keep running. A failure is logged rather than returned: the turn is
+/// already stopping, and the statement is still bounded by its query timeout.
+async fn cancel_agent_statements(
+    executor: &mas_core::query::QueryExecutor,
+    connections: &mas_core::connection::ConnectionManager,
+    mcp: &crate::mcp::McpState,
+    owner: &str,
+) {
+    let routes = mcp.routes_of(owner);
+    if routes.is_empty() {
+        return;
+    }
+    for connection in connections.list_connections() {
+        for route in &routes {
+            let scope = mas_core::query::CancelScope::Agent(route.clone());
+            if let Err(e) = executor.cancel(&connection.id, scope).await {
+                tracing::warn!(
+                    error = %e,
+                    connection_id = %connection.id,
+                    "could not cancel an agent's statement"
+                );
+            }
+        }
+    }
 }
 
 /// Answer the harness's own permission prompt, in SQLPilot's window.
@@ -422,14 +469,24 @@ pub async fn answer_agent_permission(
     sessions.answer_permission(&session, &request, option).await
 }
 
-/// End a session and clean up after it.
+/// End a session and clean up after it, including any SQL its agent still
+/// has running: the harness is gone, so nothing would read the answer.
 #[tauri::command]
 #[specta::specta]
 pub async fn stop_agent_session(
+    state: State<'_, AppState>,
+    agents: State<'_, AgentState>,
     sessions: State<'_, AgentSessions>,
     session: String,
 ) -> Result<(), String> {
     sessions.stop(&session);
+    cancel_agent_statements(
+        &state.query_executor,
+        &state.connection_manager,
+        &agents.state,
+        &session,
+    )
+    .await;
     Ok(())
 }
 

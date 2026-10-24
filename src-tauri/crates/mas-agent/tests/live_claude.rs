@@ -126,7 +126,7 @@ async fn a_session_is_given_our_server_and_nothing_else() {
     // opened from a database client. The endpoint is not running here, so the
     // server fails to connect — and the adapter says so at once rather than
     // leaving the agent to discover it has no tools.
-    let config = claude::mcp_config("http://127.0.0.1:1/mcp", "not-a-real-token");
+    let config = claude::mcp_config("http://127.0.0.1:1/mcp", "not-a-real-token", None);
     let (session, mut events, mut child) = start(Some(&config));
 
     session.prompt("Reply with exactly: ok").await.unwrap();

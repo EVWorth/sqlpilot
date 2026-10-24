@@ -309,6 +309,54 @@ async fn cancel_still_stops_what_the_agent_is_running() {
 
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn an_agent_cancel_stops_only_that_agents_statements() {
+    // The agent panel's Stop (#868): it reaches what this agent is running on
+    // the server, and nothing another agent or an editor tab is running.
+    let (manager, id) = connect().await;
+    let executor = Arc::new(QueryExecutor::new(manager.clone()));
+
+    let run_on = |route: Route| {
+        let executor = executor.clone();
+        let id = id.clone();
+        tokio::spawn(async move {
+            executor
+                .execute_in(route, &id, "SELECT SLEEP(20)", None, None, None)
+                .await
+        })
+    };
+    let a = run_on(agent("a"));
+    let b = run_on(agent("b"));
+    let tab = run_on(Route::Session("tab-1".to_string()));
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let started = Instant::now();
+    executor
+        .cancel(&id, CancelScope::Agent("a".to_string()))
+        .await
+        .expect("cancel is issued");
+    let _ = tokio::time::timeout(Duration::from_secs(5), a)
+        .await
+        .expect("agent a's query stopped when cancelled");
+    assert!(started.elapsed() < Duration::from_secs(5));
+
+    // Give a stray KILL time to land before checking the others survived it.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(!b.is_finished(), "another agent's query keeps running");
+    assert!(!tab.is_finished(), "an editor tab's query keeps running");
+
+    executor
+        .cancel(&id, CancelScope::All)
+        .await
+        .expect("cleanup cancel is issued");
+    for rest in [b, tab] {
+        let _ = tokio::time::timeout(Duration::from_secs(5), rest)
+            .await
+            .expect("cleanup stopped the rest");
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn a_full_interactive_lane_counts_only_its_own_queries() {
     // The message counts what is running to say why the lane is full. An
     // agent's query runs on its own lane and holds none of these connections,

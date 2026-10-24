@@ -131,7 +131,11 @@ async fn we_do_not_offer_the_agent_a_second_way_into_the_filesystem() {
 #[tokio::test]
 async fn a_session_carries_sqlpilots_own_server() {
     let (client, _events, mut agent) = connect();
-    let servers = vec![McpServer::sqlpilot("http://127.0.0.1:47311/mcp", "s3cret")];
+    let servers = vec![McpServer::sqlpilot(
+        "http://127.0.0.1:47311/mcp",
+        "s3cret",
+        Some("session-1"),
+    )];
 
     tokio::spawn({
         let client = client.clone();
@@ -150,6 +154,9 @@ async fn a_session_carries_sqlpilots_own_server() {
     // user's global config, where it would outlive the session.
     assert_eq!(server["headers"][0]["name"], "Authorization");
     assert_eq!(server["headers"][0]["value"], "Bearer s3cret");
+    // And which in-app session it is, so the panel's Stop reaches its SQL.
+    assert_eq!(server["headers"][1]["name"], mas_agent::SESSION_HEADER);
+    assert_eq!(server["headers"][1]["value"], "session-1");
 }
 
 #[tokio::test]
