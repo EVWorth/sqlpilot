@@ -41,6 +41,7 @@ vi.mock("../../../lib/run-statement", () => ({
 vi.mock("../../../stores/productionGuardStore", () => ({
   confirmDestructive: vi.fn(async () => true),
   confirmDrop: vi.fn(async () => true),
+  confirmTruncate: vi.fn(async () => true),
   isProductionConnection: vi.fn(() => false),
 }));
 
@@ -48,7 +49,7 @@ import { runStatement } from "../../../lib/run-statement";
 import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
-import { confirmDestructive, confirmDrop } from "../../../stores/productionGuardStore";
+import { confirmDestructive, confirmDrop, confirmTruncate } from "../../../stores/productionGuardStore";
 import { useResultStore } from "../../../stores/resultStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
@@ -731,6 +732,22 @@ describe("SchemaTree menus (#293)", () => {
       const asked = vi.mocked(confirmDestructive).mock.calls[0][0];
       expect(asked.sql).toBe("TRUNCATE TABLE `app_db`.`users`");
       expect(asked.action).toContain("cannot be rolled back");
+    });
+
+    // confirmDestructive asks only on production, so without these a click on
+    // a development connection dropped or emptied the table at once.
+    it("asks off production before dropping a table", async () => {
+      vi.mocked(confirmDrop).mockResolvedValueOnce(false);
+      item(await openTableMenu(), "Drop Table")!.onClick!();
+      await waitFor(() => expect(confirmDrop).toHaveBeenCalledWith("conn-1", "table `app_db`.`users`"));
+      expect(runStatement).not.toHaveBeenCalled();
+    });
+
+    it("asks off production before emptying a table", async () => {
+      vi.mocked(confirmTruncate).mockResolvedValueOnce(false);
+      item(await openTableMenu(), "Truncate Table")!.onClick!();
+      await waitFor(() => expect(confirmTruncate).toHaveBeenCalledWith("conn-1", "`app_db`.`users`"));
+      expect(runStatement).not.toHaveBeenCalled();
     });
 
     it("runs nothing when the confirmation is declined", async () => {

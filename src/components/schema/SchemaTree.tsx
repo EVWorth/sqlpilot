@@ -47,7 +47,7 @@ import {
 import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
-import { confirmDrop } from "../../stores/productionGuardStore";
+import { confirmDrop, confirmTruncate } from "../../stores/productionGuardStore";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
 import { loadKey, type SchemaFolder, schemaFor, useSchemaStore } from "../../stores/schemaStore";
@@ -773,27 +773,34 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                                 label: "Truncate Table",
                                 icon: <Eraser className="h-3.5 w-3.5" />,
                                 danger: true,
-                                onClick: () =>
-                                  void runSchemaChange(
+                                onClick: async () => {
+                                  // Asked here off production; on production the
+                                  // guard in runSchemaChange asks instead.
+                                  const subject = `\`${db.name}\`.\`${t.name}\``;
+                                  if (!(await confirmTruncate(connectionId, subject))) return;
+                                  await runSchemaChange(
                                     truncateTable(db.name, t.name),
                                     // TRUNCATE is not transactional and takes
                                     // every row; the confirmation has to say so.
                                     `Delete every row in \`${db.name}\`.\`${t.name}\`? `
                                       + `TRUNCATE cannot be rolled back.`,
                                     () => refreshFolder(db.name, "tables"),
-                                  ),
+                                  );
+                                },
                               },
                               { separator: true },
                               {
                                 label: "Drop Table",
                                 icon: <Trash2 className="h-3.5 w-3.5" />,
                                 danger: true,
-                                onClick: () =>
-                                  void runSchemaChange(
+                                onClick: async () => {
+                                  if (!(await confirmDrop(connectionId, `table \`${db.name}\`.\`${t.name}\``))) return;
+                                  await runSchemaChange(
                                     dropTable(db.name, t.name),
                                     `Drop table \`${db.name}\`.\`${t.name}\`?`,
                                     () => refreshFolder(db.name, "tables"),
-                                  ),
+                                  );
+                                },
                               },
                             ]);
                           }}
