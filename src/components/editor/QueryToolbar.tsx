@@ -296,7 +296,8 @@ export function QueryToolbar() {
         <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
           <EnvironmentBadge environment={environment} />
           <Database className="h-3 w-3" />
-          <span>{activeConnection.name}</span>
+          {/* Named as the profile is now; the host is where the session really is (#831). */}
+          <span>{activeProfile?.name || activeConnection.name}</span>
           <span className="opacity-50">
             ({activeConnection.host}:{activeConnection.port})
           </span>
@@ -307,7 +308,7 @@ export function QueryToolbar() {
         isOpen={showSaveDialog}
         onClose={() => setShowSaveDialog(false)}
         sql={activeTab?.content ?? ""}
-        connectionName={activeConnection?.name}
+        connectionName={activeProfile?.name || activeConnection?.name}
         database={activeTab?.database}
       />
 

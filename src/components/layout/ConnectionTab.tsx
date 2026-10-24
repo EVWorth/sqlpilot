@@ -1,4 +1,4 @@
-import { Database, Lock, X } from "lucide-react";
+import { Database, Lock, RefreshCw, X } from "lucide-react";
 import { cn } from "../../lib/utils";
 import type { ConnectionInfo, ConnectionProfileSummary } from "../../types";
 import { EnvironmentBadge } from "../connection/EnvironmentBadge";
@@ -12,6 +12,8 @@ interface ConnectionTabProps {
   focusable: boolean;
   /** What the health checker last said. */
   state: "Connected" | "Disconnected";
+  /** The profile's connection settings changed after this connected (#831). */
+  stale?: boolean;
   onSelect: () => void;
   onDisconnect: () => void;
   /** Open the tab's menu at a point: the pointer, or under the tab from the keyboard. */
@@ -32,6 +34,7 @@ export function ConnectionTab({
   isSelected,
   focusable,
   state,
+  stale = false,
   onSelect,
   onDisconnect,
   onMenu,
@@ -40,7 +43,8 @@ export function ConnectionTab({
   // The name truncates at 180px, so the tooltip is where the whole of it,
   // and the server it points at, can be read (#835).
   const host = profile ? `${profile.host}:${profile.port}` : `${conn.host}:${conn.port}`;
-  const tooltip = `${label} — ${profile?.username ? `${profile.username}@` : ""}${host}`;
+  const tooltip = `${label} — ${profile?.username ? `${profile.username}@` : ""}${host}`
+    + (stale ? `\nStill connected to ${conn.host}:${conn.port}; reconnect to apply the new settings.` : "");
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.target !== e.currentTarget) return;
@@ -118,6 +122,14 @@ export function ConnectionTab({
       <EnvironmentBadge environment={profile?.environment} />
 
       <span className="truncate">{label}</span>
+
+      {stale && (
+        <RefreshCw
+          role="img"
+          aria-label="Settings changed — reconnect to apply"
+          className="h-3 w-3 shrink-0 text-[var(--color-warning)]"
+        />
+      )}
 
       <button
         // The tab itself is the Tab stop; Delete on it disconnects, so this

@@ -74,6 +74,7 @@ describe("connectionStore", () => {
       connectAttempts: {},
       cancelledConnects: [],
       failedProfileId: null,
+      staleConnections: [],
     });
   });
 
@@ -415,6 +416,49 @@ describe("connectionStore", () => {
       await useConnectionStore.getState().disconnect("conn-1");
 
       expect(useConnectionStore.getState().error).toBe("Disconnect failed");
+    });
+  });
+
+  describe("stale connections and reconnect (#831)", () => {
+    it("marks a connection stale once", () => {
+      useConnectionStore.getState().markStale("conn-1");
+      useConnectionStore.getState().markStale("conn-1");
+      expect(useConnectionStore.getState().staleConnections).toEqual(["conn-1"]);
+    });
+
+    it("forgets the mark when the connection closes", async () => {
+      useConnectionStore.setState({ activeConnections: [mockConnectionInfo], staleConnections: ["conn-1"] });
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+      await useConnectionStore.getState().disconnect("conn-1");
+      expect(useConnectionStore.getState().staleConnections).toEqual([]);
+    });
+
+    it("reconnects: closes the old connection and opens the profile again", async () => {
+      useConnectionStore.setState({
+        activeConnections: [mockConnectionInfo],
+        selectedConnectionId: "conn-1",
+        staleConnections: ["conn-1"],
+      });
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+      vi.mocked(api.connect).mockResolvedValue({ ...mockConnectionInfo, id: "conn-2", host: "10.9.9.9" });
+
+      const info = await useConnectionStore.getState().reconnect("conn-1");
+
+      expect(api.disconnect).toHaveBeenCalledWith("conn-1");
+      expect(api.connect).toHaveBeenCalledWith("profile-1");
+      expect(info.id).toBe("conn-2");
+      const state = useConnectionStore.getState();
+      expect(state.activeConnections.map((c) => c.id)).toEqual(["conn-2"]);
+      expect(state.selectedConnectionId).toBe("conn-2");
+      expect(state.staleConnections).toEqual([]);
+    });
+
+    it("does not open a second connection when the old one will not close", async () => {
+      useConnectionStore.setState({ activeConnections: [mockConnectionInfo] });
+      vi.mocked(api.disconnect).mockRejectedValue(new Error("busy"));
+
+      await expect(useConnectionStore.getState().reconnect("conn-1")).rejects.toThrow("busy");
+      expect(api.connect).not.toHaveBeenCalled();
     });
   });
 

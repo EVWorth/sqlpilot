@@ -30,6 +30,9 @@ function currentState() {
     deleteProfile: vi.fn(),
     setSelectedConnection: vi.fn(),
     loadProfiles: mockLoadProfiles,
+    staleConnections: [],
+    markStale: vi.fn(),
+    reconnect: vi.fn(),
     ...storeState,
   };
 }
@@ -77,19 +80,26 @@ vi.mock("../../../stores/connectionHealthStore", () => ({
   useConnectionHealthStore: vi.fn((s: (v: unknown) => unknown) => s({ health: healthState })),
 }));
 
+/** The dialog's last `onSaved`, so a test can play a save. */
+const dialogProps = vi.hoisted(() => ({ onSaved: undefined as ((saved: unknown) => void) | undefined }));
+
 vi.mock("../../connection/ConnectionDialog", () => ({
-  ConnectionDialog: vi.fn(({ editProfile, duplicateOf }: {
+  ConnectionDialog: vi.fn(({ editProfile, duplicateOf, onSaved }: {
     editProfile?: { name: string };
     duplicateOf?: { name: string };
-  }) => (
-    <div
-      data-testid="connection-dialog"
-      data-editing={editProfile?.name ?? ""}
-      data-duplicating={duplicateOf?.name ?? ""}
-    >
-      ConnectionDialog
-    </div>
-  )),
+    onSaved?: (saved: unknown) => void;
+  }) => {
+    dialogProps.onSaved = onSaved;
+    return (
+      <div
+        data-testid="connection-dialog"
+        data-editing={editProfile?.name ?? ""}
+        data-duplicating={duplicateOf?.name ?? ""}
+      >
+        ConnectionDialog
+      </div>
+    );
+  }),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -601,5 +611,77 @@ describe("environment and server on the tab (#835)", () => {
     expect(row).toHaveTextContent("STG");
     expect(row).toHaveAttribute("title", "app@db.internal:3306");
     expect(row).toContainElement(screen.getByLabelText("Read-only connection"));
+  });
+});
+
+describe("editing a connected profile (#831)", () => {
+  const profile = {
+    id: "p1",
+    name: "Local dev",
+    host: "127.0.0.1",
+    port: 3306,
+    username: "root",
+    default_database: null,
+    read_only: false,
+    charset: "utf8mb4",
+    ssl_config: null,
+    ssh_config: null,
+  };
+  const conn = { id: "c1", profile_id: "p1", name: "Local dev", host: "127.0.0.1", port: 3306, database: null };
+
+  const editAndSave = (changes: Record<string, unknown>) => {
+    act(() => menuItems.find((i) => i.label === "Edit Connection")!.onClick!());
+    act(() => dialogProps.onSaved?.({ ...profile, password: "", ...changes }));
+  };
+
+  it("offers a reconnect and marks the tab when the server changed", () => {
+    const markStale = vi.fn();
+    storeState = { profiles: [profile], activeConnections: [conn], markStale };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    editAndSave({ name: "Local dev RENAMED", host: "10.9.9.9" });
+
+    expect(markStale).toHaveBeenCalledWith("c1");
+    const prompt = screen.getByTestId("reconnect-prompt");
+    expect(prompt).toHaveTextContent("127.0.0.1:3306");
+    expect(document.activeElement).toBe(screen.getByText("Reconnect now").closest("button"));
+  });
+
+  it("says nothing when only the name changed", () => {
+    const markStale = vi.fn();
+    storeState = { profiles: [profile], activeConnections: [conn], markStale };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    editAndSave({ name: "Renamed" });
+
+    expect(markStale).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("reconnect-prompt")).toBeNull();
+  });
+
+  it("reconnects on Reconnect now and moves the editor tabs to the new connection", async () => {
+    const fresh = { ...conn, id: "c2", host: "10.9.9.9" };
+    const reconnect = vi.fn().mockResolvedValue(fresh);
+    storeState = { profiles: [profile], activeConnections: [conn], reconnect };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    editAndSave({ host: "10.9.9.9" });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Reconnect now"));
+    });
+    expect(reconnect).toHaveBeenCalledWith("c1");
+    expect(screen.queryByTestId("reconnect-prompt")).toBeNull();
+  });
+
+  it("puts the prompt away on Later and leaves the tab marked", () => {
+    storeState = { profiles: [profile], activeConnections: [conn], staleConnections: ["c1"] };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    expect(menuItems.map((i) => i.label)).toContain("Reconnect to Apply Changes");
+    editAndSave({ host: "10.9.9.9" });
+    fireEvent.click(screen.getByText("Later"));
+
+    expect(screen.queryByTestId("reconnect-prompt")).toBeNull();
+    expect(screen.getByLabelText("Settings changed — reconnect to apply")).toBeInTheDocument();
   });
 });

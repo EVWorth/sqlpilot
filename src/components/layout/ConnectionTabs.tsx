@@ -1,17 +1,20 @@
-import { Copy, FileText, Loader2, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Copy, FileText, Loader2, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { CONNECT_PROFILE_EVENT, NEW_CONNECTION_EVENT } from "../../lib/connect-request";
+import { connectionSettingsChanged } from "../../lib/connection-changes";
 import { cn } from "../../lib/utils";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useEditorStore } from "../../stores/editorStore";
 import { useSqliteStore } from "../../stores/sqliteStore";
-import type { ConnectionProfileSummary } from "../../types";
+import type { ConnectionProfileInput, ConnectionProfileSummary } from "../../types";
 import type { MenuItem } from "../common/ContextMenu";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
 import { ConnectFailure } from "./ConnectFailure";
 import { ConnectionTab } from "./ConnectionTab";
 import { ConnectPopover } from "./ConnectPopover";
+import { ReconnectPrompt } from "./ReconnectPrompt";
 import { useConnectionSwitching } from "./useConnectionSwitching";
 import { useProfileDeletion } from "./useProfileDeletion";
 import { useStartupReconnect } from "./useStartupReconnect";
@@ -41,6 +44,11 @@ export function ConnectionTabs() {
   const connectError = useConnectionStore((s) => s.error);
   const failedProfileId = useConnectionStore((s) => s.failedProfileId);
   const clearError = useConnectionStore((s) => s.clearError);
+  const staleConnections = useConnectionStore((s) => s.staleConnections);
+  const markStale = useConnectionStore((s) => s.markStale);
+  const reconnect = useConnectionStore((s) => s.reconnect);
+  // The connection to offer a reconnect for, after its profile was edited.
+  const [reconnectOffer, setReconnectOffer] = useState<string | null>(null);
 
   /**
    * What to show on a connected tab's icon. FR-1.3.2's third state,
@@ -183,6 +191,32 @@ export function ConnectionTabs() {
 
   connectProfileRef.current = handleConnectProfile;
 
+  /** A profile was saved from the dialog: a live connection on old settings is said so (#831). */
+  const handleSaved = (saved: ConnectionProfileInput) => {
+    const before = editingProfile;
+    if (!before || before.id !== saved.id) return;
+    const live = useConnectionStore.getState().activeConnections.find((c) => c.profile_id === saved.id);
+    if (!live || !connectionSettingsChanged(before, saved)) return;
+    markStale(live.id);
+    setReconnectOffer(live.id);
+  };
+
+  /** Reopen a connection with its profile's current settings, keeping its editor tabs on it. */
+  const handleReconnect = async (connectionId: string) => {
+    setReconnectOffer(null);
+    try {
+      const fresh = await reconnect(connectionId);
+      const { tabs, setTabConnection } = useEditorStore.getState();
+      tabs
+        .filter((t) => t.connectionId === connectionId)
+        .forEach((t) => setTabConnection(t.id, fresh.id, t.database, fresh.profile_id));
+      setSelectedConnection(fresh.id);
+      setFocusAfterConnect(fresh.id);
+    } catch {
+      // The store has the reason in `error`, shown under the tabs or in the status bar.
+    }
+  };
+
   /** What a connected tab's menu offers, by right-click or from the keyboard. */
   const tabMenuItems = (connectionId: string, profile: ConnectionProfileSummary | undefined): MenuItem[] => [
     {
@@ -204,6 +238,13 @@ export function ConnectionTabs() {
       },
       disabled: !profile,
     },
+    ...(staleConnections.includes(connectionId)
+      ? [{
+        label: "Reconnect to Apply Changes",
+        icon: <RefreshCw className="h-3.5 w-3.5" />,
+        onClick: () => void handleReconnect(connectionId),
+      }]
+      : []),
     {
       label: "Disconnect",
       icon: <X className="h-3.5 w-3.5" />,
@@ -261,6 +302,7 @@ export function ConnectionTabs() {
               isSelected={conn.id === selectedConnectionId}
               focusable={conn.id === tabStopId}
               state={connectionState(conn.id)}
+              stale={staleConnections.includes(conn.id)}
               onSelect={() => selectConnection(conn.id)}
               onDisconnect={() => disconnect(conn.id)}
               onMenu={(x, y) => showContextMenuAt(x, y, tabMenuItems(conn.id, profile))}
@@ -420,7 +462,24 @@ export function ConnectionTabs() {
           }
           : undefined}
         onDuplicate={editingProfile ? () => openDuplicate(editingProfile) : undefined}
+        onSaved={handleSaved}
       />
+      {reconnectOffer && (() => {
+        const conn = activeConnections.find((c) => c.id === reconnectOffer);
+        if (!conn) return null;
+        const profile = profiles.find((p) => p.id === conn.profile_id);
+        return (
+          <ReconnectPrompt
+            name={profile?.name || conn.name}
+            oldServer={`${conn.host}:${conn.port}`}
+            onReconnect={() => void handleReconnect(conn.id)}
+            onLater={() => {
+              setReconnectOffer(null);
+              tablistRef.current?.querySelector<HTMLElement>(`[data-connection-id="${conn.id}"]`)?.focus();
+            }}
+          />
+        );
+      })()}
       {failedProfileId && connectError && (() => {
         const failedProfile = profiles.find((p) => p.id === failedProfileId);
         return (

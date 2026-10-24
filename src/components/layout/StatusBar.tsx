@@ -188,7 +188,8 @@ export function StatusBar() {
                   }`}
                 />
                 <span className="text-[10px] text-[var(--color-text-secondary)]">
-                  {activeConn.name} — {activeConn.host}:{activeConn.port}
+                  {/* The profile's name, which an edit changes; the server the session is really on (#831). */}
+                  {activeProfile?.name || activeConn.name} — {activeConn.host}:{activeConn.port}
                 </span>
                 {copied
                   ? <Check className="h-2.5 w-2.5 text-[var(--color-success)]" />

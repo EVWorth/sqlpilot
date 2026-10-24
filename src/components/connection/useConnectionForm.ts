@@ -253,13 +253,15 @@ export function useConnectionForm(
     setTesting(false);
   };
 
-  const handleSave = async (onDone: () => void) => {
+  /** Save, then hand `onDone` what was saved. */
+  const handleSave = async (onDone: (saved: ConnectionProfileInput) => void) => {
     setSaving(true);
     setSaveError(null);
     try {
-      await saveProfile(buildProfileForSave());
+      const profile = buildProfileForSave();
+      await saveProfile(profile);
       setSaving(false);
-      onDone();
+      onDone(profile);
     } catch (e) {
       // Stay open, so what was typed is not lost, and say why (#792).
       setSaveError(errorMessage(e));

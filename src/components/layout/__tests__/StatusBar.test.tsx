@@ -147,9 +147,12 @@ describe("StatusBar", () => {
     expect(panel.textContent).toMatch(/ask before restarting/i);
   });
 
-  it("renders connection name and host:port", () => {
+  it("renders the profile's name and the session's host:port (#831)", () => {
+    // The name an edit gave the profile, not the one it had at connect time;
+    // the host the session is really on, which an edit does not move.
     renderStatusBar();
-    expect(screen.getByText(/Production DB/)).toBeInTheDocument();
+    expect(screen.getByText(/Prod Profile/)).toBeInTheDocument();
+    expect(screen.queryByText(/Production DB/)).toBeNull();
     expect(screen.getByText(/db\.example\.com:3306/)).toBeInTheDocument();
   });
 

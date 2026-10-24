@@ -1,6 +1,6 @@
 import { CheckCircle2, Copy, Database, Loader2, Settings, Shield, Terminal, Trash2, X, XCircle } from "lucide-react";
 import { useState } from "react";
-import type { ConnectionProfile } from "../../types";
+import type { ConnectionProfile, ConnectionProfileInput } from "../../types";
 import { Modal } from "../common/Modal";
 import { AdvancedTab } from "./tabs/AdvancedTab";
 import { GeneralTab } from "./tabs/GeneralTab";
@@ -32,6 +32,8 @@ interface Props {
   onDelete?: () => void;
   /** Offered in the footer when editing: open a copy of this profile. */
   onDuplicate?: () => void;
+  /** After a successful save, before the dialog closes: what was saved. */
+  onSaved?: (saved: ConnectionProfileInput) => void;
 }
 
 type TabId = "general" | "ssl" | "ssh" | "advanced";
@@ -50,6 +52,7 @@ export function ConnectionDialog({
   duplicateOf,
   onDelete,
   onDuplicate,
+  onSaved,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("general");
   const {
@@ -222,7 +225,11 @@ export function ConnectionDialog({
             Cancel
           </button>
           <button
-            onClick={() => void handleSave(onClose)}
+            onClick={() =>
+              void handleSave((saved) => {
+                onSaved?.(saved);
+                onClose();
+              })}
             disabled={!canSave}
             className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
           >

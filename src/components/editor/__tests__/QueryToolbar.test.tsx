@@ -498,3 +498,15 @@ describe("production signalling (#835)", () => {
     expect(screen.getByTestId("environment-badge")).toHaveTextContent("STG");
   });
 });
+
+describe("connection name (#831)", () => {
+  it("names the connection as its profile is named now", () => {
+    connSelId = "conn-1";
+    connActive = [{ id: "conn-1", profile_id: "prof-1", name: "Test DB", host: "localhost", port: 3306 }];
+    connProfiles = [{ id: "prof-1", name: "Test DB RENAMED", host: "10.9.9.9", port: 3306, environment: null }];
+    render(<QueryToolbar />);
+    expect(screen.getByText("Test DB RENAMED")).toBeInTheDocument();
+    // Where the session really is, until it reconnects.
+    expect(screen.getByText("(localhost:3306)")).toBeInTheDocument();
+  });
+});
