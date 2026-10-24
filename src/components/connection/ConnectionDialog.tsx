@@ -92,6 +92,8 @@ export function ConnectionDialog({
 
   if (!isOpen) return null;
 
+  const missing = [!form.name && "Name", !form.host && "Host"].filter((f): f is string => !!f);
+
   const save = (connect: boolean) =>
     void handleSave((saved) => {
       onSaved?.(saved, { connect });
@@ -104,7 +106,9 @@ export function ConnectionDialog({
       onClose={onClose}
       label="Connection"
       initialFocus={nameRef}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      // Anchored to the top, not centred, with a body of one fixed height:
+      // switching tabs made the whole dialog jump (#838).
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/60 pt-[8vh]"
       panelClassName="w-[560px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
     >
       <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
@@ -149,7 +153,7 @@ export function ConnectionDialog({
           if (canSave) save(offerConnect);
         }}
       >
-        <div className="min-h-[320px] p-4">
+        <div className="h-[360px] overflow-y-auto p-4">
           {activeTab === "general" && (
             <GeneralTab
               nameRef={nameRef}
@@ -251,7 +255,13 @@ export function ConnectionDialog({
               </button>
             )}
           </div>
-          <div className="flex gap-2">
+          <div className="flex items-center gap-2">
+            {missing.length > 0 && (
+              // Save was greyed out with nothing saying why (#838).
+              <p id="connection-missing" className="text-[10px] text-[var(--color-text-muted)]">
+                {missing.join(" and ")} {missing.length === 1 ? "is" : "are"} required
+              </p>
+            )}
             <button
               type="button"
               onClick={onClose}

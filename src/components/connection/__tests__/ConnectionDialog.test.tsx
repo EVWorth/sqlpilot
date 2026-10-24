@@ -491,3 +491,18 @@ describe("Save & Connect (#832)", () => {
     await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.anything(), { connect: false }));
   });
 });
+
+describe("required fields (#838)", () => {
+  it("marks Name and Host required and says what is missing", () => {
+    render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByLabelText("Name")).toHaveAttribute("aria-required", "true");
+    expect(screen.getByLabelText("Host")).toHaveAttribute("aria-required", "true");
+    expect(screen.getByText("Name is required")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+    expect(screen.queryByText(/is required/)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "" } });
+    expect(screen.getByText("Host is required")).toBeInTheDocument();
+  });
+});

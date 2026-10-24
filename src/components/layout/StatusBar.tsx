@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { StartupProblem } from "../../lib/bindings";
 import { releaseUrl } from "../../lib/repo";
+import { serverFlavour } from "../../lib/server-flavour";
 import { api } from "../../lib/tauri-api";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -22,6 +23,17 @@ import { type StorageErrorKey, useStorageErrorStore } from "../../stores/storage
 import { EnvironmentBadge } from "../connection/EnvironmentBadge";
 import { ConnectionErrorChip } from "./ConnectionErrorChip";
 import { UpdateErrorDetails } from "./UpdateErrorDetails";
+
+/**
+ * "MySQL 8.0.36" or "MariaDB 10.11.6": the vendor from the version string.
+ * It always said MySQL, so a MariaDB server read "MySQL 10.11.6-MariaDB" (#838).
+ */
+export function serverLabel(version: string): string {
+  if (serverFlavour(version) === "mariadb") {
+    return `MariaDB ${version.replace(/-MariaDB.*$/i, "")}`;
+  }
+  return `MySQL ${version}`;
+}
 
 function formatTime(ms: number): string {
   if (ms < 1) return "<1ms";
@@ -177,7 +189,8 @@ export function StatusBar() {
             <>
               <button
                 onClick={handleCopyConnection}
-                className="flex items-center gap-1.5 hover:text-[var(--color-text-primary)] transition-colors"
+                // `group`, or the copy icon's group-hover never fires (#838).
+                className="group flex items-center gap-1.5 hover:text-[var(--color-text-primary)] transition-colors"
                 title="Click to copy connection string"
               >
                 <span
@@ -193,7 +206,9 @@ export function StatusBar() {
                 </span>
                 {copied
                   ? <Check className="h-2.5 w-2.5 text-[var(--color-success)]" />
-                  : <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100" />}
+                  : (
+                    <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
+                  )}
               </button>
               <EnvironmentBadge environment={activeProfile?.environment} />
               {selectedDatabase && (
@@ -202,7 +217,7 @@ export function StatusBar() {
                 </span>
               )}
               <span className="text-[10px] text-[var(--color-text-muted)]">
-                MySQL {activeConn.server_version}
+                {serverLabel(activeConn.server_version)}
               </span>
               {health && !health.healthy && (
                 <span

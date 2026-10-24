@@ -161,6 +161,22 @@ describe("StatusBar", () => {
     expect(screen.getByText("MySQL 8.0.33")).toBeInTheDocument();
   });
 
+  it("names a MariaDB server MariaDB (#838)", () => {
+    const conn = useConnectionStore.getState().activeConnections[0];
+    useConnectionStore.setState({
+      activeConnections: [{ ...conn, server_version: "10.11.6-MariaDB-1:10.11.6+maria~ubu2204" }],
+    });
+    renderStatusBar();
+    expect(screen.getByText("MariaDB 10.11.6")).toBeInTheDocument();
+    expect(screen.queryByText(/MySQL/)).toBeNull();
+  });
+
+  it("makes the connection button a hover group, so its copy icon can show (#838)", () => {
+    renderStatusBar();
+    const button = screen.getByTitle("Click to copy connection string");
+    expect(button.className.split(" ")).toContain("group");
+  });
+
   it("renders 'Disconnected' when no connection is active", () => {
     useConnectionStore.setState({
       activeConnections: [],

@@ -43,11 +43,13 @@ export function GeneralTab({
         onChange={(v) => handleChange("name", v)}
         placeholder="My Database"
         inputRef={nameRef}
+        required
       />
       <div className="grid grid-cols-3 gap-3">
         <div className="col-span-2">
           <Field
             label="Host"
+            required
             value={form.host}
             onChange={(v) => handleChange("host", v)}
           />
