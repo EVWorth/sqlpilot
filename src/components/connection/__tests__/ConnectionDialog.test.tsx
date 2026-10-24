@@ -257,14 +257,13 @@ describe("ConnectionDialog", () => {
   describe("color picker", () => {
     it("renders color buttons for preset colors", () => {
       render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
-      const colorBtns = document.querySelectorAll("[title=\"#3B82F6\"]");
-      expect(colorBtns.length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "Blue" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Orange" })).toBeInTheDocument();
     });
 
     it("shows Clear button when color is selected", () => {
       render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
-      const colorBtn = document.querySelector("[title=\"#F97316\"]");
-      if (colorBtn) fireEvent.click(colorBtn);
+      fireEvent.click(screen.getByRole("button", { name: "Orange" }));
       expect(screen.getByText("Clear")).toBeInTheDocument();
     });
   });

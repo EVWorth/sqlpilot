@@ -1,18 +1,7 @@
 import type { ConnectionProfileInput } from "../../../types";
 import { Field } from "../../common/Field";
+import { ColorPicker } from "../ColorPicker";
 import type { NumberField } from "../useConnectionForm";
-
-/** The colours a connection can be tagged with (FR-1.2.5). */
-export const PRESET_COLORS = [
-  "#3B82F6",
-  "#10B981",
-  "#F59E0B",
-  "#EF4444",
-  "#8B5CF6",
-  "#EC4899",
-  "#06B6D4",
-  "#F97316",
-];
 
 interface GeneralTabProps {
   form: ConnectionProfileInput;
@@ -91,36 +80,18 @@ export function GeneralTab({
         onChange={(v) => handleChange("default_database", v)}
         placeholder="(optional)"
       />
-      {/* Color picker */}
       <div>
-        <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+        <span
+          id="connection-color-label"
+          className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]"
+        >
           Color
-        </label>
-        <div className="flex items-center gap-1.5">
-          {PRESET_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              onClick={() => handleChange("color", c)}
-              className={`h-6 w-6 rounded-full border-2 transition-transform hover:scale-110 ${
-                form.color === c
-                  ? "border-[var(--color-text-primary)] scale-110"
-                  : "border-transparent"
-              }`}
-              style={{ backgroundColor: c }}
-              title={c}
-            />
-          ))}
-          {form.color && (
-            <button
-              type="button"
-              onClick={() => handleChange("color", "")}
-              className="ml-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-            >
-              Clear
-            </button>
-          )}
-        </div>
+        </span>
+        <ColorPicker
+          value={form.color}
+          onChange={(color) => handleChange("color", color)}
+          labelledBy="connection-color-label"
+        />
       </div>
       {/* Environment */}
       <div>
