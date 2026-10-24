@@ -397,6 +397,153 @@ describe("TableDesigner", () => {
     });
   });
 
+  describe("column modifiers (#814)", () => {
+    const ordersColumns = [
+      {
+        name: "id",
+        data_type: "int",
+        column_type: "int unsigned",
+        nullable: false,
+        is_primary_key: true,
+        default_value: null,
+        extra: "auto_increment",
+        comment: "",
+        charset: null,
+        collation: null,
+      },
+      {
+        name: "customer_id",
+        data_type: "int",
+        column_type: "int unsigned",
+        nullable: false,
+        is_primary_key: false,
+        default_value: null,
+        extra: "",
+        comment: "",
+        charset: null,
+        collation: null,
+      },
+      {
+        name: "status",
+        data_type: "varchar",
+        column_type: "varchar(16)",
+        nullable: false,
+        is_primary_key: false,
+        default_value: null,
+        extra: "",
+        comment: "",
+        charset: "utf8mb4",
+        collation: "utf8mb4_0900_ai_ci",
+      },
+      {
+        name: "updated_at",
+        data_type: "timestamp",
+        column_type: "timestamp",
+        nullable: true,
+        is_primary_key: false,
+        default_value: "CURRENT_TIMESTAMP",
+        extra: "DEFAULT_GENERATED on update CURRENT_TIMESTAMP",
+        comment: "",
+        charset: null,
+        collation: null,
+      },
+    ];
+
+    const preview = () => {
+      fireEvent.click(screen.getByText("Preview SQL"));
+      return screen.getByTestId("sql-preview-dialog").textContent ?? "";
+    };
+
+    async function openOrders() {
+      vi.mocked(api.getColumns).mockResolvedValue(ordersColumns as never);
+      vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
+      render(<TableDesigner connectionId="conn-1" database="shop" tableName="orders" />);
+      await screen.findByDisplayValue("orders");
+    }
+
+    it("shows a loaded column's UNSIGNED", async () => {
+      await openOrders();
+
+      expect((screen.getByLabelText("Unsigned: customer_id") as HTMLInputElement).checked).toBe(true);
+      expect((screen.getByLabelText("Unsigned: status") as HTMLInputElement).disabled).toBe(true);
+    });
+
+    it("drops UNSIGNED when it is unticked, and marks the row as changed", async () => {
+      await openOrders();
+      const box = screen.getByLabelText("Unsigned: customer_id");
+
+      fireEvent.click(box);
+
+      expect(box.closest("tr")?.className).toContain("bg-brand-600/5");
+      const sql = preview();
+      expect(sql).toContain("MODIFY COLUMN `customer_id` INT NOT NULL");
+      expect(sql).not.toContain("`customer_id` INT UNSIGNED");
+    });
+
+    it("does not count ticking and unticking as a change", async () => {
+      await openOrders();
+      const box = screen.getByLabelText("Unsigned: status");
+      // Disabled for a VARCHAR; use one that takes it and has none.
+      expect(box).toBeDisabled();
+      fireEvent.click(screen.getByLabelText("More options for customer_id"));
+      const zerofill = screen.getByLabelText("Zerofill: customer_id");
+      fireEvent.click(zerofill);
+      fireEvent.click(zerofill);
+
+      expect(preview()).toContain("No changes detected");
+    });
+
+    it("makes a new column unsigned", () => {
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      fireEvent.change(screen.getAllByPlaceholderText("table_name")[0], { target: { value: "t" } });
+      fireEvent.change(screen.getByPlaceholderText("column_name"), { target: { value: "n" } });
+
+      fireEvent.click(screen.getByLabelText("Unsigned: n"));
+
+      expect(preview()).toContain("`n` INT UNSIGNED NULL");
+    });
+
+    it("edits charset, collation and ON UPDATE in the row's details", async () => {
+      await openOrders();
+      expect(screen.getAllByTestId("column-details-set")).toHaveLength(2);
+
+      fireEvent.click(screen.getByLabelText("More options for status"));
+      expect((screen.getByLabelText("Collation of status") as HTMLSelectElement).value).toBe("utf8mb4_0900_ai_ci");
+      fireEvent.change(screen.getByLabelText("Collation of status"), { target: { value: "utf8mb4_bin" } });
+
+      fireEvent.click(screen.getByLabelText("More options for updated_at"));
+      expect(screen.getByLabelText("On update of updated_at")).toHaveValue("CURRENT_TIMESTAMP");
+      fireEvent.change(screen.getByLabelText("On update of updated_at"), { target: { value: "" } });
+
+      const sql = preview();
+      expect(sql).toContain("MODIFY COLUMN `status` VARCHAR(16) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL");
+      expect(sql).toMatch(/MODIFY COLUMN `updated_at` TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP(?! ON UPDATE)/);
+    });
+
+    it("marks the primary key, and edits it from the column", async () => {
+      await openOrders();
+
+      expect(screen.getByLabelText("Primary key: id")).toHaveAttribute("aria-pressed", "true");
+      expect(screen.getByLabelText("Primary key: customer_id")).toHaveAttribute("aria-pressed", "false");
+
+      fireEvent.click(screen.getByLabelText("Primary key: customer_id"));
+
+      expect(preview()).toContain("ADD PRIMARY KEY (`id`, `customer_id`)");
+    });
+
+    it("creates a primary key from the column in a new table", () => {
+      render(<TableDesigner connectionId="conn-1" database="testdb" />);
+      fireEvent.change(screen.getAllByPlaceholderText("table_name")[0], { target: { value: "t" } });
+      fireEvent.change(screen.getByPlaceholderText("column_name"), { target: { value: "id" } });
+
+      fireEvent.click(screen.getByLabelText("Primary key: id"));
+
+      const sql = preview();
+      expect(sql).toContain("`id` INT NOT NULL");
+      expect(sql).toContain("PRIMARY KEY (`id`)");
+    });
+  });
+
   describe("applying changes", () => {
     beforeEach(() => {
       vi.mocked(api.getColumns).mockResolvedValue(mockColumns);
