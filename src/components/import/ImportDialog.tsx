@@ -5,7 +5,7 @@ import { events } from "../../lib/bindings";
 import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
 import { runStatement } from "../../lib/run-statement";
 import { generateBatchInsert, splitSqlStatements } from "../../lib/sql-import";
-import { isDestructiveStatement } from "../../lib/sql-safety";
+import { isDestructiveStatement, stripLeadingComments } from "../../lib/sql-safety";
 import { api } from "../../lib/tauri-api";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import type { ColumnInfo, TableInfo } from "../../types";
@@ -38,6 +38,8 @@ interface ImportProgress {
   done: boolean;
   /** Set when the run stopped early, so the summary can say it did. */
   stoppedAt: number | null;
+  /** True when the user stopped the run (#815). */
+  cancelled?: boolean;
 }
 
 export function ImportDialog({
@@ -56,6 +58,8 @@ export function ImportDialog({
   const [sqlPreview, setSqlPreview] = useState<string[]>([]);
   const [fileBytes, setFileBytes] = useState<number | null>(null);
   const importIdRef = useRef<string | null>(null);
+  /** Set once Cancel was pressed, until the backend stops at a statement. */
+  const [cancelling, setCancelling] = useState(false);
   const progressRef = useRef<HTMLDivElement>(null);
   const [destructiveStatements, setDestructiveStatements] = useState<string[]>([]);
   /** True when the file is longer than the part that was scanned for them. */
@@ -90,6 +94,7 @@ export function ImportDialog({
     setFileContent(null);
     setProgress(null);
     setImporting(false);
+    setCancelling(false);
     setSqlPreview([]);
     setDestructiveStatements([]);
     setStatementCount(0);
@@ -278,9 +283,10 @@ export function ImportDialog({
         errorCount: summary.statementsFailed,
         errors: summary.errors,
         done: true,
-        stoppedAt: summary.statementsFailed > 0 && stopOnError
+        stoppedAt: !summary.cancelled && summary.statementsFailed > 0 && stopOnError
           ? Number(summary.statementsRun) + 1
           : null,
+        cancelled: summary.cancelled,
       });
       setPartiallyApplied(summary.partiallyApplied);
     } catch (e) {
@@ -297,8 +303,19 @@ export function ImportDialog({
       unlisten();
       importIdRef.current = null;
       setImporting(false);
+      setCancelling(false);
     }
   }, [filePath, connectionId, database, stopOnError, destructiveStatements, scanTruncated]);
+
+  // Stops at the next statement and rolls back what has not been committed,
+  // the same job-cancel the restore dialog uses: an SQL import runs through
+  // `restore_database`, keyed by `importIdRef` (#815).
+  const handleCancelImport = useCallback(() => {
+    const id = importIdRef.current;
+    if (!id) return;
+    setCancelling(true);
+    void api.cancelBackup(id).catch(() => {});
+  }, []);
 
   const handleImportCsv = useCallback(async () => {
     if (!targetTable || csvRows.length === 0) return;
@@ -495,11 +512,15 @@ export function ImportDialog({
                   {scanTruncated ? "in the scanned part of this file" : "in this file"} will drop or overwrite data
                 </p>
                 <ul className="mt-1.5 space-y-0.5 font-mono">
-                  {destructiveStatements.slice(0, 5).map((stmt, i) => (
-                    <li key={i} className="truncate" title={stmt}>
-                      {stmt.trim().slice(0, 120)}
-                    </li>
-                  ))}
+                  {destructiveStatements.slice(0, 5).map((stmt, i) => {
+                    // Without its leading banner, so the DROP is what shows.
+                    const shown = stripLeadingComments(stmt) || stmt.trim();
+                    return (
+                      <li key={i} className="truncate" title={shown}>
+                        {shown.slice(0, 120)}
+                      </li>
+                    );
+                  })}
                 </ul>
                 {destructiveStatements.length > 5 && (
                   <p className="mt-1 text-[var(--color-warning)]/80">
@@ -678,7 +699,9 @@ export function ImportDialog({
             <div className="flex items-center justify-between text-xs">
               <span className="text-[var(--color-text-secondary)]">
                 {progress.done
-                  ? "Import complete"
+                  ? progress.cancelled ? "Import cancelled" : "Import complete"
+                  : cancelling
+                  ? "Cancelling — stopping after the current statement…"
                   : mode === "sql"
                   // By bytes of the file: the statement count is not known
                   // until the file has been read, which is what is running.
@@ -714,6 +737,14 @@ export function ImportDialog({
                     : " Rolled back — the database is as it was."}
                 </span>
               )}
+              {progress.cancelled && (
+                <span data-testid="cancelled-summary" className="text-[11px] text-[var(--color-warning)]">
+                  Cancelled after {progress.successCount} statements.
+                  {partiallyApplied
+                    ? " What they changed stands: MySQL commits before every CREATE, DROP or ALTER."
+                    : " Rolled back — the database is as it was."}
+                </span>
+              )}
               {progress.errorCount > 0 && (
                 <span className="flex items-center gap-1 text-[var(--color-error)]">
                   <AlertCircle className="h-3 w-3" />
@@ -741,13 +772,28 @@ export function ImportDialog({
 
       {/* Footer */}
       <div className="flex items-center justify-end gap-2 border-t border-[var(--color-border)] px-4 py-3">
-        <button
-          onClick={handleClose}
-          disabled={importing}
-          className="rounded px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-40"
-        >
-          {progress?.done ? "Close" : "Cancel"}
-        </button>
+        {mode === "sql" && importing
+          ? (
+            // A dump can run for minutes; it must be stoppable, as Backup and
+            // Restore are (#815). CSV batches are short and run from here, so
+            // they keep the old behaviour.
+            <button
+              onClick={handleCancelImport}
+              disabled={cancelling}
+              className="rounded border edge-error surface-error px-3 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong transition-colors disabled:opacity-60"
+            >
+              {cancelling ? "Cancelling…" : "Cancel import"}
+            </button>
+          )
+          : (
+            <button
+              onClick={handleClose}
+              disabled={importing}
+              className="rounded px-3 py-1.5 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] transition-colors disabled:opacity-40"
+            >
+              {progress?.done ? "Close" : "Cancel"}
+            </button>
+          )}
         {mode === "sql" && (
           <button
             onClick={handleImportSql}

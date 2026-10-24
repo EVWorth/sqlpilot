@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { AgentConnection, AgentEndpoint, DataPosture, SetupTarget } from "../lib/bindings";
+import type { AgentConnection, AgentEndpoint, DataPosture, HarnessStatus, SetupTarget } from "../lib/bindings";
 import { api } from "../lib/tauri-api";
 
 /**
@@ -47,6 +47,11 @@ export interface PendingApproval {
   /** "write" or "schema". */
   change: string;
   reason?: string;
+  /**
+   * Who asked, in words: "Claude Agent 2.1.14 (in-app session)" or a client
+   * on the endpoint. Absent when the backend does not say.
+   */
+  requester?: string;
 }
 
 interface AgentState {
@@ -255,8 +260,21 @@ export const SHARING_OPTIONS: { value: Sharing; label: string; detail: string }[
   },
 ];
 
+/**
+ * The harnesses the setup text is written for. The labels match the backend's
+ * own harness labels (`list_harnesses`), so the agent panel and this list
+ * call each one by the same name; `setupTargetLabel` prefers the backend's
+ * when it has been loaded.
+ */
 export const SETUP_TARGETS: { value: SetupTarget; label: string }[] = [
-  { value: "claude-code", label: "Claude Code" },
-  { value: "copilot", label: "GitHub Copilot CLI" },
+  { value: "claude-code", label: "Claude Agent" },
+  { value: "copilot", label: "GitHub Copilot" },
   { value: "other", label: "Something else" },
 ];
+
+/** A setup target's name: the backend's label for that harness, if known. */
+export function setupTargetLabel(target: SetupTarget, harnesses: HarnessStatus[]): string {
+  return harnesses.find((h) => h.harness === target)?.label
+    ?? SETUP_TARGETS.find((t) => t.value === target)?.label
+    ?? target;
+}

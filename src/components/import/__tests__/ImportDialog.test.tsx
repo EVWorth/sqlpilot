@@ -10,6 +10,7 @@ vi.mock("../../../lib/tauri-api", () => ({
     readFileContents: vi.fn(),
     readFileHead: vi.fn(),
     restoreDatabase: vi.fn(),
+    cancelBackup: vi.fn(),
     executeQuery: vi.fn(),
     getTables: vi.fn(),
     getColumns: vi.fn(),
@@ -276,6 +277,15 @@ describe("ImportDialog", () => {
       expect(warning.textContent).toContain("TRUNCATE TABLE audit_log");
     });
 
+    it("lists the DROP itself, not the comments in front of it (#836)", async () => {
+      await pickFile([
+        "-- Read from a single consistent snapshot.\n--\n-- Table: `customers`\n--\nDROP TABLE IF EXISTS `customers`",
+      ]);
+
+      const item = screen.getByTestId("destructive-warning").querySelector("li");
+      expect(item?.textContent).toBe("DROP TABLE IF EXISTS `customers`");
+    });
+
     it("says nothing about a dump that only inserts", async () => {
       await pickFile(["INSERT INTO t1 VALUES (1)", "INSERT INTO t1 VALUES (2)"]);
       expect(screen.queryByTestId("destructive-warning")).toBeNull();
@@ -289,6 +299,62 @@ describe("ImportDialog", () => {
       });
 
       expect(await screen.findByText(/Syntax error/)).toBeDefined();
+    });
+
+    describe("cancel (#815)", () => {
+      /** Start a run that finishes only when the returned function is called. */
+      async function startRun() {
+        let finish: (value: unknown) => void = () => {};
+        vi.mocked(api.restoreDatabase).mockImplementationOnce(
+          () => new Promise((resolve) => (finish = resolve)) as ReturnType<typeof api.restoreDatabase>,
+        );
+        vi.mocked(api.cancelBackup).mockResolvedValue(true);
+        await pickFile(["DROP TABLE t", "CREATE TABLE t (id INT)"]);
+        await act(async () => {
+          fireEvent.click(screen.getByText("Execute SQL"));
+        });
+        await waitFor(() => screen.getByText("Executing..."));
+        return (value: unknown) => act(async () => finish(value));
+      }
+
+      it("keeps a Cancel button enabled during the run", async () => {
+        const finish = await startRun();
+        const cancel = screen.getByRole("button", { name: "Cancel import" });
+        expect(cancel).not.toBeDisabled();
+        await finish({ ...cleanSummary });
+      });
+
+      it("stops the job with the id the run was started with", async () => {
+        const finish = await startRun();
+        const runId = vi.mocked(api.restoreDatabase).mock.calls[0][0];
+
+        fireEvent.click(screen.getByRole("button", { name: "Cancel import" }));
+
+        expect(api.cancelBackup).toHaveBeenCalledWith(runId);
+        expect(screen.getByRole("button", { name: "Cancelling…" })).toBeDisabled();
+        await finish({ ...cleanSummary, cancelled: true, statementsRun: 1, partiallyApplied: true });
+      });
+
+      it("says it was cancelled and what stands", async () => {
+        const finish = await startRun();
+        fireEvent.click(screen.getByRole("button", { name: "Cancel import" }));
+        await finish({ ...cleanSummary, cancelled: true, statementsRun: 1, partiallyApplied: true });
+
+        expect(screen.getByText("Import cancelled")).toBeDefined();
+        const summary = screen.getByTestId("cancelled-summary");
+        expect(summary.textContent).toContain("after 1 statements");
+        expect(summary.textContent).toContain("MySQL commits before every CREATE");
+        expect(screen.queryByTestId("stopped-at")).toBeNull();
+        expect(screen.getByRole("button", { name: "Close" })).not.toBeDisabled();
+      });
+
+      it("says nothing changed when the cancel rolled everything back", async () => {
+        const finish = await startRun();
+        fireEvent.click(screen.getByRole("button", { name: "Cancel import" }));
+        await finish({ ...cleanSummary, cancelled: true, statementsRun: 0, rolledBack: true });
+
+        expect(screen.getByTestId("cancelled-summary").textContent).toContain("the database is as it was");
+      });
     });
 
     it("disable Execute SQL when no file selected", () => {

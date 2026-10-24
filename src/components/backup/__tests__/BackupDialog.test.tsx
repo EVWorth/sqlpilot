@@ -134,6 +134,20 @@ describe("BackupDialog", () => {
       expect(screen.getByText("Database")).toBeInTheDocument();
     });
 
+    it("ties every field label to its control (#836)", async () => {
+      render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
+      await waitFor(() => screen.getByText("testdb"));
+      expect(screen.getByLabelText("Connection").tagName).toBe("SELECT");
+      expect(screen.getByLabelText("Database").tagName).toBe("SELECT");
+      expect(screen.getByLabelText("Output File").tagName).toBe("INPUT");
+      fireEvent.change(screen.getByLabelText("Database"), { target: { value: "testdb" } });
+      await waitFor(() => screen.getByText(/All Tables/));
+      for (const name of ["Tables", "Content", "Options", "Insert Format"]) {
+        expect(screen.getByRole("group", { name })).toBeInTheDocument();
+      }
+      expect(screen.getByLabelText("Rows per INSERT")).toBeInTheDocument();
+    });
+
     it("renders Browse button", () => {
       render(<BackupDialog isOpen={true} onClose={vi.fn()} />);
       expect(screen.getByText("Browse")).toBeInTheDocument();
@@ -389,7 +403,7 @@ describe("BackupDialog", () => {
       await waitFor(() => screen.getByRole("checkbox", { name: /All Tables/ }));
       fireEvent.click(screen.getByRole("checkbox", { name: /All Tables/ }));
 
-      await waitFor(() => screen.getByText("users"));
+      await waitFor(() => screen.getByText(/All Tables/));
       // Find individual table checkboxes (not the All Tables one)
       const allCheckboxes = screen.getAllByRole("checkbox");
       const tableCbs = allCheckboxes.filter(

@@ -1,6 +1,7 @@
 import { AlertTriangle, Check, Database } from "lucide-react";
 import { useCallback, useState } from "react";
 import { answerApproval } from "../../hooks/useAgentRequests";
+import { rowsSentence } from "../../lib/agent-requests";
 import { type PendingApproval, useAgentStore } from "../../stores/agentStore";
 import { Modal } from "../common/Modal";
 
@@ -36,20 +37,23 @@ function Rows({ approval }: { approval: PendingApproval }) {
   }
 
   const rows = approval.rowsAffected ?? 0;
+  // The count is the decision, so it is never small print. A thousand rows or
+  // more is also coloured: that is where a missing WHERE usually shows.
   const many = rows >= 1000;
   return (
-    <p
-      className={many
-        ? "text-xs font-semibold text-[var(--color-warning)]"
-        : "text-xs text-[var(--color-text-secondary)]"}
-    >
-      {rows === 0
-        ? "This changes no rows."
-        : `This changes ${rows.toLocaleString()} row${rows === 1 ? "" : "s"}.`}{" "}
-      <span className="font-normal text-[var(--color-text-muted)]">
+    <div className="space-y-1">
+      <p
+        data-testid="approval-rows"
+        className={many
+          ? "text-sm font-semibold text-[var(--color-warning)]"
+          : "text-sm font-semibold text-[var(--color-text-primary)]"}
+      >
+        {rowsSentence(approval.sql, rows)}
+      </p>
+      <p className="text-xs text-[var(--color-text-muted)]">
         Already run, not yet committed — rejecting puts everything back.
-      </span>
-    </p>
+      </p>
+    </div>
   );
 }
 
@@ -117,6 +121,11 @@ function ApprovalPrompt({ approval, total }: { approval: PendingApproval; total:
       </div>
 
       <div className="space-y-3 p-4">
+        {approval.requester && (
+          <p data-testid="approval-requester" className="text-xs text-[var(--color-text-secondary)]">
+            Asked by <span className="font-medium text-[var(--color-text-primary)]">{approval.requester}</span>
+          </p>
+        )}
         <div className="flex items-center gap-2 text-xs">
           <Database className="h-3.5 w-3.5 text-[var(--color-text-muted)]" />
           <span className="text-[var(--color-text-primary)]">{approval.connection}</span>

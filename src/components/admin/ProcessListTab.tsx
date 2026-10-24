@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, Loader2, RefreshCw, Search, Skull } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { formatDurationSeconds } from "../../lib/format-duration";
 import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
 import type { ProcessInfo } from "../../types";
@@ -11,6 +12,20 @@ import {
   type ProcessFilters,
 } from "./processFilter";
 import type { RefreshInterval } from "./serverStatus";
+
+/**
+ * Commands whose Time is how long a statement has been running. For the rest
+ * (Sleep, Daemon, Binlog Dump, Connect…) Time is how long the thread has sat
+ * idle or alive, which says nothing about load, so it stays muted (#833).
+ */
+const ACTIVE_COMMANDS = new Set(["query", "execute", "killed"]);
+
+export function timeColor(command: string, time: number): string {
+  if (!ACTIVE_COMMANDS.has(command.toLowerCase())) return "text-[var(--color-text-muted)]";
+  if (time < 5) return "text-[var(--color-success)]";
+  if (time <= 30) return "text-[var(--color-warning)]";
+  return "text-[var(--color-error)]";
+}
 
 export function ProcessListTab({ connectionId }: { connectionId: string }) {
   const [processes, setProcesses] = useState<ProcessInfo[]>([]);
@@ -26,6 +41,14 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
   // tell the user what they just did (#433).
   const [ownThreadIds, setOwnThreadIds] = useState<Set<number>>(new Set());
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // The skull whose confirm is open, so Escape/Cancel can hand focus back.
+  const skullRef = useRef<HTMLButtonElement | null>(null);
+
+  const closeConfirm = () => {
+    const skull = skullRef.current;
+    setConfirmKillId(null);
+    skull?.focus();
+  };
 
   const fetchProcesses = useCallback(async () => {
     try {
@@ -82,12 +105,6 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
   // return something.
   const options = useMemo(() => processFilterOptions(processes), [processes]);
 
-  function timeColor(time: number): string {
-    if (time < 5) return "text-[var(--color-success)]";
-    if (time <= 30) return "text-[var(--color-warning)]";
-    return "text-[var(--color-error)]";
-  }
-
   if (loading && processes.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -136,6 +153,7 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
           </button>
         )}
         <select
+          aria-label="Auto-refresh interval"
           value={refreshInterval}
           onChange={(e) => setRefreshInterval(Number(e.target.value) as RefreshInterval)}
           className="h-7 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-2 text-xs text-[var(--color-text-primary)] focus:border-brand-500 focus:outline-none"
@@ -171,7 +189,9 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
               <th className="px-3 py-2">Time</th>
               <th className="px-3 py-2">State</th>
               <th className="px-3 py-2">Info</th>
-              <th className="w-16 px-3 py-2" />
+              <th className="w-12 px-3 py-2">
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -184,11 +204,16 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
                 <td className="px-3 py-1.5">{p.user}</td>
                 <td className="px-3 py-1.5 text-[var(--color-text-muted)]">{p.host}</td>
                 <td className="px-3 py-1.5">
-                  {p.db ?? <span className="italic text-[var(--color-text-muted)]">NULL</span>}
+                  {p.db || <Empty />}
                 </td>
                 <td className="px-3 py-1.5">{p.command}</td>
-                <td className={cn("px-3 py-1.5 font-mono", timeColor(p.time))}>{p.time}s</td>
-                <td className="px-3 py-1.5 text-[var(--color-text-muted)]">{p.state ?? ""}</td>
+                <td
+                  className={cn("px-3 py-1.5 font-mono whitespace-nowrap", timeColor(p.command, p.time))}
+                  title={`${p.time} seconds`}
+                >
+                  {formatDurationSeconds(p.time)}
+                </td>
+                <td className="px-3 py-1.5 text-[var(--color-text-muted)]">{p.state || <Empty />}</td>
                 <td className="max-w-[300px] px-3 py-1.5">
                   {p.info
                     ? (
@@ -204,46 +229,28 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
                         </span>
                       </button>
                     )
-                    : <span className="italic text-[var(--color-text-muted)]">—</span>}
+                    : <Empty />}
                 </td>
-                <td className="px-3 py-1.5">
-                  {confirmKillId === p.id
-                    ? (
-                      <div className="flex items-center gap-1">
-                        <button
-                          onClick={() => handleKill(p.id, "query")}
-                          title="Abort the running statement, keep the session"
-                          className="rounded bg-amber-700 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-amber-800"
-                        >
-                          Kill query
-                        </button>
-                        <button
-                          onClick={() => handleKill(p.id, "connection")}
-                          title="Disconnect the session entirely, discarding its transaction"
-                          className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-700"
-                        >
-                          Kill connection
-                        </button>
-                        <button
-                          onClick={() => setConfirmKillId(null)}
-                          className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
-                        >
-                          Cancel
-                        </button>
-                      </div>
-                    )
-                    : (
-                      <button
-                        onClick={() => setConfirmKillId(p.id)}
-                        disabled={ownThreadIds.has(p.id)}
-                        title={ownThreadIds.has(p.id)
-                          ? "This is SQLPilot's own connection to the server — killing it would disconnect the app"
-                          : `Kill process ${p.id}`}
-                        className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:surface-error-strong hover:text-[var(--color-error)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-muted)]"
-                      >
-                        <Skull className="h-3.5 w-3.5" />
-                      </button>
-                    )}
+                <td className="relative w-12 px-3 py-1.5">
+                  <button
+                    ref={confirmKillId === p.id ? skullRef : undefined}
+                    onClick={() => setConfirmKillId(confirmKillId === p.id ? null : p.id)}
+                    disabled={ownThreadIds.has(p.id)}
+                    aria-expanded={confirmKillId === p.id}
+                    title={ownThreadIds.has(p.id)
+                      ? "This is SQLPilot's own connection to the server — killing it would disconnect the app"
+                      : `Kill process ${p.id}`}
+                    className="rounded p-1 text-[var(--color-text-muted)] transition-colors hover:surface-error-strong hover:text-[var(--color-error)] disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[var(--color-text-muted)]"
+                  >
+                    <Skull className="h-3.5 w-3.5" />
+                  </button>
+                  {confirmKillId === p.id && (
+                    <KillConfirm
+                      process={p}
+                      onKill={(scope) => handleKill(p.id, scope)}
+                      onCancel={closeConfirm}
+                    />
+                  )}
                 </td>
               </tr>
             ))}
@@ -257,6 +264,74 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
           </tbody>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** An empty Database, State or Info cell: one mark for all three (#836). */
+function Empty() {
+  return <span className="text-[var(--color-text-muted)]">—</span>;
+}
+
+/**
+ * The kill choices, floated to the left of the skull so opening them does
+ * not widen the action column and reflow the table (#833). Focus moves to the
+ * first choice; Escape closes it.
+ */
+function KillConfirm({
+  process,
+  onKill,
+  onCancel,
+}: {
+  process: ProcessInfo;
+  onKill: (scope: "query" | "connection") => void;
+  onCancel: () => void;
+}) {
+  const firstRef = useRef<HTMLButtonElement | null>(null);
+  // Only a session running a statement has a query to kill; offering it on
+  // an idle Sleep session did nothing visible.
+  const hasQuery = process.info !== null && process.info !== "";
+
+  useEffect(() => {
+    firstRef.current?.focus();
+  }, []);
+
+  return (
+    <div
+      role="group"
+      aria-label={`Kill process ${process.id}`}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onCancel();
+        }
+      }}
+      className="absolute right-full top-1/2 z-10 mr-1 flex -translate-y-1/2 items-center gap-1 whitespace-nowrap rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-1.5 py-1 shadow-lg"
+    >
+      {hasQuery && (
+        <button
+          ref={firstRef}
+          onClick={() => onKill("query")}
+          title="Abort the running statement, keep the session"
+          className="rounded bg-amber-700 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-amber-800"
+        >
+          Kill query
+        </button>
+      )}
+      <button
+        ref={hasQuery ? undefined : firstRef}
+        onClick={() => onKill("connection")}
+        title="Disconnect the session entirely, discarding its transaction"
+        className="rounded bg-red-600 px-1.5 py-0.5 text-[10px] font-medium text-white hover:bg-red-700"
+      >
+        Kill connection
+      </button>
+      <button
+        onClick={onCancel}
+        className="text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)]"
+      >
+        Cancel
+      </button>
     </div>
   );
 }

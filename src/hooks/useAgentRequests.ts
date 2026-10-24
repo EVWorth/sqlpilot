@@ -1,7 +1,15 @@
 import { useEffect } from "react";
-import { connectionIdOf, editorAnswer, proposalRefusal, proposalTarget, resultAnswer } from "../lib/agent-requests";
+import {
+  connectionIdOf,
+  editorAnswer,
+  proposalRefusal,
+  proposalTarget,
+  requesterOf,
+  resultAnswer,
+} from "../lib/agent-requests";
 import { type AgentRequest, events } from "../lib/bindings";
 import { api } from "../lib/tauri-api";
+import { useAgentSessionStore } from "../stores/agentSessionStore";
 import { useAgentStore } from "../stores/agentStore";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useEditorStore } from "../stores/editorStore";
@@ -124,6 +132,7 @@ async function handle(request: AgentRequest) {
           rowsAffected: request.rowsAffected ?? undefined,
           change: request.change,
           reason: request.reason ?? undefined,
+          requester: requesterOf(request, useAgentSessionStore.getState()),
         });
         return;
       }

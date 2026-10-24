@@ -90,7 +90,17 @@ const waiting = new Map<string, (answer: { value: string | null; error: string |
 /** The approval dialog holds one at a time, so requests are sent in turn. */
 let queue: Promise<unknown> = Promise.resolve();
 
-function ask(question: AgentAsk): Promise<{ value: string | null; error: string | null }> {
+/**
+ * Who is asking, as the backend is to report it for an approval (#801): the
+ * in-app session's id, or none and the client's own name for an external
+ * client. Not in the generated `AgentAsk` yet, so it rides alongside.
+ */
+interface Requester {
+  session?: string | null;
+  client?: string | null;
+}
+
+function ask(question: AgentAsk & Requester): Promise<{ value: string | null; error: string | null }> {
   const asked = queue.then(
     () =>
       new Promise<{ value: string | null; error: string | null }>((resolve) => {
@@ -287,6 +297,8 @@ async function writeTurn(session: Session, turn: Turn, verb: "delete" | "update"
     sql: write.sql,
     rowsAffected: write.rows,
     change: "write",
+    session: session.id,
+    client: null,
     reason: verb === "delete" ? "Clearing out refunded orders, as asked." : "Marking old shipments as delivered.",
   });
   if (turn.cancelled) throw new Cancelled();
@@ -347,6 +359,8 @@ function sendDemoRequest(): void {
       sql: "DELETE FROM shop.customers WHERE is_active = 0",
       rowsAffected: inactive,
       change: "write",
+      session: null,
+      client: "claude-code",
       reason: "Removing customers marked inactive before the export.",
     });
   }, 6000);

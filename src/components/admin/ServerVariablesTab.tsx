@@ -2,6 +2,7 @@ import { ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, Loader2, Pencil, S
 import { useEffect, useMemo, useState } from "react";
 import { serverFlavour } from "../../lib/server-flavour";
 import { api } from "../../lib/tauri-api";
+import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type { ServerVariable } from "../../types";
 import { SetVariableDialog } from "./SetVariableDialog";
@@ -26,9 +27,14 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
   );
 
   const [reloadToken, setReloadToken] = useState(0);
+  /** The variable just changed through the dialog, highlighted for a moment. */
+  const [updatedName, setUpdatedName] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    // Only the first load (and a connection switch) shows the full-pane
+    // spinner. A reload after SET refreshes in the background so the table
+    // and its scroll position stay put (#819).
+    if (reloadToken === 0) setLoading(true);
     api
       .getServerVariables(connectionId)
       .then((data) => {
@@ -38,6 +44,12 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [connectionId, reloadToken]);
+
+  useEffect(() => {
+    if (!updatedName) return;
+    const t = setTimeout(() => setUpdatedName(null), 2000);
+    return () => clearTimeout(t);
+  }, [updatedName]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -64,7 +76,7 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
     });
   };
 
-  const grouped = useMemo(() => {
+  const { groups: grouped, matchCount } = useMemo(() => {
     const lc = filter.toLowerCase();
     const filtered = filter
       ? variables.filter((v) => v.name.toLowerCase().includes(lc) || v.value.toLowerCase().includes(lc))
@@ -85,10 +97,13 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
       groups[prefix].push(v);
     }
 
-    return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
+    return {
+      groups: Object.entries(groups).sort(([a], [b]) => a.localeCompare(b)),
+      matchCount: filtered.length,
+    };
   }, [variables, filter, sortField, sortDir]);
 
-  if (loading) {
+  if (loading && variables.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-[var(--color-text-muted)]" />
@@ -111,8 +126,8 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
             className="h-7 w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] pl-7 pr-2 text-xs text-[var(--color-text-primary)] placeholder:text-[var(--color-text-muted)] focus:border-brand-500 focus:outline-none"
           />
         </div>
-        <span className="text-xs text-[var(--color-text-muted)]">
-          {variables.length} variables
+        <span className="text-xs text-[var(--color-text-muted)]" aria-live="polite">
+          {filter ? `${matchCount} of ${variables.length} variables` : `${variables.length} variables`}
         </span>
       </div>
 
@@ -125,24 +140,14 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
         <table className="w-full text-xs">
           <thead>
             <tr className="sticky top-0 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-left text-[var(--color-text-secondary)]">
-              <th
-                className="cursor-pointer px-3 py-2 select-none hover:text-[var(--color-text-primary)]"
-                onClick={() => handleSort("name")}
-              >
-                <span className="flex items-center gap-1">
-                  Variable Name
-                  <ArrowUpDown className="h-3 w-3" />
-                </span>
-              </th>
-              <th
-                className="cursor-pointer px-3 py-2 select-none hover:text-[var(--color-text-primary)]"
-                onClick={() => handleSort("value")}
-              >
-                <span className="flex items-center gap-1">
-                  Value
-                  <ArrowUpDown className="h-3 w-3" />
-                </span>
-              </th>
+              <SortHeader
+                label="Variable Name"
+                field="name"
+                sortField={sortField}
+                sortDir={sortDir}
+                onSort={handleSort}
+              />
+              <SortHeader label="Value" field="value" sortField={sortField} sortDir={sortDir} onSort={handleSort} />
             </tr>
           </thead>
           <tbody>
@@ -156,8 +161,16 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
                 onCopy={handleCopy}
                 copiedKey={copiedKey}
                 onEdit={setEditing}
+                updatedName={updatedName}
               />
             ))}
+            {grouped.length === 0 && variables.length > 0 && (
+              <tr>
+                <td colSpan={2} className="px-3 py-6 text-center text-xs text-[var(--color-text-muted)]">
+                  No variables match “{filter}”
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
@@ -166,7 +179,10 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
         connectionId={connectionId}
         flavour={flavour}
         onClose={() => setEditing(null)}
-        onChanged={() => setReloadToken((t) => t + 1)}
+        onChanged={(name) => {
+          setUpdatedName(name);
+          setReloadToken((t) => t + 1);
+        }}
       />
     </div>
   );
@@ -180,6 +196,7 @@ function GroupRows({
   onCopy,
   copiedKey,
   onEdit,
+  updatedName,
 }: {
   group: string;
   variables: ServerVariable[];
@@ -188,26 +205,33 @@ function GroupRows({
   onCopy: (text: string, key: string) => void;
   copiedKey: string | null;
   onEdit: (v: ServerVariable) => void;
+  updatedName: string | null;
 }) {
   return (
     <>
-      <tr
-        className="cursor-pointer border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-secondary)]"
-        onClick={onToggle}
-      >
-        <td colSpan={2} className="px-3 py-1.5">
-          <span className="flex items-center gap-1.5 text-xs font-medium text-[var(--color-text-secondary)]">
+      <tr className="border-b border-[var(--color-border)] bg-[var(--color-bg-tertiary)] hover:bg-[var(--color-bg-secondary)]">
+        <td colSpan={2} className="p-0">
+          <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={!collapsed}
+            className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs font-medium text-[var(--color-text-secondary)] focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-brand-500"
+          >
             {collapsed ? <ChevronRight className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
             {group}
             <span className="text-[var(--color-text-muted)]">({variables.length})</span>
-          </span>
+          </button>
         </td>
       </tr>
       {!collapsed
         && variables.map((v) => (
           <tr
             key={v.name}
-            className="border-b border-[var(--color-border)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)]"
+            data-updated={updatedName === v.name ? "true" : undefined}
+            className={cn(
+              "border-b border-[var(--color-border)] text-[var(--color-text-primary)] transition-colors duration-700 hover:bg-[var(--color-bg-secondary)]",
+              updatedName === v.name && "bg-brand-500/15",
+            )}
           >
             <td className="px-3 py-1.5">
               <button
@@ -253,5 +277,36 @@ function GroupRows({
           </tr>
         ))}
     </>
+  );
+}
+
+function SortHeader({
+  label,
+  field,
+  sortField,
+  sortDir,
+  onSort,
+}: {
+  label: string;
+  field: SortField;
+  sortField: SortField;
+  sortDir: SortDir;
+  onSort: (field: SortField) => void;
+}) {
+  const active = sortField === field;
+  return (
+    <th
+      aria-sort={active ? (sortDir === "asc" ? "ascending" : "descending") : "none"}
+      className="px-3 py-2"
+    >
+      <button
+        type="button"
+        onClick={() => onSort(field)}
+        className="flex items-center gap-1 rounded select-none hover:text-[var(--color-text-primary)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500"
+      >
+        {label}
+        <ArrowUpDown className={cn("h-3 w-3", active && "text-[var(--color-text-primary)]")} />
+      </button>
+    </th>
   );
 }
