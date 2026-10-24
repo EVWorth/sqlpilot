@@ -382,6 +382,30 @@ describe("SchemaTree", () => {
       expect(usersButton).toBeInTheDocument();
     });
 
+    // The hover button was a stray Tab stop after every table, drawn at
+    // opacity 0 (#784). The row's context menu is the keyboard route to it.
+    it("keeps View Structure out of the tab order, reachable from the row's menu", async () => {
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId="conn-1" />);
+      await waitFor(() => screen.getByText("app_db"));
+      await user.click(screen.getByText("app_db"));
+      await user.click(screen.getByText("Tables"));
+      await waitFor(() => screen.getByText("users"));
+
+      const row = screen.getByText("users").closest("button");
+      const structure = row?.parentElement?.querySelector<HTMLButtonElement>("[title='View Structure']");
+      if (!row || !structure) throw new Error("users row not rendered");
+      expect(structure.tabIndex).toBe(-1);
+      row.focus();
+      await user.tab();
+      expect(document.activeElement).not.toBe(structure);
+      expect(document.activeElement?.getAttribute("title")).not.toBe("View Structure");
+
+      shownMenus.length = 0;
+      fireEvent.contextMenu(row);
+      expect(shownMenus[0]?.map((i) => i.label)).toContain("View Structure");
+    });
+
     it("renders trigger entry with timing + event metadata", async () => {
       const user = userEvent.setup({ applyAccept: false });
       render(<SchemaTree connectionId="conn-1" />);
