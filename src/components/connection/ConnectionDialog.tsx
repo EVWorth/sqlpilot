@@ -1,5 +1,5 @@
 import { CheckCircle2, Copy, Database, Loader2, Settings, Shield, Terminal, Trash2, X, XCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ConnectionProfile, ConnectionProfileInput } from "../../types";
 import { Modal } from "../common/Modal";
 import { AdvancedTab } from "./tabs/AdvancedTab";
@@ -32,8 +32,11 @@ interface Props {
   onDelete?: () => void;
   /** Offered in the footer when editing: open a copy of this profile. */
   onDuplicate?: () => void;
-  /** After a successful save, before the dialog closes: what was saved. */
-  onSaved?: (saved: ConnectionProfileInput) => void;
+  /**
+   * After a successful save, before the dialog closes: what was saved, and
+   * whether "Save & Connect" asked for it to be connected (#832).
+   */
+  onSaved?: (saved: ConnectionProfileInput, options: { connect: boolean }) => void;
 }
 
 type TabId = "general" | "ssl" | "ssh" | "advanced";
@@ -55,6 +58,16 @@ export function ConnectionDialog({
   onSaved,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabId>("general");
+  const nameRef = useRef<HTMLInputElement>(null);
+  // A new profile can be connected straight from here; an edited one may
+  // already be connected, and has its own reconnect question (#831).
+  const offerConnect = !editProfile;
+
+  // The dialog stays mounted while closed, so it would reopen on the last
+  // tab — and away from the Name field it should open on (#832).
+  useEffect(() => {
+    if (!isOpen) setActiveTab("general");
+  }, [isOpen]);
   const {
     form,
     sshEnabled,
@@ -79,11 +92,18 @@ export function ConnectionDialog({
 
   if (!isOpen) return null;
 
+  const save = (connect: boolean) =>
+    void handleSave((saved) => {
+      onSaved?.(saved, { connect });
+      onClose();
+    });
+
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
       label="Connection"
+      initialFocus={nameRef}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
       panelClassName="w-[560px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
     >
@@ -119,124 +139,158 @@ export function ConnectionDialog({
         ))}
       </div>
 
-      <div className="min-h-[320px] p-4">
-        {activeTab === "general" && (
-          <GeneralTab
-            form={form}
-            isExisting={!!editProfile}
-            onChange={handleChange}
-            numberText={numberText}
-            numberProblems={numberProblems}
-            onNumberChange={handleNumberChange}
-          />
-        )}
-        {activeTab === "ssl" && <SslTab form={form} onChange={handleSSLChange} />}
-        {activeTab === "ssh" && (
-          <SshTab
-            form={form}
-            enabled={sshEnabled}
-            onEnabledChange={setSshEnabled}
-            authMethod={sshAuthMethod}
-            onAuthMethodChange={setSshAuthMethod}
-            onChange={handleSSHChange}
-          />
-        )}
-        {activeTab === "advanced" && (
-          <AdvancedTab
-            form={form}
-            onChange={handleChange}
-            numberText={numberText}
-            numberProblems={numberProblems}
-            onNumberChange={handleNumberChange}
-          />
-        )}
-      </div>
-
-      {saveError && (
-        <div className="px-4 pb-2">
-          <div
-            role="alert"
-            className="surface-error-strong flex items-start gap-2 rounded p-2 text-xs text-[var(--color-error)]"
-          >
-            <XCircle className="h-4 w-4 shrink-0" />
-            <span className="break-words">Save failed: {saveError}</span>
-          </div>
+      {
+        /* A form, so Enter in any field does what the primary button does.
+          It did nothing (#832). */
+      }
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (canSave) save(offerConnect);
+        }}
+      >
+        <div className="min-h-[320px] p-4">
+          {activeTab === "general" && (
+            <GeneralTab
+              nameRef={nameRef}
+              form={form}
+              isExisting={!!editProfile}
+              onChange={handleChange}
+              numberText={numberText}
+              numberProblems={numberProblems}
+              onNumberChange={handleNumberChange}
+            />
+          )}
+          {activeTab === "ssl" && <SslTab form={form} onChange={handleSSLChange} />}
+          {activeTab === "ssh" && (
+            <SshTab
+              form={form}
+              enabled={sshEnabled}
+              onEnabledChange={setSshEnabled}
+              authMethod={sshAuthMethod}
+              onAuthMethodChange={setSshAuthMethod}
+              onChange={handleSSHChange}
+            />
+          )}
+          {activeTab === "advanced" && (
+            <AdvancedTab
+              form={form}
+              onChange={handleChange}
+              numberText={numberText}
+              numberProblems={numberProblems}
+              onNumberChange={handleNumberChange}
+            />
+          )}
         </div>
-      )}
 
-      {testResult && (
-        <div className="px-4 pb-2">
-          <div
-            role={testResult.success ? "status" : "alert"}
-            className={`flex items-start gap-2 rounded p-2 text-xs ${
-              testResult.success
-                ? "surface-success-strong text-[var(--color-success)]"
-                : "surface-error-strong text-[var(--color-error)]"
-            }`}
-          >
-            {testResult.success
-              ? <CheckCircle2 className="h-4 w-4 shrink-0" />
-              : <XCircle className="h-4 w-4 shrink-0" />}
-            {/* Whole, not cut off: the useful part of a failure is usually at the end (#804). */}
-            <span className="min-w-0 whitespace-normal break-words">{testResult.message}</span>
-            {testResult.latency_ms > 0 && (
-              <span className="ml-auto shrink-0 text-[var(--color-text-muted)]">
-                {testResult.latency_ms}ms
-              </span>
+        {saveError && (
+          <div className="px-4 pb-2">
+            <div
+              role="alert"
+              className="surface-error-strong flex items-start gap-2 rounded p-2 text-xs text-[var(--color-error)]"
+            >
+              <XCircle className="h-4 w-4 shrink-0" />
+              <span className="break-words">Save failed: {saveError}</span>
+            </div>
+          </div>
+        )}
+
+        {testResult && (
+          <div className="px-4 pb-2">
+            <div
+              role={testResult.success ? "status" : "alert"}
+              className={`flex items-start gap-2 rounded p-2 text-xs ${
+                testResult.success
+                  ? "surface-success-strong text-[var(--color-success)]"
+                  : "surface-error-strong text-[var(--color-error)]"
+              }`}
+            >
+              {testResult.success
+                ? <CheckCircle2 className="h-4 w-4 shrink-0" />
+                : <XCircle className="h-4 w-4 shrink-0" />}
+              {/* Whole, not cut off: the useful part of a failure is usually at the end (#804). */}
+              <span className="min-w-0 whitespace-normal break-words">{testResult.message}</span>
+              {testResult.latency_ms > 0 && (
+                <span className="ml-auto shrink-0 text-[var(--color-text-muted)]">
+                  {testResult.latency_ms}ms
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        <div className="flex items-center justify-between border-t border-[var(--color-border)] p-4">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={!canTest}
+              className="flex items-center gap-1.5 rounded bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
+            >
+              {testing && <Loader2 className="h-3 w-3 animate-spin" />}
+              Test Connection
+            </button>
+            {editProfile && onDuplicate && (
+              <button
+                type="button"
+                onClick={onDuplicate}
+                className="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+              >
+                <Copy className="h-3 w-3" />
+                Duplicate
+              </button>
+            )}
+            {editProfile && onDelete && (
+              <button
+                type="button"
+                onClick={onDelete}
+                className="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
+              >
+                <Trash2 className="h-3 w-3" />
+                Delete
+              </button>
             )}
           </div>
-        </div>
-      )}
-
-      <div className="flex items-center justify-between border-t border-[var(--color-border)] p-4">
-        <div className="flex gap-2">
-          <button
-            onClick={handleTest}
-            disabled={!canTest}
-            className="flex items-center gap-1.5 rounded bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
-          >
-            {testing && <Loader2 className="h-3 w-3 animate-spin" />}
-            Test Connection
-          </button>
-          {editProfile && onDuplicate && (
+          <div className="flex gap-2">
             <button
-              onClick={onDuplicate}
-              className="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+              type="button"
+              onClick={onClose}
+              className="rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
             >
-              <Copy className="h-3 w-3" />
-              Duplicate
+              Cancel
             </button>
-          )}
-          {editProfile && onDelete && (
-            <button
-              onClick={onDelete}
-              className="flex items-center gap-1.5 rounded px-3 py-1.5 text-xs text-[var(--color-error)] hover:surface-error-strong"
-            >
-              <Trash2 className="h-3 w-3" />
-              Delete
-            </button>
-          )}
+            {offerConnect
+              ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => save(false)}
+                    disabled={!canSave}
+                    className="rounded bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!canSave}
+                    className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+                  >
+                    {saving ? "Saving..." : "Save & Connect"}
+                  </button>
+                </>
+              )
+              : (
+                <button
+                  type="submit"
+                  disabled={!canSave}
+                  className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
+                >
+                  {saving ? "Saving..." : "Save"}
+                </button>
+              )}
+          </div>
         </div>
-        <div className="flex gap-2">
-          <button
-            onClick={onClose}
-            className="rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() =>
-              void handleSave((saved) => {
-                onSaved?.(saved);
-                onClose();
-              })}
-            disabled={!canSave}
-            className="rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-brand-700 disabled:opacity-50"
-          >
-            {saving ? "Saving..." : "Save"}
-          </button>
-        </div>
-      </div>
+      </form>
     </Modal>
   );
 }

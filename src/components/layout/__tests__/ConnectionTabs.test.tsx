@@ -81,13 +81,15 @@ vi.mock("../../../stores/connectionHealthStore", () => ({
 }));
 
 /** The dialog's last `onSaved`, so a test can play a save. */
-const dialogProps = vi.hoisted(() => ({ onSaved: undefined as ((saved: unknown) => void) | undefined }));
+const dialogProps = vi.hoisted(() => ({
+  onSaved: undefined as ((saved: unknown, options?: { connect: boolean }) => void) | undefined,
+}));
 
 vi.mock("../../connection/ConnectionDialog", () => ({
   ConnectionDialog: vi.fn(({ editProfile, duplicateOf, onSaved }: {
     editProfile?: { name: string };
     duplicateOf?: { name: string };
-    onSaved?: (saved: unknown) => void;
+    onSaved?: (saved: unknown, options?: { connect: boolean }) => void;
   }) => {
     dialogProps.onSaved = onSaved;
     return (
@@ -631,7 +633,7 @@ describe("editing a connected profile (#831)", () => {
 
   const editAndSave = (changes: Record<string, unknown>) => {
     act(() => menuItems.find((i) => i.label === "Edit Connection")!.onClick!());
-    act(() => dialogProps.onSaved?.({ ...profile, password: "", ...changes }));
+    act(() => dialogProps.onSaved?.({ ...profile, password: "", ...changes }, { connect: false }));
   };
 
   it("offers a reconnect and marks the tab when the server changed", () => {
@@ -683,5 +685,17 @@ describe("editing a connected profile (#831)", () => {
 
     expect(screen.queryByTestId("reconnect-prompt")).toBeNull();
     expect(screen.getByLabelText("Settings changed — reconnect to apply")).toBeInTheDocument();
+  });
+});
+
+describe("Save & Connect (#832)", () => {
+  it("connects the profile the dialog just saved", async () => {
+    const connect = vi.fn().mockResolvedValue({ id: "c9", profile_id: "new", database: null });
+    storeState = { connect };
+    render(<ConnectionTabs />);
+    await act(async () => {
+      dialogProps.onSaved?.({ id: "new", name: "Fresh" }, { connect: true });
+    });
+    expect(connect).toHaveBeenCalledWith("new");
   });
 });

@@ -32,6 +32,8 @@ interface GeneralTabProps {
   numberText: Record<NumberField, string>;
   numberProblems: Partial<Record<NumberField, string>>;
   onNumberChange: (field: NumberField, text: string) => void;
+  /** The Name input, which the dialog focuses on open (#832). */
+  nameRef?: React.Ref<HTMLInputElement>;
 }
 
 /** Where the server is, and who to be when talking to it. */
@@ -42,6 +44,7 @@ export function GeneralTab({
   numberText,
   numberProblems,
   onNumberChange,
+  nameRef,
 }: GeneralTabProps) {
   return (
     <div className="space-y-3">
@@ -50,6 +53,7 @@ export function GeneralTab({
         value={form.name}
         onChange={(v) => handleChange("name", v)}
         placeholder="My Database"
+        inputRef={nameRef}
       />
       <div className="grid grid-cols-3 gap-3">
         <div className="col-span-2">

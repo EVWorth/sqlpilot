@@ -13,6 +13,7 @@ export function Field({
   placeholder,
   problem,
   hint,
+  inputRef,
 }: {
   label: string;
   value: string;
@@ -23,6 +24,8 @@ export function Field({
   problem?: string;
   /** What the field is for, when the label is not enough. */
   hint?: string;
+  /** The input itself, for a dialog that wants to put focus on it. */
+  inputRef?: React.Ref<HTMLInputElement>;
 }) {
   const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
@@ -34,6 +37,7 @@ export function Field({
         {label}
       </label>
       <input
+        ref={inputRef}
         id={id}
         type={type}
         value={value}

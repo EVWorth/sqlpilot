@@ -191,8 +191,16 @@ export function ConnectionTabs() {
 
   connectProfileRef.current = handleConnectProfile;
 
-  /** A profile was saved from the dialog: a live connection on old settings is said so (#831). */
-  const handleSaved = (saved: ConnectionProfileInput) => {
+  /**
+   * A profile was saved from the dialog. A new one may be connected straight
+   * away; a live connection left on old settings is said so (#831).
+   */
+  const handleSaved = (saved: ConnectionProfileInput, { connect: andConnect }: { connect: boolean }) => {
+    // "Save & Connect" on a new profile: the same connect as from the menu (#832).
+    if (andConnect) {
+      void handleConnectProfile(saved.id);
+      return;
+    }
     const before = editingProfile;
     if (!before || before.id !== saved.id) return;
     const live = useConnectionStore.getState().activeConnections.find((c) => c.profile_id === saved.id);
