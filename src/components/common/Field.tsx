@@ -13,6 +13,8 @@ export function Field({
   placeholder,
   problem,
   hint,
+  inputRef,
+  required = false,
 }: {
   label: string;
   value: string;
@@ -23,18 +25,23 @@ export function Field({
   problem?: string;
   /** What the field is for, when the label is not enough. */
   hint?: string;
+  /** The input itself, for a dialog that wants to put focus on it. */
+  inputRef?: React.Ref<HTMLInputElement>;
+  /** Marked with an asterisk and `aria-required`; the caller decides what to do when it is empty. */
+  required?: boolean;
 }) {
   const id = `field-${label.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
   return (
     <div>
-      <label
-        htmlFor={id}
-        className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]"
-      >
-        {label}
-      </label>
+      <div className="mb-1 flex text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
+        <label htmlFor={id}>{label}</label>
+        {/* Beside the label, not in it, so the field's name stays exactly the label. */}
+        {required && <span aria-hidden="true" className="ml-0.5 text-[var(--color-error)]">*</span>}
+      </div>
       <input
+        ref={inputRef}
         id={id}
+        aria-required={required || undefined}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}

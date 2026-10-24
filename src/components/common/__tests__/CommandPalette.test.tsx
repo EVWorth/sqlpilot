@@ -84,15 +84,15 @@ describe("CommandPalette", () => {
     const actions = listenForActions();
     render(<Host />);
     openPalette();
-    type("backup");
+    type("about");
     fireEvent.keyDown(screen.getByLabelText("Command"), { key: "Enter" });
-    await waitFor(() => expect(actions).toContain("backup"));
+    await waitFor(() => expect(actions).toContain("about"));
   });
 
   it("closes once a command is chosen", async () => {
     render(<Host />);
     openPalette();
-    type("backup");
+    type("about");
     fireEvent.keyDown(screen.getByLabelText("Command"), { key: "Enter" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });
@@ -113,8 +113,10 @@ describe("CommandPalette", () => {
     render(<Host />);
     openPalette();
     fireEvent.keyDown(screen.getByLabelText("Command"), { key: "ArrowUp" });
-    const options = screen.getAllByRole("option");
-    expect(options[options.length - 1].getAttribute("aria-selected")).toBe("true");
+    // The last command that can run: with nothing connected, the ones that
+    // need a connection sit below it, greyed (#821).
+    const runnable = screen.getAllByRole("option").filter((o) => !o.hasAttribute("aria-disabled"));
+    expect(runnable[runnable.length - 1].getAttribute("aria-selected")).toBe("true");
   });
 
   it("runs a command when it is clicked", async () => {
@@ -203,11 +205,48 @@ describe("saved profiles in the palette (#817)", () => {
     await waitFor(() => expect(seen).toContain("connect:p-stg"));
   });
 
-  it("does not offer Disconnect when nothing is connected", () => {
+  it("lists Disconnect last and unrunnable when nothing is connected (#821)", async () => {
+    const seen = listenForActions();
     render(<Host />);
     openPalette();
-    type("disconnect");
-    expect(screen.queryByRole("option", { name: /^Connection\s*Disconnect/ })).toBeNull();
+    type("conn");
+    const options = screen.getAllByRole("option");
+    const disconnect = screen.getByRole("option", { name: /Disconnect/ });
+    expect(options.at(-1)).toBe(disconnect);
+    expect(disconnect).toHaveAttribute("aria-disabled", "true");
+    expect(disconnect).toHaveTextContent("Connect first");
+
+    fireEvent.click(disconnect);
+    await Promise.resolve();
+    expect(seen).not.toContain("disconnect");
+  });
+
+  it("never highlights a command that cannot run (#821)", async () => {
+    const seen = listenForActions();
+    render(<Host />);
+    openPalette();
+    type("admin tools");
+    // The only match needs a connection, so Enter has nothing to run.
+    expect(screen.getByRole("option", { name: /Admin Tools/ })).toHaveAttribute("aria-selected", "false");
+    fireEvent.keyDown(screen.getByLabelText("Command"), { key: "ArrowDown" });
+    fireEvent.keyDown(screen.getByLabelText("Command"), { key: "Enter" });
+    await Promise.resolve();
+    expect(seen).not.toContain("admin-tools");
+  });
+
+  it("runs a connection command once a connection is selected (#821)", async () => {
+    useConnectionStore.setState({
+      activeConnections: [{ id: "c1", profile_id: "p-stg" }] as never,
+      selectedConnectionId: "c1",
+    });
+    const seen = listenForActions();
+    render(<Host />);
+    openPalette();
+    type("admin tools");
+    expect(screen.getByRole("option", { name: /Admin Tools/ })).not.toHaveAttribute("aria-disabled");
+    fireEvent.keyDown(screen.getByLabelText("Command"), { key: "Enter" });
+    await waitFor(() => expect(seen).toContain("admin-tools"));
+    useConnectionStore.setState({ activeConnections: [], selectedConnectionId: null });
   });
 
   it("drops a profile that is already open", () => {

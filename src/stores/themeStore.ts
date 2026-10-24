@@ -24,6 +24,8 @@ interface ThemeState {
   theme: ThemeMode;
   /** Which way the current theme reads, for Monaco and `color-scheme`. */
   effectiveTheme: "dark" | "light";
+  /** The theme on screen, "system" resolved; the editor takes its colours from it (#838). */
+  activeTheme: Theme;
   /** Themes the user imported or made, alongside the built-ins. */
   customThemes: Theme[];
   setTheme: (theme: ThemeMode) => void;
@@ -96,6 +98,7 @@ apply(initialTheme);
 export const useThemeStore = create<ThemeState>((set, get) => ({
   theme: storedMode,
   effectiveTheme: initialTheme.base,
+  activeTheme: initialTheme,
   customThemes: initialCustom,
 
   setTheme: (theme) => {
@@ -110,7 +113,7 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
       // (refs #348)
       reportStorageError("theme", e, "theme");
     }
-    set({ theme, effectiveTheme: resolved.base });
+    set({ theme, effectiveTheme: resolved.base, activeTheme: resolved });
   },
 
   cycleTheme: () => {
@@ -193,7 +196,7 @@ if (typeof window !== "undefined") {
     if (state.theme === "system") {
       const resolved = resolve("system", state.customThemes);
       apply(resolved);
-      useThemeStore.setState({ effectiveTheme: resolved.base });
+      useThemeStore.setState({ effectiveTheme: resolved.base, activeTheme: resolved });
     }
   };
 

@@ -162,6 +162,50 @@ describe("MenuBar", () => {
   });
 });
 
+describe("items that need a connection (#821)", () => {
+  afterEach(() => {
+    useConnectionStore.setState({ activeConnections: [], selectedConnectionId: null });
+  });
+
+  it("greys them out and does not run them while nothing is connected", () => {
+    useConnectionStore.setState({ activeConnections: [], selectedConnectionId: null });
+    const seen: string[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener("menu-action", listener);
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Database"));
+    const admin = screen.getByText("Admin Tools").closest("button");
+    expect(admin).toHaveAttribute("aria-disabled", "true");
+    expect(admin).toHaveAttribute("title", "Connect first");
+    fireEvent.click(screen.getByText("Admin Tools"));
+    expect(seen).toEqual([]);
+
+    fireEvent.click(screen.getByText("File"));
+    expect(screen.getByText("Import Data…").closest("button")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("Backup Database…").closest("button")).toHaveAttribute("aria-disabled", "true");
+    expect(screen.getByText("New Query Tab").closest("button")).not.toHaveAttribute("aria-disabled");
+    window.removeEventListener("menu-action", listener);
+  });
+
+  it("enables them once a connection is selected", () => {
+    useConnectionStore.setState({
+      activeConnections: [{ id: "c1", profile_id: "p1" }] as never,
+      selectedConnectionId: "c1",
+    });
+    const seen: string[] = [];
+    const listener = (e: Event) => seen.push((e as CustomEvent<string>).detail);
+    window.addEventListener("menu-action", listener);
+    render(<MenuBar />);
+
+    fireEvent.click(screen.getByText("Database"));
+    expect(screen.getByText("Admin Tools").closest("button")).not.toHaveAttribute("aria-disabled");
+    fireEvent.click(screen.getByText("Admin Tools"));
+    expect(seen).toEqual(["admin-tools"]);
+    window.removeEventListener("menu-action", listener);
+  });
+});
+
 describe("Connection → Connect to (#817)", () => {
   const profile = (id: string, name: string) => ({ id, name, host: "h" }) as never;
 
@@ -207,5 +251,102 @@ describe("Connection → Connect to (#817)", () => {
     fireEvent.click(screen.getByText("Connection"));
     fireEvent.click(screen.getByText("Connect to"));
     expect(screen.getByText("No saved connections")).toBeInTheDocument();
+  });
+});
+
+describe("keyboard (#827)", () => {
+  const title = (name: string) => screen.getByRole("menuitem", { name });
+  const key = (k: string) => fireEvent.keyDown(document.activeElement as Element, { key: k });
+
+  beforeEach(() => {
+    useConnectionStore.setState({ profiles: [], activeConnections: [], selectedConnectionId: null, connecting: [] });
+  });
+
+  it("is a menubar with one Tab stop", () => {
+    render(<MenuBar />);
+    expect(screen.getByRole("menubar")).toBeInTheDocument();
+    expect(title("File")).toHaveAttribute("tabindex", "0");
+    expect(title("Edit")).toHaveAttribute("tabindex", "-1");
+  });
+
+  it("moves between titles with the arrow keys and wraps", () => {
+    render(<MenuBar />);
+    title("File").focus();
+    key("ArrowRight");
+    expect(document.activeElement).toBe(title("Edit"));
+    expect(title("Edit")).toHaveAttribute("tabindex", "0");
+    key("ArrowLeft");
+    key("ArrowLeft");
+    expect(document.activeElement).toBe(title("Help"));
+  });
+
+  it("opens on ArrowDown with focus on the first item, and arrows through it", () => {
+    render(<MenuBar />);
+    title("File").focus();
+    key("ArrowDown");
+    expect(document.activeElement).toHaveTextContent("New Query Tab");
+    key("ArrowDown");
+    expect(document.activeElement).toHaveTextContent("Import Data…");
+    key("End");
+    expect(document.activeElement).toHaveTextContent("Quit");
+    key("ArrowDown");
+    expect(document.activeElement).toHaveTextContent("New Query Tab");
+    key("ArrowUp");
+    expect(document.activeElement).toHaveTextContent("Quit");
+  });
+
+  it("opens on ArrowUp with focus on the last item", () => {
+    render(<MenuBar />);
+    title("File").focus();
+    key("ArrowUp");
+    expect(document.activeElement).toHaveTextContent("Quit");
+  });
+
+  it("closes on Escape and gives focus back to the title", () => {
+    render(<MenuBar />);
+    title("Edit").focus();
+    key("Enter");
+    expect(screen.getByRole("menu", { name: "Edit" })).toBeInTheDocument();
+    key("Escape");
+    expect(screen.queryByRole("menu", { name: "Edit" })).toBeNull();
+    expect(document.activeElement).toBe(title("Edit"));
+  });
+
+  it("moves to the next menu with ArrowRight from inside one", () => {
+    render(<MenuBar />);
+    title("File").focus();
+    key("ArrowDown");
+    key("ArrowRight");
+    expect(screen.queryByRole("menu", { name: "File" })).toBeNull();
+    expect(screen.getByRole("menu", { name: "Edit" })).toBeInTheDocument();
+    expect(document.activeElement).toHaveTextContent("Undo");
+  });
+
+  it("opens Connect to with ArrowRight and comes back with ArrowLeft", () => {
+    useConnectionStore.setState({ profiles: [{ id: "p1", name: "Local dev", host: "h" }] as never });
+    render(<MenuBar />);
+    title("Connection").focus();
+    key("ArrowDown");
+    key("ArrowDown");
+    expect(document.activeElement).toHaveTextContent("Connect to");
+    key("ArrowRight");
+    expect(document.activeElement).toHaveTextContent("Local dev");
+    key("ArrowLeft");
+    expect(screen.queryByRole("menu", { name: "Connect to" })).toBeNull();
+    expect(document.activeElement).toHaveTextContent("Connect to");
+  });
+
+  it("switches menus on hover while one is open", () => {
+    render(<MenuBar />);
+    fireEvent.click(title("File"));
+    fireEvent.mouseEnter(title("Database"));
+    expect(screen.queryByRole("menu", { name: "File" })).toBeNull();
+    expect(screen.getByRole("menu", { name: "Database" })).toBeInTheDocument();
+  });
+
+  it("does not open a menu on hover when none is open", () => {
+    render(<MenuBar />);
+    fireEvent.mouseEnter(title("Database"));
+    expect(screen.queryByRole("menu")).toBeNull();
   });
 });

@@ -238,5 +238,22 @@ describe("ThemeSettingsDialog (#350)", () => {
 
       expect(useSettingsStore.getState().querySettings.showMinimap).toBe(true);
     });
+
+    it("sets the editor font size, within range (#837)", () => {
+      open();
+      const size = screen.getByLabelText("Editor font size");
+      expect(size).toHaveValue(useSettingsStore.getState().querySettings.editorFontSize);
+      fireEvent.change(size, { target: { value: "18" } });
+      expect(useSettingsStore.getState().querySettings.editorFontSize).toBe(18);
+      fireEvent.change(size, { target: { value: "99" } });
+      expect(useSettingsStore.getState().querySettings.editorFontSize).toBe(28);
+    });
+
+    it("sets the interface scale (#837)", () => {
+      open();
+      fireEvent.change(screen.getByLabelText("Interface scale"), { target: { value: "1.25" } });
+      expect(useSettingsStore.getState().querySettings.uiScale).toBe(1.25);
+      useSettingsStore.getState().resetZoom();
+    });
   });
 });

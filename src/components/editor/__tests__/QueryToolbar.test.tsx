@@ -2,6 +2,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 let connSelId: string | null = "conn-1";
+let connProfiles: { id: string; name: string; host: string; port: number; environment: string | null }[] = [];
 let connActive: any[] = [
   {
     id: "conn-1",
@@ -141,7 +142,7 @@ vi.mock("../../../stores/connectionStore", () => ({
       const state = {
         selectedConnectionId: connSelId,
         activeConnections: connActive,
-        profiles: [],
+        profiles: connProfiles,
         loading: false,
         error: null,
       };
@@ -165,6 +166,7 @@ describe("QueryToolbar", () => {
     mockSchemaLoading = false;
     mockActiveTabContent = "SELECT * FROM users";
     connSelId = "conn-1";
+    connProfiles = [];
     connActive = [
       {
         id: "conn-1",
@@ -471,5 +473,40 @@ describe("QueryToolbar", () => {
 
       expect(screen.getByTestId("save-favorite-dialog")).toBeInTheDocument();
     });
+  });
+});
+
+describe("production signalling (#835)", () => {
+  beforeEach(() => {
+    connSelId = "conn-1";
+    connActive = [{ id: "conn-1", profile_id: "prof-1", name: "Test DB", host: "localhost", port: 3306 }];
+  });
+
+  it("tints the toolbar and shows PROD when the selected server is production", () => {
+    connProfiles = [{ id: "prof-1", name: "Test DB", host: "localhost", port: 3306, environment: "production" }];
+    const { container } = render(<QueryToolbar />);
+    const bar = container.firstElementChild as HTMLElement;
+    expect(bar).toHaveAttribute("data-environment", "production");
+    expect(bar.className).toContain("surface-error");
+    expect(screen.getByTestId("environment-badge")).toHaveTextContent("PROD");
+  });
+
+  it("leaves the toolbar plain for other environments", () => {
+    connProfiles = [{ id: "prof-1", name: "Test DB", host: "localhost", port: 3306, environment: "staging" }];
+    const { container } = render(<QueryToolbar />);
+    expect((container.firstElementChild as HTMLElement).className).not.toContain("surface-error");
+    expect(screen.getByTestId("environment-badge")).toHaveTextContent("STG");
+  });
+});
+
+describe("connection name (#831)", () => {
+  it("names the connection as its profile is named now", () => {
+    connSelId = "conn-1";
+    connActive = [{ id: "conn-1", profile_id: "prof-1", name: "Test DB", host: "localhost", port: 3306 }];
+    connProfiles = [{ id: "prof-1", name: "Test DB RENAMED", host: "10.9.9.9", port: 3306, environment: null }];
+    render(<QueryToolbar />);
+    expect(screen.getByText("Test DB RENAMED")).toBeInTheDocument();
+    // Where the session really is, until it reconnects.
+    expect(screen.getByText("(localhost:3306)")).toBeInTheDocument();
   });
 });

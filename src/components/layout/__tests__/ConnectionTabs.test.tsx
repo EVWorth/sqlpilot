@@ -30,6 +30,9 @@ function currentState() {
     deleteProfile: vi.fn(),
     setSelectedConnection: vi.fn(),
     loadProfiles: mockLoadProfiles,
+    staleConnections: [],
+    markStale: vi.fn(),
+    reconnect: vi.fn(),
     ...storeState,
   };
 }
@@ -56,38 +59,49 @@ vi.mock("../../../stores/editorStore", () => {
 });
 
 /** Captures the items a right-click would offer, so they can be invoked. */
-const { menuItems, showContextMenu } = vi.hoisted(() => {
+const { menuItems, showContextMenu, showContextMenuAt } = vi.hoisted(() => {
   const menuItems: { label?: string; onClick?: () => void; disabled?: boolean }[] = [];
+  const capture = (items: typeof menuItems) => {
+    menuItems.length = 0;
+    menuItems.push(...items);
+  };
   return {
     menuItems,
-    showContextMenu: vi.fn((_e: unknown, items: typeof menuItems) => {
-      menuItems.length = 0;
-      menuItems.push(...items);
-    }),
+    showContextMenu: vi.fn((_e: unknown, items: typeof menuItems) => capture(items)),
+    showContextMenuAt: vi.fn((_x: number, _y: number, items: typeof menuItems) => capture(items)),
   };
 });
 
 vi.mock("../../../hooks/useContextMenu", () => ({
-  useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu })),
+  useContextMenu: vi.fn(() => ({ contextMenu: null, showContextMenu, showContextMenuAt })),
 }));
 
 vi.mock("../../../stores/connectionHealthStore", () => ({
   useConnectionHealthStore: vi.fn((s: (v: unknown) => unknown) => s({ health: healthState })),
 }));
 
+/** The dialog's last `onSaved`, so a test can play a save. */
+const dialogProps = vi.hoisted(() => ({
+  onSaved: undefined as ((saved: unknown, options?: { connect: boolean }) => void) | undefined,
+}));
+
 vi.mock("../../connection/ConnectionDialog", () => ({
-  ConnectionDialog: vi.fn(({ editProfile, duplicateOf }: {
+  ConnectionDialog: vi.fn(({ editProfile, duplicateOf, onSaved }: {
     editProfile?: { name: string };
     duplicateOf?: { name: string };
-  }) => (
-    <div
-      data-testid="connection-dialog"
-      data-editing={editProfile?.name ?? ""}
-      data-duplicating={duplicateOf?.name ?? ""}
-    >
-      ConnectionDialog
-    </div>
-  )),
+    onSaved?: (saved: unknown, options?: { connect: boolean }) => void;
+  }) => {
+    dialogProps.onSaved = onSaved;
+    return (
+      <div
+        data-testid="connection-dialog"
+        data-editing={editProfile?.name ?? ""}
+        data-duplicating={duplicateOf?.name ?? ""}
+      >
+        ConnectionDialog
+      </div>
+    );
+  }),
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
@@ -469,5 +483,219 @@ describe("connecting from elsewhere (#817)", () => {
 
     await vi.waitFor(() => expect(setSelectedConnection).toHaveBeenCalledWith("c2"));
     expect(connect).not.toHaveBeenCalledWith("p2");
+  });
+});
+
+describe("by keyboard (#827)", () => {
+  const profiles = [
+    { id: "p1", name: "prod-eu", host: "db" },
+    { id: "p2", name: "Staging", host: "stg" },
+    { id: "p3", name: "sandbox", host: "nowhere" },
+  ];
+  const c1 = { id: "c1", profile_id: "p1", name: "prod-eu", host: "db", port: 3306, database: null };
+  const c3 = { id: "c3", profile_id: "p3", name: "sandbox", host: "nowhere", port: 3306, database: null };
+  const connectButton = () => screen.getByTitle("Connect to a server");
+  const key = (k: string, init: Record<string, unknown> = {}) =>
+    fireEvent.keyDown(document.activeElement as Element, { key: k, ...init });
+
+  it("moves focus into the connect menu when it opens", () => {
+    storeState = { profiles };
+    render(<ConnectionTabs />);
+    fireEvent.click(connectButton());
+    expect(document.activeElement).toHaveTextContent("prod-eu");
+  });
+
+  it("arrows through the connect menu and reaches a row's Edit button", () => {
+    storeState = { profiles };
+    render(<ConnectionTabs />);
+    fireEvent.click(connectButton());
+    key("ArrowDown");
+    expect(document.activeElement).toHaveTextContent("Staging");
+    key("End");
+    expect(document.activeElement).toHaveTextContent("New Connection…");
+    key("ArrowDown");
+    expect(document.activeElement).toHaveTextContent("prod-eu");
+    key("ArrowRight");
+    expect(document.activeElement).toHaveAccessibleName("Edit prod-eu");
+    key("ArrowLeft");
+    expect(document.activeElement).toHaveTextContent("prod-eu");
+  });
+
+  it("closes the connect menu on Escape and gives focus back to the button", () => {
+    storeState = { profiles };
+    render(<ConnectionTabs />);
+    fireEvent.click(connectButton());
+    key("Escape");
+    expect(screen.queryByRole("menu", { name: "Connect to a server" })).toBeNull();
+    expect(document.activeElement).toBe(connectButton());
+  });
+
+  it("focuses the new connection's tab after connecting from the menu", async () => {
+    const connect = vi.fn(async () => {
+      storeState = { ...storeState, activeConnections: [c3] };
+      return c3;
+    });
+    storeState = { profiles, connect };
+    render(<ConnectionTabs />);
+    fireEvent.click(connectButton());
+    key("End");
+    key("ArrowUp");
+    expect(document.activeElement).toHaveTextContent("sandbox");
+    await act(async () => {
+      fireEvent.click(document.activeElement as Element);
+    });
+    await vi.waitFor(() => expect(document.activeElement).toBe(screen.getByRole("tab", { name: /sandbox/ })));
+  });
+
+  it("makes connection tabs tabs, with one Tab stop on the selected one", () => {
+    storeState = { profiles, activeConnections: [c1, c3], selectedConnectionId: "c3" };
+    render(<ConnectionTabs />);
+    expect(screen.getByRole("tablist", { name: "Connections" })).toBeInTheDocument();
+    const [first, second] = screen.getAllByRole("tab");
+    expect(first).toHaveAttribute("tabindex", "-1");
+    expect(second).toHaveAttribute("tabindex", "0");
+    expect(second).toHaveAttribute("aria-selected", "true");
+  });
+
+  it("moves between tabs with the arrow keys and selects with Enter", () => {
+    const setSelectedConnection = vi.fn();
+    storeState = { profiles, activeConnections: [c1, c3], selectedConnectionId: "c1", setSelectedConnection };
+    render(<ConnectionTabs />);
+    const [first, second] = screen.getAllByRole("tab");
+    first.focus();
+    key("ArrowRight");
+    expect(document.activeElement).toBe(second);
+    key("ArrowRight");
+    expect(document.activeElement).toBe(first);
+    key("End");
+    expect(document.activeElement).toBe(second);
+    key("Enter");
+    expect(setSelectedConnection).toHaveBeenCalledWith("c3");
+  });
+
+  it("opens the tab menu with Shift+F10 and with the Menu key", () => {
+    storeState = { profiles, activeConnections: [c1] };
+    render(<ConnectionTabs />);
+    screen.getByRole("tab").focus();
+    key("F10", { shiftKey: true });
+    expect(menuItems.map((i) => i.label)).toContain("Edit Connection");
+    menuItems.length = 0;
+    key("ContextMenu");
+    expect(menuItems.map((i) => i.label)).toContain("Disconnect");
+  });
+});
+
+describe("environment and server on the tab (#835)", () => {
+  const prod = {
+    id: "p1",
+    name: "Production (read-only)",
+    host: "db.internal",
+    port: 3306,
+    username: "app",
+    environment: "production",
+    read_only: true,
+  };
+  const conn = { id: "c1", profile_id: "p1", name: "Production (read-only)", host: "db.internal", port: 3306 };
+
+  it("shows the environment badge and names the server in the tooltip", () => {
+    storeState = { profiles: [prod], activeConnections: [conn] };
+    render(<ConnectionTabs />);
+    const tab = screen.getByRole("tab");
+    expect(tab).toHaveAttribute("title", "Production (read-only) — app@db.internal:3306");
+    expect(tab).toContainElement(screen.getByText("PROD"));
+  });
+
+  it("shows the badge, read-only lock and server on connect-menu rows", () => {
+    storeState = { profiles: [{ ...prod, id: "p2", environment: "staging" }] };
+    render(<ConnectionTabs />);
+    fireEvent.click(screen.getByTitle("Connect to a server"));
+    const row = screen.getByRole("menuitem", { name: /^Production/ });
+    expect(row).toHaveTextContent("STG");
+    expect(row).toHaveAttribute("title", "app@db.internal:3306");
+    expect(row).toContainElement(screen.getByLabelText("Read-only connection"));
+  });
+});
+
+describe("editing a connected profile (#831)", () => {
+  const profile = {
+    id: "p1",
+    name: "Local dev",
+    host: "127.0.0.1",
+    port: 3306,
+    username: "root",
+    default_database: null,
+    read_only: false,
+    charset: "utf8mb4",
+    ssl_config: null,
+    ssh_config: null,
+  };
+  const conn = { id: "c1", profile_id: "p1", name: "Local dev", host: "127.0.0.1", port: 3306, database: null };
+
+  const editAndSave = (changes: Record<string, unknown>) => {
+    act(() => menuItems.find((i) => i.label === "Edit Connection")!.onClick!());
+    act(() => dialogProps.onSaved?.({ ...profile, password: "", ...changes }, { connect: false }));
+  };
+
+  it("offers a reconnect and marks the tab when the server changed", () => {
+    const markStale = vi.fn();
+    storeState = { profiles: [profile], activeConnections: [conn], markStale };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    editAndSave({ name: "Local dev RENAMED", host: "10.9.9.9" });
+
+    expect(markStale).toHaveBeenCalledWith("c1");
+    const prompt = screen.getByTestId("reconnect-prompt");
+    expect(prompt).toHaveTextContent("127.0.0.1:3306");
+    expect(document.activeElement).toBe(screen.getByText("Reconnect now").closest("button"));
+  });
+
+  it("says nothing when only the name changed", () => {
+    const markStale = vi.fn();
+    storeState = { profiles: [profile], activeConnections: [conn], markStale };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    editAndSave({ name: "Renamed" });
+
+    expect(markStale).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("reconnect-prompt")).toBeNull();
+  });
+
+  it("reconnects on Reconnect now and moves the editor tabs to the new connection", async () => {
+    const fresh = { ...conn, id: "c2", host: "10.9.9.9" };
+    const reconnect = vi.fn().mockResolvedValue(fresh);
+    storeState = { profiles: [profile], activeConnections: [conn], reconnect };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    editAndSave({ host: "10.9.9.9" });
+
+    await act(async () => {
+      fireEvent.click(screen.getByText("Reconnect now"));
+    });
+    expect(reconnect).toHaveBeenCalledWith("c1");
+    expect(screen.queryByTestId("reconnect-prompt")).toBeNull();
+  });
+
+  it("puts the prompt away on Later and leaves the tab marked", () => {
+    storeState = { profiles: [profile], activeConnections: [conn], staleConnections: ["c1"] };
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    expect(menuItems.map((i) => i.label)).toContain("Reconnect to Apply Changes");
+    editAndSave({ host: "10.9.9.9" });
+    fireEvent.click(screen.getByText("Later"));
+
+    expect(screen.queryByTestId("reconnect-prompt")).toBeNull();
+    expect(screen.getByLabelText("Settings changed — reconnect to apply")).toBeInTheDocument();
+  });
+});
+
+describe("Save & Connect (#832)", () => {
+  it("connects the profile the dialog just saved", async () => {
+    const connect = vi.fn().mockResolvedValue({ id: "c9", profile_id: "new", database: null });
+    storeState = { connect };
+    render(<ConnectionTabs />);
+    await act(async () => {
+      dialogProps.onSaved?.({ id: "new", name: "Fresh" }, { connect: true });
+    });
+    expect(connect).toHaveBeenCalledWith("new");
   });
 });

@@ -30,6 +30,10 @@ export interface QuerySettings {
    * a preference rather than a fact about the app.
    */
   showMinimap: boolean;
+  /** The editor's font size in px; DESIGN_REQUIREMENTS §5.6 asks for 14 (#837). */
+  editorFontSize: number;
+  /** The whole interface's size, as a factor: 1 is 100% (#837). */
+  uiScale: number;
 }
 
 const DEFAULT_QUERY_SETTINGS: QuerySettings = {
@@ -37,7 +41,33 @@ const DEFAULT_QUERY_SETTINGS: QuerySettings = {
   limitEnabled: true,
   showSystemDatabases: false,
   showMinimap: false,
+  editorFontSize: 14,
+  uiScale: 1,
 };
+
+/** The interface scales offered, smallest to largest; Ctrl+= and Ctrl+- step through them. */
+export const UI_SCALES = [0.8, 0.9, 1, 1.1, 1.25, 1.5] as const;
+export const EDITOR_FONT_SIZE_MIN = 10;
+export const EDITOR_FONT_SIZE_MAX = 28;
+
+/** A stored scale, snapped to the nearest one offered; anything unreadable is 100%. */
+export function normaliseScale(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 1;
+  return UI_SCALES.reduce((best, s) => (Math.abs(s - value) < Math.abs(best - value) ? s : best), 1);
+}
+
+/** The next scale up or down from `current`, staying at the ends. */
+export function stepScale(current: number, direction: 1 | -1): number {
+  const at = UI_SCALES.indexOf(normaliseScale(current) as (typeof UI_SCALES)[number]);
+  const next = Math.min(UI_SCALES.length - 1, Math.max(0, at + direction));
+  return UI_SCALES[next];
+}
+
+/** A font size within the range offered; anything unreadable is the default. */
+export function clampFontSize(value: unknown): number {
+  if (typeof value !== "number" || !Number.isFinite(value)) return DEFAULT_QUERY_SETTINGS.editorFontSize;
+  return Math.min(EDITOR_FONT_SIZE_MAX, Math.max(EDITOR_FONT_SIZE_MIN, Math.round(value)));
+}
 
 export interface FormatterSettings {
   keywordCase: "upper" | "lower" | "preserve";
@@ -76,7 +106,13 @@ function loadQuerySettings(): QuerySettings {
   try {
     const stored = localStorage.getItem(QUERY_SETTINGS_KEY);
     if (stored) {
-      return { ...DEFAULT_QUERY_SETTINGS, ...JSON.parse(stored) };
+      const merged: QuerySettings = { ...DEFAULT_QUERY_SETTINGS, ...JSON.parse(stored) };
+      // The file is editable; a bad value here would scale the window to nothing.
+      return {
+        ...merged,
+        uiScale: normaliseScale(merged.uiScale),
+        editorFontSize: clampFontSize(merged.editorFontSize),
+      };
     }
   } catch {
     // ignore
@@ -138,6 +174,10 @@ interface SettingsState {
   setUpdateError: (message: string | null) => void;
   setQuerySettings: (settings: QuerySettings) => void;
   setFormatterSettings: (settings: FormatterSettings) => void;
+  /** Ctrl+= and Ctrl+-: one step of `UI_SCALES` up or down (#837). */
+  zoom: (direction: 1 | -1) => void;
+  /** Ctrl+0: back to 100%. */
+  resetZoom: () => void;
 }
 
 // Tauri-action's .rpm filename uses period before arch:
@@ -373,5 +413,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
   setFormatterSettings: (settings) => {
     persist(STORAGE_KEY, settings, "formatter-settings", "formatter settings");
     set({ formatterSettings: settings });
+  },
+
+  zoom: (direction) => {
+    const current = get().querySettings;
+    get().setQuerySettings({ ...current, uiScale: stepScale(current.uiScale, direction) });
+  },
+
+  resetZoom: () => {
+    get().setQuerySettings({ ...get().querySettings, uiScale: 1 });
   },
 }));
