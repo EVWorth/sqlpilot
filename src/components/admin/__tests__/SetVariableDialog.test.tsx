@@ -117,7 +117,7 @@ describe("SetVariableDialog (#438)", () => {
         expect.objectContaining({ sql: "SET GLOBAL max_connections = 500" }),
       )
     );
-    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    await waitFor(() => expect(onChanged).toHaveBeenCalledWith("max_connections"));
     expect(onClose).toHaveBeenCalled();
   });
 

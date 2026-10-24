@@ -2,6 +2,7 @@ import { ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, Loader2, Pencil, S
 import { useEffect, useMemo, useState } from "react";
 import { serverFlavour } from "../../lib/server-flavour";
 import { api } from "../../lib/tauri-api";
+import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type { ServerVariable } from "../../types";
 import { SetVariableDialog } from "./SetVariableDialog";
@@ -26,9 +27,14 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
   );
 
   const [reloadToken, setReloadToken] = useState(0);
+  /** The variable just changed through the dialog, highlighted for a moment. */
+  const [updatedName, setUpdatedName] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
+    // Only the first load (and a connection switch) shows the full-pane
+    // spinner. A reload after SET refreshes in the background so the table
+    // and its scroll position stay put (#819).
+    if (reloadToken === 0) setLoading(true);
     api
       .getServerVariables(connectionId)
       .then((data) => {
@@ -38,6 +44,12 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
       .catch((e) => setError(String(e)))
       .finally(() => setLoading(false));
   }, [connectionId, reloadToken]);
+
+  useEffect(() => {
+    if (!updatedName) return;
+    const t = setTimeout(() => setUpdatedName(null), 2000);
+    return () => clearTimeout(t);
+  }, [updatedName]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -88,7 +100,7 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
     return Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
   }, [variables, filter, sortField, sortDir]);
 
-  if (loading) {
+  if (loading && variables.length === 0) {
     return (
       <div className="flex h-full items-center justify-center">
         <Loader2 className="h-5 w-5 animate-spin text-[var(--color-text-muted)]" />
@@ -156,6 +168,7 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
                 onCopy={handleCopy}
                 copiedKey={copiedKey}
                 onEdit={setEditing}
+                updatedName={updatedName}
               />
             ))}
           </tbody>
@@ -166,7 +179,10 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
         connectionId={connectionId}
         flavour={flavour}
         onClose={() => setEditing(null)}
-        onChanged={() => setReloadToken((t) => t + 1)}
+        onChanged={(name) => {
+          setUpdatedName(name);
+          setReloadToken((t) => t + 1);
+        }}
       />
     </div>
   );
@@ -180,6 +196,7 @@ function GroupRows({
   onCopy,
   copiedKey,
   onEdit,
+  updatedName,
 }: {
   group: string;
   variables: ServerVariable[];
@@ -188,6 +205,7 @@ function GroupRows({
   onCopy: (text: string, key: string) => void;
   copiedKey: string | null;
   onEdit: (v: ServerVariable) => void;
+  updatedName: string | null;
 }) {
   return (
     <>
@@ -207,7 +225,11 @@ function GroupRows({
         && variables.map((v) => (
           <tr
             key={v.name}
-            className="border-b border-[var(--color-border)] text-[var(--color-text-primary)] hover:bg-[var(--color-bg-secondary)]"
+            data-updated={updatedName === v.name ? "true" : undefined}
+            className={cn(
+              "border-b border-[var(--color-border)] text-[var(--color-text-primary)] transition-colors duration-700 hover:bg-[var(--color-bg-secondary)]",
+              updatedName === v.name && "bg-brand-500/15",
+            )}
           >
             <td className="px-3 py-1.5">
               <button
