@@ -144,3 +144,45 @@ export function proposalRefusal(requested: string | null): string {
       + `Call get_editor_context for the tab they are looking at now.`
     : "There is no query tab open to change. Use open_draft to put this in a new tab instead.";
 }
+
+/**
+ * Who asked for an approval, in words for the dialog's header.
+ *
+ * The request names the in-app session it came from (`session`), or none for
+ * a client on the endpoint, which may name itself (`client`, from its MCP
+ * `initialize`). Read defensively: a request that carries neither field comes
+ * from a backend that does not report the requester, and gets no line rather
+ * than a guess. `current` is the panel's session, whose harness has a name.
+ */
+export function requesterOf(
+  request: object,
+  current: { session: string | null; agent: string | null },
+): string | undefined {
+  const session = "session" in request && typeof request.session === "string" ? request.session : null;
+  const client = "client" in request && typeof request.client === "string" ? request.client : null;
+  if (session) {
+    return session === current.session && current.agent
+      ? `${current.agent} (in-app session)`
+      : "An agent session in this window";
+  }
+  if (client) return `${client} (external client on the endpoint)`;
+  if ("session" in request || "client" in request) return "An external client on the endpoint";
+  return undefined;
+}
+
+/**
+ * What a write did, as a sentence that starts with the verb: "Deletes 132
+ * rows." The count is the decision, so it is said plainly whatever its size.
+ */
+export function rowsSentence(sql: string, rows: number): string {
+  const keyword = /^\s*(?:\/\*[\s\S]*?\*\/\s*|--[^\n]*\n\s*)*(\w+)/.exec(sql)?.[1]?.toUpperCase();
+  const verb = keyword === "DELETE"
+    ? "Deletes"
+    : keyword === "UPDATE"
+    ? "Updates"
+    : keyword === "INSERT" || keyword === "REPLACE"
+    ? "Inserts"
+    : "Changes";
+  if (rows === 0) return `${verb} no rows.`;
+  return `${verb} ${rows.toLocaleString()} row${rows === 1 ? "" : "s"}.`;
+}

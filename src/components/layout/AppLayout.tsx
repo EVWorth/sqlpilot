@@ -69,7 +69,7 @@ export function AppLayout() {
   // The window's half of the agent surface: questions arrive as events and are
   // answered from whatever the stores hold at that moment.
   useAgentRequests();
-  // The session panel: a fixed-width column beside the editor, toggled from
+  // The session panel: a resizable column beside the editor, toggled from
   // the menu rather than always present — most sessions do not involve one.
   const [agentPanelOpen, setAgentPanelOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
@@ -321,9 +321,9 @@ export function AppLayout() {
           </Group>
         </div>
         {
-          /* Outside the resizable group: the panel is a fixed width the user
-            toggles, not a pane they drag, and it should not steal space from
-            the editor when it is closed. */
+          /* Outside the resizable group: the panel keeps its own width (it
+            has its own divider, and remembers where it was left), and it
+            should not steal space from the editor when it is closed. */
         }
         {agentPanelOpen && <AgentPanel onClose={() => setAgentPanelOpen(false)} />}
       </div>
