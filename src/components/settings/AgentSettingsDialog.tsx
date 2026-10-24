@@ -11,6 +11,7 @@ import {
   sharingOf,
   useAgentStore,
 } from "../../stores/agentStore";
+import { EnvironmentBadge } from "../agent/AgentBadges";
 import { Modal } from "../common/Modal";
 
 /**
@@ -57,22 +58,6 @@ function CopyButton({ value, label }: { value: string; label: string }) {
     >
       {copied ? <Check className="h-3.5 w-3.5 text-[var(--color-success)]" /> : <Copy className="h-3.5 w-3.5" />}
     </button>
-  );
-}
-
-function EnvironmentBadge({ environment }: { environment: string }) {
-  // Production is the one that has to be visible at a glance; the rest are
-  // noise if they shout.
-  const production = environment === "production";
-  return (
-    <span
-      data-testid="environment-badge"
-      className={production
-        ? "rounded surface-error px-1.5 py-0.5 text-[10px] font-semibold uppercase text-[var(--color-error)]"
-        : "rounded bg-[var(--color-bg-tertiary)] px-1.5 py-0.5 text-[10px] uppercase text-[var(--color-text-muted)]"}
-    >
-      {environment}
-    </span>
   );
 }
 

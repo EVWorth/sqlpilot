@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { useAgentSessionStore } from "../../stores/agentSessionStore";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { AgentComposer } from "./AgentComposer";
+import { AgentSharingStrip } from "./AgentSharingStrip";
 import { AgentStart } from "./AgentStart";
 import { Thinking, TranscriptBlock } from "./AgentTranscript";
 
@@ -90,6 +91,8 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
           </button>
         </div>
       </div>
+
+      <AgentSharingStrip />
 
       {error && (
         <p role="alert" className="px-3 py-2 text-xs text-[var(--color-error)]">

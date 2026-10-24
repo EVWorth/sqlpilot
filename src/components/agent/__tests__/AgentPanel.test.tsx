@@ -9,12 +9,16 @@ const { apiMocks } = vi.hoisted(() => ({
     cancelAgentTurn: vi.fn(),
     stopAgentSession: vi.fn(),
     answerAgentPermission: vi.fn(),
+    agentEndpointStatus: vi.fn(),
+    listAgentConnections: vi.fn(),
   },
 }));
 
 vi.mock("../../../lib/tauri-api", () => ({ api: apiMocks }));
 
 import { useAgentSessionStore } from "../../../stores/agentSessionStore";
+import { useAgentStore } from "../../../stores/agentStore";
+import { useDialogStore } from "../../../stores/dialogStore";
 import { AgentPanel } from "../AgentPanel";
 
 const copilot = {
@@ -61,6 +65,22 @@ beforeEach(() => {
   apiMocks.cancelAgentTurn.mockResolvedValue(null);
   apiMocks.stopAgentSession.mockResolvedValue(null);
   apiMocks.answerAgentPermission.mockResolvedValue(null);
+  apiMocks.agentEndpointStatus.mockResolvedValue({ running: true, url: null, token: null });
+  apiMocks.listAgentConnections.mockResolvedValue([]);
+  useAgentStore.setState({ connections: [], error: null });
+  useDialogStore.setState({ open: null });
+});
+
+const shared = (name: string, environment: string, posture: "full" | "schema-only" | null) => ({
+  connectionId: name,
+  name,
+  environment,
+  readOnly: false,
+  connected: true,
+  posture,
+  databases: null,
+  redact: [],
+  ddlUnlocked: false,
 });
 
 const open = () => render(<AgentPanel onClose={() => {}} />);
@@ -106,6 +126,39 @@ describe("before a session", () => {
     open();
     fireEvent.click(await screen.findByRole("button", { name: /Start GitHub Copilot/ }));
     await waitFor(() => expect(apiMocks.startAgentSession).toHaveBeenCalledWith("copilot"));
+  });
+});
+
+describe("what the agent can reach", () => {
+  it("lists the shared connections with environment and posture", async () => {
+    apiMocks.listAgentConnections.mockResolvedValue([
+      shared("Local dev", "development", "full"),
+      shared("Production", "production", "schema-only"),
+      shared("Staging", "staging", null),
+    ]);
+    useAgentSessionStore.setState(running);
+    open();
+    const strip = await screen.findByRole("group", { name: "What the agent can reach" });
+    await waitFor(() => expect(strip.textContent).toContain("Production"));
+    expect(strip.textContent).toContain("Local dev");
+    // Not shared means not reachable, so it is not listed.
+    expect(strip.textContent).not.toContain("Staging");
+    expect(screen.getAllByTestId("posture-badge").map((b) => b.textContent)).toEqual(["Full", "Schema only"]);
+    expect(screen.getAllByTestId("environment-badge").map((b) => b.textContent)).toEqual([
+      "development",
+      "production",
+    ]);
+  });
+
+  it("says so when nothing is shared", async () => {
+    open();
+    expect(await screen.findByText("No connections shared with agents.")).toBeTruthy();
+  });
+
+  it("opens the Agents settings from the panel", async () => {
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: "Manage…" }));
+    expect(useDialogStore.getState().open).toBe("agents");
   });
 });
 
