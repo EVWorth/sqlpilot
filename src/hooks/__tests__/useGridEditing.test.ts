@@ -1,6 +1,7 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { forgetGridMemory, recallGrid } from "../../lib/grid-memory";
+import { gridEditsIn, resetGridEdits } from "../../lib/unsaved-grid-edits";
 import { useEditorStore } from "../../stores/editorStore";
 import type { EditorTab, SqlValue } from "../../types";
 import { useGridEditing } from "../useGridEditing";
@@ -818,5 +819,21 @@ describe("useGridEditing across a tab switch", () => {
     grid.unmount();
 
     expect(recallGrid(scope, "editing")).toBeUndefined();
+  });
+
+  it("reports its pending count for the run to ask about (#865)", () => {
+    resetGridEdits();
+    const scope = { tab: "tab-1", owner: rows };
+    const grid = renderHook(() => useGridEditing(scope));
+    act(() => grid.result.current.editCell(0, "name", "ada", "grace"));
+    expect(gridEditsIn("tab-1")).toBe(1);
+
+    // Cleared at once, not on the next render: a save discards, then
+    // refreshes in the same tick, and the refresh must not ask.
+    act(() => {
+      grid.result.current.discardAll();
+      expect(gridEditsIn("tab-1")).toBe(0);
+    });
+    grid.unmount();
   });
 });

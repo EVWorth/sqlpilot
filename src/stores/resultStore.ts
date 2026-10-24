@@ -5,11 +5,12 @@ import { forgetGridMemory } from "../lib/grid-memory";
 import { noteSession } from "../lib/server-sessions";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
+import { forgetGridEdits, gridEditsIn } from "../lib/unsaved-grid-edits";
 import type { EditorTab, QueryResult } from "../types";
 import { useConnectionStore } from "./connectionStore";
 import { useEditorStore } from "./editorStore";
 import { useHistoryStore } from "./historyStore";
-import { isProductionConnection } from "./productionGuardStore";
+import { isProductionConnection, useProductionGuardStore } from "./productionGuardStore";
 import { useSettingsStore } from "./settingsStore";
 
 /**
@@ -631,6 +632,18 @@ export const useResultStore = create<ResultState>((set, get) => ({
 
   executeQuery: async (connectionId, sql, database, session, tabId) => {
     const target = targetFor(session, tabId);
+    // The run replaces the tab's results, and with them the grid's unsaved
+    // edits, which are by row index and cannot follow (#865).
+    const pendingEdits = gridEditsIn(target.tab);
+    if (pendingEdits > 0) {
+      const discard = await useProductionGuardStore.getState().ask({
+        title: "Discard unsaved changes?",
+        message: `The results grid has ${pendingEdits} unsaved change(s). Running this replaces the results `
+          + `and discards them. Save them first to keep them.`,
+        confirmLabel: "Discard and run",
+      });
+      if (!discard) return { status: "cancelled" };
+    }
     // Production safety check
     if (isProductionConnection(connectionId) && isDestructiveStatement(sql)) {
       set({
@@ -1069,6 +1082,7 @@ function followEditor(editor: { tabs: readonly EditorTab[]; activeTabId: string 
   store.showTab(editor.activeTabId, active?.type === "query");
   store.forgetTabs(editor.tabs.map((t) => t.id));
   forgetGridMemory(editor.tabs.map((t) => t.id));
+  forgetGridEdits(editor.tabs.map((t) => t.id));
   // The last query tab closed: session-less runs go to another one, if any.
   if (useResultStore.getState().runTabId === null) {
     const fallback = editor.tabs.find((t) => t.type === "query");

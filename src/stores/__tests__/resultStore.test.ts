@@ -58,9 +58,15 @@ vi.mock("../settingsStore", () => ({
   },
 }));
 
+import { noteGridEdits, resetGridEdits } from "../../lib/unsaved-grid-edits";
 import type { EditorTab, QueryResult } from "../../types";
 import { useEditorStore } from "../editorStore";
+import { useProductionGuardStore } from "../productionGuardStore";
 import { anyTabExecuting, followEditorStore, useResultStore } from "../resultStore";
+
+// The grid's unsaved-edit counts are module state; one test's must not make
+// another's run ask first (#865).
+beforeEach(() => resetGridEdits());
 
 function makeExplainResponse(overrides: Partial<any> = {}) {
   return {
@@ -337,6 +343,40 @@ describe("resultStore", () => {
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
       expect(useResultStore.getState().page).toBeNull();
+    });
+  });
+
+  describe("unsaved grid edits (#865)", () => {
+    it("asks before a run would discard the tab's unsaved edits, and runs nothing if declined", async () => {
+      noteGridEdits("tab-1", 2);
+      const outcome = useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+      await vi.waitFor(() => expect(useProductionGuardStore.getState().pending).not.toBeNull());
+      expect(useProductionGuardStore.getState().pending?.message).toMatch(/2 unsaved change/);
+      useProductionGuardStore.getState().answer(false);
+
+      expect(await outcome).toEqual({ status: "cancelled" });
+      expect(executeQueryMock).not.toHaveBeenCalled();
+    });
+
+    it("runs once the user agrees to discard them", async () => {
+      noteGridEdits("tab-1", 1);
+      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      const outcome = useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+      await vi.waitFor(() => expect(useProductionGuardStore.getState().pending).not.toBeNull());
+      useProductionGuardStore.getState().answer(true);
+
+      expect((await outcome).status).toBe("succeeded");
+      expect(executeQueryMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not ask about another tab's edits", async () => {
+      noteGridEdits("tab-2", 3);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+      expect(useProductionGuardStore.getState().pending).toBeNull();
+      expect(executeQueryMock).toHaveBeenCalledTimes(1);
     });
   });
 
