@@ -13,6 +13,9 @@ vi.mock("../../../lib/tauri-api", () => ({
     getEvents: vi.fn(),
     executeQuery: vi.fn(async () => []),
     closeSession: vi.fn(async () => undefined),
+    sqliteGetTables: vi.fn(async () => [
+      { name: "notes", table_type: "table", row_count: 3, sql: "CREATE TABLE notes (id INTEGER)" },
+    ]),
   },
 }));
 
@@ -45,6 +48,7 @@ vi.mock("../../../stores/productionGuardStore", () => ({
   isProductionConnection: vi.fn(() => false),
 }));
 
+import { forgetConnectionKind, registerConnectionKind } from "../../../lib/datasource";
 import { runStatement } from "../../../lib/run-statement";
 import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
@@ -885,6 +889,36 @@ describe("SchemaTree menus (#293)", () => {
       item(shownMenus.at(-1) ?? [], "New Table…")?.onClick?.();
 
       expect(useEditorStore.getState().tabs[0]).toMatchObject({ type: "designer", database: "app_db" });
+    });
+  });
+
+  describe("Design Table (#889)", () => {
+    const openTableMenuOn = async (connectionId: string, database: string, table: string) => {
+      const user = userEvent.setup({ applyAccept: false });
+      render(<SchemaTree connectionId={connectionId} />);
+      await waitFor(() => screen.getByText(database));
+      await user.click(screen.getByText(database));
+      await user.click(screen.getByText("Tables"));
+      await waitFor(() => screen.getByText(table));
+      shownMenus.length = 0;
+      fireEvent.contextMenu(screen.getByText(table));
+      return shownMenus.at(-1) ?? [];
+    };
+
+    it("is offered on a MySQL table", async () => {
+      expect(item(await openTableMenuOn("conn-1", "app_db", "users"), "Design Table")).toBeDefined();
+    });
+
+    it("is not offered on a SQLite table, which the designer cannot alter", async () => {
+      registerConnectionKind("sqlite-1", "sqlite");
+      try {
+        const menu = await openTableMenuOn("sqlite-1", "main", "notes");
+        // The menu is the table's, not an empty one.
+        expect(item(menu, "View Structure")).toBeDefined();
+        expect(item(menu, "Design Table")).toBeUndefined();
+      } finally {
+        forgetConnectionKind("sqlite-1");
+      }
     });
   });
 
