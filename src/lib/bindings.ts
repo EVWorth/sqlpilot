@@ -177,6 +177,19 @@ export const commands = {
 	defaultRestoreOptions: () => typedError<RestoreOptions, string>(__TAURI_INVOKE("default_restore_options")),
 	readFileHead: (path: string, maxBytes: number) => typedError<FileHead, string>(__TAURI_INVOKE("read_file_head", { path, maxBytes })),
 	getPlatformInfo: () => typedError<PlatformInfo, string>(__TAURI_INVOKE("get_platform_info")),
+	/**
+	 *  Rebuild the native menu bar from the frontend's description of it.
+	 * 
+	 *  The frontend calls this whenever what the menu shows changes: the saved
+	 *  profiles, which are connected, whether an action can run. The description
+	 *  is validated on every platform, so a malformed one fails the same way
+	 *  everywhere, but only macOS has a native menu bar to rebuild; elsewhere the
+	 *  in-app menu bar renders the same list and this does nothing more.
+	 * 
+	 *  Synchronous on purpose: Tauri runs it on the main thread, where menus are
+	 *  built, so two calls in a row are applied in the order they were sent.
+	 */
+	setNativeMenu: (menus: NativeMenu[]) => typedError<null, string>(__TAURI_INVOKE("set_native_menu", { menus })),
 	/**  Record one executed statement, then trim to `limit`. */
 	historyAdd: (entry: HistoryEntry, limit: number) => typedError<HistoryEntry, string>(__TAURI_INVOKE("history_add", { entry, limit })),
 	historyList: (query: HistoryQuery) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_list", { query })),
@@ -1058,6 +1071,19 @@ export type IndexInfo = {
 	is_unique: boolean,
 	index_type: string,
 };
+
+/**  One menu in the menu bar, as the frontend describes it. */
+export type NativeMenu = {
+	label: string,
+	entries: NativeMenuEntry[],
+};
+
+/**  An entry in a menu: an action, a divider, or a nested menu. */
+export type NativeMenuEntry = 
+/**  Choosing it emits `menu-action` with `id`, as the in-app menu does. */
+{ type: "item"; id: string; label: string; 
+/**  Tauri's accelerator syntax, e.g. `CmdOrCtrl+Shift+F`. */
+accelerator: string | null; enabled: boolean } | { type: "separator" } | { type: "submenu"; label: string; enabled: boolean; entries: NativeMenuEntry[] };
 
 /**
  *  How this copy of SQLPilot was installed, which decides whether it may

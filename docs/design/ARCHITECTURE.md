@@ -516,6 +516,17 @@ How this build was installed and for which architecture. The updater needs it:
 an in-app update must not run against a Flatpak, Snap or rpm-ostree install
 (#343).
 
+```rust
+fn set_native_menu(menus: Vec<NativeMenu>) -> Result<(), String>;
+```
+
+Rebuilds the macOS menu bar from the frontend's description of it: the same
+`MENUS` and `ACTIONS` the in-app menu bar renders, with each action's enabled
+state and the saved profiles under Connection → Connect to (#863, #892).
+`useNativeMenu` sends it whenever that changes. The description is validated
+on every platform and applied only on macOS; the app starts with the static
+`default_menus()` until the window sends its own.
+
 ### 5.9 Admin Commands
 
 ```rust

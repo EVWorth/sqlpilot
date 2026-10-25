@@ -382,4 +382,6 @@ export const adminHandlers: Handlers = {
   // An AppImage: the one Linux format the updater handles itself, so the
   // update chip behaves normally in screenshots.
   get_platform_info: (): PlatformInfo => ({ package_format: "app_image", arch: "x86_64" }),
+  // The browser has no native menu bar; the in-app one renders the same list.
+  set_native_menu: () => null,
 };
