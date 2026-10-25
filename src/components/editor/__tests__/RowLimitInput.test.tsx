@@ -1,7 +1,8 @@
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { FOCUS_ROW_LIMIT_EVENT } from "../../../lib/truncation";
 import { RowLimitInput } from "../RowLimitInput";
 
 // The box edits a draft and stores it on blur or Enter, so it can be emptied
@@ -85,5 +86,18 @@ describe("RowLimitInput", () => {
 
     expect(onChange).not.toHaveBeenCalled();
     expect(input.value).toBe("1000");
+  });
+});
+
+// #853: the truncation banner's "Change LIMIT" lands in this box.
+describe("RowLimitInput focus request", () => {
+  it("takes focus when the banner asks", () => {
+    render(<RowLimitInput value={1000} onChange={vi.fn()} />);
+
+    act(() => {
+      window.dispatchEvent(new Event(FOCUS_ROW_LIMIT_EVENT));
+    });
+
+    expect(document.activeElement).toBe(screen.getByLabelText("Row limit"));
   });
 });

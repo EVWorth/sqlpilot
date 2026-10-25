@@ -245,7 +245,13 @@ export function EditorTabs() {
                 <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-brand-500" />
               )}
               {isProduction && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" title="Production" />}
-              {tab.isDirty && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" />}
+              {tab.isDirty && (
+                // Named, so the dot is not a mystery to a mouse or a screen
+                // reader (#853).
+                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-brand-400" title="Unsaved changes">
+                  <span className="sr-only">Unsaved changes</span>
+                </span>
+              )}
               {editingTabId === tab.id
                 ? (
                   <input

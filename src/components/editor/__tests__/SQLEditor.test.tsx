@@ -241,3 +241,23 @@ describe("SQLEditor", () => {
     expect(editor).toHaveAttribute("data-language", "sql");
   });
 });
+
+// #853: the suggestion widget stayed open over the editor after Ctrl+Enter.
+describe("SQLEditor run actions", () => {
+  it("close the suggestion list before running", async () => {
+    render(<SQLEditor />);
+    await waitFor(() => expect(mockSetEditorInstance).toHaveBeenCalled());
+    const editor = mockSetEditorInstance.mock.calls.at(-1)?.[0];
+    const action = editor.addAction.mock.calls.find((c: [{ id: string }]) => c[0].id === "execute-query")?.[0];
+
+    // The rest of the action reads stores this file mocks only in part; the
+    // widget is closed before any of that.
+    try {
+      action.run();
+    } catch {
+      // ignored
+    }
+
+    expect(editor.trigger).toHaveBeenCalledWith("run", "hideSuggestWidget", null);
+  });
+});

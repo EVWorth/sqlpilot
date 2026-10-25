@@ -18,6 +18,17 @@ describe("editorStore", () => {
   // old subscription may linger. For state-mutating tests we always start fresh.
 
   describe("addTab", () => {
+    // #853: every new tab was "Untitled Query".
+    it("numbers new query tabs, reusing the lowest free number", () => {
+      const a = useEditorStore.getState().addTab();
+      const b = useEditorStore.getState().addTab();
+      const titleOf = (id: string) => useEditorStore.getState().tabs.find((t) => t.id === id)?.title;
+      expect([titleOf(a), titleOf(b)]).toEqual(["Untitled-1", "Untitled-2"]);
+
+      useEditorStore.getState().closeTab(a);
+      expect(titleOf(useEditorStore.getState().addTab())).toBe("Untitled-1");
+    });
+
     it("should add a tab", () => {
       const id = useEditorStore.getState().addTab();
       expect(useEditorStore.getState().tabs).toHaveLength(1);
@@ -462,7 +473,7 @@ describe("editorStore", () => {
       const id2 = useEditorStore.getState().addTab();
       useEditorStore.getState().renameTab(id1, "New Title");
       const tab2 = useEditorStore.getState().tabs.find((t) => t.id === id2);
-      expect(tab2?.title).toBe("Untitled Query");
+      expect(tab2?.title).toBe("Untitled-2");
     });
   });
 

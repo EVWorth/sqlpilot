@@ -869,6 +869,15 @@ describe("resultStore", () => {
     });
   });
 
+  // #853: "Error: Query error: EXPLAIN supports a single statement".
+  it("reports an Explain failure without the doubled prefix", async () => {
+    explainQueryMock.mockRejectedValueOnce(new Error("EXPLAIN supports a single statement"));
+
+    await useResultStore.getState().executeExplain("conn-1", "SELECT 1; SELECT 2");
+
+    expect(useResultStore.getState().error).toBe("EXPLAIN supports a single statement");
+  });
+
   describe("cancelActiveQuery", () => {
     // #860: the previous plan stayed up, reading as the cancelled one's.
     it("clears the previous plan when the run cancelled is an Explain", async () => {

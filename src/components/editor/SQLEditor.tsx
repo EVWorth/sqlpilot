@@ -194,6 +194,8 @@ export function SQLEditor() {
           67,
         ],
         run: () => {
+          // The suggestion list would otherwise stay open over the results (#853).
+          editor.trigger("run", "hideSuggestWidget", null);
           const sql = sqlAtCursor(editor);
           const { connectionId, database, session } = activeTabContext();
           if (sql.trim() && connectionId) {
@@ -228,6 +230,8 @@ export function SQLEditor() {
           2048 | 1024 | 3,
         ],
         run: () => {
+          // The suggestion list would otherwise stay open over the results (#853).
+          editor.trigger("run", "hideSuggestWidget", null);
           const model = editor.getModel();
           const sql = model?.getValue() ?? "";
           const { connectionId, database, session } = activeTabContext();

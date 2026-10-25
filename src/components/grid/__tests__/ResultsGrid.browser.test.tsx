@@ -759,7 +759,7 @@ describe("ResultsGrid (browser)", () => {
     render(<ResultsGrid />);
 
     expect(screen.getByText(/row limit/)).toBeInTheDocument();
-    expect(screen.getByText(/Settings/)).toBeInTheDocument();
+    expect(screen.getByText(/LIMIT in the toolbar/)).toBeInTheDocument();
   });
 
   // ─── Warnings display ─────────────────────────────────────

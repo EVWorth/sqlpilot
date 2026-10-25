@@ -43,6 +43,19 @@ export function setPendingContentFlush(flush: (() => void) | null) {
   pendingContentFlush = flush;
 }
 
+/**
+ * "Untitled-N" for a new query tab, N the lowest number no open tab uses.
+ *
+ * Every new tab was "Untitled Query", so two could not be told apart
+ * (FR-2.1.3, #853).
+ */
+export function nextUntitledTitle(tabs: readonly EditorTab[]): string {
+  const used = new Set(tabs.map((t) => /^Untitled-(\d+)$/.exec(t.title)?.[1]).filter(Boolean).map(Number));
+  let n = 1;
+  while (used.has(n)) n++;
+  return `Untitled-${n}`;
+}
+
 interface EditorState {
   tabs: EditorTab[];
   activeTabId: string | null;
@@ -97,7 +110,7 @@ let tabCounter = restoredSession ? maxTabCounter(restoredSession.tabs) : 0;
 
 const initialTab: EditorTab = {
   id: "tab-0",
-  title: "Untitled Query",
+  title: "Untitled-1",
   content: "",
   connectionId: undefined,
   database: undefined,
@@ -143,7 +156,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return existing.id;
     }
     tabCounter++;
-    const tab = buildTab(`tab-${tabCounter}`, kind, params);
+    const built = buildTab(`tab-${tabCounter}`, kind, params);
+    const tab = kind === "query" ? { ...built, title: nextUntitledTitle(get().tabs) } : built;
     set((state) => ({ tabs: [...state.tabs, tab], activeTabId: tab.id }));
     return tab.id;
   },
@@ -176,10 +190,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       if (closing.type === "query" && state.tabs.filter((t) => t.type === "query").length <= 1) {
         tabCounter++;
-        const replacement = buildTab(`tab-${tabCounter}`, "query", {
-          connectionId: closing.connectionId,
-          database: closing.database,
-        });
+        const replacement = {
+          ...buildTab(`tab-${tabCounter}`, "query", {
+            connectionId: closing.connectionId,
+            database: closing.database,
+          }),
+          title: nextUntitledTitle(state.tabs.filter((t) => t.id !== id)),
+        };
         return {
           tabs: state.tabs.map((t) => (t.id === id ? replacement : t)),
           activeTabId: replacement.id,

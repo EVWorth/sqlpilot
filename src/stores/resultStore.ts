@@ -922,7 +922,8 @@ async function doExplain(
     // "cancelled" message the user just asked for.
     if (!isCurrent(run)) return;
     shown = true;
-    set({ error: String(e), isExecuting: tabBusy(run.tab, run) });
+    // The message alone: the box is titled as an error already (#853).
+    set({ error: e instanceof Error ? e.message : String(e), isExecuting: tabBusy(run.tab, run) });
   } finally {
     endExecution(run, shown);
   }

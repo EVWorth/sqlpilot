@@ -65,6 +65,8 @@ export function QueryToolbar() {
 
   const handleExecute = () => {
     if (!hookCanExecute) return;
+    // An open suggestion list would sit over the results (#853).
+    useEditorStore.getState().editorInstance?.trigger("run", "hideSuggestWidget", null);
     const sql = getCurrentSql();
     if (!sql.trim()) return;
     executeQuery(sql);
@@ -72,6 +74,7 @@ export function QueryToolbar() {
 
   const [explainOpen, setExplainOpen] = useState(false);
   const explainRef = useRef<HTMLDivElement>(null);
+  const explainToggleRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -82,6 +85,18 @@ export function QueryToolbar() {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // Escape closes the Explain menu, as it does any menu (#853).
+  useEffect(() => {
+    if (!explainOpen) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      setExplainOpen(false);
+      explainToggleRef.current?.focus();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [explainOpen]);
 
   const getCurrentSql = (): string => {
     const editorInstance = useEditorStore.getState().editorInstance;
@@ -175,8 +190,12 @@ export function QueryToolbar() {
             Explain
           </button>
           <button
+            ref={explainToggleRef}
             onClick={() => setExplainOpen((v) => !v)}
             disabled={!canExecute}
+            aria-label="Explain options"
+            aria-haspopup="menu"
+            aria-expanded={explainOpen}
             className="flex min-h-6 min-w-6 items-center justify-center rounded-r border border-l-0 border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-1 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <ChevronDown className="h-3 w-3" />
@@ -324,6 +343,7 @@ function RowLimit() {
             limitEnabled: !limitEnabled,
           })}
         title={limitEnabled ? "Disable row limit" : "Enable row limit"}
+        aria-pressed={limitEnabled}
         className={`flex items-center rounded px-1.5 py-1 text-xs transition-colors ${
           limitEnabled
             ? "bg-[var(--color-accent)] text-white"

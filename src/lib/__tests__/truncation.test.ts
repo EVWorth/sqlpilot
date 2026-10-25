@@ -15,7 +15,9 @@ describe("truncationMessage", () => {
   it("names the row limit, and where to change it, when that was the cap", () => {
     const msg = truncationMessage(1000, "row_limit");
     expect(msg).toContain("row limit");
-    expect(msg).toContain("Settings");
+    // The toolbar's LIMIT box, not Settings (#853).
+    expect(msg).toContain("LIMIT in the toolbar");
+    expect(msg).not.toContain("Settings");
   });
 
   it("claims nothing about why when the reason is absent", () => {

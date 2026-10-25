@@ -110,6 +110,14 @@ describe("EditorTabs", () => {
     expect(mockConfirmPendingClose).toHaveBeenCalled();
   });
 
+  // #853: the unsaved dot had no label or tooltip.
+  it("names the unsaved-changes dot", () => {
+    render(<EditorTabs />);
+
+    expect(screen.getByTitle("Unsaved changes")).toBeInTheDocument();
+    expect(screen.getByText("Unsaved changes")).toHaveClass("sr-only");
+  });
+
   it("shows no prompt when nothing is waiting", () => {
     render(<EditorTabs />);
     expect(screen.queryByText("Discard and close")).not.toBeInTheDocument();
