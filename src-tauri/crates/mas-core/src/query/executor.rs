@@ -1,28 +1,29 @@
 use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
-use crate::query::in_flight::InFlightTracker;
+use crate::query::in_flight::{InFlightMap, InFlightTicket, InFlightTracker};
 use crate::query::redact::{redact_credentials, redacted_preview, LOG_PREVIEW_CHARS};
 use dashmap::DashMap;
 use futures::StreamExt;
 use sqlx::{AssertSqlSafe, Column, Either, Row, TypeInfo};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
 pub struct QueryExecutor {
     connection_manager: Arc<ConnectionManager>,
-    /// Server thread id -> the connection it belongs to, for every statement
+    /// `(connection id, server thread id)` -> the route, for every statement
     /// batch currently running. Cancelling or timing out means issuing `KILL
     /// QUERY` against that thread from a *second* pool connection — dropping
     /// the future on this side would leave the server churning (#420).
     ///
-    /// Keyed by thread id rather than by connection because several statements
+    /// Keyed by thread id as well as connection because several statements
     /// can be in flight on one connection at once: a dozen callers reach the
     /// executor without going through the editor's single-query gate. Keying by
     /// connection let the shorter one's completion deregister the longer one,
     /// and let a timeout kill whichever thread happened to be registered last.
-    in_flight: Arc<DashMap<u64, (String, Route)>>,
+    /// And by connection as well as thread id because a thread id is unique
+    /// only within one server (#901).
+    in_flight: InFlightMap,
     /// How little free RAM stops a fetch, in MB.
     ///
     /// A field rather than a literal inside MemoryGuard because the block that
@@ -35,25 +36,6 @@ pub struct QueryExecutor {
 /// The free-RAM floor a fetch stops at. Below this, holding more rows risks
 /// taking the process down with the answer still unwritten.
 pub const DEFAULT_MEMORY_FLOOR_MB: u64 = 512;
-
-/// Deregisters this execution's thread however it ends — normal return, `?` on
-/// a decode error, or an early return on timeout.
-///
-/// Holds the id in a shared cell because it is only known once the server has
-/// answered the prelude, which is after the guard has to exist.
-struct InFlightGuard {
-    in_flight: Arc<DashMap<u64, (String, Route)>>,
-    thread_id: Arc<AtomicU64>,
-}
-
-impl Drop for InFlightGuard {
-    fn drop(&mut self) {
-        let id = self.thread_id.load(Ordering::Relaxed);
-        if id != 0 {
-            self.in_flight.remove(&id);
-        }
-    }
-}
 
 impl QueryExecutor {
     pub fn new(connection_manager: Arc<ConnectionManager>) -> Self {
@@ -93,17 +75,7 @@ impl QueryExecutor {
     /// work the caller never asked to stop.
     #[tracing::instrument(skip(self))]
     pub async fn cancel(&self, connection_id: &str, scope: CancelScope) -> Result<(), CoreError> {
-        let thread_ids = threads_to_cancel(
-            self.in_flight.iter().map(|entry| {
-                (
-                    *entry.key(),
-                    entry.value().0.clone(),
-                    entry.value().1.clone(),
-                )
-            }),
-            connection_id,
-            &scope,
-        );
+        let thread_ids = threads_to_cancel(in_flight_rows(&self.in_flight), connection_id, &scope);
         if thread_ids.is_empty() {
             tracing::debug!(
                 connection_id,
@@ -341,11 +313,11 @@ impl QueryExecutor {
         let mut timed_out = false;
 
         // Zero means "not yet known"; a real MySQL thread id is never zero.
-        let my_thread_id = Arc::new(AtomicU64::new(0));
-        let _guard = InFlightGuard {
-            in_flight: Arc::clone(&self.in_flight),
-            thread_id: Arc::clone(&my_thread_id),
-        };
+        let mut my_thread_id: u64 = 0;
+        // Deregisters this batch's thread however it ends: normal return, `?`
+        // on a decode error, or an early return on timeout. Declared before
+        // the stream so it outlives it; the stream holds the connection.
+        let mut _in_flight: Option<InFlightTicket> = None;
 
         let mut stream = sqlx::raw_sql(AssertSqlSafe(combined_sql)).fetch_many(&pool);
         let mut results = Vec::new();
@@ -402,8 +374,8 @@ impl QueryExecutor {
                                 .in_flight
                                 .iter()
                                 .filter(|entry| {
-                                    let (conn, in_route) = entry.value();
-                                    conn == &connection_id && *in_route == Route::Interactive
+                                    entry.key().0 == connection_id
+                                        && entry.value().route == Route::Interactive
                                 })
                                 .count();
                             // Only a pool actually holding connections has run
@@ -449,10 +421,9 @@ impl QueryExecutor {
                     // cancel/timeout can reach this thread.
                     if stmt_idx == -(prelude_count as isize) {
                         if let Ok(thread_id) = row.try_get::<u64, _>(0) {
-                            my_thread_id.store(thread_id, Ordering::Relaxed);
-                            self.in_flight
-                                .insert(thread_id, (connection_id.clone(), route.clone()));
-                            tracing::debug!(connection_id = %connection_id, thread_id, "Query in flight");
+                            my_thread_id = thread_id;
+                            _in_flight =
+                                Some(self.tracker().register(thread_id, &connection_id, &route));
                         }
                     }
                     // Result-set row — accumulate until the trailing Left.
@@ -670,7 +641,7 @@ impl QueryExecutor {
             //
             // Reading on gives sqlx the server's "query interrupted" error,
             // which ends the stream properly and returns the connection.
-            let thread_id = my_thread_id.load(Ordering::Relaxed);
+            let thread_id = my_thread_id;
             if thread_id != 0 {
                 if let Err(e) = kill_query(&pool, thread_id).await {
                     tracing::warn!(error = %e, thread_id, "Failed to kill timed-out query");
@@ -1191,6 +1162,17 @@ pub enum CancelScope {
     Agent(String),
 }
 
+/// The in-flight table as `(thread id, connection id, route)` rows.
+fn in_flight_rows(in_flight: &InFlightMap) -> Vec<(u64, String, Route)> {
+    in_flight
+        .iter()
+        .map(|entry| {
+            let (conn, thread_id) = entry.key();
+            (*thread_id, conn.clone(), entry.value().route.clone())
+        })
+        .collect()
+}
+
 /// The server threads a cancel should kill, from `(thread id, connection id,
 /// route)` for every statement in flight on any connection.
 fn threads_to_cancel(
@@ -1238,6 +1220,31 @@ mod tests {
 
     fn session(tab: &str) -> CancelScope {
         CancelScope::Session(tab.to_string())
+    }
+
+    #[test]
+    fn the_same_thread_id_on_two_servers_is_cancelled_separately() {
+        // Thread ids are unique per server, not across servers (#901).
+        let table: InFlightMap = Arc::new(DashMap::new());
+        let tracker = InFlightTracker::new(Arc::clone(&table));
+        let on_c1 = tracker.register(7, "c1", &Route::Interactive);
+        let on_c2 = tracker.register(7, "c2", &Route::Interactive);
+
+        // Each connection's cancel finds its own thread 7.
+        let rows = in_flight_rows(&table);
+        assert_eq!(
+            threads_to_cancel(rows.clone(), "c1", &CancelScope::All),
+            vec![7]
+        );
+        assert_eq!(threads_to_cancel(rows, "c2", &CancelScope::All), vec![7]);
+
+        // One finishing leaves the other within reach of its cancel.
+        drop(on_c1);
+        let rows = in_flight_rows(&table);
+        assert!(threads_to_cancel(rows.clone(), "c1", &CancelScope::All).is_empty());
+        assert_eq!(threads_to_cancel(rows, "c2", &CancelScope::All), vec![7]);
+        drop(on_c2);
+        assert!(table.is_empty());
     }
 
     #[test]
