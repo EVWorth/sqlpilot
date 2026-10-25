@@ -1,5 +1,6 @@
 import { useConnectionStore } from "../stores/connectionStore";
 import { useEditorStore } from "../stores/editorStore";
+import { useTransactionStore } from "../stores/transactionStore";
 import type { EditorTab } from "../types";
 import { api } from "./tauri-api";
 
@@ -70,6 +71,8 @@ function closeStale() {
     const connections = open.get(tabId);
     connections?.delete(connectionId);
     if (connections?.size === 0) open.delete(tabId);
+    // Ending the session rolls back whatever it had open (#843).
+    useTransactionStore.getState().setOpen(tabId, false);
     // A connection already gone has taken its sessions with it; nothing here
     // is worth interrupting the user over.
     void api.closeSession(connectionId, tabId).catch((e) => {

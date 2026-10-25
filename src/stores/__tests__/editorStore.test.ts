@@ -60,6 +60,19 @@ describe("editorStore", () => {
       expect(useEditorStore.getState().pendingClose).toBeNull();
     });
 
+    it("asks before closing a tab whose session has a transaction open, even with no SQL", async () => {
+      const { useTransactionStore } = await import("../transactionStore");
+      const a = useEditorStore.getState().addTab();
+      useEditorStore.getState().addTab();
+      useTransactionStore.getState().setOpen(a, true);
+
+      useEditorStore.getState().requestClose("close", a);
+
+      expect(useEditorStore.getState().pendingClose?.inTransaction.map((t) => t.id)).toEqual([a]);
+      expect(useEditorStore.getState().tabs.some((t) => t.id === a)).toBe(true);
+      useTransactionStore.getState().setOpen(a, false);
+    });
+
     it("keeps the tab when the user cancels", () => {
       const a = useEditorStore.getState().addTab();
       useEditorStore.getState().updateTabContent(a, "SELECT 1");

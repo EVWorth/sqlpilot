@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PendingClose } from "../../../stores/editorStore";
+import { useTransactionStore } from "../../../stores/transactionStore";
 import { EditorTabs } from "../EditorTabs";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -107,6 +108,30 @@ describe("EditorTabs", () => {
 
     expect(screen.getByText("Close tab with unsaved SQL?")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Discard and close"));
+    expect(mockConfirmPendingClose).toHaveBeenCalled();
+  });
+
+  // #843: nothing said a tab's session held an open transaction.
+  it("marks a tab whose session has a transaction open", () => {
+    useTransactionStore.setState({ open: { "tab-1": true } });
+    render(<EditorTabs />);
+
+    expect(screen.getByTitle(/Transaction open/)).toBeInTheDocument();
+    useTransactionStore.setState({ open: {} });
+  });
+
+  it("says a close rolls back an open transaction", () => {
+    currentPendingClose = {
+      kind: "close",
+      targetId: "tab-1",
+      atRisk: [currentTabs[1]],
+      inTransaction: [currentTabs[1]],
+    };
+    render(<EditorTabs />);
+
+    expect(screen.getByText("Close tab with an open transaction?")).toBeInTheDocument();
+    expect(screen.getByText(/rolls back everything not committed/)).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Roll back and close"));
     expect(mockConfirmPendingClose).toHaveBeenCalled();
   });
 

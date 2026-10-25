@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let connSelId: string | null = "conn-1";
 let connActive: any[] = [
@@ -15,6 +15,7 @@ let connActive: any[] = [
   },
 ];
 
+import { useTransactionStore } from "../../../stores/transactionStore";
 import { QueryToolbar } from "../QueryToolbar";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -248,6 +249,27 @@ describe("QueryToolbar", () => {
     render(<QueryToolbar />);
     fireEvent.click(screen.getByText("Run"));
     expect(mockEditorInstance.trigger).toHaveBeenCalledWith("run", "hideSuggestWidget", null);
+  });
+
+  // #843: an open transaction was visible nowhere.
+  describe("transaction indicator", () => {
+    afterEach(() => useTransactionStore.setState({ open: {} }));
+
+    it("shows nothing when no transaction is open", () => {
+      render(<QueryToolbar />);
+      expect(screen.queryByText("Transaction open")).toBeNull();
+    });
+
+    it("offers Commit and Rollback on the tab's session when one is", () => {
+      useTransactionStore.setState({ open: { "tab-0": true } });
+      render(<QueryToolbar />);
+
+      expect(screen.getByText("Transaction open")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Commit" }));
+      expect(mockExecuteQuery).toHaveBeenCalledWith("COMMIT");
+      fireEvent.click(screen.getByRole("button", { name: "Rollback" }));
+      expect(mockExecuteQuery).toHaveBeenCalledWith("ROLLBACK");
+    });
   });
 
   describe("accessible state (#853)", () => {

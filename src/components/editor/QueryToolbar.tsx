@@ -20,6 +20,7 @@ import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
+import { useTransactionStore } from "../../stores/transactionStore";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
 import { RowLimitInput } from "./RowLimitInput";
@@ -58,6 +59,8 @@ export function QueryToolbar() {
   } = useQueryExecution();
 
   const cancelActiveQuery = useResultStore((s) => s.cancelActiveQuery);
+  // The tab's session is inside a transaction (#843).
+  const transactionOpen = useTransactionStore((s) => (activeTabId ? Boolean(s.open[activeTabId]) : false));
 
   const activeConnection = activeConnections.find(
     (c) => c.id === selectedConnectionId,
@@ -226,6 +229,29 @@ export function QueryToolbar() {
           </div>
         )}
       </div>
+
+      {transactionOpen && (
+        <div
+          role="status"
+          className="flex items-center gap-1 rounded border edge-warning surface-warning px-1.5 py-0.5 text-[11px] text-[var(--color-warning)]"
+        >
+          <span className="font-medium">Transaction open</span>
+          <button
+            onClick={() => void executeQuery("COMMIT")}
+            disabled={isExecuting}
+            className="rounded px-1.5 py-0.5 font-medium underline-offset-2 hover:underline disabled:opacity-40"
+          >
+            Commit
+          </button>
+          <button
+            onClick={() => void executeQuery("ROLLBACK")}
+            disabled={isExecuting}
+            className="rounded px-1.5 py-0.5 font-medium underline-offset-2 hover:underline disabled:opacity-40"
+          >
+            Rollback
+          </button>
+        </div>
+      )}
 
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
 

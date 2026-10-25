@@ -76,6 +76,7 @@ import type { EditorTab, QueryResult } from "../../types";
 import { useEditorStore } from "../editorStore";
 import { useProductionGuardStore } from "../productionGuardStore";
 import { anyTabExecuting, followEditorStore, resetRunBookkeeping, useResultStore } from "../resultStore";
+import { useTransactionStore } from "../transactionStore";
 
 // Module state outside the store: the grid's unsaved-edit counts (#865) and
 // the runs in flight (#867). One test's must not leak into the next.
@@ -1146,6 +1147,46 @@ describe("resultStore", () => {
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({ status: "error", connectionName: "Test DB" }),
       );
+    });
+  });
+
+  describe("transaction state per tab (#843)", () => {
+    beforeEach(() => useTransactionStore.setState({ open: {} }));
+    const open = () => Boolean(useTransactionStore.getState().open["tab-1"]);
+
+    it("is open after BEGIN on the tab's session, and closed after COMMIT", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN" })]);
+      await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
+      expect(open()).toBe(true);
+
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "UPDATE t SET a = 1" })]);
+      await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
+      expect(open()).toBe(true);
+
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "COMMIT" })]);
+      await useResultStore.getState().executeQuery("conn-1", "COMMIT", undefined, "tab-1");
+      expect(open()).toBe(false);
+    });
+
+    it("takes the backend's answer over the statements when it gives one", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "UPDATE t SET a = 1", transaction: "open" })]);
+      await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
+
+      expect(open()).toBe(true);
+    });
+
+    it("counts the statements before a failure", async () => {
+      executeQueryMock.mockRejectedValue(new CommandError("nope", { statementIndex: 1 }));
+      await useResultStore.getState().executeQuery("conn-1", "BEGIN; UPDATE nope SET a = 1;", undefined, "tab-1");
+
+      expect(open()).toBe(true);
+    });
+
+    it("tracks nothing for a run off the tab's session", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN" })]);
+      await useResultStore.getState().executeQuery("conn-1", "BEGIN");
+
+      expect(useTransactionStore.getState().open).toEqual({});
     });
   });
 

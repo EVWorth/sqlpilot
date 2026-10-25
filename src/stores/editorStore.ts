@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { loadSession, maxTabCounter, saveSession } from "../lib/editor-session";
 import { buildTab, findOpenTab, type TabKind, type TabParams } from "../lib/tab-kinds";
 import type { EditorTab, RoutineKind } from "../types";
+import { hasOpenTransaction } from "./transactionStore";
 
 /** Which close command is waiting on the user (#843). */
 export type CloseKind = "close" | "others" | "right";
@@ -13,6 +14,11 @@ export interface PendingClose {
   targetId: string;
   /** The tabs it would close that hold work, for the prompt to name. */
   atRisk: EditorTab[];
+  /**
+   * Those of them whose session has a transaction open, which closing rolls
+   * back (#843). Also listed in `atRisk`.
+   */
+  inTransaction: EditorTab[];
 }
 
 /** The tabs a close command would remove. */
@@ -126,9 +132,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   requestClose: (kind, id) => {
     pendingContentFlush?.();
-    const atRisk = tabsClosedBy(get().tabs, kind, id).filter(holdsUnsavedWork);
+    const closing = tabsClosedBy(get().tabs, kind, id);
+    // An open transaction is work too: closing the tab ends its session,
+    // which rolls the transaction back (#843).
+    const inTransaction = closing.filter((t) => hasOpenTransaction(t.id));
+    const atRisk = closing.filter((t) => holdsUnsavedWork(t) || hasOpenTransaction(t.id));
     if (atRisk.length > 0) {
-      set({ pendingClose: { kind, targetId: id, atRisk } });
+      set({ pendingClose: { kind, targetId: id, atRisk, inTransaction } });
       return;
     }
     runClose(get(), kind, id);

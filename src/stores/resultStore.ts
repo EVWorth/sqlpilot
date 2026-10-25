@@ -7,6 +7,7 @@ import { noteSession } from "../lib/server-sessions";
 import { splitSqlStatements } from "../lib/sql-import";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
+import { transactionAfter } from "../lib/transaction-tracking";
 import { forgetGridEdits, gridEditsIn } from "../lib/unsaved-grid-edits";
 import type { EditorTab, QueryResult } from "../types";
 import { useConnectionStore } from "./connectionStore";
@@ -14,6 +15,7 @@ import { useEditorStore } from "./editorStore";
 import { useHistoryStore } from "./historyStore";
 import { isProductionConnection, useProductionGuardStore } from "./productionGuardStore";
 import { useSettingsStore } from "./settingsStore";
+import { hasOpenTransaction, useTransactionStore } from "./transactionStore";
 
 /**
  * What the pending confirmation would run if approved. `explain-analyze` is
@@ -997,6 +999,7 @@ async function doExecuteQuery(
     if (!paging) {
       recordSuccess(results, sql, connectionId, connectionName, effectiveDatabase, startTime, conn === undefined);
     }
+    if (session && source.kind === "mysql") noteTransaction(session, sql, results);
 
     if (!isCurrent(run)) return run.cancelled ? { status: "cancelled" } : { status: "succeeded", results };
 
@@ -1047,6 +1050,11 @@ async function doExecuteQuery(
     // The driver's code and SQLSTATE ride along where it supplied them, so
     // the history panel can say which failure this was (#324).
     const structured = e instanceof CommandError ? e : undefined;
+    // The statements before the failing one ran, BEGIN included (#843).
+    if (session && structured?.statementIndex !== undefined && connectionKind(connectionId) === "mysql") {
+      const ran = splitSqlStatements(sql).slice(0, structured.statementIndex);
+      useTransactionStore.getState().setOpen(session, transactionAfter(ran, hasOpenTransaction(session)));
+    }
     if (conn) {
       void useHistoryStore.getState().addEntry({
         id: crypto.randomUUID(),
@@ -1091,6 +1099,25 @@ async function doExecuteQuery(
   } finally {
     endExecution(run, shown);
   }
+}
+
+/**
+ * Record whether the tab's session is inside a transaction after a run (#843).
+ *
+ * Read from the result when the backend reports it (a `transaction` field of
+ * "open" or "none" on the last result, the shape `apply_grid_edits` already
+ * uses); until then, inferred from the statements that ran.
+ */
+function noteTransaction(session: string, sql: string, results: QueryResult[]) {
+  const reported: unknown = (results[results.length - 1] as { transaction?: unknown } | undefined)?.transaction;
+  if (reported === "open" || reported === "none") {
+    useTransactionStore.getState().setOpen(session, reported === "open");
+    return;
+  }
+  const statements = results.length > 0 && results.every((r) => r.sql)
+    ? results.map((r) => r.sql)
+    : splitSqlStatements(sql);
+  useTransactionStore.getState().setOpen(session, transactionAfter(statements, hasOpenTransaction(session)));
 }
 
 /** Which statement of `sql` the error names, when it names one (#845). */
