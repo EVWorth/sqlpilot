@@ -380,6 +380,7 @@ fn stage_slow_delete(
                 connection_id: &id,
                 route: &route,
             }),
+            None,
         )
         .await
     })

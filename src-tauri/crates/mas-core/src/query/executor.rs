@@ -651,10 +651,7 @@ impl QueryExecutor {
             drop(stream);
             let secs = query_timeout.map(|d| d.as_secs()).unwrap_or(0);
             tracing::warn!(connection_id = %connection_id, timeout_secs = secs, "Query timed out");
-            return Err(CoreError::Timeout(format!(
-                "Query exceeded the {}s timeout for this connection and was cancelled",
-                secs
-            )));
+            return Err(timeout_error(secs));
         }
 
         // If memory guard triggered mid-stream, process accumulated rows for current statement
@@ -682,12 +679,19 @@ impl QueryExecutor {
     }
 }
 
+/// What a statement stopped at the connection's query timeout reports.
+pub(crate) fn timeout_error(timeout_secs: u64) -> CoreError {
+    CoreError::Timeout(format!(
+        "Query exceeded the {timeout_secs}s timeout for this connection and was cancelled"
+    ))
+}
+
 /// How long to keep reading a killed statement's stream before giving up.
 ///
 /// The server answers a `KILL QUERY` almost at once, so this is not a wait so
 /// much as a bound: a server that says nothing costs one grace period rather
 /// than a connection that never comes back.
-const DRAIN_AFTER_KILL: std::time::Duration = std::time::Duration::from_secs(5);
+pub(crate) const DRAIN_AFTER_KILL: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Read a killed statement's stream to its end.
 ///
@@ -721,7 +725,7 @@ async fn drain_after_kill(
 /// This needs a connection of its own — the one being killed is busy — so a
 /// pool of one connection cannot cancel. That surfaces as an acquire timeout
 /// rather than a hang.
-async fn kill_query(pool: &sqlx::MySqlPool, thread_id: u64) -> Result<(), CoreError> {
+pub(crate) async fn kill_query(pool: &sqlx::MySqlPool, thread_id: u64) -> Result<(), CoreError> {
     // thread_id is a u64 read back from the server, not user input.
     sqlx::query(AssertSqlSafe(format!("KILL QUERY {}", thread_id)))
         .execute(pool)

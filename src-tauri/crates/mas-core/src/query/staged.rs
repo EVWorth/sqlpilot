@@ -27,6 +27,7 @@ use sqlx::{AssertSqlSafe, Connection, MySqlConnection};
 
 use crate::connection::Route;
 use crate::error::CoreError;
+use crate::query::executor::{kill_query, timeout_error, DRAIN_AFTER_KILL};
 use crate::query::in_flight::InFlightTracker;
 use crate::query::statement::{effective_verb, is_write_statement};
 use crate::schema::ident::quote_ident;
@@ -94,19 +95,27 @@ impl StagedWrite {
     /// what is checked here is only what this module can honour — a schema
     /// change cannot be staged, whatever anybody decided about it.
     ///
-    /// No cancel reaches the statement while it runs; [`begin_in`](Self::begin_in)
-    /// is the one that can be stopped.
+    /// No cancel reaches the statement while it runs and no timeout bounds
+    /// it; [`begin_in`](Self::begin_in) is the one that can be stopped.
     pub async fn begin(
         pool: &sqlx::MySqlPool,
         database: Option<&str>,
         sql: &str,
         deadline: Duration,
     ) -> Result<Self, StageError> {
-        Self::begin_in(pool, database, sql, deadline, None).await
+        Self::begin_in(pool, database, sql, deadline, None, None).await
     }
 
     /// [`begin`](Self::begin), with the statement registered under `reach`
-    /// while it runs.
+    /// while it runs and stopped at `timeout`.
+    ///
+    /// `timeout` is the connection's query timeout, applied as the executor
+    /// applies it: when it passes, the statement is killed with `KILL QUERY`
+    /// from a second connection of `pool`, and this returns the executor's
+    /// timeout error. Without it a long staged write nobody cancelled ran
+    /// unbounded, holding its connection and its locks (#902). It bounds the
+    /// statement only, not the wait for the user's answer, which `deadline`
+    /// bounds.
     ///
     /// A staged write runs on a connection of its own rather than through the
     /// executor, so without this a cancel — the agent panel's Stop, or
@@ -120,6 +129,7 @@ impl StagedWrite {
         sql: &str,
         deadline: Duration,
         reach: Option<CancelReach<'_>>,
+        timeout: Option<Duration>,
     ) -> Result<Self, StageError> {
         let verb = effective_verb(sql);
         if is_ddl(&verb) {
@@ -169,10 +179,72 @@ impl StagedWrite {
             },
             None => None,
         };
-        let result = sqlx::raw_sql(AssertSqlSafe(sql.to_string()))
-            .execute(&mut connection)
-            .await;
+        // The thread a timeout kills. The ticket already knows it; without
+        // one, ask, but only when there is a timeout to need it.
+        let thread_id = match (&ticket, timeout) {
+            (Some(ticket), _) => Some(ticket.thread_id()),
+            (None, Some(_)) => {
+                match sqlx::query_as::<_, (u64,)>("SELECT CONNECTION_ID()")
+                    .fetch_one(&mut connection)
+                    .await
+                {
+                    Ok((id,)) => Some(id),
+                    Err(e) => {
+                        let _ = sqlx::raw_sql(AssertSqlSafe("ROLLBACK".to_string()))
+                            .execute(&mut connection)
+                            .await;
+                        let _ = connection.close().await;
+                        return Err(StageError::Failed(CoreError::Query(format!(
+                            "Could not read the connection's id: {e}"
+                        ))));
+                    }
+                }
+            }
+            (None, None) => None,
+        };
+
+        let mut timed_out = false;
+        let result = {
+            let statement = sqlx::raw_sql(AssertSqlSafe(sql.to_string())).execute(&mut connection);
+            tokio::pin!(statement);
+            match timeout {
+                None => statement.await,
+                Some(limit) => match tokio::time::timeout(limit, &mut statement).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        // Kill, then let the statement finish with the
+                        // server's "interrupted" error, as the executor does:
+                        // dropping it mid-read leaves the connection with
+                        // packets nobody reads (#658).
+                        timed_out = true;
+                        if let Some(thread_id) = thread_id {
+                            if let Err(e) = kill_query(pool, thread_id).await {
+                                tracing::warn!(error = %e, thread_id, "Failed to kill timed-out staged write");
+                            }
+                        }
+                        match tokio::time::timeout(DRAIN_AFTER_KILL, &mut statement).await {
+                            Ok(result) => result,
+                            Err(_) => Err(sqlx::Error::Protocol(
+                                "the killed statement did not end".to_string(),
+                            )),
+                        }
+                    }
+                },
+            }
+        };
         drop(ticket);
+
+        if timed_out {
+            // Whatever the statement managed before the kill is undone: a
+            // write stopped by its timeout is not one to offer for commit.
+            let _ = sqlx::raw_sql(AssertSqlSafe("ROLLBACK".to_string()))
+                .execute(&mut connection)
+                .await;
+            let _ = connection.close().await;
+            let secs = timeout.map(|d| d.as_secs()).unwrap_or(0);
+            tracing::warn!(timeout_secs = secs, "Staged write timed out");
+            return Err(StageError::Failed(timeout_error(secs)));
+        }
 
         match result {
             Ok(done) => Ok(Self {
