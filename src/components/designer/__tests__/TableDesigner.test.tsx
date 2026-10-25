@@ -120,13 +120,13 @@ describe("TableDesigner", () => {
         <TableDesigner connectionId="conn-1" database="testdb" />,
       );
       fireEvent.click(screen.getByText("Add Column"));
-      const initialCount = screen.getAllByRole("button").length;
-      // Find the trash button in the last column row
-      const trashButtons = screen.getAllByRole("button").filter(
-        (btn) => btn.querySelector("svg") && btn.innerHTML.includes("lucide-trash"),
-      );
-      // Just verify we can see the buttons
-      expect(trashButtons.length).toBeGreaterThanOrEqual(0);
+      const before = screen.getAllByPlaceholderText("column_name").length;
+      const trashButtons = screen.getAllByRole("button", { name: /^Remove column/ });
+      expect(trashButtons).toHaveLength(before);
+
+      fireEvent.click(trashButtons[trashButtons.length - 1]);
+
+      expect(screen.getAllByPlaceholderText("column_name")).toHaveLength(before - 1);
     });
 
     it("shows Options tab with engine, charset, collation selects", () => {

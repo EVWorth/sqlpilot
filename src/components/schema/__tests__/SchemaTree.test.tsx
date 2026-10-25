@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SchemaTree } from "../SchemaTree";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -124,6 +124,17 @@ function setupStores(overrides: Partial<{
   useResultStore.setState({ isExecuting: false, results: [], activeResultIndex: 0, error: null } as any);
   useSettingsStore.setState({ querySettings: { maxResultRows: 1000, limitEnabled: true } } as any);
 }
+
+/**
+ * The real action, captured before any test replaces it. A few tests swap
+ * `executeQuery` for a mock to see what a menu item runs; without putting it
+ * back, every later test ran against that mock (#890).
+ */
+const realExecuteQuery = useResultStore.getState().executeQuery;
+
+afterEach(() => {
+  useResultStore.setState({ executeQuery: realExecuteQuery });
+});
 
 beforeEach(() => {
   vi.clearAllMocks();
