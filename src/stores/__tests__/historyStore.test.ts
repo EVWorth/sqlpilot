@@ -381,6 +381,53 @@ describe("historyStore", () => {
     });
   });
 
+  describe("removeEntry counts (#887)", () => {
+    it("lowers the match count and re-reads the facets", async () => {
+      useHistoryStore.setState({
+        entries: [entry({ id: "a", connectionName: "Local dev" }), entry({ id: "b" })],
+        matchCount: 37,
+        facets: { connectionNames: ["Local dev", "Test Connection"], databases: ["test"], origins: ["editor"] },
+      });
+      const after = { connectionNames: ["Test Connection"], databases: ["test"], origins: ["editor"] };
+      historyFacets.mockResolvedValue(after);
+
+      await useHistoryStore.getState().removeEntry("a");
+
+      const state = useHistoryStore.getState();
+      expect(state.matchCount).toBe(36);
+      expect(state.facets).toEqual(after);
+    });
+
+    it("leaves the count alone for an id that is not loaded", async () => {
+      useHistoryStore.setState({ entries: [entry({ id: "a" })], matchCount: 5 });
+
+      await useHistoryStore.getState().removeEntry("zzz");
+
+      expect(useHistoryStore.getState().matchCount).toBe(5);
+    });
+
+    it("never takes the count below zero", async () => {
+      useHistoryStore.setState({ entries: [entry({ id: "a" })], matchCount: 0 });
+
+      await useHistoryStore.getState().removeEntry("a");
+
+      expect(useHistoryStore.getState().matchCount).toBe(0);
+    });
+
+    it("puts the count and facets back when the delete fails", async () => {
+      const facets = { connectionNames: ["Local dev"], databases: ["shop"], origins: ["editor"] };
+      useHistoryStore.setState({ entries: [entry({ id: "a" })], matchCount: 37, facets });
+      historyRemove.mockRejectedValue(new Error("locked"));
+
+      await useHistoryStore.getState().removeEntry("a");
+
+      const state = useHistoryStore.getState();
+      expect(state.matchCount).toBe(37);
+      expect(state.facets).toEqual(facets);
+      expect(historyFacets).not.toHaveBeenCalled();
+    });
+  });
+
   describe("retention limit (#323)", () => {
     it("defaults to 500", () => {
       expect(DEFAULT_HISTORY_LIMIT).toBe(500);
