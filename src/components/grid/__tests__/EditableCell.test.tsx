@@ -204,3 +204,14 @@ describe("EditableCell", () => {
     expect(container.firstElementChild).toHaveClass("border-l-2", "edge-warning");
   });
 });
+
+// #784: the boolean cell's NULL toggle was focusable but stayed invisible on
+// keyboard focus.
+describe("EditableCell NULL toggle", () => {
+  it("becomes visible on keyboard focus", () => {
+    render(<EditableCell value={1} dataType="tinyint(1)" isEdited={false} onCommit={vi.fn()} />);
+
+    const toggle = screen.getByRole("button", { name: "Set NULL" });
+    expect(toggle.className).toContain("focus-visible:opacity-100");
+  });
+});

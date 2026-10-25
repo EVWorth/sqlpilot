@@ -163,8 +163,11 @@ export function EditableCell({
         />
         <button
           onClick={toggleNull}
-          className="ml-auto text-[9px] text-[var(--color-text-muted)] opacity-0 hover:opacity-100 group-hover:opacity-60"
+          // Shown on keyboard focus too: it is a Tab stop, and an invisible one
+          // left keyboard users on a control they could not see (#784).
+          className="ml-auto text-[9px] text-[var(--color-text-muted)] opacity-0 hover:opacity-100 focus-visible:opacity-100 group-hover:opacity-60"
           title={value === null ? "Set value" : "Set NULL"}
+          aria-label={value === null ? "Set value" : "Set NULL"}
         >
           {value === null ? "∅" : "N"}
         </button>
