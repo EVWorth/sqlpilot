@@ -138,6 +138,7 @@ export function VirtualGridRows({
         return (
           <div
             key={tableRow.id}
+            data-row-index={dataIdx}
             aria-selected={isSelected}
             onClick={(e) => clickRow(e, dataIdx)}
             onContextMenu={(e) => handleRowContextMenu(e, dataIdx)}
@@ -165,7 +166,7 @@ export function VirtualGridRows({
                 <div
                   key={cell.id}
                   data-col={cell.column.id}
-                  className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-primary)] ${rowBg} ${
+                  className={`select-none border-b border-r border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-primary)] ${rowBg} ${
                     numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
                   }`}
                   style={{ flex: `1 1 ${cell.column.getSize()}px`, minWidth: minW }}
@@ -214,7 +215,11 @@ export function TableGridRows({
         return (
           <tr
             key={row.id}
-            className={rowClass}
+            data-row-index={dataIdx}
+            // No text selection: Shift+click picks rows, and a highlight
+            // across their cells as well read as a second, different
+            // selection (#852). The cell viewer still copies a value's text.
+            className={`select-none ${rowClass}`}
             aria-selected={isSelected}
             onClick={(e) => clickRow(e, dataIdx)}
             onContextMenu={(e) => handleRowContextMenu(e, dataIdx)}

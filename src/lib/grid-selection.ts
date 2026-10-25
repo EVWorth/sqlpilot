@@ -16,6 +16,11 @@ export interface Selection {
   rows: ReadonlySet<number>;
   /** Where a Shift range starts, or null when there is nothing to extend from. */
   anchor: number | null;
+  /**
+   * The row the keyboard last moved to, when it differs from the anchor:
+   * Shift+Arrow grows the range from the anchor to here (#852).
+   */
+  cursor?: number;
 }
 
 export const NO_SELECTION: Selection = { rows: new Set(), anchor: null };
@@ -109,4 +114,33 @@ export function rowsToCopy(
 export function describeSelection(selection: Selection, rowCount: number): string {
   const n = selection.rows.size === 0 ? rowCount : selection.rows.size;
   return `${n.toLocaleString()} row${n === 1 ? "" : "s"}`;
+}
+
+/**
+ * Arrow keys, Home and End (#852).
+ *
+ * Moves through `order` — result indices as they are on screen — so the
+ * keyboard follows a sort the way a Shift+click does. With `extend`, the range
+ * runs from the anchor to the new row; without, the new row alone is picked.
+ * `delta` is clamped to the ends, so ±Infinity is Home and End.
+ */
+export function stepSelection(
+  current: Selection,
+  delta: number,
+  extend: boolean,
+  order: readonly number[],
+): Selection {
+  if (order.length === 0) return current;
+  const from = current.cursor ?? current.anchor;
+  const pos = from === null || from === undefined ? -1 : order.indexOf(from);
+  const next = pos < 0
+    ? (delta > 0 ? 0 : order.length - 1)
+    : Math.max(0, Math.min(order.length - 1, pos + delta));
+  const target = order[next];
+  const anchorPos = current.anchor === null ? -1 : order.indexOf(current.anchor);
+  if (extend && anchorPos >= 0) {
+    const [lo, hi] = anchorPos <= next ? [anchorPos, next] : [next, anchorPos];
+    return { rows: new Set(order.slice(lo, hi + 1)), anchor: current.anchor, cursor: target };
+  }
+  return { rows: new Set([target]), anchor: target, cursor: target };
 }

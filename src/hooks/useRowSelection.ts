@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { NO_SELECTION, selectAll, type Selection, selectRow } from "../lib/grid-selection";
+import { NO_SELECTION, selectAll, type Selection, selectRow, stepSelection } from "../lib/grid-selection";
 
 /**
  * Which rows are picked, and the two ways of picking them.
@@ -18,6 +18,8 @@ export interface RowSelection {
    */
   clickRow: (e: React.MouseEvent, rowIdx: number, order?: readonly number[]) => void;
   clear: () => void;
+  /** Move or extend from the keyboard, through `order` (#852). Returns the row moved to. */
+  step: (delta: number, extend: boolean, order: readonly number[]) => number | undefined;
 }
 
 export function useRowSelection(
@@ -51,5 +53,11 @@ export function useRowSelection(
 
   const clear = useCallback(() => setSelection(NO_SELECTION), []);
 
-  return { selection, clickRow, clear };
+  const step = useCallback((delta: number, extend: boolean, order: readonly number[]) => {
+    const next = stepSelection(selection, delta, extend, order);
+    setSelection(next);
+    return next.cursor;
+  }, [selection]);
+
+  return { selection, clickRow, clear, step };
 }

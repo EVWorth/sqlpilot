@@ -126,7 +126,7 @@ export function ResultsGrid() {
   const filters = useColumnFilters(layoutId);
   const columnFilters = filters.active;
 
-  const { selection, clickRow } = useRowSelection(
+  const { selection, clickRow, step } = useRowSelection(
     activeResult?.rows.length ?? 0,
     layoutId,
     gridRef,
@@ -335,6 +335,44 @@ export function ResultsGrid() {
     clickRow(e, dataIdx, getScreenOrder());
   }, [clickRow, getScreenOrder]);
 
+  /**
+   * The grid's keyboard path (#852): arrows, Home and End move the selection
+   * through the rows on screen, Shift extends it, and Ctrl+C copies the
+   * selected rows as TSV — the browser's own copy took the cell text one value
+   * per line. Not while typing in a cell editor or a filter.
+   */
+  const handleGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === "c") {
+      if (selection.rows.size === 0 || window.getSelection()?.toString()) return;
+      e.preventDefault();
+      void copyAs("tsv");
+      return;
+    }
+    if (ctrl || e.altKey) return;
+    const deltas: Record<string, number> = {
+      ArrowDown: 1,
+      ArrowUp: -1,
+      PageDown: 10,
+      PageUp: -10,
+      Home: -Infinity,
+      End: Infinity,
+    };
+    const delta = deltas[e.key];
+    if (delta === undefined) return;
+    e.preventDefault();
+    const order = getScreenOrder();
+    const moved = step(delta, e.shiftKey, order);
+    if (moved === undefined) return;
+    if (shouldVirtualize) {
+      rowVirtualizer.scrollToIndex(order.indexOf(moved), { align: "auto" });
+    } else {
+      gridRef.current?.querySelector(`[data-row-index="${moved}"]`)?.scrollIntoView?.({ block: "nearest" });
+    }
+  };
+
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
   const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
@@ -386,8 +424,15 @@ export function ResultsGrid() {
   }
 
   return (
-    // tabIndex so the grid can hold focus, which is what scopes Ctrl+A to it.
-    <div ref={gridRef} tabIndex={-1} className="flex h-full flex-col min-h-0 outline-none">
+    // Focusable, so it can hold focus: that scopes Ctrl+A, Ctrl+C and the
+    // arrow keys to it, and puts the rows one Tab away (#852).
+    <div
+      ref={gridRef}
+      tabIndex={0}
+      aria-label="Query results"
+      onKeyDown={handleGridKeyDown}
+      className="flex h-full flex-col min-h-0 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-500"
+    >
       {errorOverResults && error && (
         <QueryErrorBox error={error} failedStatement={failedStatement} className="m-2 shrink-0 p-2" />
       )}

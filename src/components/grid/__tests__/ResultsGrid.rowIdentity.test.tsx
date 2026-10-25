@@ -287,3 +287,52 @@ describe("a sorted grid acts in screen order (#858)", () => {
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("n1");
   });
 });
+
+describe("the grid from the keyboard (#852)", () => {
+  const selectedNames = () =>
+    bodyRows().filter((tr) => tr.getAttribute("aria-selected") === "true").map((tr) =>
+      tr.querySelectorAll("td")[2]?.textContent?.trim()
+    );
+  const grid = () => screen.getByLabelText("Query results");
+
+  it("sorts a column from its header with Enter", async () => {
+    render(<ResultsGrid />);
+    const header = screen.getAllByText("name")[0].closest("th");
+    if (!header) throw new Error("no header");
+
+    fireEvent.keyDown(header, { key: "Enter" });
+
+    await waitFor(() => expect(rowNames()).toEqual(["ada", "bob", "cy"]));
+  });
+
+  it("moves and extends the selection with the arrows, in screen order", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+
+    fireEvent.keyDown(grid(), { key: "ArrowDown" });
+    expect(selectedNames()).toEqual(["ada"]);
+    fireEvent.keyDown(grid(), { key: "ArrowDown", shiftKey: true });
+    expect(selectedNames()).toEqual(["ada", "bob"]);
+    fireEvent.keyDown(grid(), { key: "End" });
+    expect(selectedNames()).toEqual(["cy"]);
+  });
+
+  it("copies the selected rows as TSV on Ctrl+C", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+    fireEvent.click(bodyRows()[0]);
+    fireEvent.click(bodyRows()[1], { shiftKey: true });
+
+    fireEvent.keyDown(grid(), { key: "c", ctrlKey: true });
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    const text = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
+    expect(text.split("\n").slice(1)).toEqual(["2\tada", "3\tbob"]);
+  });
+
+  it("does not let Shift+click select the cells' text", () => {
+    render(<ResultsGrid />);
+
+    expect(bodyRows()[0].className).toContain("select-none");
+  });
+});
