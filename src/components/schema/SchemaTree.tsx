@@ -711,11 +711,14 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                                 icon: <Columns3 className="h-3.5 w-3.5" />,
                                 onClick: () => addStructureTab(connectionId, db.name, t.name),
                               },
-                              {
+                              // The designer reads and writes MySQL DDL, so
+                              // like "New Table…" it is not offered on a
+                              // SQLite file (#889).
+                              ...(connectionKind(connectionId) === "sqlite" ? [] : [{
                                 label: "Design Table",
                                 icon: <PenLine className="h-3.5 w-3.5" />,
                                 onClick: () => addDesignerTab(connectionId, db.name, t.name),
-                              },
+                              }]),
                               {
                                 label: "Copy Name",
                                 icon: <Copy className="h-3.5 w-3.5" />,
