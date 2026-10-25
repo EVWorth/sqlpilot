@@ -3,7 +3,9 @@ use mas_core::connection::manager::{AGENT_SESSION_MAX, INTERACTIVE_LANE_MAX};
 use mas_core::connection::{ConnectionManager, Route};
 use mas_core::error::CoreError;
 use mas_core::models::ConnectionProfile;
-use mas_core::query::{CancelScope, QueryExecutor};
+use mas_core::query::staged::DEFAULT_DEADLINE;
+use mas_core::query::{CancelReach, CancelScope, QueryExecutor, StagedWrite};
+use mas_core::schema::SchemaInspector;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -353,6 +355,169 @@ async fn an_agent_cancel_stops_only_that_agents_statements() {
             .await
             .expect("cleanup stopped the rest");
     }
+}
+
+/// Start a staged write on `route` that sleeps for as long as it is let run.
+fn stage_slow_delete(
+    executor: &Arc<QueryExecutor>,
+    manager: &Arc<ConnectionManager>,
+    id: &str,
+    route: Route,
+    table: &str,
+) -> tokio::task::JoinHandle<Result<StagedWrite, mas_core::query::StageError>> {
+    let tracker = executor.tracker();
+    let pool = manager.route_pool(id, &route).unwrap();
+    let id = id.to_string();
+    let sql = format!("DELETE FROM `{table}` WHERE SLEEP(20) = 0");
+    tokio::spawn(async move {
+        StagedWrite::begin_in(
+            &pool,
+            Some("test_db"),
+            &sql,
+            DEFAULT_DEADLINE,
+            Some(CancelReach {
+                tracker: &tracker,
+                connection_id: &id,
+                route: &route,
+            }),
+        )
+        .await
+    })
+}
+
+/// Whether a staged write stopped by a cancel left nothing behind: either the
+/// server reported the interruption, or the interrupted `SLEEP` let no row
+/// match. Rolled back either way.
+async fn stopped_without_change(outcome: Result<StagedWrite, mas_core::query::StageError>) -> bool {
+    match outcome {
+        Err(_) => true,
+        Ok(staged) => {
+            let untouched = staged.rows_affected == 0;
+            staged.rollback().await.expect("rolls back");
+            untouched
+        }
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn an_agent_cancel_reaches_its_staged_write() {
+    // A staged write runs on a connection of its own, not through the
+    // executor, so the agent panel's Stop could not see it and a long DELETE
+    // ran on after the user asked it to stop (#894).
+    let (manager, id) = connect().await;
+    let executor = Arc::new(QueryExecutor::new(manager.clone()));
+    let suffix = uuid::Uuid::new_v4().simple().to_string();
+    let tables = [
+        format!("lanes_staged_a_{suffix}"),
+        format!("lanes_staged_b_{suffix}"),
+    ];
+    for table in &tables {
+        executor
+            .execute(
+                &id,
+                &format!("CREATE TABLE `{table}` (id INT); INSERT INTO `{table}` VALUES (1)"),
+                Some("test_db".to_string()),
+                None,
+                None,
+            )
+            .await
+            .expect("creates the table");
+    }
+
+    let a = stage_slow_delete(&executor, &manager, &id, agent("a"), &tables[0]);
+    let b = stage_slow_delete(&executor, &manager, &id, agent("b"), &tables[1]);
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let started = Instant::now();
+    executor
+        .cancel(&id, CancelScope::Agent("a".to_string()))
+        .await
+        .expect("cancel is issued");
+    let a = tokio::time::timeout(Duration::from_secs(5), a)
+        .await
+        .expect("agent a's staged write stopped when cancelled")
+        .unwrap();
+    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(
+        stopped_without_change(a).await,
+        "the cancelled write changed nothing"
+    );
+
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert!(
+        !b.is_finished(),
+        "another agent's staged write keeps running"
+    );
+
+    // Cancel everything reaches it too.
+    executor
+        .cancel(&id, CancelScope::All)
+        .await
+        .expect("cancel all is issued");
+    let b = tokio::time::timeout(Duration::from_secs(5), b)
+        .await
+        .expect("cancel all stopped the other staged write")
+        .unwrap();
+    assert!(stopped_without_change(b).await);
+
+    for table in &tables {
+        executor
+            .execute(
+                &id,
+                &format!("DROP TABLE `{table}`"),
+                Some("test_db".to_string()),
+                None,
+                None,
+            )
+            .await
+            .expect("drops the table");
+    }
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn an_agent_cancel_reaches_reads_outside_the_executor() {
+    // The schema inspector reads through sqlx directly. Tracked, its reads
+    // are registered the way a staged write is (#894). A metadata read cannot
+    // be made slow on demand, so the registration is driven directly here on
+    // the agent's own pool, and the tracked inspector is checked to read.
+    let (manager, id) = connect().await;
+    let executor = Arc::new(QueryExecutor::new(manager.clone()));
+    let route = agent("a");
+
+    let inspector =
+        SchemaInspector::for_route(manager.clone(), route.clone()).tracked_by(executor.tracker());
+    let databases = inspector.get_databases(&id).await.expect("reads tracked");
+    assert!(databases.iter().any(|d| d.name == "test_db"));
+
+    let read = {
+        let tracker = executor.tracker();
+        let pool = manager.route_pool(&id, &route).unwrap();
+        let id = id.clone();
+        let route = route.clone();
+        tokio::spawn(async move {
+            let mut connection = pool.acquire().await.expect("takes a connection");
+            let _ticket = tracker
+                .track(&mut connection, &id, &route)
+                .await
+                .expect("registers");
+            sqlx::query("SELECT SLEEP(20)")
+                .execute(&mut *connection)
+                .await
+        })
+    };
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let started = Instant::now();
+    executor
+        .cancel(&id, CancelScope::Agent("a".to_string()))
+        .await
+        .expect("cancel is issued");
+    let _ = tokio::time::timeout(Duration::from_secs(5), read)
+        .await
+        .expect("the tracked read stopped when cancelled");
+    assert!(started.elapsed() < Duration::from_secs(5));
 }
 
 #[tokio::test]
