@@ -5,6 +5,7 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { useAgentRequests } from "../../hooks/useAgentRequests";
 import { useAgentSessionEvents } from "../../hooks/useAgentSessionEvents";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useNativeMenu } from "../../hooks/useNativeMenu";
 import { useTheme } from "../../hooks/useTheme";
 import { useUiScale } from "../../hooks/useUiScale";
 import { connectTarget } from "../../lib/actions";
@@ -91,6 +92,8 @@ export function AppLayout() {
 
   useTheme();
   useUiScale();
+  // macOS: the native menu bar shows the same actions as the in-app one (#892).
+  useNativeMenu();
 
   const toggleSidebar = useCallback(
     () => setSidebarCollapsed((prev) => !prev),
