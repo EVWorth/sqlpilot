@@ -131,8 +131,14 @@ bindings:
 # database comes up empty, or in MariaDB's case fails to start at all.
 
 # Start MySQL 8 and MariaDB 11, and wait until they actually accept connections.
+#
+# Every checkout shares the one set of containers (the compose file pins the
+# project name). --no-recreate starts existing ones as they are: the seed
+# mounts resolve to each worktree's own path, so without it a second worktree
+# would replace the containers, and their data, under the first (#895). After
+# changing the compose file, `just db-reset` applies it.
 db-up:
-    docker compose -f docker-compose.test.yml up -d mysql-8 mariadb-11
+    docker compose -f docker-compose.test.yml up -d --no-recreate mysql-8 mariadb-11
     @just _db-wait mas-mysql-8
     @just _db-wait mas-mariadb-11
     @echo "MySQL 8 ready on {{ MYSQL_PORT }}, MariaDB 11 on {{ MARIADB_PORT }}."
