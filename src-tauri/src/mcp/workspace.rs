@@ -25,7 +25,9 @@ use mas_core::connection::{ConnectionManager, ConnectionStore, Route};
 use mas_core::error::CoreError;
 use mas_core::history::{HistoryEntry, HistoryQuery, HistoryStore};
 use mas_core::models::query::QueryResult;
-use mas_core::query::staged::{StageError, StagedWrite as CoreStagedWrite, DEFAULT_DEADLINE};
+use mas_core::query::staged::{
+    CancelReach, StageError, StagedWrite as CoreStagedWrite, DEFAULT_DEADLINE,
+};
 use mas_core::query::{ExplainFormat, ExplainResponse, QueryExecutor};
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, ForeignKeyInfo, IndexInfo, ReferencingKey, RoutineInfo, SchemaMatch,
@@ -137,10 +139,12 @@ impl AppWorkspace {
     ) -> Self {
         let session = format!("agent-{}", uuid::Uuid::new_v4());
         Self {
-            inspector: Arc::new(SchemaInspector::for_route(
-                connections.clone(),
-                Route::Agent(session.clone()),
-            )),
+            // Tracked, so the agent panel's Stop reaches a schema read the
+            // way it reaches a query (#894).
+            inspector: Arc::new(
+                SchemaInspector::for_route(connections.clone(), Route::Agent(session.clone()))
+                    .tracked_by(executor.tracker()),
+            ),
             connections,
             staged,
             history,
@@ -412,8 +416,17 @@ impl Workspace for AppWorkspace {
         // connection, and its row locks, out of the pool until the user
         // answers; on the shared pool that was a slot the editor could not
         // use in the meantime (#731).
-        let pool = self.connections.route_pool(&connection_id, &self.route())?;
-        let staged = CoreStagedWrite::begin(&pool, database, sql, STAGE_DEADLINE)
+        let route = self.route();
+        let pool = self.connections.route_pool(&connection_id, &route)?;
+        // Registered with the executor while the statement runs, so the agent
+        // panel's Stop reaches a long staged write as it does a query (#894).
+        let tracker = self.executor.tracker();
+        let reach = CancelReach {
+            tracker: &tracker,
+            connection_id: &connection_id,
+            route: &route,
+        };
+        let staged = CoreStagedWrite::begin_in(&pool, database, sql, STAGE_DEADLINE, Some(reach))
             .await
             .map_err(|e| match e {
                 StageError::Failed(e) => e,

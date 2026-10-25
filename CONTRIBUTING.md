@@ -60,7 +60,7 @@ just test-frontend      # Vitest (jsdom)
 just test-browser       # Vitest browser mode, real Chromium
 just test-rust          # Rust tests that need no database
 
-just db-up              # MySQL 8 on 13306, MariaDB 11 on 13308
+just db-up              # MySQL 8 on 13306, MariaDB 11 on 13308, shared by every worktree
 just test-integration                       # #[ignore]d database tests, MySQL
 MAS_TEST_PORT=13308 just test-integration   # the same against MariaDB
 ```

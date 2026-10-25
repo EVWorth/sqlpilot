@@ -25,7 +25,9 @@ use std::time::Duration;
 
 use sqlx::{AssertSqlSafe, Connection, MySqlConnection};
 
+use crate::connection::Route;
 use crate::error::CoreError;
+use crate::query::in_flight::InFlightTracker;
 use crate::query::statement::{effective_verb, is_write_statement};
 use crate::schema::ident::quote_ident;
 
@@ -77,17 +79,47 @@ impl From<CoreError> for StageError {
     }
 }
 
+/// Where a staged write's statement is registered while it runs, so the
+/// executor's cancel reaches it like any statement of its own (#894).
+pub struct CancelReach<'a> {
+    pub tracker: &'a InFlightTracker,
+    pub connection_id: &'a str,
+    pub route: &'a Route,
+}
+
 impl StagedWrite {
     /// Run a write inside a transaction and hold it open.
     ///
     /// The statement has already been classified and permitted by the caller;
     /// what is checked here is only what this module can honour — a schema
     /// change cannot be staged, whatever anybody decided about it.
+    ///
+    /// No cancel reaches the statement while it runs; [`begin_in`](Self::begin_in)
+    /// is the one that can be stopped.
     pub async fn begin(
         pool: &sqlx::MySqlPool,
         database: Option<&str>,
         sql: &str,
         deadline: Duration,
+    ) -> Result<Self, StageError> {
+        Self::begin_in(pool, database, sql, deadline, None).await
+    }
+
+    /// [`begin`](Self::begin), with the statement registered under `reach`
+    /// while it runs.
+    ///
+    /// A staged write runs on a connection of its own rather than through the
+    /// executor, so without this a cancel — the agent panel's Stop, or
+    /// [`CancelScope::All`](crate::query::CancelScope::All) — could not see it,
+    /// and a long `DELETE` ran on to its end after the user asked it to stop.
+    /// Registered only for the statement itself: once it has run, the open
+    /// transaction waits on the user, and rolling it back is their answer.
+    pub async fn begin_in(
+        pool: &sqlx::MySqlPool,
+        database: Option<&str>,
+        sql: &str,
+        deadline: Duration,
+        reach: Option<CancelReach<'_>>,
     ) -> Result<Self, StageError> {
         let verb = effective_verb(sql);
         if is_ddl(&verb) {
@@ -120,9 +152,27 @@ impl StagedWrite {
             .await
             .map_err(|e| CoreError::Query(format!("Could not start a transaction: {e}")))?;
 
+        let ticket = match reach {
+            Some(reach) => match reach
+                .tracker
+                .track(&mut connection, reach.connection_id, reach.route)
+                .await
+            {
+                Ok(ticket) => Some(ticket),
+                Err(e) => {
+                    let _ = sqlx::raw_sql(AssertSqlSafe("ROLLBACK".to_string()))
+                        .execute(&mut connection)
+                        .await;
+                    let _ = connection.close().await;
+                    return Err(StageError::Failed(e));
+                }
+            },
+            None => None,
+        };
         let result = sqlx::raw_sql(AssertSqlSafe(sql.to_string()))
             .execute(&mut connection)
             .await;
+        drop(ticket);
 
         match result {
             Ok(done) => Ok(Self {

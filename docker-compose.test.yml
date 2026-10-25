@@ -1,3 +1,9 @@
+# One project name for every checkout. The containers have fixed names and
+# fixed ports, so there can only be one set; pinning the project lets compose
+# in a second git worktree see those containers as its own instead of failing
+# on "container name already in use" (#895).
+name: sqlpilot
+
 services:
   mysql-8:
     image: mysql:8.0
