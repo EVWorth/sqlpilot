@@ -8,6 +8,7 @@ import type {
   HistoryEntry,
   HistoryExportFormat,
   HistoryQuery,
+  NativeMenu,
   RestoreOptions,
   SetupTarget,
 } from "./bindings";
@@ -405,6 +406,10 @@ export const api = {
   // How this copy was installed, and on what architecture. Decides whether
   // the app may update itself at all (#354, #571).
   getPlatformInfo: () => unwrap("get_platform_info", () => commands.getPlatformInfo()),
+
+  // Rebuild the macOS menu bar from the same list the in-app menu bar renders
+  // (#863, #892). Validated everywhere, applied only on macOS.
+  setNativeMenu: (menus: NativeMenu[]) => unwrap("set_native_menu", () => commands.setNativeMenu(menus)),
 
   // False when no OS credential store was available at startup, so the UI can
   // say passwords will not be remembered rather than letting the user find out.

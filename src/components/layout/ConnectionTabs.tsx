@@ -1,18 +1,23 @@
-import { Copy, Database, FileText, Loader2, Lock, Pencil, Plug, Plus, Trash2, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { Copy, FileText, Loader2, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { CONNECT_PROFILE_EVENT, NEW_CONNECTION_EVENT } from "../../lib/connect-request";
+import { connectionSettingsChanged } from "../../lib/connection-changes";
 import { cn } from "../../lib/utils";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useSqliteStore } from "../../stores/sqliteStore";
-import type { ConnectionProfileSummary } from "../../types";
+import type { ConnectionProfileInput, ConnectionProfileSummary } from "../../types";
 import type { MenuItem } from "../common/ContextMenu";
 import { ConnectionDialog } from "../connection/ConnectionDialog";
 import { ConnectFailure } from "./ConnectFailure";
+import { ConnectionTab } from "./ConnectionTab";
+import { ConnectPopover } from "./ConnectPopover";
+import { ReconnectPrompt } from "./ReconnectPrompt";
 import { useConnectionSwitching } from "./useConnectionSwitching";
 import { useProfileDeletion } from "./useProfileDeletion";
+import { useStartupReconnect } from "./useStartupReconnect";
 
 export function ConnectionTabs() {
   const profiles = useConnectionStore((s) => s.profiles);
@@ -25,7 +30,6 @@ export function ConnectionTabs() {
   const connect = useConnectionStore((s) => s.connect);
   const disconnect = useConnectionStore((s) => s.disconnect);
   const setSelectedConnection = useConnectionStore((s) => s.setSelectedConnection);
-  const loadProfiles = useConnectionStore((s) => s.loadProfiles);
 
   const [popoverOpen, setPopoverOpen] = useState(false);
   const [popoverPos, setPopoverPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 });
@@ -40,6 +44,11 @@ export function ConnectionTabs() {
   const connectError = useConnectionStore((s) => s.error);
   const failedProfileId = useConnectionStore((s) => s.failedProfileId);
   const clearError = useConnectionStore((s) => s.clearError);
+  const staleConnections = useConnectionStore((s) => s.staleConnections);
+  const markStale = useConnectionStore((s) => s.markStale);
+  const reconnect = useConnectionStore((s) => s.reconnect);
+  // The connection to offer a reconnect for, after its profile was edited.
+  const [reconnectOffer, setReconnectOffer] = useState<string | null>(null);
 
   /**
    * What to show on a connected tab's icon. FR-1.3.2's third state,
@@ -50,9 +59,12 @@ export function ConnectionTabs() {
     if (health[connectionId] && !health[connectionId].healthy) return "Disconnected";
     return "Connected";
   };
-  const popoverRef = useRef<HTMLDivElement>(null);
   const addButtonRef = useRef<HTMLButtonElement>(null);
-  const { contextMenu, showContextMenu } = useContextMenu();
+  const { contextMenu, showContextMenu, showContextMenuAt } = useContextMenu();
+  const tablistRef = useRef<HTMLDivElement>(null);
+  // A connection to focus once its tab has rendered: after connecting from
+  // the keyboard, focus used to drop to <body> (#827).
+  const [focusAfterConnect, setFocusAfterConnect] = useState<string | null>(null);
   const { requestDelete, confirmDialog } = useProfileDeletion();
   const { selectConnection, attachNewConnection, attachSqliteSession } = useConnectionSwitching();
 
@@ -101,62 +113,7 @@ export function ConnectionTabs() {
     setShowDialog(true);
   };
 
-  useEffect(() => {
-    const init = async () => {
-      await loadProfiles();
-
-      // Auto-reconnect profiles that were active in the previous session
-      const { tabs, setTabConnection: setTabConn } = useEditorStore.getState();
-      const profileIds = [
-        ...new Set(
-          tabs.filter((t) => t.profileId).map((t) => t.profileId!),
-        ),
-      ];
-
-      const failed: string[] = [];
-      const failedIds: string[] = [];
-      for (const profileId of profileIds) {
-        try {
-          const conn = await connect(profileId);
-          // Update all tabs belonging to this profile with the new runtime connection ID
-          useEditorStore.getState().tabs
-            .filter((t) => t.profileId === profileId)
-            .forEach((t) => setTabConn(t.id, conn.id, t.database, profileId));
-          // Select this connection if the active tab belongs to it
-          const { activeTabId } = useEditorStore.getState();
-          const activeTab = useEditorStore.getState().tabs.find((t) => t.id === activeTabId);
-          if (activeTab?.profileId === profileId) {
-            setSelectedConnection(conn.id);
-          }
-        } catch (e) {
-          // Cancelled from its placeholder tab: the user knows.
-          if (e instanceof Error && e.message === "Connection cancelled") continue;
-          // Leaving the tab without a live connection is right; saying nothing
-          // about it is not. The tab looked normal and the first query failed
-          // with "Connection not found", which describes neither what happened
-          // nor when (#276).
-          const name = useConnectionStore.getState().profiles.find((p) => p.id === profileId)?.name
-            ?? profileId;
-          failed.push(name);
-          failedIds.push(profileId);
-          console.warn(`Could not reconnect to ${name} on startup`, e);
-        }
-      }
-
-      if (failed.length > 0) {
-        useConnectionStore.setState({
-          // One failure can offer Retry and Edit for its profile (#804).
-          failedProfileId: failedIds.length === 1 ? failedIds[0] : null,
-          error: failed.length === 1
-            ? `Could not reconnect to ${failed[0]}. Its tabs have no live connection — use the connect button to retry.`
-            : `Could not reconnect to ${failed.length} servers (${
-              failed.join(", ")
-            }). Their tabs have no live connection — use the connect button to retry.`,
-        });
-      }
-    };
-    init();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useStartupReconnect();
 
   // Listen for "open-new-connection" from menu bar
   useEffect(() => {
@@ -178,22 +135,18 @@ export function ConnectionTabs() {
     return () => window.removeEventListener(CONNECT_PROFILE_EVENT, handler);
   }, []);
 
-  // Close popover on outside click
-  useEffect(() => {
-    if (!popoverOpen) return;
-    const handler = (e: MouseEvent) => {
-      if (
-        popoverRef.current
-        && !popoverRef.current.contains(e.target as Node)
-        && addButtonRef.current
-        && !addButtonRef.current.contains(e.target as Node)
-      ) {
-        setPopoverOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [popoverOpen]);
+  const closePopover = useCallback((returnFocus: boolean) => {
+    setPopoverOpen(false);
+    if (returnFocus) addButtonRef.current?.focus();
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!focusAfterConnect) return;
+    const tab = tablistRef.current?.querySelector<HTMLElement>(`[data-connection-id="${focusAfterConnect}"]`);
+    if (!tab) return;
+    tab.focus();
+    setFocusAfterConnect(null);
+  }, [focusAfterConnect, activeConnections]);
 
   const togglePopover = () => {
     if (!popoverOpen && addButtonRef.current) {
@@ -226,6 +179,11 @@ export function ConnectionTabs() {
       // A tab already on another server keeps it; the new one gets its own
       // tab, so nothing is silently re-pointed (#788).
       attachNewConnection(conn);
+      // Focus was on the menu entry that asked, which is gone now. Only when
+      // nothing else has it: someone who clicked into the editor while it
+      // connected should stay there.
+      const focused = document.activeElement;
+      if (!focused || focused === document.body) setFocusAfterConnect(conn.id);
     } catch {
       // Error is captured in connectionStore.error and shown in StatusBar
     }
@@ -233,122 +191,130 @@ export function ConnectionTabs() {
 
   connectProfileRef.current = handleConnectProfile;
 
+  /**
+   * A profile was saved from the dialog. A new one may be connected straight
+   * away; a live connection left on old settings is said so (#831).
+   */
+  const handleSaved = (saved: ConnectionProfileInput, { connect: andConnect }: { connect: boolean }) => {
+    // "Save & Connect" on a new profile: the same connect as from the menu (#832).
+    if (andConnect) {
+      void handleConnectProfile(saved.id);
+      return;
+    }
+    const before = editingProfile;
+    if (!before || before.id !== saved.id) return;
+    const live = useConnectionStore.getState().activeConnections.find((c) => c.profile_id === saved.id);
+    if (!live || !connectionSettingsChanged(before, saved)) return;
+    markStale(live.id);
+    setReconnectOffer(live.id);
+  };
+
+  /** Reopen a connection with its profile's current settings, keeping its editor tabs on it. */
+  const handleReconnect = async (connectionId: string) => {
+    setReconnectOffer(null);
+    try {
+      const fresh = await reconnect(connectionId);
+      const { tabs, setTabConnection } = useEditorStore.getState();
+      tabs
+        .filter((t) => t.connectionId === connectionId)
+        .forEach((t) => setTabConnection(t.id, fresh.id, t.database, fresh.profile_id));
+      setSelectedConnection(fresh.id);
+      setFocusAfterConnect(fresh.id);
+    } catch {
+      // The store has the reason in `error`, shown under the tabs or in the status bar.
+    }
+  };
+
+  /** What a connected tab's menu offers, by right-click or from the keyboard. */
+  const tabMenuItems = (connectionId: string, profile: ConnectionProfileSummary | undefined): MenuItem[] => [
+    {
+      label: "Edit Connection",
+      icon: <Pencil className="h-3.5 w-3.5" />,
+      onClick: () => {
+        if (profile) openEdit(profile);
+      },
+      disabled: !profile,
+    },
+    {
+      // FR-1.1.4. A second profile against the same server —
+      // another database, a read-only user — was a matter of
+      // retyping every field (#294).
+      label: "Duplicate Profile",
+      icon: <Copy className="h-3.5 w-3.5" />,
+      onClick: () => {
+        if (profile) openDuplicate(profile);
+      },
+      disabled: !profile,
+    },
+    ...(staleConnections.includes(connectionId)
+      ? [{
+        label: "Reconnect to Apply Changes",
+        icon: <RefreshCw className="h-3.5 w-3.5" />,
+        onClick: () => void handleReconnect(connectionId),
+      }]
+      : []),
+    {
+      label: "Disconnect",
+      icon: <X className="h-3.5 w-3.5" />,
+      onClick: () => disconnect(connectionId),
+    },
+    { separator: true },
+    {
+      // Asks first, naming the profile (FR-1.1.3, #795).
+      label: "Delete Profile",
+      icon: <Trash2 className="h-3.5 w-3.5" />,
+      onClick: () => {
+        if (profile) requestDelete(profile);
+      },
+      disabled: !profile,
+      danger: true,
+    },
+  ];
+
+  // One Tab stop for the strip: the selected tab, or the first when none is.
+  const tabIds = [...activeConnections.map((c) => c.id), ...sqliteSessions.map((s) => s.id)];
+  const tabStopId = selectedConnectionId && tabIds.includes(selectedConnectionId) ? selectedConnectionId : tabIds[0];
+
+  /** Left, Right, Home and End move focus along the strip; Enter or Space selects. */
+  const onTablistKeyDown = (e: React.KeyboardEvent) => {
+    if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+    const tabs = [...(tablistRef.current?.querySelectorAll<HTMLElement>("[role=\"tab\"]") ?? [])];
+    const at = tabs.findIndex((t) => t === e.target);
+    if (at === -1) return;
+    e.preventDefault();
+    const next = e.key === "Home"
+      ? 0
+      : e.key === "End"
+      ? tabs.length - 1
+      : (at + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+    tabs[next]?.focus();
+  };
+
   return (
     <div className="relative flex h-9 items-center border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-1">
       {/* Scrollable tabs area */}
-      <div className="flex min-w-0 shrink items-center gap-0.5 overflow-x-auto">
+      <div
+        ref={tablistRef}
+        role="tablist"
+        aria-label="Connections"
+        onKeyDown={onTablistKeyDown}
+        className="flex min-w-0 shrink items-center gap-0.5 overflow-x-auto"
+      >
         {activeConnections.map((conn) => {
           const profile = profiles.find((p) => p.id === conn.profile_id);
-          const isSelected = conn.id === selectedConnectionId;
-          const label = profile?.name || profile?.host || conn.id;
-
           return (
-            <div
+            <ConnectionTab
               key={conn.id}
-              className={cn(
-                "group relative flex h-7 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1.5 rounded px-2 text-xs select-none",
-                isSelected
-                  ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm"
-                  : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
-              )}
-              onClick={() => selectConnection(conn.id)}
-              onContextMenu={(e) => {
-                showContextMenu(e, [
-                  {
-                    label: "Edit Connection",
-                    icon: <Pencil className="h-3.5 w-3.5" />,
-                    onClick: () => {
-                      if (profile) openEdit(profile);
-                    },
-                    disabled: !profile,
-                  },
-                  {
-                    // FR-1.1.4. A second profile against the same server —
-                    // another database, a read-only user — was a matter of
-                    // retyping every field (#294).
-                    label: "Duplicate Profile",
-                    icon: <Copy className="h-3.5 w-3.5" />,
-                    onClick: () => {
-                      if (profile) openDuplicate(profile);
-                    },
-                    disabled: !profile,
-                  },
-                  {
-                    label: "Disconnect",
-                    icon: <X className="h-3.5 w-3.5" />,
-                    onClick: () => disconnect(conn.id),
-                  },
-                  { separator: true },
-                  {
-                    // Asks first, naming the profile (FR-1.1.3, #795).
-                    label: "Delete Profile",
-                    icon: <Trash2 className="h-3.5 w-3.5" />,
-                    onClick: () => {
-                      if (profile) requestDelete(profile);
-                    },
-                    disabled: !profile,
-                    danger: true,
-                  },
-                ]);
-              }}
-            >
-              {/* Active indicator bar */}
-              {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}
-
-              {
-                /* Green while the server answers, red once the health checker
-                  says it does not; the third FR-1.3.2 state, connecting, is
-                  the placeholder tab below. It was green whatever was true
-                  (#294). */
-              }
-              <Database
-                role="img"
-                aria-label={connectionState(conn.id)}
-                className={cn(
-                  "h-3 w-3 shrink-0",
-                  connectionState(conn.id) === "Disconnected"
-                    ? "text-[var(--color-error)]"
-                    : "text-[var(--color-success)]",
-                )}
-              />
-
-              {profile?.color && (
-                <span
-                  className="h-1.5 w-1.5 shrink-0 rounded-full"
-                  style={{ backgroundColor: profile.color }}
-                />
-              )}
-
-              {
-                /* Read-only is enforced in the executor, but a guard the user
-                  cannot see is one they will be surprised by — the refusal
-                  arrives only after they run something (#277). */
-              }
-              {profile?.read_only && (
-                <Lock
-                  role="img"
-                  aria-label="Read-only connection"
-                  className="h-3 w-3 shrink-0 text-[var(--color-warning)]"
-                />
-              )}
-
-              <span className="truncate">{label}</span>
-
-              <button
-                className={cn(
-                  "ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
-                  isSelected && "opacity-60",
-                  "hover:bg-[var(--color-bg-secondary)] hover:opacity-100",
-                )}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  disconnect(conn.id);
-                }}
-                title="Disconnect"
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </div>
+              conn={conn}
+              profile={profile}
+              isSelected={conn.id === selectedConnectionId}
+              focusable={conn.id === tabStopId}
+              state={connectionState(conn.id)}
+              stale={staleConnections.includes(conn.id)}
+              onSelect={() => selectConnection(conn.id)}
+              onDisconnect={() => disconnect(conn.id)}
+              onMenu={(x, y) => showContextMenuAt(x, y, tabMenuItems(conn.id, profile))}
+            />
           );
         })}
 
@@ -366,21 +332,34 @@ export function ConnectionTabs() {
             <div
               key={session.id}
               data-testid="sqlite-tab"
+              role="tab"
+              aria-selected={isSelected}
+              tabIndex={session.id === tabStopId ? 0 : -1}
+              data-connection-id={session.id}
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  selectConnection(session.id);
+                }
+              }}
               className={cn(
-                "group relative flex h-7 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1.5 rounded px-2 text-xs select-none",
+                "group relative flex h-7 min-w-0 max-w-[180px] shrink-0 cursor-pointer items-center gap-1.5 rounded px-2 text-xs select-none outline-none focus-visible:ring-2 focus-visible:ring-brand-500",
                 isSelected
                   ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm"
                   : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
               )}
-              onClick={() => selectConnection(session.id)}
+              onClick={() =>
+                selectConnection(session.id)}
               title={session.path}
             >
               {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}
               <FileText className="h-3 w-3 shrink-0 text-sky-400" />
               <span className="truncate">{session.name}</span>
               <button
+                tabIndex={-1}
                 className={cn(
-                  "ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+                  "ml-0.5 shrink-0 rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100",
                   isSelected && "opacity-60",
                   "hover:bg-[var(--color-bg-secondary)] hover:opacity-100",
                 )}
@@ -389,6 +368,7 @@ export function ConnectionTabs() {
                   void closeSqlite(session.id);
                 }}
                 title="Close database"
+                aria-label={`Close ${session.name}`}
               >
                 <X className="h-2.5 w-2.5" />
               </button>
@@ -460,57 +440,16 @@ export function ConnectionTabs() {
         </button>
 
         {popoverOpen && (
-          <div
-            ref={popoverRef}
-            style={{ position: "fixed", top: popoverPos.top, left: popoverPos.left }}
-            className="z-50 w-56 rounded-md border border-[var(--color-border)] bg-[var(--color-bg-secondary)] py-1 shadow-lg"
-          >
-            {inactiveProfiles.length > 0 && (
-              <>
-                <div className="px-3 py-1 text-[10px] font-medium uppercase tracking-wider text-[var(--color-text-muted)]">
-                  Saved Connections
-                </div>
-                {inactiveProfiles.map((profile) => (
-                  <div
-                    key={profile.id}
-                    className="group flex items-center hover:bg-[var(--color-bg-tertiary)]"
-                    // A profile that is not connected has no tab to right-click,
-                    // so this is where it can be duplicated or deleted (#795).
-                    onContextMenu={(e) => showContextMenu(e, profileMenuItems(profile))}
-                  >
-                    <button
-                      onClick={() => handleConnectProfile(profile.id)}
-                      className="flex flex-1 min-w-0 items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
-                    >
-                      <Plug className="h-3 w-3 shrink-0 text-[var(--color-text-muted)]" />
-                      {profile.color && (
-                        <span
-                          className="h-1.5 w-1.5 shrink-0 rounded-full"
-                          style={{ backgroundColor: profile.color }}
-                        />
-                      )}
-                      <span className="truncate">{profile.name || profile.host}</span>
-                    </button>
-                    <button
-                      onClick={() => openEdit(profile)}
-                      className="mr-1 shrink-0 rounded p-1 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 hover:text-[var(--color-text-primary)]"
-                      title="Edit connection"
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </button>
-                  </div>
-                ))}
-                <div className="my-1 border-t border-[var(--color-border)]" />
-              </>
-            )}
-            <button
-              onClick={openNew}
-              className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-            >
-              <Plus className="h-3 w-3 shrink-0" />
-              <span>New Connection…</span>
-            </button>
-          </div>
+          <ConnectPopover
+            position={popoverPos}
+            profiles={inactiveProfiles}
+            anchor={addButtonRef}
+            onConnect={(profile) => void handleConnectProfile(profile.id)}
+            onEdit={openEdit}
+            onNew={openNew}
+            onProfileContextMenu={(e, profile) => showContextMenu(e, profileMenuItems(profile))}
+            onClose={closePopover}
+          />
         )}
       </div>
 
@@ -531,7 +470,24 @@ export function ConnectionTabs() {
           }
           : undefined}
         onDuplicate={editingProfile ? () => openDuplicate(editingProfile) : undefined}
+        onSaved={handleSaved}
       />
+      {reconnectOffer && (() => {
+        const conn = activeConnections.find((c) => c.id === reconnectOffer);
+        if (!conn) return null;
+        const profile = profiles.find((p) => p.id === conn.profile_id);
+        return (
+          <ReconnectPrompt
+            name={profile?.name || conn.name}
+            oldServer={`${conn.host}:${conn.port}`}
+            onReconnect={() => void handleReconnect(conn.id)}
+            onLater={() => {
+              setReconnectOffer(null);
+              tablistRef.current?.querySelector<HTMLElement>(`[data-connection-id="${conn.id}"]`)?.focus();
+            }}
+          />
+        );
+      })()}
       {failedProfileId && connectError && (() => {
         const failedProfile = profiles.find((p) => p.id === failedProfileId);
         return (

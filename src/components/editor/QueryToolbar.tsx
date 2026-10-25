@@ -15,12 +15,14 @@ import { useEffect, useRef, useState } from "react";
 import { useQueryExecution } from "../../hooks/useQueryExecution";
 import { formatSql } from "../../lib/sql-format";
 import { sqlAtCursor } from "../../lib/statement-at-cursor";
+import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useTransactionStore } from "../../stores/transactionStore";
+import { EnvironmentBadge } from "../connection/EnvironmentBadge";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
 import { RowLimitInput } from "./RowLimitInput";
@@ -65,6 +67,9 @@ export function QueryToolbar() {
   const activeConnection = activeConnections.find(
     (c) => c.id === selectedConnectionId,
   );
+  const profiles = useConnectionStore((s) => s.profiles);
+  const activeProfile = activeConnection ? profiles.find((p) => p.id === activeConnection.profile_id) : undefined;
+  const environment = activeProfile?.environment ?? activeConnection?.environment ?? null;
 
   const handleExecute = () => {
     if (!hookCanExecute) return;
@@ -148,15 +153,29 @@ export function QueryToolbar() {
   // for (SC 2.5.8) without changing the icons, which are fine at 12px — it is
   // the box around them that was 20px tall.
   const toolbarBtnClass =
-    "flex min-h-6 min-w-6 items-center justify-center gap-1 rounded px-1.5 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+    "flex min-h-6 min-w-6 shrink-0 items-center justify-center gap-1 whitespace-nowrap rounded px-1.5 py-1 text-xs text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed";
+
+  // Labels and the shortcut hint give way to icons as the bar narrows,
+  // measured on the bar itself rather than the window, since the sidebar and
+  // agent panel take their share. At 1024px wide "Find", "Replace" and
+  // "Format" were drawn on top of each other (#838).
+  const label = "hidden @min-[54rem]:inline";
 
   return (
-    <div className="flex h-8 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2">
+    <div
+      data-environment={environment ?? undefined}
+      className={cn(
+        "@container flex h-8 min-w-0 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2",
+        // A production server tints the bar the Run button sits in, so the
+        // last thing seen before running is which kind of server it is (#835).
+        environment === "production" && "surface-error border-t-2 border-t-[var(--color-error)]",
+      )}
+    >
       <button
         onClick={isExecuting ? cancelActiveQuery : handleExecute}
         disabled={!isExecuting && !canExecute}
         title={isExecuting ? "Cancel Query" : "Run statement at cursor (Ctrl+Enter / F9); Ctrl+Shift+Enter runs all"}
-        className={`flex w-20 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+        className={`flex w-20 shrink-0 items-center justify-center gap-1.5 rounded px-2.5 py-1 text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
           isExecuting
             ? "bg-red-600 text-white hover:bg-red-700"
             : "bg-green-700 text-white hover:bg-green-800 disabled:hover:bg-green-700"
@@ -177,11 +196,11 @@ export function QueryToolbar() {
           )}
       </button>
 
-      <span className="text-[10px] text-[var(--color-text-muted)]">
+      <span className="hidden whitespace-nowrap text-[10px] text-[var(--color-text-muted)] @min-[58rem]:inline">
         Ctrl+Enter / F9
       </span>
 
-      <div className="relative" ref={explainRef}>
+      <div className="relative shrink-0 whitespace-nowrap" ref={explainRef}>
         <div className="flex">
           <button
             onClick={handleExplain}
@@ -259,30 +278,33 @@ export function QueryToolbar() {
         onClick={handleFind}
         disabled={!editorInstance}
         title="Find (Ctrl+F)"
+        aria-label="Find (Ctrl+F)"
         className={toolbarBtnClass}
       >
         <Search className="h-3 w-3" />
-        Find
+        <span className={label}>Find</span>
       </button>
 
       <button
         onClick={handleReplace}
         disabled={!editorInstance}
         title="Replace (Ctrl+H)"
+        aria-label="Replace (Ctrl+H)"
         className={toolbarBtnClass}
       >
         <Replace className="h-3 w-3" />
-        Replace
+        <span className={label}>Replace</span>
       </button>
 
       <button
         onClick={handleFormat}
         disabled={!editorInstance}
         title="Format SQL (Ctrl+Shift+F)"
+        aria-label="Format SQL (Ctrl+Shift+F)"
         className={toolbarBtnClass}
       >
         <Wand2 className="h-3 w-3" />
-        Format
+        <span className={label}>Format</span>
       </button>
 
       <button
@@ -300,10 +322,11 @@ export function QueryToolbar() {
         onClick={() => selectedConnectionId && void refreshAll(selectedConnectionId)}
         disabled={!selectedConnectionId || schemaLoading}
         title="Refresh Schema Cache"
+        aria-label="Refresh Schema Cache"
         className={toolbarBtnClass}
       >
         <RefreshCw className={`h-3 w-3 ${schemaLoading ? "animate-spin" : ""}`} />
-        Schema
+        <span className={label}>Schema</span>
       </button>
 
       <div className="mx-1 h-4 w-px bg-[var(--color-border)]" />
@@ -316,19 +339,25 @@ export function QueryToolbar() {
         onClick={() => setShowSaveDialog(true)}
         disabled={!activeTab?.content?.trim()}
         title="Save as Favorite (Ctrl+S)"
+        aria-label="Save as Favorite (Ctrl+S)"
         className={toolbarBtnClass}
       >
         <Star className="h-3 w-3" />
-        Save
+        <span className={label}>Save</span>
       </button>
 
       <div className="flex-1" />
 
       {activeConnection && (
-        <div className="flex items-center gap-1.5 text-xs text-[var(--color-text-muted)]">
-          <Database className="h-3 w-3" />
-          <span>{activeConnection.name}</span>
-          <span className="opacity-50">
+        <div
+          className="flex min-w-0 items-center gap-1.5 whitespace-nowrap text-xs text-[var(--color-text-muted)]"
+          title={`${activeProfile?.name || activeConnection.name} (${activeConnection.host}:${activeConnection.port})`}
+        >
+          <EnvironmentBadge environment={environment} />
+          <Database className="h-3 w-3 shrink-0" />
+          {/* Named as the profile is now; the host is where the session really is (#831). */}
+          <span className="truncate">{activeProfile?.name || activeConnection.name}</span>
+          <span className="hidden opacity-50 @min-[64rem]:inline">
             ({activeConnection.host}:{activeConnection.port})
           </span>
         </div>
@@ -338,7 +367,7 @@ export function QueryToolbar() {
         isOpen={showSaveDialog}
         onClose={() => setShowSaveDialog(false)}
         sql={activeTab?.content ?? ""}
-        connectionName={activeConnection?.name}
+        connectionName={activeProfile?.name || activeConnection?.name}
         database={activeTab?.database}
         onSaved={(sql) => {
           if (activeTab) useEditorStore.getState().markTabSaved(activeTab.id, sql);
@@ -361,7 +390,7 @@ function RowLimit() {
   const setQuerySettings = useSettingsStore((s) => s.setQuerySettings);
 
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex shrink-0 items-center gap-1">
       <button
         onClick={() =>
           setQuerySettings({

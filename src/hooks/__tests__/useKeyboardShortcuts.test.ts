@@ -26,6 +26,15 @@ vi.mock("../../stores/resultStore", () => ({
   },
 }));
 
+const mockZoom = vi.fn();
+const mockResetZoom = vi.fn();
+
+vi.mock("../../stores/settingsStore", () => ({
+  useSettingsStore: {
+    getState: vi.fn(() => ({ zoom: mockZoom, resetZoom: mockResetZoom })),
+  },
+}));
+
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 
@@ -539,5 +548,33 @@ describe("Ctrl+. cancels the running query (#282)", () => {
     // may be anywhere — including still in the editor.
     press({ ctrlKey: true, targetClosest: true, targetTagName: "TEXTAREA" });
     expect(mockCancelActiveQuery).toHaveBeenCalled();
+  });
+});
+
+describe("interface scale (#837)", () => {
+  it.each(
+    [
+      ["=", 1],
+      ["+", 1],
+      ["-", -1],
+    ] as const,
+  )("Ctrl+%s zooms by %i", (key, direction) => {
+    renderHook(() => useKeyboardShortcuts());
+    const event = createKeyboardEvent(key, { ctrlKey: true });
+    window.dispatchEvent(event);
+    expect(mockZoom).toHaveBeenCalledWith(direction);
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("Ctrl+0 resets", () => {
+    renderHook(() => useKeyboardShortcuts());
+    window.dispatchEvent(createKeyboardEvent("0", { ctrlKey: true }));
+    expect(mockResetZoom).toHaveBeenCalled();
+  });
+
+  it("leaves a plain - alone", () => {
+    renderHook(() => useKeyboardShortcuts());
+    window.dispatchEvent(createKeyboardEvent("-"));
+    expect(mockZoom).not.toHaveBeenCalled();
   });
 });

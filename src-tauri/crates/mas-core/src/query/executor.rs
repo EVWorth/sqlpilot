@@ -1,6 +1,7 @@
 use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
+use crate::query::in_flight::InFlightTracker;
 use crate::query::redact::{redact_credentials, redacted_preview, LOG_PREVIEW_CHARS};
 use dashmap::DashMap;
 use futures::StreamExt;
@@ -72,6 +73,13 @@ impl QueryExecutor {
             in_flight: Arc::new(DashMap::new()),
             memory_floor_mb,
         }
+    }
+
+    /// A handle that puts statements run outside this executor within reach
+    /// of [`cancel`](Self::cancel): a staged write's, or the schema
+    /// inspector's on an agent's route (#894).
+    pub fn tracker(&self) -> InFlightTracker {
+        InFlightTracker::new(Arc::clone(&self.in_flight))
     }
 
     /// Ask the server to abort what this connection is running.
@@ -168,7 +176,8 @@ impl QueryExecutor {
     /// its own so that its statements share the one set of timeouts and stay
     /// within reach of [`CancelScope::All`]. The user's Cancel in the editor
     /// does not reach them: it is scoped to the tab's session or to the shared
-    /// pool, never to an agent's connections.
+    /// pool, never to an agent's connections. The agent panel's Stop does,
+    /// through [`CancelScope::Agent`].
     pub async fn execute_in(
         &self,
         route: Route,
@@ -1175,6 +1184,11 @@ pub enum CancelScope {
     /// Only the statements on this editor tab's own session
     /// ([`Route::Session`]).
     Session(String),
+    /// Only the statements on this agent session's own connections
+    /// ([`Route::Agent`]). How the agent panel's Stop reaches SQL the agent
+    /// already has running (#868); tabs, the shared pool and other agents
+    /// keep running.
+    Agent(String),
 }
 
 /// The server threads a cancel should kill, from `(thread id, connection id,
@@ -1193,6 +1207,9 @@ fn threads_to_cancel(
                     CancelScope::Interactive => *route == Route::Interactive,
                     CancelScope::Session(wanted) => {
                         matches!(route, Route::Session(s) if s == wanted)
+                    }
+                    CancelScope::Agent(wanted) => {
+                        matches!(route, Route::Agent(s) if s == wanted)
                     }
                 }
         })
@@ -1262,10 +1279,37 @@ mod tests {
     }
 
     #[test]
+    fn cancel_with_agent_kills_only_that_agent() {
+        let mut in_flight = sample_in_flight();
+        in_flight.push((6, "c1".into(), Route::Agent("agent-b".into())));
+        let ids = threads_to_cancel(in_flight, "c1", &CancelScope::Agent("tab-a".into()));
+        assert_eq!(
+            ids,
+            vec![4],
+            "other agents, the interactive lane and tabs are spared, \
+             including a tab whose session id matches the agent's"
+        );
+    }
+
+    #[test]
+    fn cancel_with_agent_stays_on_its_connection() {
+        let mut in_flight = sample_in_flight();
+        in_flight.push((6, "c2".into(), Route::Agent("tab-a".into())));
+        let ids = threads_to_cancel(in_flight, "c2", &CancelScope::Agent("tab-a".into()));
+        assert_eq!(ids, vec![6]);
+    }
+
+    #[test]
     fn cancel_with_nothing_in_scope_kills_nothing() {
         assert!(threads_to_cancel(sample_in_flight(), "c1", &session("tab-z")).is_empty());
         assert!(threads_to_cancel(sample_in_flight(), "c2", &CancelScope::Interactive).is_empty());
         assert!(threads_to_cancel(sample_in_flight(), "c3", &CancelScope::All).is_empty());
+        assert!(threads_to_cancel(
+            sample_in_flight(),
+            "c1",
+            &CancelScope::Agent("tab-z".into())
+        )
+        .is_empty());
     }
 
     #[test]

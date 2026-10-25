@@ -148,15 +148,42 @@ describe("StatusBar", () => {
     expect(panel.textContent).toMatch(/ask before restarting/i);
   });
 
-  it("renders connection name and host:port", () => {
+  it("renders the profile's name and the session's host:port (#831)", () => {
+    // The name an edit gave the profile, not the one it had at connect time;
+    // the host the session is really on, which an edit does not move.
     renderStatusBar();
-    expect(screen.getByText(/Production DB/)).toBeInTheDocument();
+    expect(screen.getByText(/Prod Profile/)).toBeInTheDocument();
+    expect(screen.queryByText(/Production DB/)).toBeNull();
     expect(screen.getByText(/db\.example\.com:3306/)).toBeInTheDocument();
   });
 
   it("renders MySQL version", () => {
     renderStatusBar();
     expect(screen.getByText("MySQL 8.0.33")).toBeInTheDocument();
+  });
+
+  it("keeps its text at the 12px minimum (#837, NFR-3.5)", () => {
+    renderStatusBar();
+    const small = [...document.body.querySelectorAll("[class]")].filter((el) =>
+      /text-\[(?:[0-9]|1[01])px\]/.test(el.getAttribute("class") ?? "")
+    );
+    expect(small.map((el) => el.getAttribute("class"))).toEqual([]);
+  });
+
+  it("names a MariaDB server MariaDB (#838)", () => {
+    const conn = useConnectionStore.getState().activeConnections[0];
+    useConnectionStore.setState({
+      activeConnections: [{ ...conn, server_version: "10.11.6-MariaDB-1:10.11.6+maria~ubu2204" }],
+    });
+    renderStatusBar();
+    expect(screen.getByText("MariaDB 10.11.6")).toBeInTheDocument();
+    expect(screen.queryByText(/MySQL/)).toBeNull();
+  });
+
+  it("makes the connection button a hover group, so its copy icon can show (#838)", () => {
+    renderStatusBar();
+    const button = screen.getByTitle("Click to copy connection string");
+    expect(button.className.split(" ")).toContain("group");
   });
 
   it("renders 'Disconnected' when no connection is active", () => {

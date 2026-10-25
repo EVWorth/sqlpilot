@@ -10,7 +10,7 @@ const SCRIPT = "SELECT * FROM products;\nSELECT * FROM nope;\nSELECT 1;";
 const setModelMarkers = vi.fn();
 const model = { getValue: () => SCRIPT };
 const monaco = {
-  editor: { setModelMarkers, addKeybindingRule: vi.fn() },
+  editor: { setModelMarkers, addKeybindingRule: vi.fn(), defineTheme: vi.fn(), setTheme: vi.fn() },
   MarkerSeverity: { Error: 8 },
   languages: { registerCompletionItemProvider: vi.fn(() => ({ dispose: vi.fn() })) },
 };

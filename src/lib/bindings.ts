@@ -177,6 +177,19 @@ export const commands = {
 	defaultRestoreOptions: () => typedError<RestoreOptions, string>(__TAURI_INVOKE("default_restore_options")),
 	readFileHead: (path: string, maxBytes: number) => typedError<FileHead, string>(__TAURI_INVOKE("read_file_head", { path, maxBytes })),
 	getPlatformInfo: () => typedError<PlatformInfo, string>(__TAURI_INVOKE("get_platform_info")),
+	/**
+	 *  Rebuild the native menu bar from the frontend's description of it.
+	 * 
+	 *  The frontend calls this whenever what the menu shows changes: the saved
+	 *  profiles, which are connected, whether an action can run. The description
+	 *  is validated on every platform, so a malformed one fails the same way
+	 *  everywhere, but only macOS has a native menu bar to rebuild; elsewhere the
+	 *  in-app menu bar renders the same list and this does nothing more.
+	 * 
+	 *  Synchronous on purpose: Tauri runs it on the main thread, where menus are
+	 *  built, so two calls in a row are applied in the order they were sent.
+	 */
+	setNativeMenu: (menus: NativeMenu[]) => typedError<null, string>(__TAURI_INVOKE("set_native_menu", { menus })),
 	/**  Record one executed statement, then trim to `limit`. */
 	historyAdd: (entry: HistoryEntry, limit: number) => typedError<HistoryEntry, string>(__TAURI_INVOKE("history_add", { entry, limit })),
 	historyList: (query: HistoryQuery) => typedError<HistoryEntry[], string>(__TAURI_INVOKE("history_list", { query })),
@@ -275,7 +288,17 @@ export const commands = {
 	startAgentSession: (harness: Harness) => typedError<StartedSession, string>(__TAURI_INVOKE("start_agent_session", { harness })),
 	/**  Send a message. The answer arrives as events, not as a return value. */
 	sendAgentMessage: (session: string, text: string) => typedError<null, string>(__TAURI_INVOKE("send_agent_message", { session, text })),
-	/**  Stop the turn in progress. The session stays open. */
+	/**
+	 *  Stop the turn in progress, and any SQL it has running. The session stays
+	 *  open.
+	 * 
+	 *  The harness is asked to stop first, so it does not answer a killed
+	 *  statement by starting another. Then every statement on the agent's own
+	 *  connections is cancelled (#868): the editor's Cancel no longer reaches
+	 *  them (#866), so this is the one control that does. The SQL is stopped even
+	 *  when the harness could not be asked, because a statement left running is
+	 *  the worse outcome, and the harness's answer is what the command returns.
+	 */
 	cancelAgentTurn: (session: string) => typedError<null, string>(__TAURI_INVOKE("cancel_agent_turn", { session })),
 	/**
 	 *  Answer the harness's own permission prompt, in SQLPilot's window.
@@ -285,7 +308,10 @@ export const commands = {
 	 *  look for another way round.
 	 */
 	answerAgentPermission: (session: string, request: string, option: string | null) => typedError<null, string>(__TAURI_INVOKE("answer_agent_permission", { session, request, option })),
-	/**  End a session and clean up after it. */
+	/**
+	 *  End a session and clean up after it, including any SQL its agent still
+	 *  has running: the harness is gone, so nothing would read the answer.
+	 */
 	stopAgentSession: (session: string) => typedError<null, string>(__TAURI_INVOKE("stop_agent_session", { session })),
 };
 
@@ -332,7 +358,18 @@ rowsAffected: number | null;
  *  "write" or "schema". Not called `kind`: the union is already tagged
  *  on that name, and a field of the same name would be shadowed by it.
  */
-change: string; reason: string | null } | 
+change: string; reason: string | null; 
+/**
+ *  The in-app agent session that asked, by SQLPilot's id for it, or
+ *  none for an external client on the endpoint (#801). A label the
+ *  client sent, not a credential.
+ */
+session: string | null; 
+/**
+ *  The client's own name for itself, from the MCP handshake, when it
+ *  gave one.
+ */
+client: string | null } | 
 /**  Open a new tab. Never touches an existing one. */
 { kind: "openDraft"; sql: string; title: string | null; connection: string | null; database: string | null };
 
@@ -1034,6 +1071,19 @@ export type IndexInfo = {
 	is_unique: boolean,
 	index_type: string,
 };
+
+/**  One menu in the menu bar, as the frontend describes it. */
+export type NativeMenu = {
+	label: string,
+	entries: NativeMenuEntry[],
+};
+
+/**  An entry in a menu: an action, a divider, or a nested menu. */
+export type NativeMenuEntry = 
+/**  Choosing it emits `menu-action` with `id`, as the in-app menu does. */
+{ type: "item"; id: string; label: string; 
+/**  Tauri's accelerator syntax, e.g. `CmdOrCtrl+Shift+F`. */
+accelerator: string | null; enabled: boolean } | { type: "separator" } | { type: "submenu"; label: string; enabled: boolean; entries: NativeMenuEntry[] };
 
 /**
  *  How this copy of SQLPilot was installed, which decides whether it may

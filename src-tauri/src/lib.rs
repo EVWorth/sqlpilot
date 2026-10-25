@@ -1,6 +1,5 @@
 mod commands;
 pub mod mcp;
-#[cfg(target_os = "macos")]
 mod menu;
 
 use commands::AppState;
@@ -183,6 +182,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::backup::default_restore_options,
             commands::backup::read_file_head,
             commands::get_platform_info,
+            commands::menu::set_native_menu,
             commands::history_add,
             commands::history_list,
             commands::history_remove,

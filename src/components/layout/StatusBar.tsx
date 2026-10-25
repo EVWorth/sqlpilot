@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import type { StartupProblem } from "../../lib/bindings";
 import { releaseUrl } from "../../lib/repo";
+import { serverFlavour } from "../../lib/server-flavour";
 import { api } from "../../lib/tauri-api";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -19,15 +20,20 @@ import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { type StorageErrorKey, useStorageErrorStore } from "../../stores/storageErrorStore";
-import type { ConnectionEnvironment } from "../../types";
+import { EnvironmentBadge } from "../connection/EnvironmentBadge";
 import { ConnectionErrorChip } from "./ConnectionErrorChip";
 import { UpdateErrorDetails } from "./UpdateErrorDetails";
 
-const ENV_BADGES: Record<ConnectionEnvironment, { label: string; className: string }> = {
-  production: { label: "PROD", className: "surface-error-strong text-[var(--color-error)]" },
-  staging: { label: "STG", className: "surface-warning-strong text-[var(--color-warning)]" },
-  development: { label: "DEV", className: "surface-success-strong text-[var(--color-success)]" },
-};
+/**
+ * "MySQL 8.0.36" or "MariaDB 10.11.6": the vendor from the version string.
+ * It always said MySQL, so a MariaDB server read "MySQL 10.11.6-MariaDB" (#838).
+ */
+export function serverLabel(version: string): string {
+  if (serverFlavour(version) === "mariadb") {
+    return `MariaDB ${version.replace(/-MariaDB.*$/i, "")}`;
+  }
+  return `MySQL ${version}`;
+}
 
 function formatTime(ms: number): string {
   if (ms < 1) return "<1ms";
@@ -149,9 +155,6 @@ export function StatusBar() {
   const activeProfile = activeConn
     ? profiles.find((p) => p.id === activeConn.profile_id)
     : undefined;
-  const envBadge = activeProfile?.environment
-    ? ENV_BADGES[activeProfile.environment]
-    : undefined;
   // What the backend's health checker last said about this connection.
   const health = useConnectionHealthStore((s) => selectedConnectionId ? s.health[selectedConnectionId] : undefined);
 
@@ -186,7 +189,8 @@ export function StatusBar() {
             <>
               <button
                 onClick={handleCopyConnection}
-                className="flex items-center gap-1.5 hover:text-[var(--color-text-primary)] transition-colors"
+                // `group`, or the copy icon's group-hover never fires (#838).
+                className="group flex items-center gap-1.5 hover:text-[var(--color-text-primary)] transition-colors"
                 title="Click to copy connection string"
               >
                 <span
@@ -196,31 +200,30 @@ export function StatusBar() {
                     health && !health.healthy ? "animate-pulse bg-[var(--color-error)]" : "bg-[var(--color-success)]"
                   }`}
                 />
-                <span className="text-[10px] text-[var(--color-text-secondary)]">
-                  {activeConn.name} — {activeConn.host}:{activeConn.port}
+                <span className="text-xs text-[var(--color-text-secondary)]">
+                  {/* The profile's name, which an edit changes; the server the session is really on (#831). */}
+                  {activeProfile?.name || activeConn.name} — {activeConn.host}:{activeConn.port}
                 </span>
                 {copied
                   ? <Check className="h-2.5 w-2.5 text-[var(--color-success)]" />
-                  : <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100" />}
+                  : (
+                    <Copy className="h-2.5 w-2.5 text-[var(--color-text-muted)] opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100" />
+                  )}
               </button>
-              {envBadge && (
-                <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${envBadge.className}`}>
-                  {envBadge.label}
-                </span>
-              )}
+              <EnvironmentBadge environment={activeProfile?.environment} />
               {selectedDatabase && (
-                <span className="text-[10px] text-brand-400 font-medium">
+                <span className="text-xs text-brand-400 font-medium">
                   {selectedDatabase}
                 </span>
               )}
-              <span className="text-[10px] text-[var(--color-text-muted)]">
-                MySQL {activeConn.server_version}
+              <span className="text-xs text-[var(--color-text-muted)]">
+                {serverLabel(activeConn.server_version)}
               </span>
               {health && !health.healthy && (
                 <span
                   data-testid="connection-lost"
                   title={health.error ?? undefined}
-                  className="flex items-center gap-1 rounded surface-error px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-error)]"
+                  className="flex items-center gap-1 rounded surface-error px-1.5 py-0.5 text-xs font-medium text-[var(--color-error)]"
                 >
                   <AlertTriangle className="h-2.5 w-2.5" />
                   Lost — retrying ({health.consecutiveFailures})
@@ -229,7 +232,7 @@ export function StatusBar() {
               {keyringAvailable === false && (
                 <span
                   title="No OS credential store was available at startup, so connection passwords are kept only for this session."
-                  className="flex items-center gap-1 rounded surface-warning px-1.5 py-0.5 text-[9px] font-medium text-[var(--color-warning)]"
+                  className="flex items-center gap-1 rounded surface-warning px-1.5 py-0.5 text-xs font-medium text-[var(--color-warning)]"
                 >
                   <KeyRound className="h-2.5 w-2.5" />
                   Passwords not saved
@@ -241,13 +244,13 @@ export function StatusBar() {
           ? (
             // The first connect used to leave this on "Disconnected" for the
             // whole wait (#799).
-            <span className="flex items-center gap-1 text-[10px] text-[var(--color-text-secondary)]">
+            <span className="flex items-center gap-1 text-xs text-[var(--color-text-secondary)]">
               <Loader2 className="h-3 w-3 animate-spin" />
               Connecting to {connectingNames.join(", ")}…
             </span>
           )
           : (
-            <span className="text-[10px] text-[var(--color-text-muted)]">
+            <span className="text-xs text-[var(--color-text-muted)]">
               Disconnected
             </span>
           )}
@@ -264,7 +267,7 @@ export function StatusBar() {
               data-testid={`startup-problem-${problem.kind}`}
               onClick={() => setDismissedProblems((d) => [...d, problem.kind])}
               title={`${problem.detail}\n\nClick to dismiss.`}
-              className="flex max-w-[380px] items-center gap-1 rounded surface-warning px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-warning)] hover:surface-warning-strong"
+              className="flex max-w-[380px] items-center gap-1 rounded surface-warning px-1.5 py-0.5 text-xs font-medium text-[var(--color-warning)] hover:surface-warning-strong"
             >
               <AlertTriangle className="h-2.5 w-2.5 shrink-0" />
               <span className="truncate">{problem.summary}</span>
@@ -275,7 +278,7 @@ export function StatusBar() {
           <button
             key={key}
             onClick={() => dismissStorageError(key as StorageErrorKey)}
-            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-warning)] max-w-[300px] hover:text-[var(--color-warning)] transition-colors"
+            className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-warning)] max-w-[300px] hover:text-[var(--color-warning)] transition-colors"
             title={`${message} — click to dismiss`}
           >
             <AlertTriangle className="h-3 w-3 flex-shrink-0" />
@@ -285,7 +288,7 @@ export function StatusBar() {
         {error && !isExecuting && (
           <button
             onClick={() => setShowFullError(!showFullError)}
-            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
+            className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-error)] max-w-[300px] hover:text-[var(--color-error)] transition-colors"
             title={showFullError ? error : "Click to expand error"}
           >
             <AlertCircle className="h-3 w-3 flex-shrink-0" />
@@ -296,22 +299,22 @@ export function StatusBar() {
         )}
         {cancelledAfterMs !== null && !error && !isExecuting && (
           // Neutral: the user stopped it on purpose (#850).
-          <span className="text-[10px] text-[var(--color-text-muted)]">Cancelled</span>
+          <span className="text-xs text-[var(--color-text-muted)]">Cancelled</span>
         )}
         {warningsCount > 0 && !isExecuting && (
-          <div className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-warning)]">
+          <div className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-warning)]">
             <AlertTriangle className="h-3 w-3" />
             {warningsCount} warning{warningsCount !== 1 ? "s" : ""}
           </div>
         )}
         {isExecuting && (
-          <div className="flex min-h-6 items-center gap-1 text-[10px] text-brand-400">
+          <div className="flex min-h-6 items-center gap-1 text-xs text-brand-400">
             <Loader2 className="h-3 w-3 animate-spin" />
             Executing...
           </div>
         )}
         {activeResult && !isExecuting && (
-          <span className="text-[10px] text-[var(--color-text-muted)]">
+          <span className="text-xs text-[var(--color-text-muted)]">
             {formatRows(activeResult.rows.length)} · {formatTime(activeResult.execution_time_ms)}
           </span>
         )}
@@ -322,7 +325,7 @@ export function StatusBar() {
                 setShowUpdateConfirm((open) =>
                   !open
                 )}
-              className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-[var(--color-success)] transition-colors"
+              className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-success)] hover:text-[var(--color-success)] transition-colors"
               title={`Update v${updateVersion} available`}
             >
               <Download className="h-3 w-3" />
@@ -333,7 +336,7 @@ export function StatusBar() {
                 data-testid="update-confirm"
                 className="absolute bottom-full right-0 mb-2 w-64 rounded border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 shadow-lg"
               >
-                <p className="text-[11px] font-medium text-[var(--color-text-primary)]">
+                <p className="text-xs font-medium text-[var(--color-text-primary)]">
                   Update to v{updateVersion}
                 </p>
                 {
@@ -344,14 +347,14 @@ export function StatusBar() {
                   separate step the user takes when ready.
                 */
                 }
-                <p className="mt-1 text-[10px] text-[var(--color-text-muted)]">
+                <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                   Downloads in the background. SQLPilot will ask before restarting.
                 </p>
                 <a
                   href={releaseUrl(updateVersion ?? "")}
                   target="_blank"
                   rel="noreferrer"
-                  className="mt-1 inline-block text-[10px] text-brand-400 hover:underline"
+                  className="mt-1 inline-block text-xs text-brand-400 hover:underline"
                 >
                   What's in this release
                 </a>
@@ -361,7 +364,7 @@ export function StatusBar() {
                       setShowUpdateConfirm(false);
                       void installUpdate();
                     }}
-                    className="flex-1 rounded bg-brand-600 px-2 py-1 text-[10px] font-medium text-white hover:bg-brand-700"
+                    className="flex-1 rounded bg-brand-600 px-2 py-1 text-xs font-medium text-white hover:bg-brand-700"
                   >
                     Download
                   </button>
@@ -370,7 +373,7 @@ export function StatusBar() {
                       setShowUpdateConfirm(false);
                       dismissUpdate();
                     }}
-                    className="flex-1 rounded px-2 py-1 text-[10px] text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
+                    className="flex-1 rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]"
                   >
                     Later
                   </button>
@@ -384,7 +387,7 @@ export function StatusBar() {
             /* Downloading and restarting are separate: the app closing is the
                part that can lose work, so it waits to be asked (#344). */
             onClick={() => void restartToApply()}
-            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-success)] hover:text-[var(--color-success)] transition-colors"
+            className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-success)] hover:text-[var(--color-success)] transition-colors"
             title={`v${updateVersion} is installed — restart to finish`}
           >
             <RefreshCw className="h-3 w-3" />
@@ -394,7 +397,7 @@ export function StatusBar() {
         {updateStatus === "manual-update-required" && manualUpdateCommand && (
           <button
             onClick={handleCopyManualCommand}
-            className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-warning)] hover:text-[var(--color-warning)] transition-colors"
+            className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-warning)] hover:text-[var(--color-warning)] transition-colors"
             title={`Click to copy: ${manualUpdateCommand}\n(then run in a terminal; reboot to apply)`}
           >
             <Terminal className="h-3 w-3" />
@@ -402,14 +405,14 @@ export function StatusBar() {
           </button>
         )}
         {updateStatus === "checking" && (
-          <span className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-text-muted)]">
+          <span className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-text-muted)]">
             <RefreshCw className="h-3 w-3 animate-spin" />
             Checking updates...
           </span>
         )}
         {updateStatus === "downloading" && (
           <span
-            className="flex items-center gap-1.5 text-[10px] text-brand-400"
+            className="flex items-center gap-1.5 text-xs text-brand-400"
             title={`Downloading update... ${
               downloadProgress.total
                 ? `${formatBytes(downloadProgress.transferred)} / ${formatBytes(downloadProgress.total)}`
@@ -436,7 +439,7 @@ export function StatusBar() {
         <UpdateErrorDetails appVersion={appVersion} packageFormat={packageFormat} />
         <button
           onClick={() => void checkForUpdates(true)}
-          className="flex min-h-6 items-center gap-1 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
+          className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] transition-colors"
           title="Check for updates"
         >
           {appVersion && `v${appVersion}`}

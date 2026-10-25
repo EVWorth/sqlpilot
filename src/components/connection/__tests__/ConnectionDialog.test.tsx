@@ -257,14 +257,13 @@ describe("ConnectionDialog", () => {
   describe("color picker", () => {
     it("renders color buttons for preset colors", () => {
       render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
-      const colorBtns = document.querySelectorAll("[title=\"#3B82F6\"]");
-      expect(colorBtns.length).toBeGreaterThan(0);
+      expect(screen.getByRole("button", { name: "Blue" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Orange" })).toBeInTheDocument();
     });
 
     it("shows Clear button when color is selected", () => {
       render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
-      const colorBtn = document.querySelector("[title=\"#F97316\"]");
-      if (colorBtn) fireEvent.click(colorBtn);
+      fireEvent.click(screen.getByRole("button", { name: "Orange" }));
       expect(screen.getByText("Clear")).toBeInTheDocument();
     });
   });
@@ -462,5 +461,86 @@ describe("the test result (#804)", () => {
     expect(text).not.toHaveClass("truncate");
     expect(text).toHaveClass("break-words");
     expect(screen.getByRole("alert")).toHaveTextContent(message);
+  });
+});
+
+describe("Save & Connect (#832)", () => {
+  const existing = {
+    id: "p1",
+    name: "Existing DB",
+    host: "db.example.com",
+    port: 3306,
+    username: "admin",
+    pool_min: 1,
+    pool_max: 5,
+    read_only: false,
+    created_at: "2023-01-01",
+    updated_at: "2023-01-01",
+  } as never;
+
+  it("puts focus in the Name field on open", () => {
+    render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+    expect(document.activeElement).toBe(screen.getByLabelText("Name"));
+  });
+
+  it("makes Save & Connect the primary action for a new profile and connects on it", async () => {
+    const onSaved = vi.fn();
+    const onClose = vi.fn();
+    render(<ConnectionDialog isOpen={true} onClose={onClose} onSaved={onSaved} />);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+
+    const primary = screen.getByRole("button", { name: "Save & Connect" });
+    expect(primary).toHaveAttribute("type", "submit");
+    fireEvent.click(primary);
+
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onSaved).toHaveBeenCalledWith(expect.objectContaining({ name: "Local" }), { connect: true });
+  });
+
+  it("keeps a plain Save that does not connect", async () => {
+    const onSaved = vi.fn();
+    render(<ConnectionDialog isOpen={true} onClose={vi.fn()} onSaved={onSaved} />);
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.anything(), { connect: false }));
+  });
+
+  it("submits on Enter in a field", async () => {
+    const onSaved = vi.fn();
+    render(<ConnectionDialog isOpen={true} onClose={vi.fn()} onSaved={onSaved} />);
+    const name = screen.getByLabelText("Name");
+    fireEvent.change(name, { target: { value: "Local" } });
+    fireEvent.submit(name.closest("form") as HTMLFormElement);
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.anything(), { connect: true }));
+  });
+
+  it("does not submit on Enter while the form cannot be saved", async () => {
+    render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+    fireEvent.submit(screen.getByLabelText("Name").closest("form") as HTMLFormElement);
+    await Promise.resolve();
+    expect(saveProfileFn).not.toHaveBeenCalled();
+  });
+
+  it("offers only Save when editing, since the profile may already be connected", async () => {
+    const onSaved = vi.fn();
+    render(<ConnectionDialog isOpen={true} onClose={vi.fn()} editProfile={existing} onSaved={onSaved} />);
+    expect(screen.queryByRole("button", { name: "Save & Connect" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    await waitFor(() => expect(onSaved).toHaveBeenCalledWith(expect.anything(), { connect: false }));
+  });
+});
+
+describe("required fields (#838)", () => {
+  it("marks Name and Host required and says what is missing", () => {
+    render(<ConnectionDialog isOpen={true} onClose={vi.fn()} />);
+    expect(screen.getByLabelText("Name")).toHaveAttribute("aria-required", "true");
+    expect(screen.getByLabelText("Host")).toHaveAttribute("aria-required", "true");
+    expect(screen.getByText("Name is required")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Local" } });
+    expect(screen.queryByText(/is required/)).toBeNull();
+
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "" } });
+    expect(screen.getByText("Host is required")).toBeInTheDocument();
   });
 });

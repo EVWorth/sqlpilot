@@ -72,13 +72,28 @@ pub fn session_args(mcp_config: Option<&str>) -> Vec<String> {
 }
 
 /// The `--mcp-config` value for SQLPilot's endpoint.
-pub fn mcp_config(url: &str, token: &str) -> String {
+///
+/// `session` is SQLPilot's id for the in-app session, sent as
+/// [`SESSION_HEADER`](crate::SESSION_HEADER) so the endpoint can tell this
+/// agent from an external client holding the same token.
+pub fn mcp_config(url: &str, token: &str, session: Option<&str>) -> String {
+    let mut headers = serde_json::Map::new();
+    headers.insert(
+        "Authorization".to_string(),
+        Value::String(format!("Bearer {token}")),
+    );
+    if let Some(session) = session {
+        headers.insert(
+            crate::SESSION_HEADER.to_string(),
+            Value::String(session.to_string()),
+        );
+    }
     json!({
         "mcpServers": {
             SERVER_NAME: {
                 "type": "http",
                 "url": url,
-                "headers": {"Authorization": format!("Bearer {token}")}
+                "headers": headers
             }
         }
     })
@@ -720,11 +735,28 @@ mod tests {
     #[test]
     fn the_config_carries_the_endpoint_and_its_token() {
         let config: Value =
-            serde_json::from_str(&mcp_config("http://127.0.0.1:47311/mcp", "s3cret")).unwrap();
+            serde_json::from_str(&mcp_config("http://127.0.0.1:47311/mcp", "s3cret", None))
+                .unwrap();
         let server = &config["mcpServers"]["sqlpilot"];
         assert_eq!(server["type"], "http");
         assert_eq!(server["url"], "http://127.0.0.1:47311/mcp");
         assert_eq!(server["headers"]["Authorization"], "Bearer s3cret");
+        assert!(server["headers"].get(crate::SESSION_HEADER).is_none());
+    }
+
+    #[test]
+    fn the_config_names_the_in_app_session_it_belongs_to() {
+        // How the endpoint links this agent's statements to the panel's Stop
+        // (#868) and names it in an approval (#801).
+        let config: Value = serde_json::from_str(&mcp_config(
+            "http://127.0.0.1:47311/mcp",
+            "s3cret",
+            Some("session-1"),
+        ))
+        .unwrap();
+        let headers = &config["mcpServers"]["sqlpilot"]["headers"];
+        assert_eq!(headers["Authorization"], "Bearer s3cret");
+        assert_eq!(headers[crate::SESSION_HEADER], "session-1");
     }
 
     #[test]

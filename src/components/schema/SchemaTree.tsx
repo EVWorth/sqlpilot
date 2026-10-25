@@ -711,11 +711,14 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                                 icon: <Columns3 className="h-3.5 w-3.5" />,
                                 onClick: () => addStructureTab(connectionId, db.name, t.name),
                               },
-                              {
+                              // The designer reads and writes MySQL DDL, so
+                              // like "New Table…" it is not offered on a
+                              // SQLite file (#889).
+                              ...(connectionKind(connectionId) === "sqlite" ? [] : [{
                                 label: "Design Table",
                                 icon: <PenLine className="h-3.5 w-3.5" />,
                                 onClick: () => addDesignerTab(connectionId, db.name, t.name),
-                              },
+                              }]),
                               {
                                 label: "Copy Name",
                                 icon: <Copy className="h-3.5 w-3.5" />,
@@ -821,8 +824,14 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
                             e.stopPropagation();
                             addStructureTab(connectionId, db.name, t.name);
                           }}
+                          // Out of the tab order: the row is the tree's one stop, and
+                          // its context menu (Shift+F10 or the Menu key) has View
+                          // Structure. It shows while the row has keyboard focus, so
+                          // the shortcut is not hover-only either (#784).
+                          tabIndex={-1}
                           title="View Structure"
-                          className="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-primary)] hover:text-brand-400 group-hover/table:opacity-100"
+                          aria-label={`View structure of ${t.name}`}
+                          className="shrink-0 rounded p-0.5 text-[var(--color-text-muted)] opacity-0 hover:bg-[var(--color-bg-primary)] hover:text-brand-400 group-hover/table:opacity-100 group-has-[:focus-visible]/table:opacity-100"
                         >
                           <Columns3 className="h-3 w-3" />
                         </button>

@@ -372,12 +372,28 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   },
 
   removeEntry: async (id) => {
-    const previous = get().entries;
-    set({ entries: previous.filter((e) => e.id !== id) });
+    const { entries, matchCount } = get();
+    // The count describes the rows too: left alone it kept reading "N of 37"
+    // after the row was gone (#887). Only a loaded match was counted, so only
+    // one of those lowers it.
+    const wasMatch = entries.some((e) => e.id === id);
+    set({
+      entries: entries.filter((e) => e.id !== id),
+      matchCount: wasMatch ? Math.max(0, matchCount - 1) : matchCount,
+    });
     try {
       await api.historyRemove(id);
     } catch (e) {
-      set({ entries: previous, error: `Could not delete the entry: ${String(e)}` });
+      set({ entries, matchCount, error: `Could not delete the entry: ${String(e)}` });
+      return;
+    }
+    // Facets are distinct values with no counts, so whether this was the last
+    // entry for its connection or database only the backend can say.
+    try {
+      set({ facets: await api.historyFacets() });
+    } catch {
+      // Stale filter chips are a smaller problem than failing a delete that
+      // succeeded.
     }
   },
 

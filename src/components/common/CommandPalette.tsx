@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { type Action, ACTIONS, profileActions, runAction, search } from "../../lib/actions";
+import { useActionContext } from "../../hooks/useActionContext";
+import { type Action, ACTIONS, CONNECT_FIRST, isEnabled, profileActions, runAction, search } from "../../lib/actions";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { Modal } from "./Modal";
 
@@ -45,20 +46,29 @@ export function CommandPalette({ isOpen, onOpen, onClose }: CommandPaletteProps)
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const connecting = useConnectionStore((s) => s.connecting);
 
-  /**
-   * The fixed actions plus "Connect: <name>" per saved profile not already
-   * open or opening, and no "Disconnect" when there is nothing to disconnect — it used
-   * to be the first answer to "conn" on a fresh start (#817).
-   */
+  const { connected } = useActionContext();
+
+  /** The fixed actions plus "Connect: <name>" per saved profile not already open or opening (#817). */
   const actions = useMemo(() => {
     const open = new Set([...activeConnections.map((c) => c.profile_id), ...connecting]);
-    return [
-      ...ACTIONS.filter((action) => action.id !== "disconnect" || activeConnections.length > 0),
-      ...profileActions(profiles.filter((p) => !open.has(p.id))),
-    ];
+    return [...ACTIONS, ...profileActions(profiles.filter((p) => !open.has(p.id)))];
   }, [profiles, activeConnections, connecting]);
 
-  const matches = useMemo(() => search(query, actions), [query, actions]);
+  /**
+   * What can run, best first, then what cannot, with the reason (#821).
+   *
+   * Only the runnable ones can be highlighted, so `selected` indexes into the
+   * front of the list and Enter never lands on something that would do
+   * nothing. Disconnect used to be the first answer to "conn" on a fresh
+   * start (#817); now it sits at the bottom, greyed.
+   */
+  const { matches, runnable } = useMemo(() => {
+    const context = { connected };
+    const found = search(query, actions);
+    const ready = found.filter((action) => isEnabled(action, context));
+    const blocked = found.filter((action) => !isEnabled(action, context));
+    return { matches: [...ready, ...blocked], runnable: ready.length };
+  }, [query, actions, connected]);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -82,8 +92,8 @@ export function CommandPalette({ isOpen, onOpen, onClose }: CommandPaletteProps)
   // A filtered list whose selection points past the end selects nothing, so
   // Enter would do nothing and look broken.
   useEffect(() => {
-    setSelected((current) => (current >= matches.length ? 0 : current));
-  }, [matches.length]);
+    setSelected((current) => (current >= runnable ? 0 : current));
+  }, [runnable]);
 
   // Keep the highlighted row visible when arrowing past the fold.
   useEffect(() => {
@@ -100,13 +110,13 @@ export function CommandPalette({ isOpen, onOpen, onClose }: CommandPaletteProps)
   const onKeyDown = (event: React.KeyboardEvent) => {
     if (event.key === "ArrowDown") {
       event.preventDefault();
-      setSelected((current) => (current + 1) % Math.max(matches.length, 1));
+      setSelected((current) => (current + 1) % Math.max(runnable, 1));
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-      setSelected((current) => (current - 1 + matches.length) % Math.max(matches.length, 1));
+      setSelected((current) => (current - 1 + runnable) % Math.max(runnable, 1));
     } else if (event.key === "Enter") {
       event.preventDefault();
-      const action = matches[selected];
+      const action = selected < runnable ? matches[selected] : undefined;
       if (action) choose(action);
     }
   };
@@ -149,31 +159,43 @@ export function CommandPalette({ isOpen, onOpen, onClose }: CommandPaletteProps)
                 No command matches “{query}”.
               </p>
             )
-            : matches.map((action, index) => (
-              <button
-                key={action.id}
-                role="option"
-                aria-selected={index === selected}
-                data-selected={index === selected}
-                onMouseMove={() => setSelected(index)}
-                onClick={() => choose(action)}
-                className={`flex w-full items-center gap-3 px-4 py-2 text-left text-xs transition-colors ${
-                  index === selected
-                    ? "bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]"
-                    : "text-[var(--color-text-secondary)]"
-                }`}
-              >
-                <span className="w-20 shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
-                  {action.category}
-                </span>
-                <span className="flex-1 truncate">{action.label}</span>
-                {action.shortcut && (
-                  <kbd className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-text-muted)]">
-                    {action.shortcut}
-                  </kbd>
-                )}
-              </button>
-            ))}
+            : matches.map((action, index) => {
+              const disabled = index >= runnable;
+              const isSelected = !disabled && index === selected;
+              return (
+                <button
+                  key={action.id}
+                  role="option"
+                  aria-selected={isSelected}
+                  aria-disabled={disabled || undefined}
+                  data-selected={isSelected}
+                  onMouseMove={() => {
+                    if (!disabled) setSelected(index);
+                  }}
+                  onClick={() => {
+                    if (!disabled) choose(action);
+                  }}
+                  className={`flex w-full items-center gap-3 px-4 py-2 text-left text-xs transition-colors ${
+                    isSelected
+                      ? "bg-[var(--color-bg-tertiary)] text-[var(--color-text-primary)]"
+                      : disabled
+                      ? "cursor-default text-[var(--color-text-muted)] opacity-60"
+                      : "text-[var(--color-text-secondary)]"
+                  }`}
+                >
+                  <span className="w-20 shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-text-muted)]">
+                    {action.category}
+                  </span>
+                  <span className="flex-1 truncate">{action.label}</span>
+                  {disabled && <span className="shrink-0 text-[10px] italic">{CONNECT_FIRST}</span>}
+                  {action.shortcut && (
+                    <kbd className="shrink-0 rounded border border-[var(--color-border)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-text-muted)]">
+                      {action.shortcut}
+                    </kbd>
+                  )}
+                </button>
+              );
+            })}
         </div>
       </div>
     </Modal>

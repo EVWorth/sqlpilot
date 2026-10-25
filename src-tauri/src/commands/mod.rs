@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod backup;
+pub mod menu;
 pub mod sqlite;
 
 use mas_admin::AdminService;

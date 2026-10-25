@@ -98,6 +98,7 @@ export function SshTab({
             </label>
             <div className="flex gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-0.5">
               <button
+                type="button"
                 onClick={() => setSshAuthMethod("password")}
                 className={`flex-1 rounded px-3 py-1 text-xs font-medium transition-colors ${
                   sshAuthMethod === "password"
@@ -108,6 +109,7 @@ export function SshTab({
                 Password
               </button>
               <button
+                type="button"
                 onClick={() => setSshAuthMethod("key")}
                 className={`flex-1 rounded px-3 py-1 text-xs font-medium transition-colors ${
                   sshAuthMethod === "key"

@@ -5,7 +5,9 @@ import { Group, Panel, Separator } from "react-resizable-panels";
 import { useAgentRequests } from "../../hooks/useAgentRequests";
 import { useAgentSessionEvents } from "../../hooks/useAgentSessionEvents";
 import { useKeyboardShortcuts } from "../../hooks/useKeyboardShortcuts";
+import { useNativeMenu } from "../../hooks/useNativeMenu";
 import { useTheme } from "../../hooks/useTheme";
+import { useUiScale } from "../../hooks/useUiScale";
 import { connectTarget } from "../../lib/actions";
 import { requestConnect, requestNewConnection } from "../../lib/connect-request";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
@@ -89,6 +91,9 @@ export function AppLayout() {
   const cancelExecution = useResultStore((s) => s.cancelExecution);
 
   useTheme();
+  useUiScale();
+  // macOS: the native menu bar shows the same actions as the in-app one (#892).
+  useNativeMenu();
 
   const toggleSidebar = useCallback(
     () => setSidebarCollapsed((prev) => !prev),
@@ -225,6 +230,15 @@ export function AppLayout() {
           break;
         case "agent-panel":
           setAgentPanelOpen((open) => !open);
+          break;
+        case "zoom-in":
+          useSettingsStore.getState().zoom(1);
+          break;
+        case "zoom-out":
+          useSettingsStore.getState().zoom(-1);
+          break;
+        case "reset-zoom":
+          useSettingsStore.getState().resetZoom();
           break;
         case "cycle-theme":
           // Reaches here from the inline MenuBar (Windows/Linux) and from the

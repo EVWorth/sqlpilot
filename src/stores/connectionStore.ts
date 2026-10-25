@@ -33,6 +33,12 @@ interface ConnectionState {
   connectAttempts: Record<string, number>;
   /** Attempt tokens of in-flight connects the user cancelled. */
   cancelledConnects: number[];
+  /**
+   * Open connections whose profile was edited since they connected, in a way
+   * that only takes effect on a new connection: a host, a user, a password.
+   * The session still points where it did, and the tab says so (#831).
+   */
+  staleConnections: string[];
 
   loadProfiles: () => Promise<void>;
   saveProfile: (profile: ConnectionProfileInput) => Promise<void>;
@@ -41,6 +47,10 @@ interface ConnectionState {
   disconnect: (connectionId: string) => Promise<void>;
   /** Abandon the in-flight connect for a profile; its result is closed on arrival. */
   cancelConnect: (profileId: string) => void;
+  /** Mark an open connection as running on settings that have since changed. */
+  markStale: (connectionId: string) => void;
+  /** Close a connection and open its profile again, with the profile's current settings. */
+  reconnect: (connectionId: string) => Promise<ConnectionInfo>;
   setSelectedConnection: (id: string | null) => void;
   clearError: () => void;
 }
@@ -64,6 +74,7 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
   connecting: [],
   connectAttempts: {},
   cancelledConnects: [],
+  staleConnections: [],
 
   loadProfiles: async () => {
     try {
@@ -208,11 +219,31 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
         selectedConnectionId: state.selectedConnectionId === connectionId
           ? null
           : state.selectedConnectionId,
+        staleConnections: state.staleConnections.filter((id) => id !== connectionId),
         loading: false,
       }));
     } catch (e) {
       set({ error: errorMessage(e), loading: false });
     }
+  },
+
+  markStale: (connectionId) =>
+    set((state) => ({
+      staleConnections: state.staleConnections.includes(connectionId)
+        ? state.staleConnections
+        : [...state.staleConnections, connectionId],
+    })),
+
+  reconnect: async (connectionId) => {
+    const old = get().activeConnections.find((c) => c.id === connectionId);
+    if (!old) throw new Error("Connection not found");
+    await get().disconnect(connectionId);
+    // A failed close leaves it open and says why in `error`; opening a second
+    // one beside it would be the duplicate the connect flow guards against.
+    if (get().activeConnections.some((c) => c.id === connectionId)) {
+      throw new Error(get().error ?? "Could not close the connection");
+    }
+    return get().connect(old.profile_id);
   },
 
   setSelectedConnection: (id) => set({ selectedConnectionId: id }),

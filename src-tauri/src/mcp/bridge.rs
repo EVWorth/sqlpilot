@@ -73,6 +73,13 @@ pub enum AgentAsk {
         /// on that name, and a field of the same name would be shadowed by it.
         change: String,
         reason: Option<String>,
+        /// The in-app agent session that asked, by SQLPilot's id for it, or
+        /// none for an external client on the endpoint (#801). A label the
+        /// client sent, not a credential.
+        session: Option<String>,
+        /// The client's own name for itself, from the MCP handshake, when it
+        /// gave one.
+        client: Option<String>,
     },
     /// Open a new tab. Never touches an existing one.
     OpenDraft {
