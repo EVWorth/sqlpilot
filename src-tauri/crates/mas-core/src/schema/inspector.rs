@@ -1,5 +1,6 @@
 use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
+use crate::query::in_flight::{InFlightTicket, InFlightTracker};
 use crate::schema::ident::qualified;
 use serde::Serialize;
 use sqlx::{AssertSqlSafe, Row};
@@ -9,6 +10,34 @@ pub struct SchemaInspector {
     connection_manager: Arc<ConnectionManager>,
     /// Which of the connection's pools the reads come from.
     route: Route,
+    /// Registers each read where the executor's cancel can reach it. Set for
+    /// an agent's inspector, so the agent panel's Stop reaches its schema
+    /// reads too (#894); the UI's own reads are short and go without, which
+    /// saves them the round trip that asks for the thread id.
+    tracker: Option<InFlightTracker>,
+}
+
+/// A connection one read runs on, registered with the executor while it is
+/// held if the inspector is tracked.
+struct ReadConnection {
+    // Declared first so it is dropped first: the thread leaves the in-flight
+    // table before its connection goes back to the pool for someone else.
+    _ticket: Option<InFlightTicket>,
+    connection: sqlx::pool::PoolConnection<sqlx::MySql>,
+}
+
+impl std::ops::Deref for ReadConnection {
+    type Target = sqlx::MySqlConnection;
+
+    fn deref(&self) -> &Self::Target {
+        &self.connection
+    }
+}
+
+impl std::ops::DerefMut for ReadConnection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.connection
+    }
 }
 
 #[derive(Debug, Clone, Serialize, specta::Type)]
@@ -177,18 +206,44 @@ impl SchemaInspector {
         Self {
             connection_manager,
             route,
+            tracker: None,
         }
     }
 
-    fn pool(&self, connection_id: &str) -> Result<sqlx::MySqlPool, CoreError> {
-        self.connection_manager
-            .route_pool(connection_id, &self.route)
+    /// This inspector, with every read registered through `tracker` while it
+    /// runs, so the executor's cancel reaches it under this inspector's route.
+    pub fn tracked_by(mut self, tracker: InFlightTracker) -> Self {
+        self.tracker = Some(tracker);
+        self
+    }
+
+    /// A connection for one read, from this inspector's route.
+    async fn connection(&self, connection_id: &str) -> Result<ReadConnection, CoreError> {
+        let pool = self
+            .connection_manager
+            .route_pool(connection_id, &self.route)?;
+        let mut connection = pool
+            .acquire()
+            .await
+            .map_err(|e| CoreError::Schema(e.to_string()))?;
+        let ticket = match &self.tracker {
+            Some(tracker) => Some(
+                tracker
+                    .track(&mut connection, connection_id, &self.route)
+                    .await?,
+            ),
+            None => None,
+        };
+        Ok(ReadConnection {
+            _ticket: ticket,
+            connection,
+        })
     }
 
     #[tracing::instrument(skip(self))]
     pub async fn get_databases(&self, connection_id: &str) -> Result<Vec<DatabaseInfo>, CoreError> {
         tracing::debug!("Fetching databases");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(SCHEMA_NAME AS CHAR) AS SCHEMA_NAME,
                     CAST(DEFAULT_CHARACTER_SET_NAME AS CHAR) AS DEFAULT_CHARACTER_SET_NAME,
@@ -196,7 +251,7 @@ impl SchemaInspector {
              FROM INFORMATION_SCHEMA.SCHEMATA
              ORDER BY SCHEMA_NAME",
         )
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -223,7 +278,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<TableInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching tables");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(TABLE_NAME AS CHAR) AS TABLE_NAME,
                     CAST(TABLE_TYPE AS CHAR) AS TABLE_TYPE,
@@ -236,7 +291,7 @@ impl SchemaInspector {
              ORDER BY TABLE_NAME",
         )
         .bind(database)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -263,7 +318,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<ColumnInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching columns");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(COLUMN_NAME AS CHAR) AS COLUMN_NAME,
                     CAST(DATA_TYPE AS CHAR) AS DATA_TYPE,
@@ -281,7 +336,7 @@ impl SchemaInspector {
         )
         .bind(database)
         .bind(table)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -326,7 +381,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<ForeignKeyInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching foreign keys");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(k.CONSTRAINT_NAME AS CHAR) AS CONSTRAINT_NAME,
                     CAST(k.COLUMN_NAME AS CHAR) AS COLUMN_NAME,
@@ -345,7 +400,7 @@ impl SchemaInspector {
         )
         .bind(database)
         .bind(table)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -394,7 +449,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<ReferencingKey>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching referencing keys");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(k.TABLE_NAME AS CHAR) AS TABLE_NAME,
                     CAST(k.CONSTRAINT_NAME AS CHAR) AS CONSTRAINT_NAME,
@@ -412,7 +467,7 @@ impl SchemaInspector {
         )
         .bind(database)
         .bind(table)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -462,7 +517,7 @@ impl SchemaInspector {
         limit: u32,
     ) -> Result<Vec<SchemaMatch>, CoreError> {
         tracing::debug!(database = %database, "Searching schema");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         // Escaped so a fragment containing % or _ searches for those
         // characters rather than becoming a wildcard: someone looking for
         // "created_at" means that column, not "createdXat".
@@ -488,7 +543,7 @@ impl SchemaInspector {
         .bind(&pattern)
         .bind(&pattern)
         .bind(limit)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -510,7 +565,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<IndexInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching indexes");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(INDEX_NAME AS CHAR) AS INDEX_NAME,
                     CAST(COLUMN_NAME AS CHAR) AS COLUMN_NAME,
@@ -522,7 +577,7 @@ impl SchemaInspector {
         )
         .bind(database)
         .bind(table)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -569,14 +624,14 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching table DDL");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         // Qualified, so no `USE` is needed and no session state is relied on
         // (#290).
         let row = sqlx::raw_sql(AssertSqlSafe(format!(
             "SHOW CREATE TABLE {}",
             qualified(database, table)
         )))
-        .fetch_one(&pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -592,7 +647,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<ViewInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching views");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(TABLE_NAME AS CHAR) AS TABLE_NAME,
                     CAST(IS_UPDATABLE AS CHAR) AS IS_UPDATABLE
@@ -601,7 +656,7 @@ impl SchemaInspector {
              ORDER BY TABLE_NAME",
         )
         .bind(database)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -626,7 +681,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<RoutineInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching routines");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(ROUTINE_NAME AS CHAR) AS ROUTINE_NAME,
                     CAST(ROUTINE_TYPE AS CHAR) AS ROUTINE_TYPE,
@@ -636,7 +691,7 @@ impl SchemaInspector {
              ORDER BY ROUTINE_TYPE, ROUTINE_NAME",
         )
         .bind(database)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -663,7 +718,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<EventInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching events");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(EVENT_NAME AS CHAR) AS EVENT_NAME,
                     CAST(EVENT_TYPE AS CHAR) AS EVENT_TYPE,
@@ -677,7 +732,7 @@ impl SchemaInspector {
              ORDER BY EVENT_NAME",
         )
         .bind(database)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -719,7 +774,7 @@ impl SchemaInspector {
         table: &str,
     ) -> Result<Vec<PartitionInfo>, CoreError> {
         tracing::debug!(database = %database, table = %table, "Fetching partitions");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(PARTITION_NAME AS CHAR) AS PARTITION_NAME,
                     CAST(PARTITION_METHOD AS CHAR) AS PARTITION_METHOD,
@@ -734,7 +789,7 @@ impl SchemaInspector {
         )
         .bind(database)
         .bind(table)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -766,7 +821,7 @@ impl SchemaInspector {
         database: &str,
     ) -> Result<Vec<TriggerInfo>, CoreError> {
         tracing::debug!(database = %database, "Fetching triggers");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let rows = sqlx::query(
             "SELECT CAST(TRIGGER_NAME AS CHAR) AS TRIGGER_NAME,
                     CAST(EVENT_MANIPULATION AS CHAR) AS EVENT_MANIPULATION,
@@ -777,7 +832,7 @@ impl SchemaInspector {
              ORDER BY TRIGGER_NAME",
         )
         .bind(database)
-        .fetch_all(&pool)
+        .fetch_all(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -802,12 +857,12 @@ impl SchemaInspector {
         view: &str,
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, view = %view, "Fetching view DDL");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let row = sqlx::raw_sql(AssertSqlSafe(format!(
             "SHOW CREATE VIEW {}",
             qualified(database, view)
         )))
-        .fetch_one(&pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -825,7 +880,7 @@ impl SchemaInspector {
         routine_type: &str,
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, routine = %routine, routine_type = %routine_type, "Fetching routine DDL");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let name = qualified(database, routine);
         let show_cmd = match routine_type.to_uppercase().as_str() {
             "FUNCTION" => format!("SHOW CREATE FUNCTION {}", name),
@@ -833,7 +888,7 @@ impl SchemaInspector {
         };
 
         let row = sqlx::raw_sql(AssertSqlSafe(show_cmd))
-            .fetch_one(&pool)
+            .fetch_one(&mut *conn)
             .await
             .map_err(|e| CoreError::Schema(e.to_string()))?;
 
@@ -850,12 +905,12 @@ impl SchemaInspector {
         trigger: &str,
     ) -> Result<String, CoreError> {
         tracing::debug!(database = %database, trigger = %trigger, "Fetching trigger DDL");
-        let pool = self.pool(connection_id)?;
+        let mut conn = self.connection(connection_id).await?;
         let row = sqlx::raw_sql(AssertSqlSafe(format!(
             "SHOW CREATE TRIGGER {}",
             qualified(database, trigger)
         )))
-        .fetch_one(&pool)
+        .fetch_one(&mut *conn)
         .await
         .map_err(|e| CoreError::Schema(e.to_string()))?;
 

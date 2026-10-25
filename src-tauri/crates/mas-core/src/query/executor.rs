@@ -1,6 +1,7 @@
 use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
+use crate::query::in_flight::InFlightTracker;
 use crate::query::redact::{redact_credentials, redacted_preview, LOG_PREVIEW_CHARS};
 use dashmap::DashMap;
 use futures::StreamExt;
@@ -72,6 +73,13 @@ impl QueryExecutor {
             in_flight: Arc::new(DashMap::new()),
             memory_floor_mb,
         }
+    }
+
+    /// A handle that puts statements run outside this executor within reach
+    /// of [`cancel`](Self::cancel): a staged write's, or the schema
+    /// inspector's on an agent's route (#894).
+    pub fn tracker(&self) -> InFlightTracker {
+        InFlightTracker::new(Arc::clone(&self.in_flight))
     }
 
     /// Ask the server to abort what this connection is running.
