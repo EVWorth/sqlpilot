@@ -14,11 +14,18 @@ against `src/dev/mock/`, which answers every backend command with fixture data.
 just dev-web      # Vite on http://localhost:1420 (run in the background)
 ```
 
-| URL                | Starts                                |
-| ------------------ | ------------------------------------- |
-| `/?mock`           | populated, with saved connections     |
-| `/?mock=empty`     | first run, nothing saved              |
-| `/?mock=connected` | already connected to a fixture server |
+| URL                | Starts                                                                  |
+| ------------------ | ----------------------------------------------------------------------- |
+| `/?mock`           | populated, with saved connections                                       |
+| `/?mock=empty`     | first run, nothing saved                                                |
+| `/?mock=connected` | already connected to a fixture server                                   |
+| `/?mock=lost`      | connected, then the health check fails                                  |
+| `/?mock=servers`   | extra profiles: read-write production, MariaDB, wrong password, timeout |
+
+Switches combine with any scenario, for example
+`/?mock=connected&fail=get_foreign_keys` to make a command fail, or
+`update=available`, `keyring=missing`, `startup=problems`,
+`agent=uninstalled`. `src/dev/mock/README.md` lists them all.
 
 Drive it with Playwright (`require('playwright')`; in a cloud container
 `chromium.launch()` needs no options) and take screenshots of the states you
