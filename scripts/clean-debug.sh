@@ -3,8 +3,9 @@
 #
 # Free disk taken by Rust debug builds without a full `cargo clean`.
 #
-# Incremental caches and old test executables are most of
-# src-tauri/target/debug, and both are rebuilt on demand. Cloud sessions run
+# Incremental caches and old test executables are most of the debug
+# directory under the target directory (CARGO_TARGET_DIR when set, else
+# src-tauri/target), and both are rebuilt on demand. Cloud sessions run
 # out of disk on them (CLAUDE.md, Cloud sessions); a full clean costs a
 # cold rebuild of every dependency, which this avoids.
 #
@@ -14,7 +15,9 @@
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-debug="$root/src-tauri/target/debug"
+# Where Cargo puts its builds: a worktree pointed at a shared target directory
+# through CARGO_TARGET_DIR would otherwise clean a directory nothing builds in.
+debug="${CARGO_TARGET_DIR:-$root/src-tauri/target}/debug"
 
 if [ ! -d "$debug" ]; then
   echo "Nothing to clean: $debug does not exist."
@@ -34,4 +37,4 @@ if [ -d "$debug/deps" ]; then
 fi
 
 after=$(du -sk "$debug" | cut -f1)
-echo "Freed $(((before - after) / 1024)) MB from src-tauri/target/debug."
+echo "Freed $(((before - after) / 1024)) MB from $debug."
