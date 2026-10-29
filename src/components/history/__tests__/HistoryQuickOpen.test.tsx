@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const historyList = vi.hoisted(() => vi.fn());
 vi.mock("../../../lib/tauri-api", () => ({ api: { historyList } }));
 
+import { useHistoryStore } from "../../../stores/historyStore";
 import { HistoryQuickOpen } from "../HistoryQuickOpen";
 
 function entry(id: string, sql: string, overrides = {}) {
@@ -35,6 +36,7 @@ function open(props: Partial<React.ComponentProps<typeof HistoryQuickOpen>> = {}
 describe("HistoryQuickOpen", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useHistoryStore.setState({ quickOpen: { entries: [], error: null } });
     historyList.mockResolvedValue([
       entry("a", "SELECT * FROM users"),
       entry("b", "SELECT * FROM orders"),

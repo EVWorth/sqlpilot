@@ -3,7 +3,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useContextMenu } from "../../hooks/useContextMenu";
 import { groupConsecutive } from "../../lib/history-grouping";
 import { localDayEnd, localDayStart, toLocalYmd } from "../../lib/local-date";
-import { api } from "../../lib/tauri-api";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import {
@@ -78,7 +77,8 @@ export function QueryHistory() {
   const resetFilters = useHistoryStore((s) => s.resetFilters);
   const matchCount = useHistoryStore((s) => s.matchCount);
   const facets = useHistoryStore((s) => s.facets);
-  const exportMatching = useHistoryStore((s) => s.exportMatching);
+  const exportToFile = useHistoryStore((s) => s.exportToFile);
+  const exporting = useHistoryStore((s) => s.exporting);
   const load = useHistoryStore((s) => s.load);
 
   const { contextMenu, showContextMenu } = useContextMenu();
@@ -103,7 +103,6 @@ export function QueryHistory() {
       void setFilters({ search: value });
     }, SEARCH_DEBOUNCE_MS);
   };
-  const [exporting, setExporting] = useState(false);
 
   // Entries come from the database now, so the panel has to ask for them.
   useEffect(() => {
@@ -189,24 +188,7 @@ export function QueryHistory() {
     }
   };
 
-  const handleExport = async (format: HistoryExportFormat) => {
-    setExporting(true);
-    try {
-      const contents = await exportMatching(format);
-      const path = await api.pickSaveFile(
-        "Export query history",
-        format === "csv" ? "query-history.csv" : "query-history.sql",
-        [[format === "csv" ? "CSV" : "SQL", [format]]],
-      );
-      // A cancelled save dialog is not a failure; it is the user changing
-      // their mind, and saying nothing is the right response.
-      if (path) await api.writeFileContents(path, contents);
-    } catch (e) {
-      useHistoryStore.setState({ error: `Could not export history: ${String(e)}` });
-    } finally {
-      setExporting(false);
-    }
-  };
+  const handleExport = (format: HistoryExportFormat) => void exportToFile(format);
 
   /** Add or remove one value from a multi-select filter. */
   const toggleIn = (list: string[], value: string) =>

@@ -126,6 +126,30 @@ interface HistoryState {
   setFilters: (patch: Partial<HistoryFilters>) => Promise<void>;
   resetFilters: () => Promise<void>;
   exportMatching: (format: HistoryExportFormat) => Promise<string>;
+  /** True while `exportToFile` is writing. */
+  exporting: boolean;
+  /**
+   * Export what matches the filters to a file the user picks. A cancelled
+   * save dialog is not a failure; a failure is put in `error`.
+   */
+  exportToFile: (format: HistoryExportFormat) => Promise<void>;
+
+  /**
+   * The quick-open picker's own read (#591).
+   *
+   * Not the panel's `entries`: the panel's filters and sort belong to the
+   * panel, and someone reaching for a statement mid-thought wants the whole
+   * history, not whatever slice the sidebar happens to be showing.
+   */
+  quickOpen: { entries: HistoryEntry[]; error: string | null };
+  /**
+   * Search the whole history for the picker. Resolves to true when these
+   * results were applied, false when a newer search replaced them or the
+   * read failed.
+   */
+  searchQuickOpen: (search: string) => Promise<boolean>;
+  /** Clear the picker's error, when it opens. */
+  clearQuickOpenError: () => void;
   addEntry: (entry: NewHistoryEntry) => Promise<void>;
   removeEntry: (id: string) => Promise<void>;
   clearHistory: () => Promise<void>;
@@ -282,6 +306,12 @@ async function refresh(
   }
 }
 
+/** How many the picker shows. Enough to scroll, few enough to stay a picker. */
+export const QUICK_OPEN_LIMIT = 50;
+
+/** The picker's own generation, so a slow read cannot replace a newer one's results. */
+let quickOpenGeneration = 0;
+
 export const useHistoryStore = create<HistoryState>((set, get) => ({
   entries: [],
   limit: readChoice(LIMIT_KEY, HISTORY_LIMITS, DEFAULT_HISTORY_LIMIT),
@@ -292,6 +322,8 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
   facets: { connectionNames: [], databases: [], origins: [] },
   loading: true,
   error: null,
+  exporting: false,
+  quickOpen: { entries: [], error: null },
 
   load: async () => {
     // Age retention is applied at startup rather than on a timer: a session
@@ -335,6 +367,55 @@ export const useHistoryStore = create<HistoryState>((set, get) => ({
     // No limit: exporting a filtered view means all of it, not the page.
     return api.historyExport(toQuery(get().filters, null), format);
   },
+
+  exportToFile: async (format) => {
+    set({ exporting: true });
+    try {
+      const contents = await get().exportMatching(format);
+      const path = await api.pickSaveFile(
+        "Export query history",
+        format === "csv" ? "query-history.csv" : "query-history.sql",
+        [[format === "csv" ? "CSV" : "SQL", [format]]],
+      );
+      // A cancelled save dialog is not a failure; it is the user changing
+      // their mind, and saying nothing is the right response.
+      if (path) await api.writeFileContents(path, contents);
+    } catch (e) {
+      set({ error: `Could not export history: ${String(e)}` });
+    } finally {
+      set({ exporting: false });
+    }
+  },
+
+  searchQuickOpen: async (search) => {
+    const mine = ++quickOpenGeneration;
+    try {
+      const entries = await api.historyList({
+        search: search.trim() || null,
+        connectionNames: null,
+        databases: null,
+        // Everything, including what the app ran: someone reaching for a
+        // statement wants whatever actually ran (#586).
+        origins: null,
+        status: null,
+        executedAfter: null,
+        executedBefore: null,
+        minDurationMs: null,
+        sort: "recent",
+        limit: QUICK_OPEN_LIMIT,
+        offset: null,
+      });
+      if (mine !== quickOpenGeneration) return false;
+      set((s) => ({ quickOpen: { ...s.quickOpen, entries } }));
+      return true;
+    } catch (e) {
+      if (mine !== quickOpenGeneration) return false;
+      set((s) => ({ quickOpen: { ...s.quickOpen, error: `Could not read query history: ${String(e)}` } }));
+      return false;
+    }
+  },
+
+  clearQuickOpenError: () => set((s) => ({ quickOpen: { ...s.quickOpen, error: null } })),
 
   // Redaction happens here rather than at the call sites: this is the one door
   // into storage, and a password must not depend on every future caller

@@ -21,7 +21,6 @@ import {
   normaliseCategoryPath,
   visibleCategoryRows,
 } from "../../lib/category-tree";
-import { api } from "../../lib/tauri-api";
 import { useEditorStore } from "../../stores/editorStore";
 import { type Favorite, useFavoritesStore } from "../../stores/favoritesStore";
 import { ConfirmDialog } from "../common/ConfirmDialog";
@@ -59,8 +58,8 @@ export function QueryFavorites() {
   const [favoriteToDelete, setFavoriteToDelete] = useState<Favorite | null>(null);
 
   const { contextMenu, showContextMenu } = useContextMenu();
-  const exportFavorites = useFavoritesStore((s) => s.exportFavorites);
-  const importFavorites = useFavoritesStore((s) => s.importFavorites);
+  const exportToFile = useFavoritesStore((s) => s.exportToFile);
+  const importFromFile = useFavoritesStore((s) => s.importFromFile);
   /** What the last import or export did. Cleared on the next one. */
   const [notice, setNotice] = useState<string | null>(null);
   /** The folder a drag is currently over, for the drop highlight. */
@@ -154,39 +153,13 @@ export function QueryFavorites() {
   };
 
   const handleExport = async () => {
-    try {
-      const path = await api.pickSaveFile("Export favorites", "sqlpilot-favorites.json", [[
-        "JSON",
-        ["json"],
-      ]]);
-      // A cancelled dialog is the user changing their mind, not a failure.
-      if (!path) return;
-      await api.writeFileContents(path, exportFavorites());
-      setNotice(`Exported ${favorites.length} favorite(s).`);
-    } catch (e) {
-      setNotice(`Could not export: ${String(e)}`);
-    }
+    const message = await exportToFile();
+    if (message !== null) setNotice(message);
   };
 
   const handleImport = async () => {
-    try {
-      const path = await api.pickFile("Import favorites", [["JSON", ["json"]]]);
-      if (!path) return;
-      const result = importFavorites(await api.readFileContents(path));
-
-      if (result.error) {
-        setNotice(result.error);
-        return;
-      }
-      // Says what happened to everything in the file, not just the good half:
-      // "imported 3" when the file held 40 is a report worth doubting.
-      const parts = [`Imported ${result.imported}`];
-      if (result.skipped > 0) parts.push(`${result.skipped} already here`);
-      if (result.invalid > 0) parts.push(`${result.invalid} unreadable`);
-      setNotice(`${parts.join(", ")}.`);
-    } catch (e) {
-      setNotice(`Could not import: ${String(e)}`);
-    }
+    const message = await importFromFile();
+    if (message !== null) setNotice(message);
   };
 
   const handleRenameConfirm = () =>

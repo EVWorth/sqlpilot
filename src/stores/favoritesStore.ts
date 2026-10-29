@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { redactCredentials } from "../lib/sql-redact";
+import { api } from "../lib/tauri-api";
 
 /**
  * Strip credentials out of a favorite's SQL before it is stored.
@@ -83,6 +84,15 @@ interface FavoritesState {
 
   exportFavorites: () => string;
   importFavorites: (json: string) => ImportResult;
+  /**
+   * Export to a file the user picks, and import from one (#862).
+   *
+   * Each resolves to what to tell the user — what happened, or why it could
+   * not — or null when the file dialog was cancelled, which is the user
+   * changing their mind rather than a failure. Neither rejects.
+   */
+  exportToFile: () => Promise<string | null>;
+  importFromFile: () => Promise<string | null>;
 
   getByCategory: (category: string) => Favorite[];
   findDuplicate: (name: string, category: string, exceptId?: string) => Favorite | undefined;
@@ -357,6 +367,35 @@ export const useFavoritesStore = create<FavoritesState>()(
         });
 
         return { imported, skipped, invalid };
+      },
+
+      exportToFile: async () => {
+        try {
+          const path = await api.pickSaveFile("Export favorites", "sqlpilot-favorites.json", [["JSON", ["json"]]]);
+          if (!path) return null;
+          await api.writeFileContents(path, get().exportFavorites());
+          return `Exported ${get().favorites.length} favorite(s).`;
+        } catch (e) {
+          return `Could not export: ${String(e)}`;
+        }
+      },
+
+      importFromFile: async () => {
+        try {
+          const path = await api.pickFile("Import favorites", [["JSON", ["json"]]]);
+          if (!path) return null;
+          const result = get().importFavorites(await api.readFileContents(path));
+          if (result.error) return result.error;
+          // Says what happened to everything in the file, not just the good
+          // half: "imported 3" when the file held 40 is a report worth
+          // doubting.
+          const parts = [`Imported ${result.imported}`];
+          if (result.skipped > 0) parts.push(`${result.skipped} already here`);
+          if (result.invalid > 0) parts.push(`${result.invalid} unreadable`);
+          return `${parts.join(", ")}.`;
+        } catch (e) {
+          return `Could not import: ${String(e)}`;
+        }
       },
 
       getByCategory: (category) => get().favorites.filter((f) => f.category === category),
