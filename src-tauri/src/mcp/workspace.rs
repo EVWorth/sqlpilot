@@ -426,12 +426,16 @@ impl Workspace for AppWorkspace {
             connection_id: &connection_id,
             route: &route,
         };
-        let staged = CoreStagedWrite::begin_in(&pool, database, sql, STAGE_DEADLINE, Some(reach))
-            .await
-            .map_err(|e| match e {
-                StageError::Failed(e) => e,
-                other => CoreError::Query(other.to_string()),
-            })?;
+        // The connection's query timeout bounds the statement as it does any
+        // query the executor runs (#902).
+        let timeout = self.connections.get_query_timeout(&connection_id);
+        let staged =
+            CoreStagedWrite::begin_in(&pool, database, sql, STAGE_DEADLINE, Some(reach), timeout)
+                .await
+                .map_err(|e| match e {
+                    StageError::Failed(e) => e,
+                    other => CoreError::Query(other.to_string()),
+                })?;
 
         let id = uuid::Uuid::new_v4().to_string();
         let rows_affected = staged.rows_affected;

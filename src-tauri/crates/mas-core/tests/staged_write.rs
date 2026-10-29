@@ -291,3 +291,78 @@ async fn a_deadline_that_has_passed_is_visible_to_the_caller() {
     staged.rollback().await.unwrap();
     finish(manager, id, &pool).await;
 }
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_staged_write_stops_at_the_connections_query_timeout() {
+    // The executor bounds every query by the connection's timeout; a staged
+    // write ran without it, so one nobody cancelled held its connection and
+    // its locks for as long as it took (#902).
+    let manager = Arc::new(ConnectionManager::new());
+    let info = manager
+        .connect(&ConnectionProfile {
+            query_timeout_secs: Some(1),
+            ..profile()
+        })
+        .await
+        .unwrap();
+    let id = info.id;
+    let pool = manager.get_pool(&id).unwrap();
+    setup(&pool).await;
+    let timeout = manager.get_query_timeout(&id);
+    assert_eq!(timeout, Some(Duration::from_secs(1)));
+
+    // Once on its own, once registered for cancel as the agent's staged
+    // writes are: the two find the thread to kill differently.
+    let executor = mas_core::query::QueryExecutor::new(manager.clone());
+    let tracker = executor.tracker();
+    let route = mas_core::connection::Route::Agent("timeout".to_string());
+    for registered in [false, true] {
+        let reach = registered.then(|| mas_core::query::CancelReach {
+            tracker: &tracker,
+            connection_id: &id,
+            route: &route,
+        });
+        let started = std::time::Instant::now();
+        let outcome = StagedWrite::begin_in(
+            &pool,
+            Some(DB),
+            "DELETE FROM orders WHERE SLEEP(5) = 0",
+            DEFAULT_DEADLINE,
+            reach,
+            timeout,
+        )
+        .await;
+        let elapsed = started.elapsed();
+
+        match outcome {
+            Err(StageError::Failed(mas_core::error::CoreError::Timeout(message))) => {
+                assert!(message.contains("1s timeout"), "{message}");
+            }
+            Err(other) => panic!("registered={registered}: expected the timeout error, got {other}"),
+            Ok(staged) => panic!(
+                "registered={registered}: expected the timeout error, got a staged write of {} rows",
+                staged.rows_affected
+            ),
+        }
+        assert!(
+            elapsed < Duration::from_secs(4),
+            "registered={registered}: stopped at its timeout, not after a row's SLEEP(5): {elapsed:?}"
+        );
+
+        // Killed on the server, not just abandoned here: nothing of it is
+        // still running, and none of it was kept.
+        let still_running: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM information_schema.PROCESSLIST \
+             WHERE INFO LIKE 'DELETE FROM orders WHERE SLEEP%'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(still_running, 0, "registered={registered}: still running");
+        assert_eq!(count(&pool, "new").await, 2);
+        assert_eq!(count(&pool, "shipped").await, 2);
+    }
+
+    finish(manager, id, &pool).await;
+}

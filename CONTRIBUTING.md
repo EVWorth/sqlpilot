@@ -65,6 +65,11 @@ just test-integration                       # #[ignore]d database tests, MySQL
 MAS_TEST_PORT=13308 just test-integration   # the same against MariaDB
 ```
 
+The containers are seeded from `tests/fixtures/sql/`, copied into their images
+on the first `just db-up` rather than mounted, so they keep working when the
+checkout that created them is gone. After changing a seed file, `just db-reset`
+rebuilds them.
+
 Run the integration tests before touching the connection manager, query
 executor, schema inspector, backup/restore or admin service: CI runs them only
 at release time. `just test-agents` drives a real Claude Code or Copilot CLI
@@ -96,7 +101,7 @@ is the source of truth. The ones not covered above:
 | `just lint-workflows` | actionlint, pinned action SHAs, release script tests |
 | `just db-down`        | Remove the test containers                           |
 | `just db-seed`        | Re-apply `tests/fixtures/sql/seed.sql` to both       |
-| `just db-reset`       | Recreate the test containers                         |
+| `just db-reset`       | Rebuild the seeded images, recreate the containers   |
 | `just ssl-certs`      | Generate certificates for the (unused) SSL container |
 | `just bump <level>`   | Bump the version in every manifest and lockfile      |
 | `just clean`          | Remove build output and test artifacts               |
