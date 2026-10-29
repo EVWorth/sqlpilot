@@ -1,7 +1,6 @@
 import { AlertCircle, CheckCircle2, FolderOpen, HardDriveDownload, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  attachProgress,
   backupFraction,
   defaultBackupOptions,
   formatBytes,
@@ -9,9 +8,10 @@ import {
   formatRate,
   formatRemaining,
 } from "../../lib/backup-progress";
-import { type BackupOptions, type BackupProgress, type BackupSummary, events } from "../../lib/bindings";
-import { api } from "../../lib/tauri-api";
+import type { BackupOptions } from "../../lib/bindings";
+import { useBackupStore } from "../../stores/backupStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useFileStore } from "../../stores/fileStore";
 import type { DatabaseInfo, TableInfo } from "../../types";
 import { ConfirmDialog } from "../common/ConfirmDialog";
 import { Modal } from "../common/Modal";
@@ -49,20 +49,18 @@ export function BackupDialog({
   const [options, setOptions] = useState<BackupOptions>(defaultBackupOptions);
 
   const [filePath, setFilePath] = useState<string | null>(null);
-  const [backing, setBacking] = useState(false);
-  const [progress, setProgress] = useState<BackupProgress | null>(null);
-  // `rowsExported` counts every table so far; this is where the current
-  // table's rows began, so the bar and the estimate can use its own rows.
-  const [tableStartRows, setTableStartRows] = useState(0);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  // A cancelled run used to drop back to the plain form, saying nothing (#811).
-  const [cancelled, setCancelled] = useState(false);
+  // The run, its progress and how it ended are the store's (#862).
+  const {
+    running: backing,
+    progress,
+    tableStartRows,
+    error,
+    cancelled,
+    warnings,
+    summary,
+  } = useBackupStore((s) => s.backup);
+  const done = summary !== null;
 
-  const [warnings, setWarnings] = useState<string[]>([]);
-  const [summary, setSummary] = useState<BackupSummary | null>(null);
-
-  const backupIdRef = useRef<string | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   // Starting a run swaps the focused Backup button for Cancel. Without this,
@@ -77,8 +75,9 @@ export function BackupDialog({
       setDatabases([]);
       return;
     }
-    api
-      .getDatabases(connectionId)
+    useBackupStore
+      .getState()
+      .listDatabases(connectionId)
       .then(setDatabases)
       .catch((e) => {
         console.error("Failed to load databases for backup", e);
@@ -92,8 +91,9 @@ export function BackupDialog({
       setTables([]);
       return;
     }
-    api
-      .getTables(connectionId, database)
+    useBackupStore
+      .getState()
+      .listTables(connectionId, database)
       .then((t) => {
         const baseTables = t.filter((tb) => tb.table_type !== "VIEW");
         setTables(baseTables);
@@ -112,14 +112,8 @@ export function BackupDialog({
         preSelectedConnectionId ?? selectedStoreConnectionId ?? "",
       );
       setDatabase(preSelectedDatabase ?? "");
-      setDone(false);
-      setCancelled(false);
-      setError(null);
-      setBacking(false);
-      setProgress(null);
       setFilePath(null);
-      setWarnings([]);
-      setSummary(null);
+      useBackupStore.getState().resetBackup();
     }
   }, [
     isOpen,
@@ -141,7 +135,7 @@ export function BackupDialog({
     ].join("");
     const defaultName = `${database || "backup"}_${ts}.sql`;
 
-    const path = await api.pickSaveFile("Save Backup File", defaultName, [
+    const path = await useFileStore.getState().pickSaveFile("Save Backup File", defaultName, [
       ["SQL Files", ["sql"]],
     ]);
     if (path) setFilePath(path);
@@ -154,73 +148,17 @@ export function BackupDialog({
       ? tables.map((t) => t.name)
       : tables.filter((t) => selectedTables.has(t.name)).map((t) => t.name);
 
-    if (tableList.length === 0) {
-      setError("No tables selected");
-      return;
-    }
-
-    const resolvedOptions: BackupOptions = {
-      ...options,
-      includeStructure: content !== "data_only",
-      includeData: content !== "structure_only",
-    };
-
-    // The id the progress events carry, so two open dialogs do not draw each
-    // other's rows.
-    const id = crypto.randomUUID();
-    backupIdRef.current = id;
-
-    setBacking(true);
-    setError(null);
-    setDone(false);
-    setCancelled(false);
-    setProgress(null);
-    setWarnings([]);
-
-    // A progress listener that cannot attach is not a reason to refuse to
-    // run: the work still happens, the bar just does not move.
-    let table = 0;
-    let startRows = 0;
-    let lastRows = 0;
-    setTableStartRows(0);
-    const unlisten = await attachProgress(() =>
-      events.backupProgressEvent.listen((e) => {
-        if (e.payload.backupId !== id) return;
-        const next = e.payload.progress;
-        if (next.currentTable !== table) {
-          table = next.currentTable;
-          startRows = lastRows;
-        }
-        lastRows = next.rowsExported;
-        setProgress(next);
-        setTableStartRows(startRows);
-      })
-    );
-
-    try {
-      const summary = await api.backupDatabase(
-        id,
-        connectionId,
-        database,
-        tableList,
-        resolvedOptions,
-        filePath,
-      );
-      setWarnings(summary.warnings);
-      // A cancelled backup leaves no file, so it is not a completed one.
-      if (summary.cancelled) {
-        setCancelled(true);
-      } else {
-        setSummary(summary);
-        setDone(true);
-      }
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      unlisten();
-      backupIdRef.current = null;
-      setBacking(false);
-    }
+    await useBackupStore.getState().runBackup({
+      connectionId,
+      database,
+      tables: tableList,
+      options: {
+        ...options,
+        includeStructure: content !== "data_only",
+        includeData: content !== "structure_only",
+      },
+      filePath,
+    });
   }, [
     connectionId,
     database,
@@ -232,12 +170,7 @@ export function BackupDialog({
     options,
   ]);
 
-  const handleCancel = useCallback(() => {
-    const id = backupIdRef.current;
-    // The dump stops at the next row and removes the partial file, so there
-    // is nothing left that could be mistaken for a backup.
-    if (id) void api.cancelBackup(id).catch(() => {});
-  }, []);
+  const handleCancel = useCallback(() => useBackupStore.getState().cancelBackup(), []);
 
   // Closing mid-run used to hide the dialog and leave the backup running
   // with nothing on screen to say so (#803). Ask, and cancel it on yes.
