@@ -28,12 +28,24 @@ vi.mock("../../lib/tauri-api", () => ({
   CommandError: class CommandError extends Error {
     code?: number;
     sqlState?: string;
-    constructor(message: string, fields?: { code?: number | null; sqlState?: string | null }) {
+    statementIndex?: number;
+    completedResults?: unknown[];
+    constructor(
+      message: string,
+      fields?: {
+        code?: number | null;
+        sqlState?: string | null;
+        statementIndex?: number | null;
+        completedResults?: unknown[];
+      },
+    ) {
       super(message);
       // Left as "Error" deliberately: the app shows raw `String(e)` in
       // several places, and renaming would prefix every one of them.
       if (fields?.code != null) this.code = fields.code;
       if (fields?.sqlState != null) this.sqlState = fields.sqlState;
+      if (fields?.statementIndex != null) this.statementIndex = fields.statementIndex;
+      if (fields?.completedResults) this.completedResults = fields.completedResults;
     }
   },
 }));
@@ -58,9 +70,20 @@ vi.mock("../settingsStore", () => ({
   },
 }));
 
+import { CommandError } from "../../lib/tauri-api";
+import { noteGridEdits, resetGridEdits } from "../../lib/unsaved-grid-edits";
 import type { EditorTab, QueryResult } from "../../types";
 import { useEditorStore } from "../editorStore";
-import { anyTabExecuting, followEditorStore, useResultStore } from "../resultStore";
+import { useProductionGuardStore } from "../productionGuardStore";
+import { anyTabExecuting, followEditorStore, resetRunBookkeeping, useResultStore } from "../resultStore";
+import { useTransactionStore } from "../transactionStore";
+
+// Module state outside the store: the grid's unsaved-edit counts (#865) and
+// the runs in flight (#867). One test's must not leak into the next.
+beforeEach(() => {
+  resetGridEdits();
+  resetRunBookkeeping();
+});
 
 function makeExplainResponse(overrides: Partial<any> = {}) {
   return {
@@ -337,6 +360,40 @@ describe("resultStore", () => {
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
       expect(useResultStore.getState().page).toBeNull();
+    });
+  });
+
+  describe("unsaved grid edits (#865)", () => {
+    it("asks before a run would discard the tab's unsaved edits, and runs nothing if declined", async () => {
+      noteGridEdits("tab-1", 2);
+      const outcome = useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+      await vi.waitFor(() => expect(useProductionGuardStore.getState().pending).not.toBeNull());
+      expect(useProductionGuardStore.getState().pending?.message).toMatch(/2 unsaved change/);
+      useProductionGuardStore.getState().answer(false);
+
+      expect(await outcome).toEqual({ status: "cancelled" });
+      expect(executeQueryMock).not.toHaveBeenCalled();
+    });
+
+    it("runs once the user agrees to discard them", async () => {
+      noteGridEdits("tab-1", 1);
+      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      const outcome = useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+      await vi.waitFor(() => expect(useProductionGuardStore.getState().pending).not.toBeNull());
+      useProductionGuardStore.getState().answer(true);
+
+      expect((await outcome).status).toBe("succeeded");
+      expect(executeQueryMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not ask about another tab's edits", async () => {
+      noteGridEdits("tab-2", 3);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+      expect(useProductionGuardStore.getState().pending).toBeNull();
+      expect(executeQueryMock).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -813,7 +870,46 @@ describe("resultStore", () => {
     });
   });
 
+  // #853: "Error: Query error: EXPLAIN supports a single statement".
+  it("reports an Explain failure without the doubled prefix", async () => {
+    explainQueryMock.mockRejectedValueOnce(new Error("EXPLAIN supports a single statement"));
+
+    await useResultStore.getState().executeExplain("conn-1", "SELECT 1; SELECT 2");
+
+    expect(useResultStore.getState().error).toBe("EXPLAIN supports a single statement");
+  });
+
   describe("cancelActiveQuery", () => {
+    // #860: the previous plan stayed up, reading as the cancelled one's.
+    it("clears the previous plan when the run cancelled is an Explain", async () => {
+      useResultStore.setState({
+        explainResult: makeQueryResult({ query_id: "old-plan" }) as QueryResult,
+        showExplain: true,
+        explainNotice: "old notice",
+      });
+      explainQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
+      void useResultStore.getState().executeExplain("conn-1", "SELECT * FROM big");
+
+      await useResultStore.getState().cancelActiveQuery();
+
+      const state = useResultStore.getState();
+      expect(state.explainResult).toBeNull();
+      expect(state.showExplain).toBe(false);
+      expect(state.explainNotice).toBeNull();
+      expect(state.cancelledAfterMs).not.toBeNull();
+    });
+
+    it("keeps the plan when the run cancelled is a query", async () => {
+      const plan = makeQueryResult({ query_id: "plan" }) as QueryResult;
+      useResultStore.setState({ explainResult: plan, showExplain: true });
+      executeQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
+      void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)");
+
+      await useResultStore.getState().cancelActiveQuery();
+
+      expect(useResultStore.getState().explainResult).toBe(plan);
+    });
+
     it("sets isExecuting to false", async () => {
       useResultStore.setState({ isExecuting: true });
 
@@ -1054,7 +1150,101 @@ describe("resultStore", () => {
     });
   });
 
+  describe("transaction state per tab (#843)", () => {
+    beforeEach(() => useTransactionStore.setState({ open: {} }));
+    const open = () => Boolean(useTransactionStore.getState().open["tab-1"]);
+
+    it("is open after BEGIN on the tab's session, and closed after COMMIT", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN" })]);
+      await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
+      expect(open()).toBe(true);
+
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "UPDATE t SET a = 1" })]);
+      await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
+      expect(open()).toBe(true);
+
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "COMMIT" })]);
+      await useResultStore.getState().executeQuery("conn-1", "COMMIT", undefined, "tab-1");
+      expect(open()).toBe(false);
+    });
+
+    it("takes the backend's answer over the statements when it gives one", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "UPDATE t SET a = 1", transaction: "open" })]);
+      await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
+
+      expect(open()).toBe(true);
+    });
+
+    it("counts the statements before a failure", async () => {
+      executeQueryMock.mockRejectedValue(new CommandError("nope", { statementIndex: 1 }));
+      await useResultStore.getState().executeQuery("conn-1", "BEGIN; UPDATE nope SET a = 1;", undefined, "tab-1");
+
+      expect(open()).toBe(true);
+    });
+
+    it("tracks nothing for a run off the tab's session", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN" })]);
+      await useResultStore.getState().executeQuery("conn-1", "BEGIN");
+
+      expect(useTransactionStore.getState().open).toEqual({});
+    });
+  });
+
+  describe("a script that fails part-way (#845)", () => {
+    const SCRIPT = "SELECT * FROM products;\nSELECT * FROM nope;\nSELECT 1;";
+
+    it("says which statement failed, with its text and code, and no doubled prefix", async () => {
+      executeQueryMock.mockRejectedValue(
+        new CommandError("Table 'shop.nope' doesn't exist", { code: 1146, sqlState: "42S02", statementIndex: 1 }),
+      );
+
+      await useResultStore.getState().executeQuery("conn-1", SCRIPT);
+
+      const state = useResultStore.getState();
+      expect(state.error).toBe("Table 'shop.nope' doesn't exist");
+      expect(state.failedStatement).toEqual({ index: 1, count: 3, sql: "SELECT * FROM nope", code: 1146 });
+    });
+
+    it("keeps what the statements before it returned, when the backend reports them", async () => {
+      const first = makeQueryResult({ query_id: "first", columns: [{ name: "id" }] });
+      executeQueryMock.mockRejectedValue(
+        new CommandError("Table 'shop.nope' doesn't exist", {
+          code: 1146,
+          statementIndex: 1,
+          completedResults: [first],
+        }),
+      );
+
+      await useResultStore.getState().executeQuery("conn-1", SCRIPT);
+
+      const state = useResultStore.getState();
+      expect(state.results).toEqual([first]);
+      expect(state.resultSource?.connectionId).toBe("conn-1");
+      expect(state.error).toBe("Table 'shop.nope' doesn't exist");
+    });
+
+    it("clears the failure when the next run starts", async () => {
+      executeQueryMock.mockRejectedValueOnce(new CommandError("bad", { statementIndex: 0 }));
+      await useResultStore.getState().executeQuery("conn-1", "SELECT nope");
+      executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
+
+      expect(useResultStore.getState().failedStatement).toBeNull();
+    });
+  });
+
   describe("multi-statement runs (#329)", () => {
+    it("opens on the first result that has a grid (#844)", async () => {
+      executeQueryMock.mockResolvedValue([
+        makeQueryResult({ query_id: "u", columns: [], rows: [], rows_affected: 1 }),
+        makeQueryResult({ query_id: "s", statement_index: 1, columns: [{ name: "a" }] }),
+      ]);
+
+      await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1; SELECT * FROM t");
+
+      expect(useResultStore.getState().activeResultIndex).toBe(1);
+    });
+
     it("records one entry per statement, not one for the batch", async () => {
       executeQueryMock.mockResolvedValue([
         makeQueryResult({ statement_index: 0, sql: "SELECT 1", rows: [["a"]] }),
@@ -1098,6 +1288,19 @@ describe("resultStore", () => {
 
       expect(addEntryMock).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("run bookkeeping between tests (#867)", () => {
+  it("forgets a run left in flight", () => {
+    executeQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
+    void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(100)");
+    useResultStore.setState({ isExecuting: false, parked: {} });
+    expect(anyTabExecuting(useResultStore.getState())).toBe(true);
+
+    resetRunBookkeeping();
+
+    expect(anyTabExecuting(useResultStore.getState())).toBe(false);
   });
 });
 

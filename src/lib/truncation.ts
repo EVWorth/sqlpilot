@@ -19,11 +19,16 @@ export function truncationMessage(
       return `Results stopped at ${shown} rows — the app was running low on memory. `
         + `A larger LIMIT will not help; select fewer columns, or narrow the query with a WHERE clause.`;
     case "row_limit":
+      // The control is the toolbar's LIMIT box, not Settings, and "fetch
+      // fewer rows" was no help to someone who wanted more (#853).
       return `Results truncated to ${shown} rows by the row limit. `
-        + `Raise it in Settings, or add a LIMIT clause to fetch fewer rows.`;
+        + `Raise the LIMIT in the toolbar, or page with ‹ ›.`;
     default:
       // A result from a backend that predates truncation_reason, or one
       // built by hand. Say what is known and claim nothing about why.
       return `Results truncated to ${shown} rows.`;
   }
 }
+
+/** Asks the toolbar's LIMIT box to take focus, from the truncation banner (#853). */
+export const FOCUS_ROW_LIMIT_EVENT = "sqlpilot:focus-row-limit";

@@ -2,7 +2,7 @@ import { AlertCircle, AlertTriangle } from "lucide-react";
 import type { RowCount } from "../../hooks/useRowCount";
 import type { TruncationReason } from "../../lib/bindings";
 import { describeTotal } from "../../lib/row-count";
-import { truncationMessage } from "../../lib/truncation";
+import { FOCUS_ROW_LIMIT_EVENT, truncationMessage } from "../../lib/truncation";
 
 /**
  * What the grid has to say about the result before you read it: that it is
@@ -32,6 +32,14 @@ export function GridBanners({
         <div className="flex items-center gap-2 border-b edge-warning surface-warning-strong px-3 py-1.5 text-xs text-[var(--color-warning)]">
           <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
           <span>{truncationMessage(rowsShown, truncationReason)}</span>
+          {truncationReason === "row_limit" && (
+            <button
+              onClick={() => window.dispatchEvent(new Event(FOCUS_ROW_LIMIT_EVENT))}
+              className="shrink-0 rounded px-1.5 py-0.5 text-[11px] underline underline-offset-2 hover:surface-warning-strong"
+            >
+              Change LIMIT
+            </button>
+          )}
 
           {
             /* FR-3.1.7: 1000 of 1,200 and 1000 of 12,000,000 call for different

@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
-import { useResultStore } from "../../stores/resultStore";
+import { resetRunBookkeeping, useResultStore } from "../../stores/resultStore";
 import { useQueryExecution } from "../useQueryExecution";
 
 // Mock the Tauri API so store actions that call invoke don't fail
@@ -17,6 +17,7 @@ const mockExecuteExplain = vi.fn().mockResolvedValue(undefined);
 const mockExecuteExplainAnalyze = vi.fn().mockResolvedValue(undefined);
 
 beforeEach(() => {
+  resetRunBookkeeping();
   vi.clearAllMocks();
 
   // Reset stores to clean state

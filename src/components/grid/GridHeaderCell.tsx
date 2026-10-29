@@ -28,7 +28,8 @@ export interface GridHeaderCellProps {
   style?: CSSProperties;
   className?: string;
   /** Passed the event so Shift can add to the sort rather than replace it. */
-  onSort: (event: React.MouseEvent) => void;
+  /** A click, or Enter/Space from the keyboard; Shift adds a sort key either way. */
+  onSort: (event: React.MouseEvent | React.KeyboardEvent) => void;
   onResizeStart: (event: React.MouseEvent | React.TouchEvent) => void;
   onAutoSize: () => void;
   /**
@@ -102,14 +103,24 @@ export function GridHeaderCell({
       }}
       onDragEnd={() => onDragStateChange({ dragging: null, over: null })}
       onClick={onSort}
+      // Focusable, so a column can be sorted without a mouse: Enter or Space
+      // sorts, Shift adds it as a further key (#852). Only from the header
+      // itself, not from the filter menu inside it.
+      tabIndex={0}
+      onKeyDown={(e: React.KeyboardEvent) => {
+        if (e.target !== e.currentTarget) return;
+        if (e.key !== "Enter" && e.key !== " ") return;
+        e.preventDefault();
+        onSort(e);
+      }}
       aria-sort={sortDirection === "asc"
         ? "ascending"
         : sortDirection === "desc"
         ? "descending"
         : "none"}
       title={draggable
-        ? "Click to sort, Shift+click to add a sort, drag to reorder"
-        : "Click to sort, Shift+click to add a sort"}
+        ? "Click to sort (or Enter), Shift+click to add a sort (or Shift+Enter), drag to reorder"
+        : "Click to sort (or Enter), Shift+click to add a sort (or Shift+Enter)"}
       className={`relative cursor-pointer select-none border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-secondary)] ${
         isDropTarget ? "shadow-[inset_2px_0_0_0_var(--color-brand-500,#6366f1)]" : ""
       } ${numeric ? "text-right" : "text-left"} ${className}`}

@@ -2,15 +2,20 @@ import { create } from "zustand";
 import type { ExplainFormat } from "../lib/bindings";
 import { connectionKind, dataSourceFor } from "../lib/datasource";
 import { forgetGridMemory } from "../lib/grid-memory";
+import { firstGridIndex } from "../lib/result-label";
 import { noteSession } from "../lib/server-sessions";
+import { splitSqlStatements } from "../lib/sql-import";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
+import { transactionAfter } from "../lib/transaction-tracking";
+import { forgetGridEdits, gridEditsIn } from "../lib/unsaved-grid-edits";
 import type { EditorTab, QueryResult } from "../types";
 import { useConnectionStore } from "./connectionStore";
 import { useEditorStore } from "./editorStore";
 import { useHistoryStore } from "./historyStore";
-import { isProductionConnection } from "./productionGuardStore";
+import { isProductionConnection, useProductionGuardStore } from "./productionGuardStore";
 import { useSettingsStore } from "./settingsStore";
+import { hasOpenTransaction, useTransactionStore } from "./transactionStore";
 
 /**
  * What the pending confirmation would run if approved. `explain-analyze` is
@@ -100,6 +105,18 @@ interface PageState {
   hasMore: boolean;
 }
 
+/** Which statement of a script failed, for the error box and the editor (#845). */
+export interface FailedStatement {
+  /** Zero-based. */
+  index: number;
+  /** How many statements the run had. */
+  count: number;
+  /** The statement's text, as it appears in the SQL that ran. */
+  sql: string | null;
+  /** The driver's error number, when it gave one. */
+  code: number | null;
+}
+
 /** The connection, database and editor tab session a result was read on. */
 export interface ResultSource {
   connectionId: string;
@@ -115,6 +132,8 @@ interface ResultState {
   /** When the statement on screen started, for the elapsed-time counter. */
   executionStartedAt: number | null;
   error: string | null;
+  /** Set alongside `error` when a script failed at a known statement (#845). */
+  failedStatement: FailedStatement | null;
   /**
    * How long the statement had run when the user cancelled it. A cancel is
    * something the user asked for, so it is shown as information rather than
@@ -241,6 +260,7 @@ export type TabResultSlice = Pick<
   | "isExecuting"
   | "executionStartedAt"
   | "error"
+  | "failedStatement"
   | "cancelledAfterMs"
   | "page"
   | "resultSource"
@@ -261,6 +281,7 @@ const EMPTY_SLICE: TabResultSlice = {
   isExecuting: false,
   executionStartedAt: null,
   error: null,
+  failedStatement: null,
   cancelledAfterMs: null,
   page: null,
   resultSource: null,
@@ -349,6 +370,8 @@ interface Execution extends RunTarget {
   cancelled: boolean;
   /** Set when its tab closed, so nothing is written for it any more. */
   orphaned: boolean;
+  /** True for an Explain or Explain Analyze, whose cancel clears the plan (#860). */
+  explain?: boolean;
 }
 
 /**
@@ -502,6 +525,23 @@ function tabWriter(key: string): SliceWriter {
 }
 
 /**
+ * Forget every run in flight and every generation counted (#867).
+ *
+ * For tests: the bookkeeping above lives outside the store's state, so
+ * `useResultStore.setState` in a `beforeEach` resets what components read but
+ * not this, and a test that stopped with a query in flight left it running
+ * for every test after it.
+ */
+export function resetRunBookkeeping() {
+  generations.clear();
+  activeExecutions.clear();
+  latestStart.clear();
+  sideRuns = 0;
+  runCount = 0;
+  lastStartedTab = NO_TAB;
+}
+
+/**
  * True when any tab, shown or parked, has a statement running — including a
  * tab that has closed while its statement was still on the server.
  */
@@ -517,6 +557,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
   isExecuting: false,
   executionStartedAt: null,
   error: null,
+  failedStatement: null,
   cancelledAfterMs: null,
   page: null,
   resultSource: null,
@@ -612,6 +653,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
         results: [],
         activeResultIndex: 0,
         error: null,
+        failedStatement: null,
         cancelledAfterMs: null,
         page: null,
         resultSource: null,
@@ -631,6 +673,18 @@ export const useResultStore = create<ResultState>((set, get) => ({
 
   executeQuery: async (connectionId, sql, database, session, tabId) => {
     const target = targetFor(session, tabId);
+    // The run replaces the tab's results, and with them the grid's unsaved
+    // edits, which are by row index and cannot follow (#865).
+    const pendingEdits = gridEditsIn(target.tab);
+    if (pendingEdits > 0) {
+      const discard = await useProductionGuardStore.getState().ask({
+        title: "Discard unsaved changes?",
+        message: `The results grid has ${pendingEdits} unsaved change(s). Running this replaces the results `
+          + `and discards them. Save them first to keep them.`,
+        confirmLabel: "Discard and run",
+      });
+      if (!discard) return { status: "cancelled" };
+    }
     // Production safety check
     if (isProductionConnection(connectionId) && isDestructiveStatement(sql)) {
       set({
@@ -699,11 +753,17 @@ export const useResultStore = create<ResultState>((set, get) => ({
       isExecuting: tabBusy(tab),
       executionStartedAt: null,
       error: null,
+      failedStatement: null,
       cancelledAfterMs: startedAt === null ? 0 : Math.max(0, Date.now() - startedAt),
       results: [],
       activeResultIndex: 0,
       page: null,
       resultSource: null,
+      // The plan on screen is the previous statement's, and left there it
+      // read as the plan of the one just cancelled (#860).
+      ...(running?.explain
+        ? { explainResult: null, explainNotice: null, explainAnalyze: false, explainTabular: false, showExplain: false }
+        : {}),
     });
     if (!connectionId) return;
     try {
@@ -762,6 +822,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       results: [],
       activeResultIndex: 0,
       error: null,
+      failedStatement: null,
       cancelledAfterMs: null,
       page: null,
       resultSource: null,
@@ -769,7 +830,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       explainNotice: null,
       showExplain: false,
     }),
-  clearError: () => set({ error: null }),
+  clearError: () => set({ error: null, failedStatement: null }),
 
   executeExplain: async (connectionId, sql, database, format, session) => {
     await doExplain(connectionId, sql, false, targetFor(session), database, format, session);
@@ -816,6 +877,7 @@ async function doExplain(
   }
 
   const run = startExecution(target, connectionId, session);
+  run.explain = true;
   // Looked up at each write: a run started under no tab moves to the tab
   // that adopts it (see adoptUntabbed).
   const set: SliceWriter = (partial) => tabWriter(run.tab)(partial);
@@ -826,6 +888,7 @@ async function doExplain(
       isExecuting: true,
       executionStartedAt: Date.now(),
       error: null,
+      failedStatement: null,
       cancelledAfterMs: null,
       explainNotice: null,
       explainRequestedFormat: format,
@@ -861,7 +924,8 @@ async function doExplain(
     // "cancelled" message the user just asked for.
     if (!isCurrent(run)) return;
     shown = true;
-    set({ error: String(e), isExecuting: tabBusy(run.tab, run) });
+    // The message alone: the box is titled as an error already (#853).
+    set({ error: e instanceof Error ? e.message : String(e), isExecuting: tabBusy(run.tab, run) });
   } finally {
     endExecution(run, shown);
   }
@@ -905,7 +969,13 @@ async function doExecuteQuery(
   let shown = false;
 
   try {
-    set({ isExecuting: true, executionStartedAt: Date.now(), error: null, cancelledAfterMs: null });
+    set({
+      isExecuting: true,
+      executionStartedAt: Date.now(),
+      error: null,
+      failedStatement: null,
+      cancelledAfterMs: null,
+    });
     // Through the data source, so the editor runs a statement the same way
     // whichever backend the connection belongs to (#461).
     // Noted before the call: the backend opens the session as the statement
@@ -929,6 +999,7 @@ async function doExecuteQuery(
     if (!paging) {
       recordSuccess(results, sql, connectionId, connectionName, effectiveDatabase, startTime, conn === undefined);
     }
+    if (session && source.kind === "mysql") noteTransaction(session, sql, results);
 
     if (!isCurrent(run)) return run.cancelled ? { status: "cancelled" } : { status: "succeeded", results };
 
@@ -941,7 +1012,9 @@ async function doExecuteQuery(
     shown = true;
     set({
       results,
-      activeResultIndex: 0,
+      // A script whose first statement was a write opened on its count, and
+      // the grid it ran for was a tab away (#844).
+      activeResultIndex: firstGridIndex(results),
       isExecuting: tabBusy(run.tab, run),
       // Only a MySQL tab has a session of its own to come back to.
       resultSource: {
@@ -974,10 +1047,15 @@ async function doExecuteQuery(
     // entry would record an attempt rather than a query — and fifty rows
     // saying "Unknown connection" are fifty rows a user cannot act on or
     // trace back to anything (#328).
+    // The driver's code and SQLSTATE ride along where it supplied them, so
+    // the history panel can say which failure this was (#324).
+    const structured = e instanceof CommandError ? e : undefined;
+    // The statements before the failing one ran, BEGIN included (#843).
+    if (session && structured?.statementIndex !== undefined && connectionKind(connectionId) === "mysql") {
+      const ran = splitSqlStatements(sql).slice(0, structured.statementIndex);
+      useTransactionStore.getState().setOpen(session, transactionAfter(ran, hasOpenTransaction(session)));
+    }
     if (conn) {
-      // The driver's code and SQLSTATE ride along where it supplied them, so
-      // the history panel can say which failure this was (#324).
-      const structured = e instanceof CommandError ? e : undefined;
       void useHistoryStore.getState().addEntry({
         id: crypto.randomUUID(),
         sql,
@@ -996,12 +1074,62 @@ async function doExecuteQuery(
 
     if (isCurrent(run)) {
       shown = true;
-      set({ error: String(e), isExecuting: tabBusy(run.tab, run), results: [], page: null, resultSource: null });
+      // What the statements before the failing one returned stays on screen,
+      // when the backend reports it, and the error says which one failed
+      // (#845). The message alone: the box is already titled as an error, and
+      // `String(e)` prefixed it with "Error: " (#853).
+      const completed = structured?.completedResults ?? [];
+      set({
+        error: e instanceof Error ? e.message : String(e),
+        failedStatement: failedStatementOf(sql, structured),
+        isExecuting: tabBusy(run.tab, run),
+        results: completed,
+        activeResultIndex: firstGridIndex(completed),
+        page: null,
+        resultSource: completed.length > 0
+          ? {
+            connectionId,
+            database: effectiveDatabase,
+            session: dataSourceFor(connectionId).kind === "mysql" ? session : undefined,
+          }
+          : null,
+      });
     }
     return { status: "failed", error: String(e) };
   } finally {
     endExecution(run, shown);
   }
+}
+
+/**
+ * Record whether the tab's session is inside a transaction after a run (#843).
+ *
+ * Read from the result when the backend reports it (a `transaction` field of
+ * "open" or "none" on the last result, the shape `apply_grid_edits` already
+ * uses); until then, inferred from the statements that ran.
+ */
+function noteTransaction(session: string, sql: string, results: QueryResult[]) {
+  const reported: unknown = (results[results.length - 1] as { transaction?: unknown } | undefined)?.transaction;
+  if (reported === "open" || reported === "none") {
+    useTransactionStore.getState().setOpen(session, reported === "open");
+    return;
+  }
+  const statements = results.length > 0 && results.every((r) => r.sql)
+    ? results.map((r) => r.sql)
+    : splitSqlStatements(sql);
+  useTransactionStore.getState().setOpen(session, transactionAfter(statements, hasOpenTransaction(session)));
+}
+
+/** Which statement of `sql` the error names, when it names one (#845). */
+function failedStatementOf(sql: string, e: CommandError | undefined): FailedStatement | null {
+  if (e?.statementIndex === undefined) return null;
+  const statements = splitSqlStatements(sql);
+  return {
+    index: e.statementIndex,
+    count: Math.max(statements.length, e.statementIndex + 1),
+    sql: statements[e.statementIndex] ?? null,
+    code: e.code ?? null,
+  };
 }
 
 /** One history entry per statement of a run that succeeded. */
@@ -1069,6 +1197,7 @@ function followEditor(editor: { tabs: readonly EditorTab[]; activeTabId: string 
   store.showTab(editor.activeTabId, active?.type === "query");
   store.forgetTabs(editor.tabs.map((t) => t.id));
   forgetGridMemory(editor.tabs.map((t) => t.id));
+  forgetGridEdits(editor.tabs.map((t) => t.id));
   // The last query tab closed: session-less runs go to another one, if any.
   if (useResultStore.getState().runTabId === null) {
     const fallback = editor.tabs.find((t) => t.type === "query");

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { FOCUS_ROW_LIMIT_EVENT } from "../../lib/truncation";
 
 export const MIN_ROW_LIMIT = 1;
 export const MAX_ROW_LIMIT = 100_000;
@@ -30,6 +31,17 @@ export function RowLimitInput({ value, onChange }: RowLimitInputProps) {
   // Set by Escape, so the blur that follows does not store the draft it
   // just discarded.
   const discard = useRef(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  // The truncation banner's "Change LIMIT" lands here (#853).
+  useEffect(() => {
+    const focus = () => {
+      input.current?.focus();
+      input.current?.select();
+    };
+    window.addEventListener(FOCUS_ROW_LIMIT_EVENT, focus);
+    return () => window.removeEventListener(FOCUS_ROW_LIMIT_EVENT, focus);
+  }, []);
 
   // Follow the stored value when it changes elsewhere, but never while the
   // user is typing over it.
@@ -54,6 +66,7 @@ export function RowLimitInput({ value, onChange }: RowLimitInputProps) {
   return (
     <span className="relative flex items-center">
       <input
+        ref={input}
         type="number"
         aria-label="Row limit"
         aria-invalid={invalid}

@@ -10,6 +10,7 @@ import {
 } from "../lib/sql-generator";
 import { confirmDestructive } from "../stores/productionGuardStore";
 import { useResultStore } from "../stores/resultStore";
+import { useTransactionStore } from "../stores/transactionStore";
 import type { QueryResult, SqlValue } from "../types";
 import type { useGridEditing } from "./useGridEditing";
 import type { RowKey } from "./useRowKey";
@@ -154,6 +155,8 @@ export function useGridSave({
         if (outcome) {
           matched = outcome.rows_affected.reduce((sum, n) => sum + n, 0);
           insideTransaction = outcome.transaction === "open";
+          // The backend's own answer, which the editor's guess defers to (#843).
+          if (session) useTransactionStore.getState().setOpen(session, insideTransaction);
         } else {
           // One transaction, so a statement that fails halfway leaves nothing
           // half-applied.

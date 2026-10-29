@@ -54,7 +54,7 @@ import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
 import { confirmDestructive, confirmDrop, confirmTruncate } from "../../../stores/productionGuardStore";
-import { useResultStore } from "../../../stores/resultStore";
+import { resetRunBookkeeping, useResultStore } from "../../../stores/resultStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import type { DatabaseInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo } from "../../../types";
@@ -137,6 +137,7 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  resetRunBookkeeping();
   vi.clearAllMocks();
   // The schema cache is a store now, so it outlives a render. Without this,
   // a test asserting a fetch happened sees the previous test's cache (#288).

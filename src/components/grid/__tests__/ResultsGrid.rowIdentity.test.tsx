@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { layoutKey } from "../../../lib/grid-layout";
 import { runStatement } from "../../../lib/run-statement";
+import { api } from "../../../lib/tauri-api";
 import type { QueryResult } from "../../../types";
 import { ResultsGrid } from "../ResultsGrid";
 
@@ -72,6 +74,16 @@ vi.mock("../../../lib/tauri-api", () => ({
     getIndexes: vi.fn(async () => []),
   },
   CommandError: class CommandError extends Error {},
+}));
+
+// jsdom has no layout, so the real virtualizer shows nothing. This one shows
+// the first rows, which is all a test of the virtualized layout needs; the
+// table layout, used below 5000 rows, never asks it.
+vi.mock("@tanstack/react-virtual", () => ({
+  useVirtualizer: ({ count }: { count: number }) => ({
+    getVirtualItems: () =>
+      Array.from({ length: Math.min(count, 10) }, (_, index) => ({ index, start: index * 32, size: 32 })),
+  }),
 }));
 
 function makeResult(): QueryResult {
@@ -190,5 +202,137 @@ describe("cells keep their DOM node across a row click (#841)", () => {
     fireEvent.doubleClick(cell);
 
     expect(screen.getByDisplayValue("ada")).toBeDefined();
+  });
+});
+
+describe("the row key comes from where the result was read (#857)", () => {
+  it("looks the key up on the result's connection, not the tab's current one", async () => {
+    // The tab was pointed at another server after the query ran there.
+    editorTabs = [{ id: "tab-1", content: "SELECT * FROM users", connectionId: "conn-2", database: "other" }];
+    render(<ResultsGrid />);
+
+    await waitFor(() => expect(api.getColumns).toHaveBeenCalled());
+    expect(vi.mocked(api.getColumns).mock.calls.every(([conn, db]) => conn === "conn-1" && db === "app")).toBe(true);
+  });
+
+  it("keys the column layout by the result's connection and database", async () => {
+    editorTabs = [{ id: "tab-1", content: "SELECT * FROM users", connectionId: "conn-2", database: "other" }];
+    localStorage.setItem(
+      layoutKey("conn-1", "app", ["id", "name"]) ?? "",
+      JSON.stringify({ columnOrder: ["name", "id"] }),
+    );
+    render(<ResultsGrid />);
+
+    await waitFor(() =>
+      expect([...document.querySelectorAll("thead th")].slice(1).map((th) => th.textContent?.trim())).toEqual([
+        "namevarchar",
+        "idint",
+      ])
+    );
+    localStorage.clear();
+  });
+
+  it("refuses Edit Mode when the result's source is unknown", () => {
+    resultState.resultSource = null;
+    render(<ResultsGrid />);
+
+    const toggle = screen.getByRole("button", { name: /edit mode/i });
+    expect(toggle).toBeDisabled();
+    expect(toggle.getAttribute("title")).toMatch(/unknown/);
+    expect(api.getColumns).not.toHaveBeenCalled();
+  });
+});
+
+describe("a sorted grid acts in screen order (#858)", () => {
+  it("moves Tab to the next row on screen, not the next in the result", async () => {
+    render(<ResultsGrid />);
+    fireEvent.click(screen.getByRole("button", { name: /edit mode/i }));
+    await sortByName();
+
+    // "bob" (id 3) is last in the result but second on screen, so Tab from
+    // its last column has a next row on screen ("cy", id 1) and none in the
+    // result.
+    fireEvent.doubleClick(screen.getByText("bob"));
+    fireEvent.keyDown(screen.getByDisplayValue("bob"), { key: "Tab" });
+
+    // The editor opens on the first column of "cy": id 1.
+    expect(screen.getByDisplayValue("1")).toBeDefined();
+  });
+
+  it("copies selected rows in the order they appear", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+
+    // Select all three on screen: ada (2), bob (3), cy (1).
+    fireEvent.click(bodyRows()[0]);
+    fireEvent.click(bodyRows()[2], { shiftKey: true });
+    rightClick(bodyRows()[0]);
+    fireEvent.click(menuItem(/^Copy 3 rows as Tab-separated$/));
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    const text = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
+    expect(text.split("\n").slice(1)).toEqual(["2\tada", "3\tbob", "1\tcy"]);
+  });
+
+  it("reads the clicked column in the virtualized layout", () => {
+    const big = makeResult();
+    big.rows = Array.from({ length: 5001 }, (_, i) => [i + 1, `n${i + 1}`]);
+    resultState.results = [big];
+    render(<ResultsGrid />);
+
+    // The second data cell of row 1 is the `name` column.
+    fireEvent.contextMenu(screen.getByText("n1"));
+    fireEvent.click(menuItem(/^Copy Cell$/));
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("n1");
+  });
+});
+
+describe("the grid from the keyboard (#852)", () => {
+  const selectedNames = () =>
+    bodyRows().filter((tr) => tr.getAttribute("aria-selected") === "true").map((tr) =>
+      tr.querySelectorAll("td")[2]?.textContent?.trim()
+    );
+  const grid = () => screen.getByLabelText("Query results");
+
+  it("sorts a column from its header with Enter", async () => {
+    render(<ResultsGrid />);
+    const header = screen.getAllByText("name")[0].closest("th");
+    if (!header) throw new Error("no header");
+
+    fireEvent.keyDown(header, { key: "Enter" });
+
+    await waitFor(() => expect(rowNames()).toEqual(["ada", "bob", "cy"]));
+  });
+
+  it("moves and extends the selection with the arrows, in screen order", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+
+    fireEvent.keyDown(grid(), { key: "ArrowDown" });
+    expect(selectedNames()).toEqual(["ada"]);
+    fireEvent.keyDown(grid(), { key: "ArrowDown", shiftKey: true });
+    expect(selectedNames()).toEqual(["ada", "bob"]);
+    fireEvent.keyDown(grid(), { key: "End" });
+    expect(selectedNames()).toEqual(["cy"]);
+  });
+
+  it("copies the selected rows as TSV on Ctrl+C", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+    fireEvent.click(bodyRows()[0]);
+    fireEvent.click(bodyRows()[1], { shiftKey: true });
+
+    fireEvent.keyDown(grid(), { key: "c", ctrlKey: true });
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalled());
+    const text = vi.mocked(navigator.clipboard.writeText).mock.calls[0][0];
+    expect(text.split("\n").slice(1)).toEqual(["2\tada", "3\tbob"]);
+  });
+
+  it("does not let Shift+click select the cells' text", () => {
+    render(<ResultsGrid />);
+
+    expect(bodyRows()[0].className).toContain("select-none");
   });
 });

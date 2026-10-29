@@ -3,6 +3,7 @@ import { create } from "zustand";
 import { loadSession, maxTabCounter, saveSession } from "../lib/editor-session";
 import { buildTab, findOpenTab, type TabKind, type TabParams } from "../lib/tab-kinds";
 import type { EditorTab, RoutineKind } from "../types";
+import { hasOpenTransaction } from "./transactionStore";
 
 /** Which close command is waiting on the user (#843). */
 export type CloseKind = "close" | "others" | "right";
@@ -13,6 +14,11 @@ export interface PendingClose {
   targetId: string;
   /** The tabs it would close that hold work, for the prompt to name. */
   atRisk: EditorTab[];
+  /**
+   * Those of them whose session has a transaction open, which closing rolls
+   * back (#843). Also listed in `atRisk`.
+   */
+  inTransaction: EditorTab[];
 }
 
 /** The tabs a close command would remove. */
@@ -29,6 +35,31 @@ export function tabsClosedBy(tabs: readonly EditorTab[], kind: CloseKind, id: st
  */
 export function holdsUnsavedWork(tab: EditorTab): boolean {
   return tab.type === "query" && tab.isDirty && tab.content.trim().length > 0;
+}
+
+/**
+ * Writes the editor's typing that is still waiting on its debounce into the
+ * store. Registered by the editor; a close asks it first, so SQL typed in the
+ * last 150 ms counts as the tab's content (#861).
+ */
+let pendingContentFlush: (() => void) | null = null;
+
+/** Register (or, with null, drop) the editor's pending-content flush. */
+export function setPendingContentFlush(flush: (() => void) | null) {
+  pendingContentFlush = flush;
+}
+
+/**
+ * "Untitled-N" for a new query tab, N the lowest number no open tab uses.
+ *
+ * Every new tab was "Untitled Query", so two could not be told apart
+ * (FR-2.1.3, #853).
+ */
+export function nextUntitledTitle(tabs: readonly EditorTab[]): string {
+  const used = new Set(tabs.map((t) => /^Untitled-(\d+)$/.exec(t.title)?.[1]).filter(Boolean).map(Number));
+  let n = 1;
+  while (used.has(n)) n++;
+  return `Untitled-${n}`;
 }
 
 interface EditorState {
@@ -70,6 +101,11 @@ interface EditorState {
   ) => void;
   setEditorInstance: (instance: editor.IStandaloneCodeEditor | null) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
+  /**
+   * Record that `content` has been saved from this tab — to a favorite, say —
+   * so the tab is clean until its text differs from that again (#855).
+   */
+  markTabSaved: (tabId: string, content: string) => void;
   renameTab: (tabId: string, newTitle: string) => void;
   reorderTabs: (fromIndex: number, toIndex: number) => void;
 }
@@ -80,7 +116,7 @@ let tabCounter = restoredSession ? maxTabCounter(restoredSession.tabs) : 0;
 
 const initialTab: EditorTab = {
   id: "tab-0",
-  title: "Untitled Query",
+  title: "Untitled-1",
   content: "",
   connectionId: undefined,
   database: undefined,
@@ -95,9 +131,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   pendingClose: null,
 
   requestClose: (kind, id) => {
-    const atRisk = tabsClosedBy(get().tabs, kind, id).filter(holdsUnsavedWork);
+    pendingContentFlush?.();
+    const closing = tabsClosedBy(get().tabs, kind, id);
+    // An open transaction is work too: closing the tab ends its session,
+    // which rolls the transaction back (#843).
+    const inTransaction = closing.filter((t) => hasOpenTransaction(t.id));
+    const atRisk = closing.filter((t) => holdsUnsavedWork(t) || hasOpenTransaction(t.id));
     if (atRisk.length > 0) {
-      set({ pendingClose: { kind, targetId: id, atRisk } });
+      set({ pendingClose: { kind, targetId: id, atRisk, inTransaction } });
       return;
     }
     runClose(get(), kind, id);
@@ -125,7 +166,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       return existing.id;
     }
     tabCounter++;
-    const tab = buildTab(`tab-${tabCounter}`, kind, params);
+    const built = buildTab(`tab-${tabCounter}`, kind, params);
+    const tab = kind === "query" ? { ...built, title: nextUntitledTitle(get().tabs) } : built;
     set((state) => ({ tabs: [...state.tabs, tab], activeTabId: tab.id }));
     return tab.id;
   },
@@ -158,10 +200,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       if (closing.type === "query" && state.tabs.filter((t) => t.type === "query").length <= 1) {
         tabCounter++;
-        const replacement = buildTab(`tab-${tabCounter}`, "query", {
-          connectionId: closing.connectionId,
-          database: closing.database,
-        });
+        const replacement = {
+          ...buildTab(`tab-${tabCounter}`, "query", {
+            connectionId: closing.connectionId,
+            database: closing.database,
+          }),
+          title: nextUntitledTitle(state.tabs.filter((t) => t.id !== id)),
+        };
         return {
           tabs: state.tabs.map((t) => (t.id === id ? replacement : t)),
           activeTabId: replacement.id,
@@ -214,7 +259,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   updateTabContent: (id, content) => {
     set((state) => ({
-      tabs: state.tabs.map((t) => t.id === id ? { ...t, content, isDirty: true } : t),
+      // Dirty means "differs from what was last saved", so typing back to
+      // the saved text, or undoing to it, counts as clean again (#855).
+      tabs: state.tabs.map((t) => t.id === id ? { ...t, content, isDirty: content !== (t.savedContent ?? "") } : t),
     }));
   },
 
@@ -239,7 +286,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setTabDirty: (tabId, dirty) =>
     set((state) => ({
-      tabs: state.tabs.map((t) => t.id === tabId ? { ...t, isDirty: dirty } : t),
+      // Clean means the current text is the saved one.
+      tabs: state.tabs.map((t) =>
+        t.id === tabId ? { ...t, isDirty: dirty, ...(dirty ? {} : { savedContent: t.content }) } : t
+      ),
+    })),
+
+  markTabSaved: (tabId, content) =>
+    set((state) => ({
+      tabs: state.tabs.map((t) => t.id === tabId ? { ...t, savedContent: content, isDirty: t.content !== content } : t),
     })),
 
   renameTab: (tabId, newTitle) =>

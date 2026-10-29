@@ -41,6 +41,7 @@ export function parsePersistedTab(raw: unknown): EditorTab | null {
     content: str("content") ?? "",
     // The persisted content is the new baseline, so nothing is dirty on load.
     isDirty: false,
+    savedContent: str("content") ?? "",
     connectionId: str("connectionId"),
     profileId: str("profileId"),
     database: str("database"),

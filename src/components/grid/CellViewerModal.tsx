@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { format } from "sql-formatter";
 import { detectMime, formatBytes, toHex } from "../../lib/blob";
 import { useThemeStore } from "../../stores/themeStore";
+import { Modal } from "../common/Modal";
 import { BlobViewer } from "./BlobViewer";
 
 interface Props {
@@ -112,6 +113,8 @@ export function CellViewerModal({
   const [draftContent, setDraftContent] = useState("");
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
   const decorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null);
+  // Focus lands on Copy, the action the viewer is most often opened for (#851).
+  const copyRef = useRef<HTMLButtonElement>(null);
 
   const isNullValue = content === null;
   const displayContent = isNullValue ? "NULL" : String(content);
@@ -203,7 +206,17 @@ export function CellViewerModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60">
+    // The shared Modal, for what a dialog owes the keyboard and assistive
+    // technology: role="dialog", aria-modal, focus moved in and trapped, and
+    // Escape. The hand-built overlay had none of them (#851).
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      label={`Cell content: ${columnName}`}
+      className="fixed inset-0 z-[70] flex items-center justify-center bg-black/60"
+      panelClassName="flex h-[80vh] w-[780px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl"
+      initialFocus={copyRef}
+    >
       {
         /*
         h-[80vh] rather than max-h-[80vh]. A maximum is not a height: with
@@ -214,146 +227,146 @@ export function CellViewerModal({
         title, a correct character count, and nothing else (#217).
       */
       }
-      <div className="flex h-[80vh] w-[780px] flex-col rounded-lg border border-[var(--color-border)] bg-[var(--color-bg-secondary)] shadow-2xl">
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
-          <div>
-            <div className="flex items-center gap-2">
-              <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
-                {columnName}
-              </h3>
-              <span className="rounded bg-brand-600/20 px-2 py-0.5 text-[10px] font-medium text-brand-400">
-                {getTypeLabel()}
-              </span>
-            </div>
-            <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
-              {bytes
-                ? `${formatBytes(bytes.length)} of binary data`
-                : isNullValue
-                ? "NULL value"
-                : `${displayContent.length} characters`}
-            </p>
-          </div>
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] p-4">
+        <div>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setIsEditable((prev) => !prev)}
-              // Binary has no text form to edit, and round-tripping one
-              // through the editor would corrupt it.
-              disabled={isNullValue || bytes !== undefined}
-              className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
-              title={isEditable ? "Switch to read-only" : "Edit content locally"}
-            >
-              {isEditable
-                ? (
-                  <>
-                    <Lock className="h-3.5 w-3.5" />
-                    Read-only
-                  </>
-                )
-                : (
-                  <>
-                    <Pencil className="h-3.5 w-3.5" />
-                    Edit
-                  </>
-                )}
-            </button>
-            <button
-              onClick={onClose}
-              className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <h3 className="text-sm font-semibold text-[var(--color-text-primary)]">
+              {columnName}
+            </h3>
+            <span className="rounded bg-brand-600/20 px-2 py-0.5 text-[10px] font-medium text-brand-400">
+              {getTypeLabel()}
+            </span>
           </div>
+          <p className="mt-1 text-xs text-[var(--color-text-secondary)]">
+            {bytes
+              ? `${formatBytes(bytes.length)} of binary data`
+              : isNullValue
+              ? "NULL value"
+              : `${displayContent.length} characters`}
+          </p>
         </div>
-
-        {!bytes && !isNullValue && displayContent.length > 500 && (
-          <div className="border-b border-[var(--color-border)] px-4 py-2">
-            <input
-              type="text"
-              placeholder="Search content..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
-            />
-          </div>
-        )}
-
-        <div data-testid="cell-viewer-content" className="min-h-0 flex-1 p-4">
-          {bytes
-            ? <BlobViewer bytes={bytes} columnName={columnName} />
-            : isNullValue
-            ? (
-              <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3 text-xs font-mono italic text-[var(--color-text-muted)]">
-                NULL
-              </div>
-            )
-            : (
-              <Editor
-                key={`${columnName}-${viewerContent.length}`}
-                className="h-full w-full overflow-hidden rounded border border-[var(--color-border)] [&_.monaco-editor]:bg-[var(--color-bg-primary)]"
-                height="100%"
-                language={language}
-                value={viewerContent}
-                onChange={(value) => {
-                  if (isEditable) {
-                    setDraftContent(value ?? "");
-                  }
-                }}
-                onMount={onMount}
-                theme={theme === "dark" ? "vs-dark" : "vs"}
-                options={{
-                  readOnly: !isEditable,
-                  domReadOnly: !isEditable,
-                  minimap: { enabled: false },
-                  lineNumbers: "on",
-                  scrollBeyondLastLine: false,
-                  wordWrap: "on",
-                  renderWhitespace: "selection",
-                  folding: true,
-                  fontSize: 12,
-                  automaticLayout: true,
-                  padding: { top: 8, bottom: 8 },
-                  smoothScrolling: true,
-                  renderLineHighlightOnlyWhenFocus: true,
-                }}
-              />
-            )}
-        </div>
-
-        <div className="flex justify-end gap-2 border-t border-[var(--color-border)] p-3">
+        <div className="flex items-center gap-2">
           <button
-            onClick={handleDownload}
-            disabled={isNullValue && !bytes}
-            className="inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={() => setIsEditable((prev) => !prev)}
+            // Binary has no text form to edit, and round-tripping one
+            // through the editor would corrupt it.
+            disabled={isNullValue || bytes !== undefined}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-40"
+            title={isEditable ? "Switch to read-only" : "Edit content locally"}
           >
-            <Download className="h-3.5 w-3.5" />
-            Download
-          </button>
-          <button
-            onClick={handleCopy}
-            className="inline-flex items-center gap-2 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-700"
-          >
-            {copied
+            {isEditable
               ? (
                 <>
-                  <Check className="h-3.5 w-3.5" />
-                  Copied!
+                  <Lock className="h-3.5 w-3.5" />
+                  Read-only
                 </>
               )
               : (
                 <>
-                  <Copy className="h-3.5 w-3.5" />
-                  Copy
+                  <Pencil className="h-3.5 w-3.5" />
+                  Edit
                 </>
               )}
           </button>
           <button
             onClick={onClose}
-            className="rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)]"
+            aria-label="Close"
+            className="rounded p-1 text-[var(--color-text-muted)] hover:bg-[var(--color-bg-tertiary)] hover:text-[var(--color-text-primary)]"
           >
-            Close
+            <X className="h-4 w-4" />
           </button>
         </div>
       </div>
-    </div>
+
+      {!bytes && !isNullValue && displayContent.length > 500 && (
+        <div className="border-b border-[var(--color-border)] px-4 py-2">
+          <input
+            type="text"
+            placeholder="Search content..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] px-3 py-1.5 text-xs text-[var(--color-text-primary)] outline-none placeholder:text-[var(--color-text-muted)]"
+          />
+        </div>
+      )}
+
+      <div data-testid="cell-viewer-content" className="min-h-0 flex-1 p-4">
+        {bytes
+          ? <BlobViewer bytes={bytes} columnName={columnName} />
+          : isNullValue
+          ? (
+            <div className="rounded border border-[var(--color-border)] bg-[var(--color-bg-primary)] p-3 text-xs font-mono italic text-[var(--color-text-muted)]">
+              NULL
+            </div>
+          )
+          : (
+            <Editor
+              key={`${columnName}-${viewerContent.length}`}
+              className="h-full w-full overflow-hidden rounded border border-[var(--color-border)] [&_.monaco-editor]:bg-[var(--color-bg-primary)]"
+              height="100%"
+              language={language}
+              value={viewerContent}
+              onChange={(value) => {
+                if (isEditable) {
+                  setDraftContent(value ?? "");
+                }
+              }}
+              onMount={onMount}
+              theme={theme === "dark" ? "vs-dark" : "vs"}
+              options={{
+                readOnly: !isEditable,
+                domReadOnly: !isEditable,
+                minimap: { enabled: false },
+                lineNumbers: "on",
+                scrollBeyondLastLine: false,
+                wordWrap: "on",
+                renderWhitespace: "selection",
+                folding: true,
+                fontSize: 12,
+                automaticLayout: true,
+                padding: { top: 8, bottom: 8 },
+                smoothScrolling: true,
+                renderLineHighlightOnlyWhenFocus: true,
+              }}
+            />
+          )}
+      </div>
+
+      <div className="flex justify-end gap-2 border-t border-[var(--color-border)] p-3">
+        <button
+          onClick={handleDownload}
+          disabled={isNullValue && !bytes}
+          className="inline-flex items-center gap-2 rounded px-3 py-1.5 text-xs font-medium text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <Download className="h-3.5 w-3.5" />
+          Download
+        </button>
+        <button
+          ref={copyRef}
+          onClick={handleCopy}
+          className="inline-flex items-center gap-2 rounded bg-brand-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-brand-700"
+        >
+          {copied
+            ? (
+              <>
+                <Check className="h-3.5 w-3.5" />
+                Copied!
+              </>
+            )
+            : (
+              <>
+                <Copy className="h-3.5 w-3.5" />
+                Copy
+              </>
+            )}
+        </button>
+        <button
+          onClick={onClose}
+          className="rounded px-3 py-1.5 text-xs text-[var(--color-text-secondary)] transition-colors hover:text-[var(--color-text-primary)]"
+        >
+          Close
+        </button>
+      </div>
+    </Modal>
   );
 }

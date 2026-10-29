@@ -49,6 +49,8 @@ export interface UseGridExportOptions {
   selection: Selection;
   /** What identifies a row, for the UPDATE format (#387). */
   rowKey: RowKey;
+  /** Result indices in on-screen order, read at copy time (#858). */
+  getScreenOrder?: () => readonly number[];
   onMessage: (message: string) => void;
 }
 
@@ -57,6 +59,7 @@ export function useGridExport({
   orderedColumns,
   selection,
   rowKey,
+  getScreenOrder,
   onMessage,
 }: UseGridExportOptions) {
   /** The footer's Copy button: every row, tab-separated. */
@@ -80,7 +83,7 @@ export function useGridExport({
    */
   const copyAs = useCallback(async (format: CopyFormat) => {
     if (!result) return;
-    const indices = rowsToCopy(selection, result.rows.length);
+    const indices = rowsToCopy(selection, result.rows.length, getScreenOrder?.());
     const source: CopySource = {
       columns: orderedColumns.map((c) => ({ name: c.name, dataType: c.data_type })),
       rows: indices.map((i) =>
@@ -102,7 +105,7 @@ export function useGridExport({
     onMessage(
       `Copied ${describeSelection(selection, result.rows.length)} as ${COPY_FORMAT_LABEL[format]}`,
     );
-  }, [result, selection, orderedColumns, rowKey.state, onMessage]);
+  }, [result, selection, orderedColumns, rowKey.state, getScreenOrder, onMessage]);
 
   /** Download the whole result, rendered by the backend's exporter. */
   const exportAs = useCallback(async (format: string) => {
