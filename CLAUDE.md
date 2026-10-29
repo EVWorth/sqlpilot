@@ -89,7 +89,8 @@ Code, commits, PRs, issues and log lines are written in normal English.
   `bash scripts/clean-debug.sh` (or `just clean-debug`; `just` may not be
   installed) and set `CARGO_INCREMENTAL=0`. The `rm -rf` deny rule blocks
   deleting those directories by hand on purpose.
-- Docker doesn't survive a container restart: start `dockerd`, then
+- After a container restart the Docker daemon is down, but `/var/lib/docker`
+  (images, test containers, their data) survives: start `dockerd`, then
   `just db-up`.
 - The session-start hook sets `CHROMIUM_PATH` to the container's Chromium, so
   `npm run test:browser` works as is. Run browser test files one at a time if

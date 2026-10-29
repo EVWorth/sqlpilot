@@ -164,9 +164,10 @@ _db-wait name:
     docker logs --tail 20 {{ name }} >&2 || true
     exit 1
 
-# Stop and remove the test containers.
+# Stop and remove the test containers, with the anonymous volumes holding
+# their data, so they do not pile up under /var/lib/docker.
 db-down:
-    -docker rm -f mas-mysql-8 mas-mariadb-11 2>/dev/null
+    -docker rm -fv mas-mysql-8 mas-mariadb-11 2>/dev/null
 
 # Re-apply the seed fixture to both running containers.
 db-seed:
