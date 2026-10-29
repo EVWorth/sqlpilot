@@ -40,14 +40,17 @@ const SAVEPOINT: &str = "sqlpilot_grid_save";
 /// while a transaction is in progress.
 const ER_CANT_CHANGE_TX_CHARACTERISTICS: u16 = 1568;
 
-/// Whether the session was inside a transaction when the save began.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, specta::Type)]
+/// Whether an editor tab's session is inside a transaction.
+///
+/// A grid save reports the state when the save began; a query run reports it
+/// after its last statement, on that statement's result (#843).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, specta::Type)]
 #[serde(rename_all = "snake_case")]
 pub enum TransactionState {
-    /// No transaction: the edits were applied and committed.
+    /// No transaction. For a grid save: the edits were applied and committed.
     None,
-    /// The user's transaction: the edits were applied inside it and are not
-    /// committed until the user commits.
+    /// A transaction is open. For a grid save: the edits were applied inside
+    /// the user's transaction and are not committed until the user commits.
     Open,
 }
 
@@ -79,7 +82,12 @@ pub struct GridEditOutcome {
 ///
 /// `Ok(None)` when the probe fails for any other reason: the server cannot
 /// say, and the caller must not guess.
-async fn transaction_state(
+///
+/// Being a `SET`, the probe resets `ROW_COUNT()` to 0 for whatever runs next
+/// on the session; it leaves `SHOW WARNINGS` and `LAST_INSERT_ID()` alone
+/// (checked on MySQL 8.0 and MariaDB 11). sqlx does track the server's
+/// `SERVER_STATUS_IN_TRANS` flag, but only behind a crate-private method.
+pub(crate) async fn transaction_state(
     conn: &mut PoolConnection<MySql>,
 ) -> Result<Option<TransactionState>, CoreError> {
     let probe = "SET @@transaction_isolation = @@session.transaction_isolation";
@@ -119,6 +127,8 @@ async fn run_each(
             .map_err(|e| CoreError::AtStatement {
                 index,
                 source: Box::new(CoreError::Sqlx(e)),
+                // A save reports counts, not result sets.
+                completed: Vec::new(),
             })?;
         affected.push(done.rows_affected());
     }

@@ -357,6 +357,7 @@ impl Workspace for Fake {
                 rows_truncated: false,
                 truncation_reason: None,
                 total_rows_available: None,
+                transaction: None,
             },
             analyzed: analyze && refusal.is_none(),
             refusal,
@@ -422,6 +423,7 @@ impl Workspace for Fake {
                 rows_truncated: false,
                 truncation_reason: None,
                 total_rows_available: None,
+                transaction: None,
             });
         }
 
@@ -447,6 +449,7 @@ impl Workspace for Fake {
             truncation_reason: (returned < self.rows)
                 .then_some(mas_core::models::query::TruncationReason::RowLimit),
             total_rows_available: None,
+            transaction: None,
         })
     }
 }
@@ -473,6 +476,7 @@ fn rows(sql: &str, rows: Vec<Vec<SqlValue>>) -> QueryResult {
         rows_truncated: false,
         truncation_reason: None,
         total_rows_available: None,
+        transaction: None,
     }
 }
 

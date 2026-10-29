@@ -1079,13 +1079,25 @@ export const queryHandlers: Handlers = {
     };
     const results: QueryResult_Serialize[] = [];
     for (const [index, stmt] of statements.entries()) {
-      const r = await runStatement(stmt, { ...ctx, index, session: tabSession(args.session) }, win, args.session);
-      // What the statement "took", spent waiting so the spinner shows; the
-      // SLEEP branch has already waited its own time.
-      if (!/^select\s+sleep\s*\(/i.test(stripComments(stmt))) {
-        await busy(ctx.conn.id, tabSession(args.session), Math.min(600, 60 + r.execution_time_ms), index);
+      try {
+        const r = await runStatement(stmt, { ...ctx, index, session: tabSession(args.session) }, win, args.session);
+        // What the statement "took", spent waiting so the spinner shows; the
+        // SLEEP branch has already waited its own time.
+        if (!/^select\s+sleep\s*\(/i.test(stripComments(stmt))) {
+          await busy(ctx.conn.id, tabSession(args.session), Math.min(600, 60 + r.execution_time_ms), index);
+        }
+        results.push(r);
+      } catch (e) {
+        // What ran before the failing statement rides along, as the backend
+        // sends it (#845).
+        if (isQueryError(e) && results.length > 0) fail({ ...e, completedResults: results });
+        throw e;
       }
-      results.push(r);
+    }
+    // A tab's session reports its transaction state on the last result (#843).
+    const last = results[results.length - 1];
+    if (last && tabSession(args.session)) {
+      last.transaction = openTransactions.has(sessionKey(ctx.conn.id, args.session)) ? "open" : "none";
     }
     return results;
   },

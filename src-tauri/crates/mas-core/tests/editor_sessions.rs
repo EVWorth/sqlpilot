@@ -1,7 +1,7 @@
 use chrono::Utc;
 use mas_core::connection::{ConnectionManager, Route};
 use mas_core::models::{ConnectionProfile, SqlValue};
-use mas_core::query::{explain_in, CancelScope, ExplainFormat, QueryExecutor};
+use mas_core::query::{explain_in, CancelScope, ExplainFormat, QueryExecutor, TransactionState};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -439,4 +439,164 @@ async fn a_session_less_cancel_leaves_a_tab_running() {
         .unwrap()
         .expect("the tab was not interrupted");
     assert_eq!(scalar(&results), "0", "SLEEP ran to completion");
+}
+
+// ====== TRANSACTION STATE (#843) ======
+//
+// The frontend guessed whether a tab's session was inside a transaction from
+// the SQL it sent. A run on a session now reports what the server says, on its
+// last result.
+
+/// The transaction state the last result of `sql` reports.
+async fn transaction_after(
+    executor: &QueryExecutor,
+    id: &str,
+    tab: &str,
+    sql: &str,
+) -> Option<TransactionState> {
+    let results = run(executor, id, tab, sql).await.expect("runs");
+    results.last().expect("a result").transaction
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_run_on_a_session_reports_its_transaction_state() {
+    let (manager, executor, id) = connect(5).await;
+    let tab = "tab-transaction-state";
+
+    assert_eq!(
+        transaction_after(&executor, &id, tab, "SELECT 1").await,
+        Some(TransactionState::None),
+    );
+    assert_eq!(
+        transaction_after(&executor, &id, tab, "BEGIN").await,
+        Some(TransactionState::Open),
+        "BEGIN leaves a transaction open"
+    );
+    assert_eq!(
+        transaction_after(&executor, &id, tab, "SELECT 1").await,
+        Some(TransactionState::Open),
+        "still open on the next run"
+    );
+    assert_eq!(
+        transaction_after(&executor, &id, tab, "COMMIT").await,
+        Some(TransactionState::None),
+        "COMMIT ends it"
+    );
+
+    manager.close_session(&id, tab).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn only_the_last_result_of_a_run_reports_the_transaction_state() {
+    let (manager, executor, id) = connect(5).await;
+    let tab = "tab-transaction-last";
+
+    let results = run(&executor, &id, tab, "SELECT 1; START TRANSACTION; SELECT 2")
+        .await
+        .expect("runs");
+    assert_eq!(results.len(), 3);
+    assert_eq!(results[0].transaction, None);
+    assert_eq!(results[1].transaction, None);
+    assert_eq!(results[2].transaction, Some(TransactionState::Open));
+
+    let results = run(&executor, &id, tab, "ROLLBACK")
+        .await
+        .expect("rolls back");
+    assert_eq!(results[0].transaction, Some(TransactionState::None));
+
+    manager.close_session(&id, tab).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn the_transaction_state_follows_what_the_sql_cannot_show() {
+    // The cases inferring from the statements gets wrong: autocommit off
+    // opens a transaction on the next write, and DDL commits implicitly.
+    let (manager, executor, id) = connect(5).await;
+    let tab = "tab-transaction-implicit";
+    fresh_table(&executor, &id, "tx_state_probe").await;
+
+    assert_eq!(
+        transaction_after(
+            &executor,
+            &id,
+            tab,
+            "SET autocommit = 0; INSERT INTO tx_state_probe VALUES (1)"
+        )
+        .await,
+        Some(TransactionState::Open),
+        "a write with autocommit off opens a transaction"
+    );
+    assert_eq!(
+        transaction_after(
+            &executor,
+            &id,
+            tab,
+            "CREATE TABLE IF NOT EXISTS tx_state_probe_2 (a INT)"
+        )
+        .await,
+        Some(TransactionState::None),
+        "DDL commits implicitly"
+    );
+
+    manager.close_session(&id, tab).await;
+    executor
+        .execute(
+            &id,
+            "DROP TABLE IF EXISTS tx_state_probe, tx_state_probe_2",
+            Some("test_db".to_string()),
+            None,
+            None,
+        )
+        .await
+        .expect("cleans up");
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_run_off_a_session_reports_no_transaction_state() {
+    let (_manager, executor, id) = connect(5).await;
+
+    let results = executor
+        .execute(
+            &id,
+            "BEGIN; SELECT 1",
+            Some("test_db".to_string()),
+            None,
+            None,
+        )
+        .await
+        .expect("runs");
+    assert!(
+        results.iter().all(|r| r.transaction.is_none()),
+        "the shared pool keeps no session to report on"
+    );
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_failed_run_on_a_session_keeps_what_ran_before_it() {
+    let (manager, executor, id) = connect(5).await;
+    let tab = "tab-failed-completed";
+
+    let err = run(
+        &executor,
+        &id,
+        tab,
+        "SELECT 41 + 1; SELECT * FROM definitely_not_a_table",
+    )
+    .await
+    .expect_err("the second statement fails");
+
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.statement_index, Some(1));
+    let completed = reported
+        .completed_results
+        .expect("the first result is kept");
+    assert_eq!(completed.len(), 1);
+    assert_eq!(scalar(&completed), "42");
+
+    manager.close_session(&id, tab).await;
 }

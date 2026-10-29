@@ -15,7 +15,7 @@ export const commands = {
 	connect: (profileId: string) => typedError<ConnectionInfo, string>(__TAURI_INVOKE("connect", { profileId })),
 	disconnect: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("disconnect", { connectionId })),
 	listConnections: () => typedError<ConnectionInfo[], string>(__TAURI_INVOKE("list_connections")),
-	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null, offset: number | null, session: string | null) => typedError<QueryResult_Serialize[], QueryError>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit, offset, session })),
+	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null, offset: number | null, session: string | null) => typedError<QueryResult_Serialize[], QueryError_Serialize>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit, offset, session })),
 	/**
 	 *  Plan a single statement.
 	 * 
@@ -80,7 +80,7 @@ export const commands = {
 	 */
 	rows_affected: number[],
 	transaction: TransactionState,
-} | null, QueryError>(__TAURI_INVOKE("apply_grid_edits", { connectionId, session, database, statements })),
+} | null, QueryError_Serialize>(__TAURI_INVOKE("apply_grid_edits", { connectionId, session, database, statements })),
 	/**
 	 *  What the health checker last saw for a connection.
 	 * 
@@ -216,7 +216,7 @@ export const commands = {
 	sqliteOpen: (path: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_open", { path })),
 	sqliteClose: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("sqlite_close", { connectionId })),
 	sqliteList: () => typedError<string[], string>(__TAURI_INVOKE("sqlite_list")),
-	sqliteExecute: (connectionId: string, sql: string) => typedError<SqliteQueryResult[], QueryError>(__TAURI_INVOKE("sqlite_execute", { connectionId, sql })),
+	sqliteExecute: (connectionId: string, sql: string) => typedError<SqliteQueryResult[], QueryError_Serialize>(__TAURI_INVOKE("sqlite_execute", { connectionId, sql })),
 	sqliteGetTables: (connectionId: string) => typedError<SqliteTableInfo[], string>(__TAURI_INVOKE("sqlite_get_tables", { connectionId })),
 	sqliteGetColumns: (connectionId: string, table: string) => typedError<SqliteColumnInfo[], string>(__TAURI_INVOKE("sqlite_get_columns", { connectionId, table })),
 	sqliteGetIndexes: (connectionId: string, table: string) => typedError<SqliteIndexInfo[], string>(__TAURI_INVOKE("sqlite_get_indexes", { connectionId, table })),
@@ -1187,7 +1187,23 @@ export type ProcessInfo = {
  *  carries them alongside the text rather than flattening everything to one
  *  string at the boundary.
  */
-export type QueryError = {
+export type QueryError = QueryError_Serialize | QueryError_Deserialize;
+
+/**
+ *  A query failure in the shape the frontend can act on.
+ * 
+ *  Commands hand the frontend `Result<_, String>`, which is enough to show a
+ *  message and nothing else: the history panel could not tell a missing table
+ *  from a syntax error, and a user debugging a recurring failure had to rerun
+ *  the query to find out which table was missing (#324).
+ * 
+ *  The driver already knows more than the message says. MySQL reports an error
+ *  number (1146 for an unknown table) and a SQLSTATE (42S02); SQLite reports an
+ *  extended result code. Both are stable identifiers worth keeping, so this
+ *  carries them alongside the text rather than flattening everything to one
+ *  string at the boundary.
+ */
+export type QueryError_Deserialize = {
 	/**  The message the user reads. Always present. */
 	message: string,
 	/**
@@ -1204,6 +1220,59 @@ export type QueryError = {
 	 *  failure, with no way to tell which line to look at (#329).
 	 */
 	statementIndex: number | null,
+	/**
+	 *  The results of the statements that ran before the failing one, when a
+	 *  run stopped at its second statement or later (#845).
+	 * 
+	 *  The error used to be all a failed script returned, so the result of
+	 *  every statement that succeeded before it was thrown away. `None` when
+	 *  the first statement failed, and for failures outside a batch, and then
+	 *  left out of the payload.
+	 */
+	completedResults?: QueryResult_Deserialize[] | null,
+};
+
+/**
+ *  A query failure in the shape the frontend can act on.
+ * 
+ *  Commands hand the frontend `Result<_, String>`, which is enough to show a
+ *  message and nothing else: the history panel could not tell a missing table
+ *  from a syntax error, and a user debugging a recurring failure had to rerun
+ *  the query to find out which table was missing (#324).
+ * 
+ *  The driver already knows more than the message says. MySQL reports an error
+ *  number (1146 for an unknown table) and a SQLSTATE (42S02); SQLite reports an
+ *  extended result code. Both are stable identifiers worth keeping, so this
+ *  carries them alongside the text rather than flattening everything to one
+ *  string at the boundary.
+ */
+export type QueryError_Serialize = {
+	/**  The message the user reads. Always present. */
+	message: string,
+	/**
+	 *  Driver error number: MySQL's error code, or SQLite's extended result
+	 *  code. `None` for failures that never reached a server.
+	 */
+	code: number | null,
+	/**  SQLSTATE, where the driver supplies one. MySQL does; SQLite does not. */
+	sqlState: string | null,
+	/**
+	 *  Which statement of a multi-statement run failed, zero-based.
+	 * 
+	 *  A script whose third statement failed used to surface as one opaque
+	 *  failure, with no way to tell which line to look at (#329).
+	 */
+	statementIndex: number | null,
+	/**
+	 *  The results of the statements that ran before the failing one, when a
+	 *  run stopped at its second statement or later (#845).
+	 * 
+	 *  The error used to be all a failed script returned, so the result of
+	 *  every statement that succeeded before it was thrown away. `None` when
+	 *  the first statement failed, and for failures outside a batch, and then
+	 *  left out of the payload.
+	 */
+	completedResults?: QueryResult_Serialize[] | null,
 };
 
 export type QueryResult = QueryResult_Serialize | QueryResult_Deserialize;
@@ -1238,6 +1307,18 @@ export type QueryResult_Deserialize = {
 	 */
 	truncation_reason: TruncationReason | null,
 	total_rows_available: number | null,
+	/**
+	 *  Whether the editor tab's session is inside a transaction after this
+	 *  statement, read from the server rather than guessed from the SQL
+	 *  (#843).
+	 * 
+	 *  Only a run on a session reports it, and only on its last result: the
+	 *  server is asked once, after the whole run, so the statements before
+	 *  the last have nothing to report. `None` on the shared pool and on an
+	 *  agent's connections, which keep no session for a transaction to
+	 *  outlive the run in, and when the server could not say.
+	 */
+	transaction?: TransactionState | null,
 };
 
 export type QueryResult_Serialize = {
@@ -1270,6 +1351,18 @@ export type QueryResult_Serialize = {
 	 */
 	truncation_reason?: TruncationReason | null,
 	total_rows_available?: number | null,
+	/**
+	 *  Whether the editor tab's session is inside a transaction after this
+	 *  statement, read from the server rather than guessed from the SQL
+	 *  (#843).
+	 * 
+	 *  Only a run on a session reports it, and only on its last result: the
+	 *  server is asked once, after the whole run, so the statements before
+	 *  the last have nothing to report. `None` on the shared pool and on an
+	 *  agent's connections, which keep no session for a transaction to
+	 *  outlive the run in, and when the server could not say.
+	 */
+	transaction?: TransactionState | null,
 };
 
 export type RestoreOptions = {
@@ -1617,13 +1710,18 @@ export type TestConnectionResult = {
 	latency_ms: number,
 };
 
-/**  Whether the session was inside a transaction when the save began. */
+/**
+ *  Whether an editor tab's session is inside a transaction.
+ * 
+ *  A grid save reports the state when the save began; a query run reports it
+ *  after its last statement, on that statement's result (#843).
+ */
 export type TransactionState = 
-/**  No transaction: the edits were applied and committed. */
+/**  No transaction. For a grid save: the edits were applied and committed. */
 "none" | 
 /**
- *  The user's transaction: the edits were applied inside it and are not
- *  committed until the user commits.
+ *  A transaction is open. For a grid save: the edits were applied inside
+ *  the user's transaction and are not committed until the user commits.
  */
 "open";
 
