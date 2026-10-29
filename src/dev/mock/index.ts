@@ -23,7 +23,7 @@ import { queryHandlers } from "./handlers/query";
 import { schemaHandlers } from "./handlers/schema";
 import { sqliteHandlers } from "./handlers/sqlite";
 import { delay, type Handlers } from "./router";
-import { type MockOptions, optionsFromUrl, resetState, type Scenario, scenarioFromUrl } from "./state";
+import { type MockOptions, optionsFromUrl, resetState, type Scenario, scenarioFromUrl, startsConnected } from "./state";
 
 export const handlers: Handlers = {
   ...connectionHandlers,
@@ -89,11 +89,11 @@ function fixUnlisten(): void {
  * What a scenario does once the app is on screen.
  *
  * The app never asks the backend which connections are already live, so a
- * connection made only inside the mock would never appear. `connected` goes
- * through the app's own store instead, as a person clicking Connect would.
+ * connection made only inside the mock would never appear. `connected` and
+ * `lost` go through the app's own store instead, as a person clicking Connect would.
  */
 export function afterRender(scenario: Scenario = scenarioFromUrl(window.location.search)): void {
-  if (scenario !== "connected") return;
+  if (!startsConnected(scenario)) return;
   void import("../../stores/connectionStore").then(({ useConnectionStore }) =>
     useConnectionStore.getState().connect("profile-local")
   );

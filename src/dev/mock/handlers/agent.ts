@@ -37,10 +37,15 @@ interface Grant {
   ddlUnlocked: boolean;
 }
 
-/** Local dev shared in full, production schema-only, staging not at all. */
+/**
+ * Local dev shared in full, production schema-only, staging not at all. The
+ * read-write production of `?mock=servers` is shared with writes, so the
+ * production DDL checkbox has a connection to be about.
+ */
 const grants = new Map<string, Grant>([
   ["profile-local", { posture: "full", databases: null, redact: [], ddlUnlocked: false }],
   ["profile-prod", { posture: "schema-only", databases: ["shop"], redact: ["email", "*_token"], ddlUnlocked: false }],
+  ["profile-prod-rw", { posture: "full", databases: ["shop"], redact: ["email"], ddlUnlocked: false }],
 ]);
 
 // ---------------------------------------------------------------- endpoint

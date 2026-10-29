@@ -394,9 +394,56 @@ export const PROFILES: ConnectionProfileSummary_Serialize[] = [
   },
 ];
 
+/**
+ * The profiles `?mock=servers` adds, one per connect outcome the default set
+ * cannot show. Their behaviour is in handlers/connections.ts.
+ */
+export const SERVER_PROFILES: ConnectionProfileSummary_Serialize[] = [
+  {
+    ...PROFILES[2],
+    id: "profile-prod-rw",
+    name: "Production (read-write)",
+    host: "db-primary.prod.example.internal",
+    username: "admin",
+    read_only: false,
+  },
+  {
+    ...PROFILES[3],
+    id: "profile-mariadb",
+    name: "MariaDB 11",
+    group: "Lab",
+    color: "#0ea5e9",
+    host: "mariadb.lab.example.internal",
+    port: 3306,
+    username: "dev",
+    default_database: "shop",
+  },
+  {
+    ...PROFILES[3],
+    id: "profile-bad-password",
+    name: "Wrong password",
+    group: "Lab",
+    host: "db.qa.example.internal",
+    port: 3306,
+    username: "app",
+  },
+  {
+    ...PROFILES[3],
+    id: "profile-timeout",
+    name: "Unreachable (times out)",
+    group: "Lab",
+    host: "10.20.30.40",
+    port: 3306,
+    username: "app",
+    connect_timeout_secs: 2,
+  },
+];
+
 export const SERVER_VERSION: Record<string, string> = {
   "profile-local": "8.0.39",
   "profile-staging": "8.0.36",
   "profile-prod": "8.0.36",
   "profile-maria": "11.4.3-MariaDB",
+  "profile-prod-rw": "8.0.36",
+  "profile-mariadb": "11.4.3-MariaDB-ubu2404",
 };

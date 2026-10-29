@@ -909,7 +909,19 @@ function explainStatement(stmt: string, clean: string, ctx: Ctx): QueryResult_Se
 
 // ---------------------------------------------------------------- dispatch
 
-function contextFor(connectionId: unknown, database: unknown, index = 0): { ctx: Ctx; readOnly: boolean } {
+/**
+ * The connection a statement runs on. A server that has gone (`?mock=lost`)
+ * fails the run with the driver's 2013, structured for the commands typed
+ * `QueryError` and as text for the rest.
+ */
+function contextFor(
+  connectionId: unknown,
+  database: unknown,
+  { structured = true } = {},
+): { ctx: Ctx; readOnly: boolean } {
+  if (structured && state.down.has(String(connectionId))) {
+    sqlFail(2013, "HY000", "Lost connection to MySQL server during query", 0);
+  }
   const conn = liveConnection(connectionId);
   const profile = state.profiles.find((p) => p.id === conn.profile_id);
   return {
@@ -918,7 +930,7 @@ function contextFor(connectionId: unknown, database: unknown, index = 0): { ctx:
       db: typeof database === "string" && database ? database : conn.database,
       version: conn.server_version,
       username: profile?.username ?? "root",
-      index,
+      index: 0,
     },
     readOnly: profile?.read_only ?? false,
   };
@@ -1070,7 +1082,7 @@ export const queryHandlers: Handlers = {
   },
 
   explain_query: async (args): Promise<ExplainResponse_Serialize> => {
-    const { ctx, readOnly } = contextFor(args.connectionId, args.database);
+    const { ctx, readOnly } = contextFor(args.connectionId, args.database, { structured: false });
     const statements = splitStatements(String(args.sql ?? "")).filter((s) => stripComments(s));
     if (statements.length === 0) return fail("Query error: Nothing to explain");
     if (statements.length > 1) {

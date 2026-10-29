@@ -4,7 +4,7 @@
 // should, so a screen behaves the same however it was reached.
 
 import type { ConnectionInfo, ConnectionProfileSummary_Serialize } from "../../lib/bindings";
-import { PROFILES } from "./dataset";
+import { PROFILES, SERVER_PROFILES } from "./dataset";
 
 /**
  * Which starting point the page was opened with: `?mock`, or
@@ -15,10 +15,18 @@ import { PROFILES } from "./dataset";
  * - `empty`: a first run, with no saved profiles.
  * - `connected`: "Local dev" already connected, for jumping straight to the
  *   editor, the grid and the schema tree.
+ * - `lost`: `connected`, then the server stops answering a few seconds in:
+ *   the health checks fail and keep failing, and every read on it fails.
+ * - `servers`: the default profiles plus one per remaining connect outcome:
+ *   a read-write production server, a MariaDB that connects, a wrong
+ *   password and a server that never answers.
  */
-export type Scenario = "default" | "empty" | "connected";
+export type Scenario = "default" | "empty" | "connected" | "lost" | "servers";
 
-const SCENARIOS: readonly Scenario[] = ["default", "empty", "connected"];
+const SCENARIOS: readonly Scenario[] = ["default", "empty", "connected", "lost", "servers"];
+
+/** Whether the scenario starts with "Local dev" connected. */
+export const startsConnected = (scenario: Scenario) => scenario === "connected" || scenario === "lost";
 
 export function scenarioFromUrl(search: string): Scenario {
   const value = new URLSearchParams(search).get("mock");
@@ -50,6 +58,11 @@ export const state = {
   profiles: [] as ConnectionProfileSummary_Serialize[],
   /** Live connections, by connection id. */
   connections: new Map<string, ConnectionInfo>(),
+  /**
+   * Connections whose server has stopped answering, with how many health
+   * checks have failed in a row.
+   */
+  down: new Map<string, number>(),
   /** Counter for ids the mock hands out. */
   nextId: 1,
 };
@@ -61,15 +74,28 @@ export function newId(prefix: string): string {
 export function resetState(scenario: Scenario, options: MockOptions = defaultOptions()): void {
   state.scenario = scenario;
   state.options = options;
-  state.profiles = scenario === "empty" ? [] : PROFILES.map((p) => ({ ...p }));
+  const profiles = scenario === "empty" ? [] : scenario === "servers" ? [...PROFILES, ...SERVER_PROFILES] : PROFILES;
+  state.profiles = profiles.map((p) => ({ ...p }));
   state.connections.clear();
+  state.down.clear();
   state.nextId = 1;
 }
 
-/** The live connection for an id, or the error the backend gives. */
-export function liveConnection(connectionId: unknown): ConnectionInfo {
+/** What a read on a connection whose server has gone fails with. */
+export const LOST_CONNECTION =
+  "error returned from database: 2013 (HY000): Lost connection to MySQL server during query";
+
+/**
+ * The live connection for an id, or the error the backend gives.
+ *
+ * A connection whose server has gone (`?mock=lost`) fails too, as every
+ * command that talks to the server would; `evenIfDown` is for the few that
+ * do not, such as disconnecting.
+ */
+export function liveConnection(connectionId: unknown, { evenIfDown = false } = {}): ConnectionInfo {
   const conn = state.connections.get(String(connectionId));
   // The backend's wording: CoreError::NotFound around the manager's message.
   if (!conn) throw `Not found: Connection not found: ${String(connectionId)}`;
+  if (!evenIfDown && state.down.has(conn.id)) throw `Query error: ${LOST_CONNECTION}`;
   return conn;
 }

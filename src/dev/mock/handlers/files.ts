@@ -21,9 +21,9 @@ import type {
   RestoreSummary,
   SqlValue,
 } from "../../../lib/bindings";
-import { DATABASES, findTable, PROFILES, rand, tableRows } from "../dataset";
+import { DATABASES, findTable, rand, tableRows } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
-import { liveConnection } from "../state";
+import { liveConnection, state } from "../state";
 import { createTableDdl } from "./schema";
 
 /** Where every picked or saved file lives. A placeholder, not anyone's home. */
@@ -316,7 +316,7 @@ async function runRestore(args: Record<string, unknown>): Promise<RestoreSummary
   try {
     // The read-only production login is refused by the server on the first
     // write, which is the restore's failure path worth seeing.
-    const readOnly = PROFILES.find((p) => p.id === conn.profile_id)?.read_only === true;
+    const readOnly = state.profiles.find((p) => p.id === conn.profile_id)?.read_only === true;
     const ticks = Math.round(RUN_MS / TICK_MS);
     let run = 0;
     let failedCount = 0;
