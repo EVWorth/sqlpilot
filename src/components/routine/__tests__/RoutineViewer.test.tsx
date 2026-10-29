@@ -1,5 +1,6 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { useDdlStore } from "../../../stores/ddlStore";
 import { RoutineViewer } from "../RoutineViewer";
 
 const { confirmDropFn } = vi.hoisted(() => ({ confirmDropFn: vi.fn() }));
@@ -50,6 +51,7 @@ END`;
 describe("RoutineViewer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    useDdlStore.setState({ entries: {} });
     vi.mocked(api.getRoutineDdl).mockResolvedValue(mockDdl);
     vi.mocked(useEditorStore.getState).mockReturnValue({
       addTab: vi.fn(() => "new-tab"),
