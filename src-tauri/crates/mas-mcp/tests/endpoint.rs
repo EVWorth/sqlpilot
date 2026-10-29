@@ -200,6 +200,7 @@ impl Workspace for OneConnection {
             rows_truncated: false,
             truncation_reason: None,
             total_rows_available: None,
+            transaction: None,
         })
     }
 }

@@ -1,3 +1,4 @@
+use crate::models::query::QueryResult;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -51,6 +52,11 @@ pub enum CoreError {
     AtStatement {
         index: usize,
         source: Box<CoreError>,
+        /// What the statements before this one returned, in order, so a
+        /// script's earlier results are not lost with its error (#845).
+        /// Empty when the first statement failed, and from callers that do
+        /// not collect results.
+        completed: Vec<QueryResult>,
     },
 
     #[error(transparent)]
@@ -103,6 +109,15 @@ pub struct QueryError {
     /// failure, with no way to tell which line to look at (#329).
     #[specta(type = Option<specta_typescript::Number>)]
     pub statement_index: Option<usize>,
+    /// The results of the statements that ran before the failing one, when a
+    /// run stopped at its second statement or later (#845).
+    ///
+    /// The error used to be all a failed script returned, so the result of
+    /// every statement that succeeded before it was thrown away. `None` when
+    /// the first statement failed, and for failures outside a batch, and then
+    /// left out of the payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_results: Option<Vec<QueryResult>>,
 }
 
 impl QueryError {
@@ -113,8 +128,17 @@ impl QueryError {
     /// a placeholder the frontend would have to know to ignore.
     pub fn from_core(err: &CoreError) -> Self {
         // Unwrap the statement tag first, then read the error underneath it.
-        if let CoreError::AtStatement { index, source } = err {
-            return Self::from_core(source).at_statement(*index);
+        if let CoreError::AtStatement {
+            index,
+            source,
+            completed,
+        } = err
+        {
+            let mut reported = Self::from_core(source).at_statement(*index);
+            if *index > 0 && !completed.is_empty() {
+                reported.completed_results = Some(completed.clone());
+            }
+            return reported;
         }
 
         let message = err.to_string();
@@ -132,6 +156,7 @@ impl QueryError {
                     code,
                     sql_state,
                     statement_index: None,
+                    completed_results: None,
                 }
             }
             CoreError::Rusqlite(e) => Self::from_rusqlite(e, &message),
@@ -140,6 +165,7 @@ impl QueryError {
                 code: None,
                 sql_state: None,
                 statement_index: None,
+                completed_results: None,
             },
         }
     }
@@ -156,12 +182,14 @@ impl QueryError {
                 // calls both "constraint failed".
                 code: Some(e.extended_code.unsigned_abs()),
                 sql_state: None,
+                completed_results: None,
             },
             _ => Self {
                 message: fallback.to_string(),
                 code: None,
                 sql_state: None,
                 statement_index: None,
+                completed_results: None,
             },
         }
     }
@@ -211,5 +239,93 @@ mod tests {
         let reported = QueryError::from_rusqlite(&err, "Query error: bad things");
         assert_eq!(reported.message, "Query error: bad things");
         assert_eq!(reported.code, Some(1));
+    }
+
+    fn count_result(index: usize, sql: &str) -> QueryResult {
+        QueryResult {
+            query_id: format!("q{index}"),
+            statement_index: index,
+            sql: sql.to_string(),
+            columns: vec![],
+            rows: vec![],
+            rows_affected: 1,
+            execution_time_ms: 0,
+            warnings: vec![],
+            rows_truncated: false,
+            truncation_reason: None,
+            total_rows_available: None,
+            transaction: None,
+        }
+    }
+
+    fn failed_at(index: usize, completed: Vec<QueryResult>) -> CoreError {
+        CoreError::AtStatement {
+            index,
+            source: Box::new(CoreError::Query("boom".into())),
+            completed,
+        }
+    }
+
+    #[test]
+    fn a_failure_after_the_first_statement_carries_the_earlier_results() {
+        let completed = vec![count_result(0, "INSERT INTO t VALUES (1)")];
+        let reported = QueryError::from_core(&failed_at(1, completed));
+
+        assert_eq!(reported.statement_index, Some(1));
+        let carried = reported.completed_results.expect("earlier results kept");
+        assert_eq!(carried.len(), 1);
+        assert_eq!(carried[0].sql, "INSERT INTO t VALUES (1)");
+    }
+
+    #[test]
+    fn a_failure_at_the_first_statement_carries_no_results() {
+        let reported = QueryError::from_core(&failed_at(0, vec![]));
+        assert_eq!(reported.statement_index, Some(0));
+        assert!(reported.completed_results.is_none());
+    }
+
+    #[test]
+    fn a_failure_outside_a_batch_carries_no_results() {
+        let reported = QueryError::from_core(&CoreError::Query("boom".into()));
+        assert!(reported.completed_results.is_none());
+    }
+
+    #[test]
+    fn completed_results_serialise_under_the_name_the_frontend_reads() {
+        let completed = vec![count_result(0, "SELECT 1")];
+        let json = serde_json::to_value(QueryError::from_core(&failed_at(1, completed)))
+            .expect("serialises");
+
+        assert_eq!(json["statementIndex"], 1);
+        assert_eq!(json["completedResults"][0]["sql"], "SELECT 1");
+        assert_eq!(json["completedResults"][0]["statement_index"], 0);
+
+        let json =
+            serde_json::to_value(QueryError::from_core(&failed_at(0, vec![]))).expect("serialises");
+        assert!(
+            json.get("completedResults").is_none(),
+            "omitted when none: {json}"
+        );
+    }
+
+    #[test]
+    fn a_result_reports_its_transaction_state_only_when_it_has_one() {
+        let mut result = count_result(0, "BEGIN");
+        let json = serde_json::to_value(&result).expect("serialises");
+        assert!(
+            json.get("transaction").is_none(),
+            "omitted when unknown: {json}"
+        );
+
+        result.transaction = Some(crate::query::TransactionState::Open);
+        let json = serde_json::to_value(&result).expect("serialises");
+        assert_eq!(json["transaction"], "open");
+
+        result.transaction = Some(crate::query::TransactionState::None);
+        let json = serde_json::to_value(&result).expect("serialises");
+        assert_eq!(json["transaction"], "none");
+
+        let back: QueryResult = serde_json::from_value(json).expect("round-trips");
+        assert_eq!(back.transaction, Some(crate::query::TransactionState::None));
     }
 }

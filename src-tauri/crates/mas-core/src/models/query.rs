@@ -34,6 +34,17 @@ pub struct QueryResult {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[specta(type = Option<specta_typescript::Number>)]
     pub total_rows_available: Option<u64>,
+    /// Whether the editor tab's session is inside a transaction after this
+    /// statement, read from the server rather than guessed from the SQL
+    /// (#843).
+    ///
+    /// Only a run on a session reports it, and only on its last result: the
+    /// server is asked once, after the whole run, so the statements before
+    /// the last have nothing to report. `None` on the shared pool and on an
+    /// agent's connections, which keep no session for a transaction to
+    /// outlive the run in, and when the server could not say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<crate::query::TransactionState>,
 }
 
 /// What stopped the result set from being complete.

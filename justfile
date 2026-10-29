@@ -126,17 +126,16 @@ bindings:
 
 # ── Test databases ─────────────────────────────────────────────────────────
 #
-# Bind mounts carry :z so the seed files are relabelled for SELinux hosts
-# (Fedora and friends) — without it the container cannot read them and the
-# database comes up empty, or in MariaDB's case fails to start at all.
+# The seed scripts are built into the MySQL and MariaDB images rather than
+# bind-mounted, so the shared containers depend on no checkout's path (#903).
 
 # Start MySQL 8 and MariaDB 11, and wait until they actually accept connections.
 #
 # Every checkout shares the one set of containers (the compose file pins the
-# project name). --no-recreate starts existing ones as they are: the seed
-# mounts resolve to each worktree's own path, so without it a second worktree
-# would replace the containers, and their data, under the first (#895). After
-# changing the compose file, `just db-reset` applies it.
+# project name). --no-recreate starts existing ones as they are, so a second
+# worktree, whose build context is its own path, never replaces the
+# containers, and their data, under the first (#895). After changing the
+# compose file or a seed file, `just db-reset` applies it.
 db-up:
     docker compose -f docker-compose.test.yml up -d --no-recreate mysql-8 mariadb-11
     @just _db-wait mas-mysql-8
@@ -165,17 +164,20 @@ _db-wait name:
     docker logs --tail 20 {{ name }} >&2 || true
     exit 1
 
-# Stop and remove the test containers.
+# Stop and remove the test containers, with the anonymous volumes holding
+# their data, so they do not pile up under /var/lib/docker.
 db-down:
-    -docker rm -f mas-mysql-8 mas-mariadb-11 2>/dev/null
+    -docker rm -fv mas-mysql-8 mas-mariadb-11 2>/dev/null
 
 # Re-apply the seed fixture to both running containers.
 db-seed:
     docker exec -i mas-mysql-8 mysql -u root -p{{ DB_ROOT_PASSWORD }} < tests/fixtures/sql/seed.sql
     docker exec -i mas-mariadb-11 mariadb -u root -p{{ DB_ROOT_PASSWORD }} < tests/fixtures/sql/seed.sql
 
-# Recreate the containers from scratch.
-db-reset: db-down db-up
+# Recreate the containers from scratch, rebuilding the seeded images first.
+db-reset: db-down
+    docker compose -f docker-compose.test.yml build mysql-8 mariadb-11
+    @just db-up
 
 # Generate the self-signed certificates the SSL tests use.
 ssl-certs:
