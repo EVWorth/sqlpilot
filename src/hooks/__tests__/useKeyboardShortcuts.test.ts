@@ -35,6 +35,14 @@ vi.mock("../../stores/settingsStore", () => ({
   },
 }));
 
+const mockRefreshAll = vi.fn();
+
+vi.mock("../../stores/schemaStore", () => ({
+  useSchemaStore: {
+    getState: vi.fn(() => ({ refreshAll: mockRefreshAll })),
+  },
+}));
+
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 
@@ -576,5 +584,57 @@ describe("interface scale (#837)", () => {
     renderHook(() => useKeyboardShortcuts());
     window.dispatchEvent(createKeyboardEvent("-"));
     expect(mockZoom).not.toHaveBeenCalled();
+  });
+});
+
+describe("F5 refreshes the schema and never reloads (#898)", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const press = (key: string, opts: Parameters<typeof createKeyboardEvent>[1] = {}) => {
+    renderHook(() => useKeyboardShortcuts());
+    const event = createKeyboardEvent(key, opts);
+    window.dispatchEvent(event);
+    return event;
+  };
+
+  it("refreshes the selected connection's schema", () => {
+    const event = press("F5");
+    expect(mockRefreshAll).toHaveBeenCalledWith("conn-1");
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("does nothing but block the reload when nothing is connected", () => {
+    getConnectionState.mockReturnValue({ selectedConnectionId: null });
+    const event = press("F5");
+    expect(mockRefreshAll).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it("leaves the refresh to the editor's own F5 action when it has focus", () => {
+    // Otherwise one key press would refresh twice.
+    const event = press("F5", { targetClosest: true, targetTagName: "TEXTAREA" });
+    expect(mockRefreshAll).not.toHaveBeenCalled();
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it.each(
+    [
+      ["r", false],
+      ["R", true],
+      ["F5", false],
+    ] as const,
+  )("blocks Ctrl+%s reload in a release build (shift: %s)", (key, shiftKey) => {
+    vi.stubEnv("PROD", true);
+    const event = press(key, { ctrlKey: true, shiftKey });
+    expect(event.defaultPrevented).toBe(true);
+    expect(mockRefreshAll).not.toHaveBeenCalled();
+  });
+
+  it("lets Ctrl+R reload while developing", () => {
+    vi.stubEnv("PROD", false);
+    const event = press("r", { ctrlKey: true });
+    expect(event.defaultPrevented).toBe(false);
   });
 });

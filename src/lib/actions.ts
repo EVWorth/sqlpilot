@@ -111,6 +111,7 @@ export const ACTIONS: Action[] = [
     id: "refresh-schema",
     label: "Refresh Schema Cache",
     category: "Database",
+    shortcut: "F5",
     keywords: ["reload", "tables"],
     enabled: needsConnection,
   },
