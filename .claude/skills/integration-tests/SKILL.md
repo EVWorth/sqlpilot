@@ -17,15 +17,18 @@ docker info >/dev/null 2>&1 || (sudo dockerd >/tmp/dockerd.log 2>&1 &)   # cloud
 just db-up        # MySQL 8 on 13306, MariaDB 11 on 13308, waits for healthy
 ```
 
-Both are seeded from `tests/fixtures/sql/`. `just db-seed` re-applies the
-seed; `just db-reset` recreates the containers. Never point tests at 3306.
+Both are seeded from `tests/fixtures/sql/`, which the first `just db-up`
+copies into a small image per server (`sqlpilot-test-mysql-8`,
+`sqlpilot-test-mariadb-11`). `just db-seed` re-applies `seed.sql` to the
+running containers; `just db-reset` rebuilds the images and recreates the
+containers, which is what picks up a changed seed file. Never point tests at
+3306.
 
 Every checkout shares one set of containers: `just db-up` from a second git
 worktree starts or reuses the existing ones rather than creating its own. A
 reset or `just db-down` from any worktree therefore affects all of them. The
-containers keep the seed mounts of the checkout that created them, so if that
-worktree is removed they no longer start; `just db-reset` from a checkout that
-remains recreates them.
+containers mount nothing from a checkout, so they keep starting after the
+worktree that created them is removed.
 
 ## 2. Run against both servers
 

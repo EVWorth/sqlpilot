@@ -4,9 +4,23 @@
 # on "container name already in use" (#895).
 name: sqlpilot
 
+# The seed scripts are copied into a small image per server rather than
+# bind-mounted. The containers are shared by every checkout, and a bind mount
+# pins them to whichever checkout created them: once that one was removed,
+# `docker start` failed because the mount source was gone (#903). Built on the
+# first `up`; `just db-reset` rebuilds after a seed file changes.
+x-seed-build: &seed-build
+  context: ./tests/fixtures/sql
+
 services:
   mysql-8:
-    image: mysql:8.0
+    image: sqlpilot-test-mysql-8
+    build:
+      <<: *seed-build
+      dockerfile_inline: |
+        FROM mysql:8.0
+        COPY --chmod=0444 seed.sql /docker-entrypoint-initdb.d/01-seed.sql
+        COPY --chmod=0444 seed_large.sql /docker-entrypoint-initdb.d/02-seed-large.sql
     container_name: mas-mysql-8
     environment:
       MYSQL_ROOT_PASSWORD: test_root_password
@@ -15,9 +29,6 @@ services:
       MYSQL_PASSWORD: test_password
     ports:
       - "13306:3306"
-    volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro,z
-      - ./tests/fixtures/sql/seed_large.sql:/docker-entrypoint-initdb.d/02-seed-large.sql:ro,z
     command: >
       --default-authentication-plugin=mysql_native_password
       --character-set-server=utf8mb4
@@ -33,7 +44,12 @@ services:
   # nothing tests against it. Kept so that reinstating support is a matter of
   # starting a container rather than writing one (see ADR-009).
   mysql-5_7:
-    image: mysql:5.7
+    image: sqlpilot-test-mysql-57
+    build:
+      <<: *seed-build
+      dockerfile_inline: |
+        FROM mysql:5.7
+        COPY --chmod=0444 seed.sql /docker-entrypoint-initdb.d/01-seed.sql
     container_name: mas-mysql-57
     environment:
       MYSQL_ROOT_PASSWORD: test_root_password
@@ -42,8 +58,6 @@ services:
       MYSQL_PASSWORD: test_password
     ports:
       - "13307:3306"
-    volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro,z
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "--protocol=TCP", "-u", "root", "-ptest_root_password"]
       interval: 5s
@@ -52,7 +66,12 @@ services:
       start_period: 30s
 
   mariadb-11:
-    image: mariadb:11
+    image: sqlpilot-test-mariadb-11
+    build:
+      <<: *seed-build
+      dockerfile_inline: |
+        FROM mariadb:11
+        COPY --chmod=0444 seed.sql /docker-entrypoint-initdb.d/01-seed.sql
     container_name: mas-mariadb-11
     environment:
       MYSQL_ROOT_PASSWORD: test_root_password
@@ -61,8 +80,6 @@ services:
       MYSQL_PASSWORD: test_password
     ports:
       - "13308:3306"
-    volumes:
-      - ./tests/fixtures/sql/seed.sql:/docker-entrypoint-initdb.d/01-seed.sql:ro,z
     healthcheck:
       test: ["CMD", "mariadb-admin", "ping", "-h", "127.0.0.1", "--protocol=TCP", "-u", "root", "-ptest_root_password"]
       interval: 5s
@@ -71,7 +88,9 @@ services:
       start_period: 30s
 
   # Defined, never started. SSL configuration is real code with no test — a
-  # known gap rather than a claim (ADR-009).
+  # known gap rather than a claim (ADR-009). Still bind-mounts its files:
+  # the certificates are generated locally and not in git, so an image could
+  # not be built without them. :z relabels the mounts for SELinux hosts.
   mysql-ssl:
     image: mysql:8.0
     container_name: mas-mysql-ssl
