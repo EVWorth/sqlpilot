@@ -56,6 +56,10 @@ Some states need no switch, only the right click:
 
 - **Connect:** "Staging" takes a second and a half; "MariaDB sandbox" is
   refused; "Production (read-only)" refuses writes.
+- **Ports:** `save_connection_profile` and `test_connection` reject a port
+  that is not a u16 (70000, -1, 3306.5) with the message Tauri gives when the
+  argument fails to deserialize. Port 0 is a u16 and is accepted, as in the
+  app; connecting to it is refused.
 - **Query errors:** a statement containing `syntax_error` or starting with a
   misspelt verb fails with 1064; an unknown table with 1146; `SELECT SLEEP(n)`
   waits up to 5s and Cancel interrupts it.

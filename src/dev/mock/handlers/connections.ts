@@ -49,7 +49,7 @@ const SILENT_HOST = "10.20.30.40";
  * in the dialog pointing at the same port fails the same way.
  */
 function isRefused(p: { id: string; host: string; port: number }): boolean {
-  return p.id === "profile-maria" || (["localhost", "127.0.0.1"].includes(p.host) && p.port === 3307);
+  return p.id === "profile-maria" || p.port === 0 || (["localhost", "127.0.0.1"].includes(p.host) && p.port === 3307);
 }
 
 // The driver's own text, with the hint the backend adds for a refused TCP
@@ -85,6 +85,22 @@ function connectFailure(p: Profile): { detail: string; ms: number } | undefined 
     };
   }
   return undefined;
+}
+
+/**
+ * Refuse a port that is not a u16, as Tauri does before the command runs:
+ * `port` is `u16` on the Rust profile, so 70000, -1 or 3306.5 fail to
+ * deserialize and the call is rejected with serde's message. Port 0 is a u16
+ * and gets through, as it does in the app; connecting to it is refused.
+ */
+function refuseBadPorts(cmd: string, p: ConnectionProfile_Deserialize): void {
+  for (const value of [p.port, p.ssh_config?.port]) {
+    if (value === undefined || (Number.isInteger(value) && value >= 0 && value <= 65_535)) continue;
+    const what = Number.isInteger(value)
+      ? `invalid value: integer \`${value}\``
+      : `invalid type: floating point \`${value}\``;
+    fail(`invalid args \`profile\` for command \`${cmd}\`: ${what}, expected u16`);
+  }
 }
 
 /** The backend refuses SSH profiles outright rather than bypass the tunnel. */
@@ -195,6 +211,7 @@ export const connectionHandlers: Handlers = {
 
   save_connection_profile: async (args): Promise<string> => {
     const input = args.profile as ConnectionProfile_Deserialize;
+    refuseBadPorts("save_connection_profile", input);
     await delay();
     const id = input.id || newId("profile");
     const existing = state.profiles.find((p) => p.id === id);
@@ -244,6 +261,7 @@ export const connectionHandlers: Handlers = {
 
   test_connection: async (args): Promise<TestConnectionResult> => {
     const profile = args.profile as ConnectionProfile_Deserialize;
+    refuseBadPorts("test_connection", profile);
     refuseSsh(profile);
     const failure = connectFailure(profile);
     const latency = profile.id === SLOW_PROFILE ? 1_480 : failure ? failure.ms : 38;
