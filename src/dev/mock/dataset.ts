@@ -286,6 +286,23 @@ export const DATABASES: MockDatabase[] = [
   system("sys"),
 ];
 
+/**
+ * The fixture as it was loaded, so `resetDatabases` can undo what the schema
+ * writes did. Tables keep their identity across a reset, because handlers
+ * hold on to them (agent.ts counts rows in `shop.orders`).
+ */
+const SEED_WORLD = DATABASES.map((db) => ({
+  db,
+  tables: db.tables.map((table) => ({ table, fields: { ...table, columns: [...table.columns] } })),
+}));
+
+export function resetDatabases(): void {
+  DATABASES.splice(0, DATABASES.length, ...SEED_WORLD.map((s) => s.db));
+  for (const { db, tables } of SEED_WORLD) {
+    db.tables = tables.map(({ table, fields }) => Object.assign(table, { ...fields, columns: [...fields.columns] }));
+  }
+}
+
 export function findTable(database: string | null | undefined, table: string): MockTable | undefined {
   const dbs = database ? DATABASES.filter((d) => d.name === database) : DATABASES;
   for (const db of dbs) {

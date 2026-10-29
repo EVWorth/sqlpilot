@@ -12,6 +12,7 @@
 // and leaving a screen that looks broken for no visible reason.
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { resetDatabases } from "./dataset";
 import { injectedFailure } from "./failures";
 import { resetAccounts } from "./handlers/accounts";
 import { adminHandlers } from "./handlers/admin";
@@ -21,7 +22,7 @@ import { fileHandlers } from "./handlers/files";
 import { historyHandlers } from "./handlers/history";
 import { pluginHandlers } from "./handlers/plugins";
 import { queryHandlers } from "./handlers/query";
-import { schemaHandlers } from "./handlers/schema";
+import { resetSchemaKeys, schemaHandlers } from "./handlers/schema";
 import { sqliteHandlers } from "./handlers/sqlite";
 import { delay, type Handlers } from "./router";
 import { type MockOptions, optionsFromUrl, resetState, type Scenario, scenarioFromUrl, startsConnected } from "./state";
@@ -44,6 +45,8 @@ export function installMockBackend(
 ): void {
   resetState(scenario, options);
   resetAccounts();
+  resetDatabases();
+  resetSchemaKeys();
   mockWindows("main");
   mockIPC(
     async (cmd, payload) => {

@@ -39,7 +39,7 @@ const DEFINER = "`root`@`localhost`";
 const PAGE = 16_384;
 const BYTES_PER_ROW = 180;
 
-interface IndexSpec {
+export interface IndexSpec {
   name: string;
   columns: string[];
   unique: boolean;
@@ -58,7 +58,7 @@ const index = (name: string, ...columns: string[]): IndexSpec => ({ name, column
  * partitioning column; a mock that skipped it would show a DDL the server
  * would refuse.
  */
-const INDEXES: Record<string, IndexSpec[]> = {
+export const INDEXES: Record<string, IndexSpec[]> = {
   "shop.customers": [primary("id"), unique("uq_customers_email", "email")],
   "shop.products": [primary("id"), unique("uq_products_sku", "sku")],
   "shop.orders": [
@@ -74,7 +74,7 @@ const INDEXES: Record<string, IndexSpec[]> = {
   "analytics.events": [primary("id", "occurred_at"), index("idx_events_name_occurred", "name", "occurred_at")],
 };
 
-const FOREIGN_KEYS: Record<string, ForeignKeyInfo[]> = {
+export const FOREIGN_KEYS: Record<string, ForeignKeyInfo[]> = {
   "shop.orders": [
     {
       name: "fk_orders_customer",
@@ -104,6 +104,17 @@ const FOREIGN_KEYS: Record<string, ForeignKeyInfo[]> = {
     },
   ],
 };
+
+/** As the fixture had them, for `resetSchemaKeys`. */
+const SEED_INDEXES = JSON.stringify(INDEXES);
+const SEED_FOREIGN_KEYS = JSON.stringify(FOREIGN_KEYS);
+
+/** Undo the schema writes' changes to the keys, for a fresh page or test. */
+export function resetSchemaKeys(): void {
+  for (const record of [INDEXES, FOREIGN_KEYS]) for (const k of Object.keys(record)) delete record[k];
+  Object.assign(INDEXES, JSON.parse(SEED_INDEXES));
+  Object.assign(FOREIGN_KEYS, JSON.parse(SEED_FOREIGN_KEYS));
+}
 
 const VIEW_SQL: Record<string, { updatable: boolean; select: string }> = {
   "shop.order_totals": {
@@ -264,7 +275,7 @@ const EVENT_MONTHS: { month: number; share: number }[] = [
 
 // ---------------------------------------------------------------- lookups
 
-const key = (database: string, table: string) => `${database}.${table}`;
+export const key = (database: string, table: string) => `${database}.${table}`;
 const ident = (name: string) => `\`${name.replace(/`/g, "``")}\``;
 const sqlString = (s: string) => `'${s.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
 const pages = (bytes: number) => Math.max(1, Math.ceil(bytes / PAGE)) * PAGE;
@@ -289,7 +300,7 @@ function requireTable(database: unknown, table: unknown): MockTable {
     ?? serverError("1146 (42S02)", `Table '${String(database)}.${String(table)}' doesn't exist`);
 }
 
-function indexSpecs(database: string, table: MockTable): IndexSpec[] {
+export function indexSpecs(database: string, table: MockTable): IndexSpec[] {
   if (table.table_type === "VIEW") return [];
   const spec = INDEXES[key(database, table.name)];
   if (spec) return spec;

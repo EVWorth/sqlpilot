@@ -35,6 +35,7 @@ import { DATABASES, type MockColumn, type MockTable, rand } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection, newId, state } from "../state";
 import { accountStatement } from "./accounts";
+import { applyDdl, DdlError } from "./ddl";
 import { createTableDdl, eventDdl, schemaHandlers } from "./schema";
 
 // ---------------------------------------------------------------- limits
@@ -1003,7 +1004,14 @@ async function runStatement(stmt: string, ctx: Ctx, win: RowWindow, session: unk
       return r;
     }
     default:
-      // DDL and everything else: OK, nothing affected.
+      // DDL changes the fixture, so later schema reads see it; everything
+      // else is OK with nothing affected.
+      try {
+        applyDdl(clean, ctx.db, ctx.version);
+      } catch (e) {
+        if (e instanceof DdlError) return sqlFail(e.code, e.sqlState, e.message, ctx.index);
+        throw e;
+      }
       return affected(ctx, stmt, 0);
   }
 }

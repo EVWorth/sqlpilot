@@ -73,6 +73,12 @@ Some states need no switch, only the right click:
 - **Query errors:** a statement containing `syntax_error` or starting with a
   misspelt verb fails with 1064; an unknown table with 1146; `SELECT SLEEP(n)`
   waits up to 5s and Cancel interrupts it.
+- **Schema writes:** CREATE/ALTER/RENAME/DROP TABLE, CREATE/DROP INDEX and
+  CREATE/DROP DATABASE change the fixture, so the refresh after the
+  designer's Apply shows the change. Each is all-or-nothing, and the usual
+  mistakes fail with the server's code: `CREATE TABLE orders ()` with 1064,
+  an existing table 1050, a duplicate column 1060, a duplicate key 1061.
+  A reload starts from the fixture again.
 - **Data:** 130 history entries (three pages); `shop` has routines, a
   trigger and events in each state, `analytics` a partitioned table; the
   SQLite fixture has a view.
