@@ -165,6 +165,12 @@ function register(id: string, kind: "backup" | "job"): { cancelled: boolean } {
 
 /** Real time between progress events, and the real length of a whole run. */
 const TICK_MS = 150;
+/**
+ * Real time before the first progress event. The backend reports nothing
+ * until it has read the table list or the first chunk of the file, and a
+ * dialog has to show something in that gap rather than sit still.
+ */
+export const FIRST_EVENT_MS = 450;
 const RUN_MS = 3000;
 /** The virtual dump rate: a plausible single-connection mysqldump speed. */
 const ROWS_PER_SECOND = 85_000;
@@ -254,6 +260,7 @@ async function runBackup(args: Record<string, unknown>): Promise<BackupSummary> 
       return emit("backup-progress-event", payload);
     };
 
+    await delay(FIRST_EVENT_MS);
     for (const [i, step] of steps.entries()) {
       if (flag.cancelled) break;
       if (options.includeStructure) bytes += 1_400;
@@ -340,7 +347,7 @@ async function runRestore(args: Record<string, unknown>): Promise<RestoreSummary
     };
 
     for (let t = 1; t <= ticks && !flag.cancelled; t++) {
-      await delay(TICK_MS);
+      await delay(t === 1 ? FIRST_EVENT_MS : TICK_MS);
       const chunk = t === ticks ? file.size - bytesRead : Math.round(file.size / ticks);
       bytesRead += chunk;
       elapsed += (chunk / RESTORE_BYTES_PER_SECOND) * 1000 * (0.9 + rand(t, 41) * 0.2);

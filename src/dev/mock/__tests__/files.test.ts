@@ -1,5 +1,7 @@
+import { listen } from "@tauri-apps/api/event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { RestoreSummary } from "../../../lib/bindings";
+import { FIRST_EVENT_MS } from "../handlers/files";
 import { call, install, settle } from "./helpers";
 
 async function restore(profileId: string, stopOnError: boolean): Promise<RestoreSummary> {
@@ -43,5 +45,49 @@ describe("mock restore", () => {
     expect(summary.statementsRun).toBeGreaterThan(0);
     expect(summary.statementsFailed).toBe(0);
     expect(summary.partiallyApplied).toBe(false);
+  });
+});
+
+describe("progress timing", () => {
+  beforeEach(() => {
+    install("?mock=connected");
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    ["backup", "backup-progress-event"],
+    ["restore", "restore-progress-event"],
+  ])("holds back the first %s progress event for a few hundred ms", async (kind, event) => {
+    const seen: number[] = [];
+    const started = Date.now();
+    await listen(event, () => seen.push(Date.now() - started));
+    const conn = await call<{ id: string }>("connect", { profileId: "profile-local" });
+    const options = kind === "backup"
+      ? await call("default_backup_options")
+      : { stopOnError: true, disableForeignKeyChecks: true, wrapInTransaction: true };
+    const done = kind === "backup"
+      ? call("backup_database", {
+        connectionId: conn.id,
+        backupId: "b-timing",
+        database: "shop",
+        tables: ["customers"],
+        options,
+        outputPath: "/tmp/sqlpilot-mock/timing.sql",
+      })
+      : call("restore_database", {
+        connectionId: conn.id,
+        restoreId: "r-timing",
+        inputPath: "/tmp/sqlpilot-mock/shop_backup.sql",
+        options,
+      });
+
+    await vi.advanceTimersByTimeAsync(FIRST_EVENT_MS - 50);
+    expect(seen).toEqual([]);
+    await settle(done);
+    expect(seen[0]).toBeGreaterThanOrEqual(FIRST_EVENT_MS);
   });
 });

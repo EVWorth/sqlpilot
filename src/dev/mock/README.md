@@ -95,4 +95,7 @@ Some states need no switch, only the right click:
   draft tab. Anything else is a read. GitHub Copilot fails its first turn as
   not signed in, and an approval from an endpoint client arrives six seconds
   into the first session.
-- **Backup and restore** run for about three seconds of real time.
+- **Backup and restore** run for about three seconds of real time. The first
+  progress event arrives after 450 ms, as the backend's does after it has
+  read the table list or the first chunk, so the dialog's state before any
+  progress can be seen.
