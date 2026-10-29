@@ -2012,6 +2012,75 @@ async fn a_multi_statement_run_says_which_statement_failed() {
 
 #[tokio::test]
 #[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_failed_script_returns_what_ran_before_the_failure() {
+    // The error was all a failed script returned, so the results of the
+    // statements before it were lost (#845).
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let err = executor
+        .execute(
+            &info.id,
+            "SELECT 'first' AS label; SELECT * FROM definitely_not_a_table; SELECT 'never'",
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.statement_index, Some(1), "the second statement");
+    assert_eq!(reported.code, Some(1146));
+    let completed = reported
+        .completed_results
+        .clone()
+        .expect("the first statement's result is kept");
+    assert_eq!(completed.len(), 1, "only the statement before the failure");
+    assert_eq!(completed[0].statement_index, 0);
+    assert_eq!(completed[0].columns[0].name, "label");
+    assert_eq!(
+        completed[0].rows,
+        vec![vec![mas_core::models::SqlValue::String("first".into())]]
+    );
+
+    let json = serde_json::to_value(&reported).unwrap();
+    assert_eq!(
+        json["completedResults"][0]["sql"],
+        "SELECT 'first' AS label"
+    );
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_script_failing_at_its_first_statement_returns_no_results() {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+
+    let err = executor
+        .execute(
+            &info.id,
+            "SELECT * FROM definitely_not_a_table; SELECT 1",
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap_err();
+
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.statement_index, Some(0));
+    assert!(reported.completed_results.is_none());
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
 async fn each_result_carries_the_statement_it_came_from() {
     let manager = Arc::new(ConnectionManager::new());
     let executor = QueryExecutor::new(manager.clone());
