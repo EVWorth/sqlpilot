@@ -2,9 +2,10 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryFavorites } from "../QueryFavorites";
 
-const { useFavoritesStoreFn, updateTabContent, addTab, editorState } = vi.hoisted(() => ({
+const { useFavoritesStoreFn, updateTabContent, markTabSaved, addTab, editorState } = vi.hoisted(() => ({
   useFavoritesStoreFn: vi.fn(),
   updateTabContent: vi.fn(),
+  markTabSaved: vi.fn(),
   addTab: vi.fn(() => "newTabId"),
   editorState: {
     tabs: [{ id: "tab1", type: "query", content: "", isDirty: false }],
@@ -22,6 +23,7 @@ vi.mock("../../../stores/editorStore", () => ({
       ...editorState,
       addTab,
       updateTabContent,
+      markTabSaved,
     })),
   },
 }));
@@ -116,6 +118,7 @@ beforeEach(() => {
   storeState.exportToFile.mockReset().mockResolvedValue(null);
   storeState.importFromFile.mockReset().mockResolvedValue(null);
   updateTabContent.mockReset();
+  markTabSaved.mockReset();
   addTab.mockReset().mockReturnValue("newTabId");
   editorState.tabs = [
     { id: "tab1", type: "query", content: "", isDirty: false },

@@ -90,14 +90,24 @@ export function QueryFavorites() {
     return groups;
   }, [filtered, categories]);
 
+  /**
+   * Put a favorite in a tab as its saved content. The SQL is what the
+   * favorite holds, not an edit, so the tab must not open dirty: it did, and
+   * closing it asked to save what had just been opened (#909).
+   */
+  const loadInto = (tabId: string, sql: string) => {
+    const store = useEditorStore.getState();
+    store.updateTabContent(tabId, sql);
+    store.markTabSaved(tabId, sql);
+  };
+
   const openFavorite = (fav: Favorite) => {
     const store = useEditorStore.getState();
     const activeTab = store.tabs.find((t) => t.id === store.activeTabId);
     if (activeTab && activeTab.type === "query") {
-      store.updateTabContent(activeTab.id, fav.sql);
+      loadInto(activeTab.id, fav.sql);
     } else {
-      const tabId = store.addTab();
-      store.updateTabContent(tabId, fav.sql);
+      loadInto(store.addTab(), fav.sql);
     }
   };
 
@@ -126,9 +136,7 @@ export function QueryFavorites() {
   };
 
   const handleDoubleClick = (fav: Favorite) => {
-    const store = useEditorStore.getState();
-    const tabId = store.addTab();
-    store.updateTabContent(tabId, fav.sql);
+    loadInto(useEditorStore.getState().addTab(), fav.sql);
   };
 
   const handleAddCategory = () => {
