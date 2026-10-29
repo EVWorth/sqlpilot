@@ -26,7 +26,9 @@ describe("?fail= error injection", () => {
 
   it("knows which commands reject with a QueryError", () => {
     // From the generated bindings, so a new QueryError command is noticed.
-    const typed = [...bindingsSource.matchAll(/QueryError>\(__TAURI_INVOKE\("([a-z_]+)"/g)].map((m) => m[1]);
+    const typed = [...bindingsSource.matchAll(/QueryError(?:_Serialize)?>\(__TAURI_INVOKE\("([a-z_]+)"/g)].map((m) =>
+      m[1]
+    );
     expect(typed.length).toBeGreaterThan(0);
     expect(new Set(typed)).toEqual(QUERY_ERROR_COMMANDS);
   });
