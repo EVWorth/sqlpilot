@@ -1,6 +1,8 @@
 import { useEffect } from "react";
+import { useConnectionStore } from "../stores/connectionStore";
 import { useEditorStore } from "../stores/editorStore";
 import { useResultStore } from "../stores/resultStore";
+import { useSchemaStore } from "../stores/schemaStore";
 import { useSettingsStore } from "../stores/settingsStore";
 
 export function useKeyboardShortcuts(
@@ -24,7 +26,28 @@ export function useKeyboardShortcuts(
         return;
       }
 
+      // F5 — refresh the schema (#898). Always kept from the webview: on
+      // Windows, WebView2 treats F5 as reload, which would throw away every
+      // tab's unsaved work. The editor registers its own F5 action, so only
+      // refresh here when it doesn't have focus.
+      if (e.key === "F5" && !ctrl && !e.altKey) {
+        e.preventDefault();
+        if (!isMonacoFocused) {
+          const { selectedConnectionId } = useConnectionStore.getState();
+          if (selectedConnectionId) void useSchemaStore.getState().refreshAll(selectedConnectionId);
+        }
+        return;
+      }
+
       if (!ctrl) return;
+
+      // Ctrl+R, Ctrl+Shift+R and Ctrl+F5 reload the page in WebView2 and
+      // lose unsaved work. Blocked in release builds only: reloading is
+      // useful while developing.
+      if (import.meta.env.PROD && (e.key.toLowerCase() === "r" || e.key === "F5")) {
+        e.preventDefault();
+        return;
+      }
 
       // Ctrl+= / Ctrl++, Ctrl+- and Ctrl+0 — interface scale (#837). Matched
       // on the key and on the physical key, so "=" without Shift and the

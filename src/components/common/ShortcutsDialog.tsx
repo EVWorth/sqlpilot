@@ -34,7 +34,6 @@ const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
       { keys: "Ctrl+F", description: "Find in editor" },
       { keys: "Ctrl+H", description: "Find & Replace" },
       { keys: "Ctrl+G", description: "Go to line" },
-      { keys: "F5", description: "Refresh schema" },
       { keys: "Ctrl+S", description: "Save as favorite" },
     ],
   },
@@ -48,7 +47,7 @@ const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
       { keys: "Ctrl+B / Ctrl+Shift+C", description: "Toggle sidebar" },
       { keys: "Ctrl+Shift+H", description: "Search query history and insert a statement" },
       { keys: "Ctrl+Shift+O", description: "Focus schema tree filter" },
-      { keys: "Ctrl+Shift+R", description: "Refresh schema (menu)" },
+      { keys: "F5", description: "Refresh schema" },
     ],
   },
   {
