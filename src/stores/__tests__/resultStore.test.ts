@@ -1571,8 +1571,20 @@ describe("per-tab results", () => {
     const pending = useResultStore.getState().executeQuery("conn-1", "ALTER TABLE t ADD c INT");
     useEditorStore.getState().setActiveTab("query-b");
 
-    await expect(pending).resolves.toEqual({ status: "failed", error: "Error: Duplicate column name 'c'" });
+    // The message alone, as the results pane shows it: the designer and the
+    // routine viewer show this text too, and showed it with "Error: " (#912).
+    await expect(pending).resolves.toEqual({ status: "failed", error: "Duplicate column name 'c'" });
     expect(useResultStore.getState().error).toBeNull();
+  });
+
+  it("gives the outcome the same message the results pane shows (#912)", async () => {
+    useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
+    executeQueryMock.mockRejectedValueOnce(new CommandError("Unknown column 'nope' in 'field list'", { code: 1054 }));
+
+    const outcome = await useResultStore.getState().executeQuery("conn-1", "SELECT nope FROM t");
+
+    expect(outcome).toEqual({ status: "failed", error: "Unknown column 'nope' in 'field list'" });
+    expect(useResultStore.getState().error).toBe("Unknown column 'nope' in 'field list'");
   });
 
   it("records a statement whose tab closed while it ran", async () => {

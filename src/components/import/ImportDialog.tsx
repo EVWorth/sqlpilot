@@ -1,12 +1,12 @@
 import { AlertCircle, AlertTriangle, CheckCircle2, FileText, Loader2, Table2, Upload, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { attachProgress, formatBytes } from "../../lib/backup-progress";
-import { events } from "../../lib/bindings";
+import { formatBytes } from "../../lib/backup-progress";
 import { type CsvParseOptions, parseCSV } from "../../lib/csv-parser";
 import { runStatement } from "../../lib/run-statement";
 import { generateBatchInsert, splitSqlStatements } from "../../lib/sql-import";
 import { isDestructiveStatement, stripLeadingComments } from "../../lib/sql-safety";
-import { api } from "../../lib/tauri-api";
+import { useBackupStore } from "../../stores/backupStore";
+import { useFileStore } from "../../stores/fileStore";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import type { ColumnInfo, TableInfo } from "../../types";
 import { Modal } from "../common/Modal";
@@ -51,15 +51,31 @@ export function ImportDialog({
   const [mode, setMode] = useState<ImportMode>("sql");
   const [filePath, setFilePath] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
-  const [progress, setProgress] = useState<ImportProgress | null>(null);
-  const [importing, setImporting] = useState(false);
+  const [ownProgress, setProgress] = useState<ImportProgress | null>(null);
+  /** A CSV import, which runs its batches from here. */
+  const [csvImporting, setCsvImporting] = useState(false);
+  // An SQL import is a restore run, which the store owns (#862).
+  const sqlRun = useBackupStore((s) => s.import);
+  const importing = csvImporting || sqlRun.running;
+  /** Set once Cancel was pressed, until the backend stops at a statement. */
+  const cancelling = sqlRun.cancelling;
+  // While an SQL import runs, what the backend last reported.
+  const live = sqlRun.running ? sqlRun.progress : null;
+  const progress: ImportProgress | null = live
+    ? {
+      current: live.bytesRead,
+      total: live.totalBytes,
+      successCount: live.statementsRun,
+      errorCount: live.statementsFailed,
+      errors: [],
+      done: false,
+      stoppedAt: null,
+    }
+    : ownProgress;
 
   // SQL mode state
   const [sqlPreview, setSqlPreview] = useState<string[]>([]);
   const [fileBytes, setFileBytes] = useState<number | null>(null);
-  const importIdRef = useRef<string | null>(null);
-  /** Set once Cancel was pressed, until the backend stops at a statement. */
-  const [cancelling, setCancelling] = useState(false);
   const progressRef = useRef<HTMLDivElement>(null);
   const [destructiveStatements, setDestructiveStatements] = useState<string[]>([]);
   /** True when the file is longer than the part that was scanned for them. */
@@ -93,8 +109,8 @@ export function ImportDialog({
     setFilePath(null);
     setFileContent(null);
     setProgress(null);
-    setImporting(false);
-    setCancelling(false);
+    setCsvImporting(false);
+    useBackupStore.getState().resetRestore("import");
     setSqlPreview([]);
     setDestructiveStatements([]);
     setStatementCount(0);
@@ -116,7 +132,7 @@ export function ImportDialog({
         ? [["SQL Files", ["sql"]]]
         : [["CSV Files", ["csv", "tsv", "txt"]]];
 
-      const path = await api.pickFile(
+      const path = await useFileStore.getState().pickFile(
         mode === "sql" ? "Select SQL File" : "Select CSV File",
         filters,
       );
@@ -128,7 +144,7 @@ export function ImportDialog({
       if (mode === "sql") {
         // Only the head of it. A dump is run by the backend, straight from
         // the file, so the renderer never needs to hold one (#366).
-        const head = await api.readFileHead(path, SQL_SCAN_BYTES);
+        const head = await useFileStore.getState().readFileHead(path, SQL_SCAN_BYTES);
         setFileContent(null);
         setFileBytes(head.totalBytes);
         setSqlPreview(head.text.split("\n").slice(0, 50));
@@ -141,7 +157,7 @@ export function ImportDialog({
         // (#367). Only the part that was scanned, and the UI says so.
         setDestructiveStatements(stmts.filter(isDestructiveStatement));
       } else {
-        const content = await api.readFileContents(path);
+        const content = await useFileStore.getState().readFileContents(path);
         setFileContent(content);
         parseCsvContent(content, csvOptions);
         await loadTables();
@@ -170,7 +186,7 @@ export function ImportDialog({
 
   const loadTables = useCallback(async () => {
     try {
-      const tableList = await api.getTables(connectionId, database);
+      const tableList = await useBackupStore.getState().listTables(connectionId, database);
       setTables(tableList);
     } catch (e) {
       console.error("Failed to load tables:", e);
@@ -186,7 +202,7 @@ export function ImportDialog({
         return;
       }
       try {
-        const cols = await api.getColumns(connectionId, database, table);
+        const cols = await useBackupStore.getState().listColumns(connectionId, database, table);
         setTargetColumns(cols);
         // Auto-map by name (case-insensitive)
         const mapping: Record<string, string> = {};
@@ -234,9 +250,6 @@ export function ImportDialog({
       return;
     }
 
-    const id = crypto.randomUUID();
-    importIdRef.current = id;
-    setImporting(true);
     setProgress({
       current: 0,
       total: 0,
@@ -247,79 +260,56 @@ export function ImportDialog({
       stoppedAt: null,
     });
 
-    // A progress listener that cannot attach is not a reason to refuse to
-    // run: the work still happens, the bar just does not move.
-    const unlisten = await attachProgress(() =>
-      events.restoreProgressEvent.listen((e) => {
-        if (e.payload.restoreId !== id) return;
-        const p = e.payload.progress;
-        setProgress({
-          current: p.bytesRead,
-          total: p.totalBytes,
-          successCount: p.statementsRun,
-          errorCount: p.statementsFailed,
-          errors: [],
-          done: false,
-          stoppedAt: null,
-        });
-      })
-    );
-
-    try {
-      // The same path the restore dialog uses: the backend reads the file in
-      // chunks, splits it there and runs the statements on one connection.
-      // The renderer used to read the whole file, split it, and send back one
-      // statement per call — each on whichever pooled connection it landed
-      // on, so a `USE` or a session setting did not carry (#359).
-      const summary = await api.restoreDatabase(id, connectionId, database, filePath, {
+    // The same path the restore dialog uses: the backend reads the file in
+    // chunks, splits it there and runs the statements on one connection.
+    // The renderer used to read the whole file, split it, and send back one
+    // statement per call — each on whichever pooled connection it landed
+    // on, so a `USE` or a session setting did not carry (#359).
+    const summary = await useBackupStore.getState().runRestore("import", {
+      connectionId,
+      database,
+      filePath,
+      options: {
         stopOnError,
         disableForeignKeyChecks: true,
         wrapInTransaction: true,
-      });
-      setProgress({
-        current: summary.bytesRead,
-        total: summary.bytesRead,
-        successCount: summary.statementsRun,
-        errorCount: summary.statementsFailed,
-        errors: summary.errors,
-        done: true,
-        stoppedAt: !summary.cancelled && summary.statementsFailed > 0 && stopOnError
-          ? Number(summary.statementsRun) + 1
-          : null,
-        cancelled: summary.cancelled,
-      });
-      setPartiallyApplied(summary.partiallyApplied);
-    } catch (e) {
+      },
+    });
+    if (!summary) {
       setProgress({
         current: 0,
         total: 0,
         successCount: 0,
         errorCount: 1,
-        errors: [String(e)],
+        errors: [useBackupStore.getState().import.error ?? ""],
         done: true,
         stoppedAt: null,
       });
-    } finally {
-      unlisten();
-      importIdRef.current = null;
-      setImporting(false);
-      setCancelling(false);
+      return;
     }
+    setProgress({
+      current: summary.bytesRead,
+      total: summary.bytesRead,
+      successCount: summary.statementsRun,
+      errorCount: summary.statementsFailed,
+      errors: summary.errors,
+      done: true,
+      stoppedAt: !summary.cancelled && summary.statementsFailed > 0 && stopOnError
+        ? Number(summary.statementsRun) + 1
+        : null,
+      cancelled: summary.cancelled,
+    });
+    setPartiallyApplied(summary.partiallyApplied);
   }, [filePath, connectionId, database, stopOnError, destructiveStatements, scanTruncated]);
 
   // Stops at the next statement and rolls back what has not been committed,
   // the same job-cancel the restore dialog uses: an SQL import runs through
-  // `restore_database`, keyed by `importIdRef` (#815).
-  const handleCancelImport = useCallback(() => {
-    const id = importIdRef.current;
-    if (!id) return;
-    setCancelling(true);
-    void api.cancelBackup(id).catch(() => {});
-  }, []);
+  // `restore_database`, keyed by the run's id (#815).
+  const handleCancelImport = useCallback(() => useBackupStore.getState().cancelRestore("import"), []);
 
   const handleImportCsv = useCallback(async () => {
     if (!targetTable || csvRows.length === 0) return;
-    setImporting(true);
+    setCsvImporting(true);
 
     // Build mapped columns and rows
     const mappedCsvCols = csvHeaders.filter((h) => columnMapping[h]);
@@ -369,7 +359,7 @@ export function ImportDialog({
 
     prog.done = true;
     setProgress({ ...prog });
-    setImporting(false);
+    setCsvImporting(false);
   }, [targetTable, csvHeaders, csvRows, csvBareEmpty, columnMapping, connectionId]);
 
   // Every control is disabled during a run, including the one that started

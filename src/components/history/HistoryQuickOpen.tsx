@@ -1,7 +1,6 @@
 import { Clock, Search, XCircle } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { HistoryEntry } from "../../lib/bindings";
-import { api } from "../../lib/tauri-api";
+import { useHistoryStore } from "../../stores/historyStore";
 
 /**
  * A searchable history picker over the editor.
@@ -10,10 +9,10 @@ import { api } from "../../lib/tauri-api";
  * meant leaving the keyboard for the sidebar (#591). DataGrip binds a popup in
  * the editor for exactly this.
  *
- * It reads the history directly rather than through `historyStore`, because
- * the panel's own filters and sort belong to the panel. Someone reaching for
- * a statement mid-thought wants the whole history, not whatever slice the
- * sidebar happens to be showing.
+ * It has its own read in `historyStore` rather than the panel's entries,
+ * because the panel's own filters and sort belong to the panel. Someone
+ * reaching for a statement mid-thought wants the whole history, not whatever
+ * slice the sidebar happens to be showing.
  */
 
 interface Props {
@@ -23,56 +22,25 @@ interface Props {
   onPick: (sql: string) => void;
 }
 
-/** How many to show. Enough to scroll, few enough to stay a picker. */
-const RESULT_LIMIT = 50;
-
 export function HistoryQuickOpen({ isOpen, onClose, onPick }: Props) {
   const [search, setSearch] = useState("");
-  const [entries, setEntries] = useState<HistoryEntry[]>([]);
+  const { entries, error } = useHistoryStore((s) => s.quickOpen);
   const [selected, setSelected] = useState(0);
-  const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
-
-  // A generation counter, so a slow read cannot replace a newer one's results.
-  const generation = useRef(0);
 
   useEffect(() => {
     if (!isOpen) return;
     setSearch("");
     setSelected(0);
-    setError(null);
+    useHistoryStore.getState().clearQuickOpenError();
   }, [isOpen]);
 
   useEffect(() => {
     if (!isOpen) return;
-    const mine = ++generation.current;
-
-    void (async () => {
-      try {
-        const found = await api.historyList({
-          search: search.trim() || null,
-          connectionNames: null,
-          databases: null,
-          // Everything, including what the app ran: someone reaching for a
-          // statement wants whatever actually ran (#586).
-          origins: null,
-          status: null,
-          executedAfter: null,
-          executedBefore: null,
-          minDurationMs: null,
-          sort: "recent",
-          limit: RESULT_LIMIT,
-          offset: null,
-        });
-        if (mine !== generation.current) return;
-        setEntries(found);
-        setSelected(0);
-      } catch (e) {
-        if (mine !== generation.current) return;
-        setError(`Could not read query history: ${String(e)}`);
-      }
-    })();
+    void useHistoryStore.getState().searchQuickOpen(search).then((applied) => {
+      if (applied) setSelected(0);
+    });
   }, [isOpen, search]);
 
   useEffect(() => {

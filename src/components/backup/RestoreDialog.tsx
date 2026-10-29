@@ -1,9 +1,10 @@
 import { AlertCircle, CheckCircle2, FileText, FolderOpen, HardDriveUpload, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { attachProgress, formatBytes, formatElapsed } from "../../lib/backup-progress";
-import { events, type RestoreOptions, type RestoreProgress, type RestoreSummary } from "../../lib/bindings";
-import { api } from "../../lib/tauri-api";
+import { formatBytes, formatElapsed } from "../../lib/backup-progress";
+import type { RestoreOptions, RestoreSummary } from "../../lib/bindings";
+import { useBackupStore } from "../../stores/backupStore";
 import { useConnectionStore } from "../../stores/connectionStore";
+import { useFileStore } from "../../stores/fileStore";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import type { DatabaseInfo } from "../../types";
 import { ConfirmDialog } from "../common/ConfirmDialog";
@@ -54,15 +55,12 @@ export function RestoreDialog({
     disableForeignKeyChecks: true,
     wrapInTransaction: true,
   });
-  const [restoring, setRestoring] = useState(false);
-  const [progress, setProgress] = useState<RestoreProgress | null>(null);
-  const [summary, setSummary] = useState<RestoreSummary | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  // The run, its progress and how it ended are the store's (#862).
+  const { running: restoring, progress, summary, error } = useBackupStore((s) => s.restore);
   // The options the finished run used. The checkboxes are live again once it
   // ends, so reading them would word the summary by whatever is ticked now.
   const [ranStopOnError, setRanStopOnError] = useState(true);
 
-  const restoreIdRef = useRef<string | null>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   // Starting a run disables the focused Restore button. Without this, focus
@@ -77,8 +75,9 @@ export function RestoreDialog({
       setDatabases([]);
       return;
     }
-    api
-      .getDatabases(connectionId)
+    useBackupStore
+      .getState()
+      .listDatabases(connectionId)
       .then(setDatabases)
       .catch((e) => {
         console.error("Failed to load databases for restore", e);
@@ -101,10 +100,7 @@ export function RestoreDialog({
       setFilePath(null);
       setFileBytes(null);
       setPreview([]);
-      setProgress(null);
-      setSummary(null);
-      setError(null);
-      setRestoring(false);
+      useBackupStore.getState().resetRestore("restore");
     }
   }, [
     isOpen,
@@ -114,25 +110,22 @@ export function RestoreDialog({
   ]);
 
   const handlePickFile = useCallback(async () => {
-    const path = await api.pickFile("Select SQL Backup File", [
+    const path = await useFileStore.getState().pickFile("Select SQL Backup File", [
       ["SQL Files", ["sql"]],
       ["All Files", ["*"]],
     ]);
     if (!path) return;
 
     setFilePath(path);
-    setSummary(null);
-    setError(null);
 
-    try {
-      // Only the head of it. Reading a multi-gigabyte dump into the renderer
-      // to draw thirty lines of preview is what the streaming restore exists
-      // to avoid (#358).
-      const head = await api.readFileHead(path, PREVIEW_BYTES);
+    // Only the head of it. Reading a multi-gigabyte dump into the renderer
+    // to draw thirty lines of preview is what the streaming restore exists
+    // to avoid (#358). A failure is the store's `error`.
+    const head = await useBackupStore.getState().previewDump("restore", path, PREVIEW_BYTES);
+    if (head) {
       setFileBytes(head.totalBytes);
       setPreview(head.text.split("\n").slice(0, 30));
-    } catch (e) {
-      setError(String(e));
+    } else {
       setFileBytes(null);
       setPreview([]);
     }
@@ -158,39 +151,13 @@ export function RestoreDialog({
       return;
     }
 
-    const id = crypto.randomUUID();
-    restoreIdRef.current = id;
-    setRestoring(true);
     setRanStopOnError(options.stopOnError);
-    setProgress(null);
-    setSummary(null);
-    setError(null);
-
-    // A progress listener that cannot attach is not a reason to refuse to
-    // run: the work still happens, the bar just does not move.
-    const unlisten = await attachProgress(() =>
-      events.restoreProgressEvent.listen((e) => {
-        if (e.payload.restoreId === id) setProgress(e.payload.progress);
-      })
-    );
-
-    try {
-      setSummary(await api.restoreDatabase(id, connectionId, database, filePath, options));
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      unlisten();
-      restoreIdRef.current = null;
-      setRestoring(false);
-    }
+    await useBackupStore.getState().runRestore("restore", { connectionId, database, filePath, options });
   }, [connectionId, database, filePath, options]);
 
-  const handleCancel = useCallback(() => {
-    const id = restoreIdRef.current;
-    // Stops at the next statement and rolls back whatever has not already
-    // been committed. Anything the file had already committed stays.
-    if (id) void api.cancelBackup(id).catch(() => {});
-  }, []);
+  // Stops at the next statement and rolls back whatever has not already been
+  // committed. Anything the file had already committed stays.
+  const handleCancel = useCallback(() => useBackupStore.getState().cancelRestore("restore"), []);
 
   // Closing mid-run used to hide the dialog and leave the restore running
   // with nothing on screen to say so (#803). Ask, and cancel it on yes.

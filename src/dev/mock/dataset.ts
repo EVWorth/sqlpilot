@@ -286,6 +286,23 @@ export const DATABASES: MockDatabase[] = [
   system("sys"),
 ];
 
+/**
+ * The fixture as it was loaded, so `resetDatabases` can undo what the schema
+ * writes did. Tables keep their identity across a reset, because handlers
+ * hold on to them (agent.ts counts rows in `shop.orders`).
+ */
+const SEED_WORLD = DATABASES.map((db) => ({
+  db,
+  tables: db.tables.map((table) => ({ table, fields: { ...table, columns: [...table.columns] } })),
+}));
+
+export function resetDatabases(): void {
+  DATABASES.splice(0, DATABASES.length, ...SEED_WORLD.map((s) => s.db));
+  for (const { db, tables } of SEED_WORLD) {
+    db.tables = tables.map(({ table, fields }) => Object.assign(table, { ...fields, columns: [...fields.columns] }));
+  }
+}
+
 export function findTable(database: string | null | undefined, table: string): MockTable | undefined {
   const dbs = database ? DATABASES.filter((d) => d.name === database) : DATABASES;
   for (const db of dbs) {
@@ -394,9 +411,56 @@ export const PROFILES: ConnectionProfileSummary_Serialize[] = [
   },
 ];
 
+/**
+ * The profiles `?mock=servers` adds, one per connect outcome the default set
+ * cannot show. Their behaviour is in handlers/connections.ts.
+ */
+export const SERVER_PROFILES: ConnectionProfileSummary_Serialize[] = [
+  {
+    ...PROFILES[2],
+    id: "profile-prod-rw",
+    name: "Production (read-write)",
+    host: "db-primary.prod.example.internal",
+    username: "admin",
+    read_only: false,
+  },
+  {
+    ...PROFILES[3],
+    id: "profile-mariadb",
+    name: "MariaDB 11",
+    group: "Lab",
+    color: "#0ea5e9",
+    host: "mariadb.lab.example.internal",
+    port: 3306,
+    username: "dev",
+    default_database: "shop",
+  },
+  {
+    ...PROFILES[3],
+    id: "profile-bad-password",
+    name: "Wrong password",
+    group: "Lab",
+    host: "db.qa.example.internal",
+    port: 3306,
+    username: "app",
+  },
+  {
+    ...PROFILES[3],
+    id: "profile-timeout",
+    name: "Unreachable (times out)",
+    group: "Lab",
+    host: "10.20.30.40",
+    port: 3306,
+    username: "app",
+    connect_timeout_secs: 2,
+  },
+];
+
 export const SERVER_VERSION: Record<string, string> = {
   "profile-local": "8.0.39",
   "profile-staging": "8.0.36",
   "profile-prod": "8.0.36",
   "profile-maria": "11.4.3-MariaDB",
+  "profile-prod-rw": "8.0.36",
+  "profile-mariadb": "11.4.3-MariaDB-ubu2404",
 };

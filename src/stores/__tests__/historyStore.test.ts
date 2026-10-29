@@ -11,6 +11,8 @@ const historyCountMatching = vi.hoisted(() => vi.fn());
 const historyFacets = vi.hoisted(() => vi.fn());
 const historyExport = vi.hoisted(() => vi.fn());
 const historyPruneOlderThan = vi.hoisted(() => vi.fn());
+const pickSaveFile = vi.hoisted(() => vi.fn());
+const writeFileContents = vi.hoisted(() => vi.fn());
 
 vi.mock("../../lib/tauri-api", () => ({
   api: {
@@ -24,6 +26,8 @@ vi.mock("../../lib/tauri-api", () => ({
     historyFacets,
     historyExport,
     historyPruneOlderThan,
+    pickSaveFile,
+    writeFileContents,
   },
 }));
 
@@ -79,7 +83,11 @@ describe("historyStore", () => {
     historyFacets.mockResolvedValue({ connectionNames: [], databases: [], origins: [] });
     historyExport.mockResolvedValue("");
     historyPruneOlderThan.mockResolvedValue(0);
+    pickSaveFile.mockResolvedValue("/exports/history.csv");
+    writeFileContents.mockResolvedValue(null);
     useHistoryStore.setState({
+      exporting: false,
+      quickOpen: { entries: [], error: null },
       entries: [],
       limit: DEFAULT_HISTORY_LIMIT,
       filters: { ...NO_FILTERS },
@@ -312,6 +320,95 @@ describe("historyStore", () => {
         "csv",
       );
       expect(out).toBe("executed_at,...");
+    });
+
+    it("writes the export to the file the user picked", async () => {
+      historyExport.mockResolvedValue("csv,data");
+
+      await useHistoryStore.getState().exportToFile("csv");
+
+      expect(pickSaveFile).toHaveBeenCalledWith("Export query history", "query-history.csv", [["CSV", ["csv"]]]);
+      expect(writeFileContents).toHaveBeenCalledWith("/exports/history.csv", "csv,data");
+      expect(useHistoryStore.getState().error).toBeNull();
+    });
+
+    it("offers an .sql name for an SQL export", async () => {
+      await useHistoryStore.getState().exportToFile("sql");
+
+      expect(pickSaveFile).toHaveBeenCalledWith("Export query history", "query-history.sql", [["SQL", ["sql"]]]);
+    });
+
+    it("writes nothing, and says nothing, when the save dialog is cancelled", async () => {
+      pickSaveFile.mockResolvedValue(null);
+
+      await useHistoryStore.getState().exportToFile("sql");
+
+      expect(writeFileContents).not.toHaveBeenCalled();
+      expect(useHistoryStore.getState().error).toBeNull();
+    });
+
+    it("is exporting until the file is written", async () => {
+      let finish: (v: null) => void = () => {};
+      writeFileContents.mockReturnValue(new Promise((r) => (finish = r)));
+
+      const pending = useHistoryStore.getState().exportToFile("csv");
+      expect(useHistoryStore.getState().exporting).toBe(true);
+      await vi.waitFor(() => expect(writeFileContents).toHaveBeenCalled());
+      finish(null);
+      await pending;
+
+      expect(useHistoryStore.getState().exporting).toBe(false);
+    });
+
+    it("says why an export failed", async () => {
+      writeFileContents.mockRejectedValue("Permission denied");
+
+      await useHistoryStore.getState().exportToFile("csv");
+
+      expect(useHistoryStore.getState().error).toBe("Could not export history: Permission denied");
+      expect(useHistoryStore.getState().exporting).toBe(false);
+    });
+  });
+
+  describe("quick open (#591)", () => {
+    it("searches the whole history, not the panel's filters", async () => {
+      useHistoryStore.setState({ filters: { ...NO_FILTERS, status: "error" } });
+      historyList.mockResolvedValue([entry({ id: "a" })]);
+
+      const applied = await useHistoryStore.getState().searchQuickOpen("  orders ");
+
+      expect(applied).toBe(true);
+      expect(historyList).toHaveBeenCalledWith(
+        expect.objectContaining({ search: "orders", status: null, origins: null, limit: 50 }),
+      );
+      expect(useHistoryStore.getState().quickOpen.entries.map((e) => e.id)).toEqual(["a"]);
+      // The panel's view is untouched.
+      expect(useHistoryStore.getState().entries).toEqual([]);
+    });
+
+    it("does not let a slower, older search replace a newer one", async () => {
+      let resolveOld: (v: HistoryEntry[]) => void = () => {};
+      historyList
+        .mockReturnValueOnce(new Promise((r) => (resolveOld = r)))
+        .mockResolvedValueOnce([entry({ id: "new" })]);
+      const store = useHistoryStore.getState();
+
+      const old = store.searchQuickOpen("o");
+      expect(await store.searchQuickOpen("or")).toBe(true);
+      resolveOld([entry({ id: "old" })]);
+
+      expect(await old).toBe(false);
+      expect(useHistoryStore.getState().quickOpen.entries.map((e) => e.id)).toEqual(["new"]);
+    });
+
+    it("says why the history could not be read, until cleared", async () => {
+      historyList.mockRejectedValue("database is locked");
+
+      expect(await useHistoryStore.getState().searchQuickOpen("")).toBe(false);
+      expect(useHistoryStore.getState().quickOpen.error).toBe("Could not read query history: database is locked");
+
+      useHistoryStore.getState().clearQuickOpenError();
+      expect(useHistoryStore.getState().quickOpen.error).toBeNull();
     });
   });
 

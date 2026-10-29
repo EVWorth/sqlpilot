@@ -24,7 +24,10 @@ export default defineConfig(async () => ({
       }
       : undefined,
     watch: {
-      ignored: ["**/src-tauri/**"],
+      // scripts/ holds tooling such as Playwright helpers. A file written
+      // there while the dev server runs must not reload the page under a
+      // review in progress.
+      ignored: ["**/src-tauri/**", "**/scripts/**"],
     },
   },
   build: {

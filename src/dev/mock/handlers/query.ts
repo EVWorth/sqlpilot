@@ -34,7 +34,9 @@ import { redactCredentials } from "../../../lib/sql-redact";
 import { DATABASES, type MockColumn, type MockTable, rand } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
 import { liveConnection, newId, state } from "../state";
-import { createTableDdl, schemaHandlers } from "./schema";
+import { accountStatement } from "./accounts";
+import { applyDdl, DdlError } from "./ddl";
+import { createTableDdl, eventDdl, schemaHandlers } from "./schema";
 
 // ---------------------------------------------------------------- limits
 
@@ -674,13 +676,9 @@ async function showCreate(stmt: string, kind: string, raw: string, ctx: Ctx): Pr
       [[name, SYSTEM_VARIABLES(ctx.version)[4][1], ddl, ...session, session[1], "2026-07-02 09:14:00.00"]],
     );
   }
-  // EVENT. The schema handlers have no DDL read for events, and there is one.
-  if (database !== "analytics" || name !== "purge_old_events") {
-    return sqlFail(1539, "HY000", `Unknown event '${name}'`, ctx.index);
-  }
-  const ddl = "CREATE DEFINER=`root`@`localhost` EVENT `purge_old_events` ON SCHEDULE EVERY 1 DAY "
-    + "STARTS '2026-07-02 03:00:00' ON COMPLETION NOT PRESERVE ENABLE COMMENT 'Deletes raw events older than 180 days' "
-    + "DO DELETE FROM `events` WHERE `occurred_at` < NOW() - INTERVAL 180 DAY";
+  // EVENT. There is no schema command for an event's DDL, so it comes from
+  // the same fixture the Events folder lists.
+  const ddl = eventDdl(database, name) ?? sqlFail(1539, "HY000", `Unknown event '${name}'`, ctx.index);
   return result(
     ctx,
     stmt,
@@ -909,7 +907,19 @@ function explainStatement(stmt: string, clean: string, ctx: Ctx): QueryResult_Se
 
 // ---------------------------------------------------------------- dispatch
 
-function contextFor(connectionId: unknown, database: unknown, index = 0): { ctx: Ctx; readOnly: boolean } {
+/**
+ * The connection a statement runs on. A server that has gone (`?mock=lost`)
+ * fails the run with the driver's 2013, structured for the commands typed
+ * `QueryError` and as text for the rest.
+ */
+function contextFor(
+  connectionId: unknown,
+  database: unknown,
+  { structured = true } = {},
+): { ctx: Ctx; readOnly: boolean } {
+  if (structured && state.down.has(String(connectionId))) {
+    sqlFail(2013, "HY000", "Lost connection to MySQL server during query", 0);
+  }
   const conn = liveConnection(connectionId);
   const profile = state.profiles.find((p) => p.id === conn.profile_id);
   return {
@@ -918,7 +928,7 @@ function contextFor(connectionId: unknown, database: unknown, index = 0): { ctx:
       db: typeof database === "string" && database ? database : conn.database,
       version: conn.server_version,
       username: profile?.username ?? "root",
-      index,
+      index: 0,
     },
     readOnly: profile?.read_only ?? false,
   };
@@ -945,6 +955,10 @@ function refuseWrite(sql: string): never {
 async function runStatement(stmt: string, ctx: Ctx, win: RowWindow, session: unknown): Promise<QueryResult_Serialize> {
   const clean = stripComments(stmt);
   syntaxError(clean, ctx.version, ctx.index);
+  const account = accountStatement(clean, ctx.version.toLowerCase().includes("mariadb"));
+  if (account?.kind === "error") return sqlFail(account.code, account.sqlState, account.message, ctx.index);
+  if (account?.kind === "rows") return result(ctx, stmt, text(...account.columns), account.rows);
+  if (account?.kind === "done") return affected(ctx, stmt, 0);
   const verb = verbOf(clean);
   const key = sessionKey(ctx.conn.id, session);
   let m: RegExpExecArray | null;
@@ -990,7 +1004,14 @@ async function runStatement(stmt: string, ctx: Ctx, win: RowWindow, session: unk
       return r;
     }
     default:
-      // DDL and everything else: OK, nothing affected.
+      // DDL changes the fixture, so later schema reads see it; everything
+      // else is OK with nothing affected.
+      try {
+        applyDdl(clean, ctx.db, ctx.version);
+      } catch (e) {
+        if (e instanceof DdlError) return sqlFail(e.code, e.sqlState, e.message, ctx.index);
+        throw e;
+      }
       return affected(ctx, stmt, 0);
   }
 }
@@ -1082,7 +1103,7 @@ export const queryHandlers: Handlers = {
   },
 
   explain_query: async (args): Promise<ExplainResponse_Serialize> => {
-    const { ctx, readOnly } = contextFor(args.connectionId, args.database);
+    const { ctx, readOnly } = contextFor(args.connectionId, args.database, { structured: false });
     const statements = splitStatements(String(args.sql ?? "")).filter((s) => stripComments(s));
     if (statements.length === 0) return fail("Query error: Nothing to explain");
     if (statements.length > 1) {

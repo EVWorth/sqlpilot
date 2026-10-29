@@ -39,7 +39,7 @@ const DEFINER = "`root`@`localhost`";
 const PAGE = 16_384;
 const BYTES_PER_ROW = 180;
 
-interface IndexSpec {
+export interface IndexSpec {
   name: string;
   columns: string[];
   unique: boolean;
@@ -58,7 +58,7 @@ const index = (name: string, ...columns: string[]): IndexSpec => ({ name, column
  * partitioning column; a mock that skipped it would show a DDL the server
  * would refuse.
  */
-const INDEXES: Record<string, IndexSpec[]> = {
+export const INDEXES: Record<string, IndexSpec[]> = {
   "shop.customers": [primary("id"), unique("uq_customers_email", "email")],
   "shop.products": [primary("id"), unique("uq_products_sku", "sku")],
   "shop.orders": [
@@ -74,7 +74,7 @@ const INDEXES: Record<string, IndexSpec[]> = {
   "analytics.events": [primary("id", "occurred_at"), index("idx_events_name_occurred", "name", "occurred_at")],
 };
 
-const FOREIGN_KEYS: Record<string, ForeignKeyInfo[]> = {
+export const FOREIGN_KEYS: Record<string, ForeignKeyInfo[]> = {
   "shop.orders": [
     {
       name: "fk_orders_customer",
@@ -104,6 +104,17 @@ const FOREIGN_KEYS: Record<string, ForeignKeyInfo[]> = {
     },
   ],
 };
+
+/** As the fixture had them, for `resetSchemaKeys`. */
+const SEED_INDEXES = JSON.stringify(INDEXES);
+const SEED_FOREIGN_KEYS = JSON.stringify(FOREIGN_KEYS);
+
+/** Undo the schema writes' changes to the keys, for a fresh page or test. */
+export function resetSchemaKeys(): void {
+  for (const record of [INDEXES, FOREIGN_KEYS]) for (const k of Object.keys(record)) delete record[k];
+  Object.assign(INDEXES, JSON.parse(SEED_INDEXES));
+  Object.assign(FOREIGN_KEYS, JSON.parse(SEED_FOREIGN_KEYS));
+}
 
 const VIEW_SQL: Record<string, { updatable: boolean; select: string }> = {
   "shop.order_totals": {
@@ -182,7 +193,17 @@ END`,
   },
 ];
 
-const EVENTS: (EventInfo & { database: string })[] = [
+interface EventSpec extends EventInfo {
+  database: string;
+  /** What SHOW CREATE EVENT prints. */
+  ddl: string;
+}
+
+/**
+ * One recurring and enabled, one recurring and disabled, one one-off that has
+ * not run yet: the three states the Events folder shows differently.
+ */
+const EVENTS: EventSpec[] = [
   {
     database: "analytics",
     name: "purge_old_events",
@@ -191,8 +212,52 @@ const EVENTS: (EventInfo & { database: string })[] = [
     definer: "root@localhost",
     interval: "1 DAY",
     comment: "Deletes raw events older than 180 days",
+    ddl: "CREATE DEFINER=`root`@`localhost` EVENT `purge_old_events` ON SCHEDULE EVERY 1 DAY "
+      + "STARTS '2026-07-02 03:00:00' ON COMPLETION NOT PRESERVE ENABLE COMMENT 'Deletes raw events older than 180 days' "
+      + "DO DELETE FROM `events` WHERE `occurred_at` < NOW() - INTERVAL 180 DAY",
+  },
+  {
+    database: "shop",
+    name: "cancel_stale_orders",
+    event_type: "RECURRING",
+    status: "ENABLED",
+    definer: "root@localhost",
+    interval: "1 HOUR",
+    comment: "Refunds orders left pending for more than 3 days",
+    ddl: "CREATE DEFINER=`root`@`localhost` EVENT `cancel_stale_orders` ON SCHEDULE EVERY 1 HOUR "
+      + "STARTS '2026-07-02 00:00:00' ON COMPLETION PRESERVE ENABLE "
+      + "COMMENT 'Refunds orders left pending for more than 3 days' "
+      + "DO UPDATE `orders` SET `status` = 'refunded' WHERE `status` = 'pending' AND `placed_at` < NOW() - INTERVAL 3 DAY",
+  },
+  {
+    database: "shop",
+    name: "refresh_order_totals_nightly",
+    event_type: "RECURRING",
+    status: "DISABLED",
+    definer: "root@localhost",
+    interval: "1 DAY",
+    comment: "",
+    ddl: "CREATE DEFINER=`root`@`localhost` EVENT `refresh_order_totals_nightly` ON SCHEDULE EVERY 1 DAY "
+      + "STARTS '2026-07-03 02:30:00' ON COMPLETION NOT PRESERVE DISABLE DO CALL `refresh_order_totals`()",
+  },
+  {
+    database: "shop",
+    name: "close_q3_promotions",
+    event_type: "ONE TIME",
+    status: "ENABLED",
+    definer: "root@localhost",
+    interval: "",
+    comment: "One-off: end the Q3 discount codes",
+    ddl: "CREATE DEFINER=`root`@`localhost` EVENT `close_q3_promotions` ON SCHEDULE AT '2026-11-01 00:00:00' "
+      + "ON COMPLETION NOT PRESERVE ENABLE COMMENT 'One-off: end the Q3 discount codes' "
+      + "DO UPDATE `products` SET `price` = `price` WHERE 1 = 0",
   },
 ];
+
+/** What SHOW CREATE EVENT prints for an event, if there is one. */
+export function eventDdl(database: string, name: string): string | undefined {
+  return EVENTS.find((e) => e.database === database && e.name === name)?.ddl;
+}
 
 /**
  * analytics.events, by month. RANGE needs an integer, and a TIMESTAMP column
@@ -210,7 +275,7 @@ const EVENT_MONTHS: { month: number; share: number }[] = [
 
 // ---------------------------------------------------------------- lookups
 
-const key = (database: string, table: string) => `${database}.${table}`;
+export const key = (database: string, table: string) => `${database}.${table}`;
 const ident = (name: string) => `\`${name.replace(/`/g, "``")}\``;
 const sqlString = (s: string) => `'${s.replace(/\\/g, "\\\\").replace(/'/g, "''")}'`;
 const pages = (bytes: number) => Math.max(1, Math.ceil(bytes / PAGE)) * PAGE;
@@ -235,7 +300,7 @@ function requireTable(database: unknown, table: unknown): MockTable {
     ?? serverError("1146 (42S02)", `Table '${String(database)}.${String(table)}' doesn't exist`);
 }
 
-function indexSpecs(database: string, table: MockTable): IndexSpec[] {
+export function indexSpecs(database: string, table: MockTable): IndexSpec[] {
   if (table.table_type === "VIEW") return [];
   const spec = INDEXES[key(database, table.name)];
   if (spec) return spec;

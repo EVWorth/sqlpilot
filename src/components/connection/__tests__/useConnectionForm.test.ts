@@ -1,16 +1,15 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { saveProfileFn, apiMocks } = vi.hoisted(() => ({
+const { saveProfileFn, testConnectionFn } = vi.hoisted(() => ({
   saveProfileFn: vi.fn(),
-  apiMocks: { testConnection: vi.fn() },
+  testConnectionFn: vi.fn(),
 }));
 
 vi.mock("../../../stores/connectionStore", () => ({
-  useConnectionStore: (selector: (s: unknown) => unknown) => selector({ saveProfile: saveProfileFn }),
+  useConnectionStore: (selector: (s: unknown) => unknown) =>
+    selector({ saveProfile: saveProfileFn, testConnection: testConnectionFn }),
 }));
-
-vi.mock("../../../lib/tauri-api", () => ({ api: apiMocks }));
 
 import { useConnectionForm } from "../useConnectionForm";
 
@@ -42,7 +41,7 @@ describe("useConnectionForm (#275)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     saveProfileFn.mockResolvedValue(undefined);
-    apiMocks.testConnection.mockResolvedValue({
+    testConnectionFn.mockResolvedValue({
       success: true,
       message: "Connected",
       server_version: "8.0.36",
@@ -105,27 +104,43 @@ describe("useConnectionForm (#275)", () => {
     expect(result.current.testResult).toBeNull();
   });
 
-  it("reports a failed test rather than throwing it away", async () => {
-    apiMocks.testConnection.mockRejectedValue(new Error("Access denied"));
+  it("shows the result the store's test came back with", async () => {
+    // The store turns a thrown failure into an unsuccessful result (#804).
+    testConnectionFn.mockResolvedValue({
+      success: false,
+      message: "Access denied",
+      server_version: null,
+      latency_ms: 0,
+    });
     const { result } = renderHook(() => useConnectionForm(true));
 
     await act(async () => {
       await result.current.handleTest();
     });
 
+    expect(testConnectionFn).toHaveBeenCalledWith(expect.objectContaining({ host: "127.0.0.1" }));
     expect(result.current.testResult?.success).toBe(false);
-    expect(result.current.testResult?.message).toContain("Access denied");
+    expect(result.current.testResult?.message).toBe("Access denied");
+    expect(result.current.testing).toBe(false);
   });
 
-  it("reports a thrown test failure without a doubled \"Error: \" prefix (#804)", async () => {
-    apiMocks.testConnection.mockRejectedValue(new Error("SSH tunnel error: no route to bastion"));
+  it("is testing until the store's test answers", async () => {
+    let answer: (v: unknown) => void = () => {};
+    testConnectionFn.mockReturnValue(new Promise((r) => (answer = r)));
     const { result } = renderHook(() => useConnectionForm(true));
 
-    await act(async () => {
-      await result.current.handleTest();
+    let pending: Promise<void> = Promise.resolve();
+    act(() => {
+      pending = result.current.handleTest();
     });
+    expect(result.current.testing).toBe(true);
 
-    expect(result.current.testResult?.message).toBe("SSH tunnel error: no route to bastion");
+    await act(async () => {
+      answer({ success: true, message: "Connected", server_version: "8.0.36", latency_ms: 4 });
+      await pending;
+    });
+    expect(result.current.testing).toBe(false);
+    expect(result.current.testResult?.success).toBe(true);
   });
 
   describe("what gets stored", () => {

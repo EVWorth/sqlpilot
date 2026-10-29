@@ -2,6 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../lib/tauri-api";
 import type { ConnectionInfo, ConnectionProfile, ConnectionProfileSummary } from "../../types";
 import { useConnectionStore } from "../connectionStore";
+import { useEditorStore } from "../editorStore";
+import { useTransactionStore } from "../transactionStore";
 
 vi.mock("../../lib/tauri-api", () => ({
   api: {
@@ -10,6 +12,7 @@ vi.mock("../../lib/tauri-api", () => ({
     deleteConnectionProfile: vi.fn(),
     connect: vi.fn(),
     disconnect: vi.fn(),
+    testConnection: vi.fn(),
   },
 }));
 
@@ -147,6 +150,37 @@ describe("connectionStore", () => {
       const state = useConnectionStore.getState();
       expect(state.error).toBe("Save failed");
       expect(state.loading).toBe(false);
+    });
+  });
+
+  describe("testConnection", () => {
+    const profile = { name: "Draft", host: "db.example.com" } as never;
+
+    it("hands back what the server answered", async () => {
+      const answer = { success: true, message: "Connected", server_version: "8.0.36", latency_ms: 4 };
+      vi.mocked(api.testConnection).mockResolvedValue(answer);
+
+      expect(await useConnectionStore.getState().testConnection(profile)).toEqual(answer);
+      expect(api.testConnection).toHaveBeenCalledWith(profile);
+    });
+
+    it("turns a thrown failure into a result, without a doubled \"Error: \" prefix (#804)", async () => {
+      vi.mocked(api.testConnection).mockRejectedValue(new Error("SSH tunnel error: no route to bastion"));
+
+      expect(await useConnectionStore.getState().testConnection(profile)).toEqual({
+        success: false,
+        message: "SSH tunnel error: no route to bastion",
+        server_version: null,
+        latency_ms: 0,
+      });
+    });
+
+    it("leaves the store's own error alone", async () => {
+      vi.mocked(api.testConnection).mockRejectedValue(new Error("Access denied"));
+
+      await useConnectionStore.getState().testConnection(profile);
+
+      expect(useConnectionStore.getState().error).toBeNull();
     });
   });
 
@@ -363,6 +397,41 @@ describe("connectionStore", () => {
   });
 
   describe("disconnect", () => {
+    it("forgets the open transactions of the tabs on that connection (#910)", async () => {
+      const second: ConnectionInfo = { ...mockConnectionInfo, id: "conn-2" };
+      useConnectionStore.setState({ activeConnections: [mockConnectionInfo, second] });
+      useEditorStore.setState({
+        tabs: [
+          { id: "tab-a", title: "A", content: "BEGIN", type: "query", isDirty: false, connectionId: "conn-1" },
+          { id: "tab-b", title: "B", content: "BEGIN", type: "query", isDirty: false, connectionId: "conn-2" },
+        ],
+        activeTabId: "tab-a",
+      });
+      // What a BEGIN on each tab's session leaves behind (#843).
+      useTransactionStore.setState({ open: { "tab-a": true, "tab-b": true } });
+      vi.mocked(api.disconnect).mockResolvedValue(undefined);
+
+      await useConnectionStore.getState().disconnect("conn-1");
+
+      // The server rolled conn-1's back when its sessions closed; conn-2's is
+      // still open.
+      expect(useTransactionStore.getState().open).toEqual({ "tab-b": true });
+    });
+
+    it("keeps the transaction flags when the disconnect fails", async () => {
+      useConnectionStore.setState({ activeConnections: [mockConnectionInfo] });
+      useEditorStore.setState({
+        tabs: [{ id: "tab-a", title: "A", content: "BEGIN", type: "query", isDirty: false, connectionId: "conn-1" }],
+        activeTabId: "tab-a",
+      });
+      useTransactionStore.setState({ open: { "tab-a": true } });
+      vi.mocked(api.disconnect).mockRejectedValue(new Error("busy"));
+
+      await useConnectionStore.getState().disconnect("conn-1");
+
+      expect(useTransactionStore.getState().open).toEqual({ "tab-a": true });
+    });
+
     it("disconnects and removes from activeConnections", async () => {
       useConnectionStore.setState({
         activeConnections: [mockConnectionInfo],

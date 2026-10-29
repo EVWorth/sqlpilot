@@ -6,9 +6,9 @@
 // up from when the list was first read, so auto-refresh visibly ticks.
 
 import type { PlatformInfo, ProcessInfo, ServerVariable } from "../../../lib/bindings";
-import { PROFILES, SERVER_VERSION } from "../dataset";
+import { SERVER_VERSION } from "../dataset";
 import { delay, fail, type Handlers } from "../router";
-import { liveConnection } from "../state";
+import { liveConnection, state } from "../state";
 
 // ---------------------------------------------------------------- processes
 
@@ -99,7 +99,7 @@ interface ProcessTable {
 const processTables = new Map<string, ProcessTable>();
 
 function profileUser(profileId: string): string {
-  return PROFILES.find((p) => p.id === profileId)?.username ?? "root";
+  return state.profiles.find((p) => p.id === profileId)?.username ?? "root";
 }
 
 function processTable(connectionId: unknown): ProcessTable {

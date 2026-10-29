@@ -12,6 +12,9 @@
 // and leaving a screen that looks broken for no visible reason.
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { resetDatabases } from "./dataset";
+import { injectedFailure } from "./failures";
+import { resetAccounts } from "./handlers/accounts";
 import { adminHandlers } from "./handlers/admin";
 import { agentHandlers } from "./handlers/agent";
 import { connectionHandlers } from "./handlers/connections";
@@ -19,10 +22,10 @@ import { fileHandlers } from "./handlers/files";
 import { historyHandlers } from "./handlers/history";
 import { pluginHandlers } from "./handlers/plugins";
 import { queryHandlers } from "./handlers/query";
-import { schemaHandlers } from "./handlers/schema";
+import { resetSchemaKeys, schemaHandlers } from "./handlers/schema";
 import { sqliteHandlers } from "./handlers/sqlite";
-import type { Handlers } from "./router";
-import { resetState, type Scenario, scenarioFromUrl } from "./state";
+import { delay, type Handlers } from "./router";
+import { type MockOptions, optionsFromUrl, resetState, type Scenario, scenarioFromUrl, startsConnected } from "./state";
 
 export const handlers: Handlers = {
   ...connectionHandlers,
@@ -36,8 +39,14 @@ export const handlers: Handlers = {
   ...pluginHandlers,
 };
 
-export function installMockBackend(scenario: Scenario = scenarioFromUrl(window.location.search)): void {
-  resetState(scenario);
+export function installMockBackend(
+  scenario: Scenario = scenarioFromUrl(window.location.search),
+  options: MockOptions = optionsFromUrl(window.location.search),
+): void {
+  resetState(scenario, options);
+  resetAccounts();
+  resetDatabases();
+  resetSchemaKeys();
   mockWindows("main");
   mockIPC(
     async (cmd, payload) => {
@@ -46,22 +55,50 @@ export function installMockBackend(scenario: Scenario = scenarioFromUrl(window.l
         console.error(`[mock backend] no handler for "${cmd}"`, payload);
         throw `The mock backend has no handler for "${cmd}". Add one in src/dev/mock/handlers/.`;
       }
+      const failure = injectedFailure(cmd);
+      if (failure !== undefined) {
+        console.warn(`[mock backend] "${cmd}" fails because the URL names it in ?fail=`);
+        await delay();
+        throw failure;
+      }
       return handler((payload ?? {}) as Record<string, unknown>);
     },
     { shouldMockEvents: true },
   );
-  console.info(`[mock backend] installed (scenario: ${scenario})`);
+  fixUnlisten();
+  const fail = options.fail.length ? `, failing: ${options.fail.join(", ")}` : "";
+  console.info(`[mock backend] installed (scenario: ${scenario}${fail})`);
+}
+
+type Invoke = (cmd: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+
+/**
+ * Make `unlisten` actually remove the listener.
+ *
+ * `@tauri-apps/api/event` unlistens with `{ event, eventId }`, but the event
+ * mock in `@tauri-apps/api/mocks` (2.12) looks for `args.id`, finds nothing,
+ * and keeps the listener. Its callback is gone by then, so every later
+ * `emit` of that event logged "[TAURI] Couldn't find callback id" — a
+ * console full of them after one backup. Passing the id under both names
+ * lets the mock remove it, and an event nobody listens to any more goes
+ * nowhere, as it does in the app.
+ */
+function fixUnlisten(): void {
+  const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+  const mocked = internals.invoke;
+  internals.invoke = (cmd, args, options) =>
+    mocked(cmd, cmd === "plugin:event|unlisten" && args ? { ...args, id: args.eventId } : args, options);
 }
 
 /**
  * What a scenario does once the app is on screen.
  *
  * The app never asks the backend which connections are already live, so a
- * connection made only inside the mock would never appear. `connected` goes
- * through the app's own store instead, as a person clicking Connect would.
+ * connection made only inside the mock would never appear. `connected` and
+ * `lost` go through the app's own store instead, as a person clicking Connect would.
  */
 export function afterRender(scenario: Scenario = scenarioFromUrl(window.location.search)): void {
-  if (scenario !== "connected") return;
+  if (!startsConnected(scenario)) return;
   void import("../../stores/connectionStore").then(({ useConnectionStore }) =>
     useConnectionStore.getState().connect("profile-local")
   );

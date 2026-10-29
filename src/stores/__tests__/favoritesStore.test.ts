@@ -1,4 +1,14 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const api = vi.hoisted(() => ({
+  pickSaveFile: vi.fn(),
+  pickFile: vi.fn(),
+  writeFileContents: vi.fn(),
+  readFileContents: vi.fn(),
+}));
+
+vi.mock("../../lib/tauri-api", () => ({ api }));
+
 import { useFavoritesStore } from "../favoritesStore";
 
 describe("favoritesStore", () => {
@@ -603,6 +613,82 @@ describe("favoritesStore", () => {
       store.importFavorites("{ not json");
 
       expect(useFavoritesStore.getState().favorites).toHaveLength(1);
+    });
+  });
+
+  describe("files (#862)", () => {
+    beforeEach(() => {
+      for (const fn of Object.values(api)) fn.mockReset();
+      api.pickSaveFile.mockResolvedValue("/exports/favorites.json");
+      api.pickFile.mockResolvedValue("/exports/favorites.json");
+      api.writeFileContents.mockResolvedValue(null);
+    });
+
+    it("writes an export to the file the user picked", async () => {
+      useFavoritesStore.getState().addFavorite({ name: "Q", sql: "SELECT 1", category: "Uncategorized" });
+
+      const message = await useFavoritesStore.getState().exportToFile();
+
+      expect(api.pickSaveFile).toHaveBeenCalledWith("Export favorites", "sqlpilot-favorites.json", [[
+        "JSON",
+        ["json"],
+      ]]);
+      const [path, contents] = api.writeFileContents.mock.calls[0];
+      expect(path).toBe("/exports/favorites.json");
+      expect(JSON.parse(contents).favorites.map((f: { name: string }) => f.name)).toEqual(["Q"]);
+      expect(message).toBe("Exported 1 favorite(s).");
+    });
+
+    it("writes nothing and reports nothing when the save dialog is cancelled", async () => {
+      api.pickSaveFile.mockResolvedValue(null);
+
+      expect(await useFavoritesStore.getState().exportToFile()).toBeNull();
+      expect(api.writeFileContents).not.toHaveBeenCalled();
+    });
+
+    it("says why an export failed", async () => {
+      api.writeFileContents.mockRejectedValue("Permission denied");
+
+      expect(await useFavoritesStore.getState().exportToFile()).toBe("Could not export: Permission denied");
+    });
+
+    it("reports what an import did to everything in the file", async () => {
+      useFavoritesStore.getState().addFavorite({ name: "Here", sql: "SELECT 1", category: "Uncategorized" });
+      api.readFileContents.mockResolvedValue(JSON.stringify({
+        kind: "sqlpilot-favorites",
+        version: 1,
+        favorites: [
+          { name: "New", sql: "SELECT 2", category: "Uncategorized" },
+          { name: "Here", sql: "SELECT 1", category: "Uncategorized" },
+          { name: "", sql: "" },
+        ],
+      }));
+
+      const message = await useFavoritesStore.getState().importFromFile();
+
+      expect(api.pickFile).toHaveBeenCalledWith("Import favorites", [["JSON", ["json"]]]);
+      expect(message).toBe("Imported 1, 1 already here, 1 unreadable.");
+    });
+
+    it("says so when the file is not a favorites export", async () => {
+      api.readFileContents.mockResolvedValue("{}");
+
+      expect(await useFavoritesStore.getState().importFromFile()).toBe(
+        "That file is not a SQLPilot favorites export.",
+      );
+    });
+
+    it("reads nothing when the open dialog is cancelled", async () => {
+      api.pickFile.mockResolvedValue(null);
+
+      expect(await useFavoritesStore.getState().importFromFile()).toBeNull();
+      expect(api.readFileContents).not.toHaveBeenCalled();
+    });
+
+    it("says why an import failed", async () => {
+      api.readFileContents.mockRejectedValue("No such file");
+
+      expect(await useFavoritesStore.getState().importFromFile()).toBe("Could not import: No such file");
     });
   });
 });

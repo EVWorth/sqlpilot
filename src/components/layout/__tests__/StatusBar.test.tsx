@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { act, Profiler } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../../lib/tauri-api";
+import { useAppInfoStore } from "../../../stores/appInfoStore";
 import { useConnectionHealthStore } from "../../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
@@ -26,6 +27,7 @@ describe("StatusBar", () => {
   beforeEach(() => {
     resetRunBookkeeping();
     vi.clearAllMocks();
+    useAppInfoStore.setState(useAppInfoStore.getInitialState());
     useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
     useStorageErrorStore.setState({ errors: {} });
     useConnectionHealthStore.setState({ health: {} });
@@ -772,6 +774,7 @@ describe("StatusBar connection health (#276, FR-1.2.3)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useAppInfoStore.setState(useAppInfoStore.getInitialState());
     useSettingsStore.setState({ updateStatus: "up-to-date", updateVersion: null });
     useStorageErrorStore.setState({ errors: {} });
     useConnectionHealthStore.setState({ health: {} });
@@ -851,6 +854,7 @@ describe("what went wrong before the window existed", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    useAppInfoStore.setState(useAppInfoStore.getInitialState());
     vi.mocked(api.getAppVersion).mockResolvedValue("2.1.0");
     vi.mocked(api.keyringAvailable).mockResolvedValue(true);
     vi.mocked(api.startupProblems).mockResolvedValue([]);
