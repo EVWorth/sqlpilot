@@ -1,9 +1,9 @@
 import Editor from "@monaco-editor/react";
 import { Code2, Columns3, Info, Key, Link2, ListTree, Loader2, Rows3, Zap } from "lucide-react";
-import { useEffect, useState } from "react";
-import { api } from "../../lib/tauri-api";
+import { useEffect, useId, useMemo, useState } from "react";
 import { cn } from "../../lib/utils";
 import { useSchemaStore } from "../../stores/schemaStore";
+import { type TablePart, useTableDetailsStore } from "../../stores/tableDetailsStore";
 import { useThemeStore } from "../../stores/themeStore";
 import type { ColumnInfo, ForeignKeyInfo, IndexInfo, PartitionInfo, TableInfo, TriggerInfo } from "../../types";
 
@@ -44,15 +44,14 @@ interface Details {
   errors: Partial<Record<SubTab, string>>;
 }
 
-const EMPTY: Details = {
-  columns: [],
-  indexes: [],
-  foreignKeys: [],
-  triggers: [],
-  partitions: [],
-  ddl: "",
-  errors: {},
-};
+interface FromSchema {
+  triggers: TriggerInfo[];
+  triggersError?: string;
+  table?: TableInfo;
+}
+
+/** Every part the panel has a tab for. */
+const STRUCTURE_PARTS: readonly TablePart[] = ["columns", "indexes", "foreignKeys", "partitions", "ddl"];
 
 export function TableStructure({
   connectionId,
@@ -60,60 +59,66 @@ export function TableStructure({
   tableName,
 }: TableStructureProps) {
   const [activeSubTab, setActiveSubTab] = useState<SubTab>("overview");
-  const [details, setDetails] = useState<Details>(EMPTY);
-  const [loading, setLoading] = useState(true);
+  // The table's own reads live in the store, keyed by this view (#862).
+  const view = useId();
+  const reads = useTableDetailsStore((s) => s.details[view]);
+  // Triggers and the table's row come from the schema store instead; null
+  // until they have settled for the current table.
+  const [fromSchema, setFromSchema] = useState<FromSchema | null>(null);
+
+  useEffect(() => () => useTableDetailsStore.getState().release(view), [view]);
 
   useEffect(() => {
-    setLoading(true);
+    setFromSchema(null);
     let cancelled = false;
+
+    void useTableDetailsStore.getState().loadDetails(
+      view,
+      { connectionId, database, table: tableName },
+      STRUCTURE_PARTS,
+    );
 
     void (async () => {
       const store = useSchemaStore.getState();
-      const [columns, indexes, foreignKeys, partitions, ddl, triggers, tables] = await Promise
-        .allSettled([
-          api.getColumns(connectionId, database, tableName),
-          api.getIndexes(connectionId, database, tableName),
-          api.getForeignKeys(connectionId, database, tableName),
-          api.getPartitions(connectionId, database, tableName),
-          api.getTableDdl(connectionId, database, tableName),
-          // Through the store: the tree has usually loaded both already, and
-          // the server has no per-table trigger query to ask instead.
-          store.ensureTriggers(connectionId, database),
-          store.ensureTables(connectionId, database),
-        ]);
+      // Through the store: the tree has usually loaded both already, and
+      // the server has no per-table trigger query to ask instead.
+      const [triggers, tables] = await Promise.allSettled([
+        store.ensureTriggers(connectionId, database),
+        store.ensureTables(connectionId, database),
+      ]);
       if (cancelled) return;
-
-      const errors: Partial<Record<SubTab, string>> = {};
-      const took = <T,>(
-        result: PromiseSettledResult<T>,
-        tab: SubTab | null,
-        fallback: T,
-      ): T => {
-        if (result.status === "fulfilled") return result.value;
-        if (tab) errors[tab] = String(result.reason);
-        return fallback;
-      };
-
-      const allTriggers = took(triggers, "triggers", [] as TriggerInfo[]);
-      setDetails({
-        columns: took(columns, "columns", []),
-        indexes: took(indexes, "indexes", []),
-        foreignKeys: took(foreignKeys, "foreignKeys", []),
-        partitions: took(partitions, "partitions", []),
-        ddl: took(ddl, "ddl", ""),
-        triggers: allTriggers.filter((t) => t.table === tableName),
+      setFromSchema({
+        triggers: triggers.status === "fulfilled"
+          ? triggers.value.filter((t) => t.table === tableName)
+          : [],
+        triggersError: triggers.status === "rejected" ? String(triggers.reason) : undefined,
         // The table's own row belongs to Overview; a failure there is the
         // same failure as the columns one and not worth saying twice.
-        table: took(tables, null, [] as TableInfo[]).find((t) => t.name === tableName),
-        errors,
+        table: tables.status === "fulfilled" ? tables.value.find((t) => t.name === tableName) : undefined,
       });
-      setLoading(false);
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [connectionId, database, tableName]);
+  }, [view, connectionId, database, tableName]);
+
+  const loading = (reads?.loading ?? true) || fromSchema === null;
+  const details = useMemo((): Details => {
+    const read = reads?.details;
+    const errors: Partial<Record<SubTab, string>> = { ...read?.errors };
+    if (fromSchema?.triggersError !== undefined) errors.triggers = fromSchema.triggersError;
+    return {
+      columns: read?.columns ?? [],
+      indexes: read?.indexes ?? [],
+      foreignKeys: read?.foreignKeys ?? [],
+      partitions: read?.partitions ?? [],
+      ddl: read?.ddl ?? "",
+      triggers: fromSchema?.triggers ?? [],
+      table: fromSchema?.table,
+      errors,
+    };
+  }, [reads, fromSchema]);
 
   // Tabs with nothing in them are still shown: "this table has no foreign
   // keys" is an answer, and a tab that appears only sometimes makes the panel
