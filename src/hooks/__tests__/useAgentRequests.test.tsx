@@ -17,7 +17,7 @@ import type { AgentRequest } from "../../lib/bindings";
 import { useAgentStore } from "../../stores/agentStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
-import { useResultStore } from "../../stores/resultStore";
+import { resetRunBookkeeping, useResultStore } from "../../stores/resultStore";
 import { useAgentRequests } from "../useAgentRequests";
 
 function Mounted() {
@@ -39,6 +39,7 @@ function answered(index = 0) {
 }
 
 beforeEach(() => {
+  resetRunBookkeeping();
   vi.clearAllMocks();
   listenFn.mockResolvedValue(() => {});
   apiMocks.answerAgentRequest.mockResolvedValue(null);

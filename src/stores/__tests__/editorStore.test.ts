@@ -18,6 +18,17 @@ describe("editorStore", () => {
   // old subscription may linger. For state-mutating tests we always start fresh.
 
   describe("addTab", () => {
+    // #853: every new tab was "Untitled Query".
+    it("numbers new query tabs, reusing the lowest free number", () => {
+      const a = useEditorStore.getState().addTab();
+      const b = useEditorStore.getState().addTab();
+      const titleOf = (id: string) => useEditorStore.getState().tabs.find((t) => t.id === id)?.title;
+      expect([titleOf(a), titleOf(b)]).toEqual(["Untitled-1", "Untitled-2"]);
+
+      useEditorStore.getState().closeTab(a);
+      expect(titleOf(useEditorStore.getState().addTab())).toBe("Untitled-1");
+    });
+
     it("should add a tab", () => {
       const id = useEditorStore.getState().addTab();
       expect(useEditorStore.getState().tabs).toHaveLength(1);
@@ -47,6 +58,19 @@ describe("editorStore", () => {
       useEditorStore.getState().confirmPendingClose();
       expect(useEditorStore.getState().tabs.some((t) => t.id === a)).toBe(false);
       expect(useEditorStore.getState().pendingClose).toBeNull();
+    });
+
+    it("asks before closing a tab whose session has a transaction open, even with no SQL", async () => {
+      const { useTransactionStore } = await import("../transactionStore");
+      const a = useEditorStore.getState().addTab();
+      useEditorStore.getState().addTab();
+      useTransactionStore.getState().setOpen(a, true);
+
+      useEditorStore.getState().requestClose("close", a);
+
+      expect(useEditorStore.getState().pendingClose?.inTransaction.map((t) => t.id)).toEqual([a]);
+      expect(useEditorStore.getState().tabs.some((t) => t.id === a)).toBe(true);
+      useTransactionStore.getState().setOpen(a, false);
     });
 
     it("keeps the tab when the user cancels", () => {
@@ -396,6 +420,59 @@ describe("editorStore", () => {
     });
   });
 
+  // #855: a tab stayed "unsaved" for good after its first keystroke.
+  describe("clean again once saved", () => {
+    const tabOf = (id: string) => useEditorStore.getState().tabs.find((t) => t.id === id);
+
+    it("is clean after its SQL is saved", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(id, "SELECT 1");
+      useEditorStore.getState().markTabSaved(id, "SELECT 1");
+
+      expect(tabOf(id)?.isDirty).toBe(false);
+    });
+
+    it("is dirty again when the text moves off the saved version, and clean when it returns", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(id, "SELECT 1");
+      useEditorStore.getState().markTabSaved(id, "SELECT 1");
+
+      useEditorStore.getState().updateTabContent(id, "SELECT 12");
+      expect(tabOf(id)?.isDirty).toBe(true);
+      useEditorStore.getState().updateTabContent(id, "SELECT 1");
+      expect(tabOf(id)?.isDirty).toBe(false);
+    });
+
+    it("is clean when a new tab is typed into and emptied again", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(id, "S");
+      useEditorStore.getState().updateTabContent(id, "");
+
+      expect(tabOf(id)?.isDirty).toBe(false);
+    });
+
+    it("stays dirty when what was saved is not what the tab now holds", () => {
+      // Typing continued while the save dialog was open.
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(id, "SELECT 1 FROM t");
+      useEditorStore.getState().markTabSaved(id, "SELECT 1");
+
+      expect(tabOf(id)?.isDirty).toBe(true);
+    });
+
+    it("no longer asks before closing a saved tab", () => {
+      const a = useEditorStore.getState().addTab();
+      useEditorStore.getState().addTab();
+      useEditorStore.getState().updateTabContent(a, "SELECT 1");
+      useEditorStore.getState().markTabSaved(a, "SELECT 1");
+
+      useEditorStore.getState().requestClose("close", a);
+
+      expect(useEditorStore.getState().pendingClose).toBeNull();
+      expect(tabOf(a)).toBeUndefined();
+    });
+  });
+
   describe("renameTab", () => {
     it("should rename a tab", () => {
       const id = useEditorStore.getState().addTab();
@@ -409,7 +486,7 @@ describe("editorStore", () => {
       const id2 = useEditorStore.getState().addTab();
       useEditorStore.getState().renameTab(id1, "New Title");
       const tab2 = useEditorStore.getState().tabs.find((t) => t.id === id2);
-      expect(tab2?.title).toBe("Untitled Query");
+      expect(tab2?.title).toBe("Untitled-2");
     });
   });
 
@@ -507,6 +584,10 @@ describe("editorStore session persistence", () => {
     expect(state.tabs[0].content).toBe("SELECT 1");
     expect(state.tabs[0].isDirty).toBe(false);
     expect(state.activeTabId).toBe("tab-5");
+    // Restored content is the baseline: undoing back to it stays clean.
+    store.getState().updateTabContent("tab-5", "SELECT 12");
+    store.getState().updateTabContent("tab-5", "SELECT 1");
+    expect(store.getState().tabs[0].isDirty).toBe(false);
   });
 
   it("falls back to initial tab when localStorage has empty tabs array", async () => {

@@ -101,6 +101,7 @@ vi.mock("@monaco-editor/react", () => ({
 }));
 
 vi.mock("../../../stores/editorStore", () => ({
+  setPendingContentFlush: vi.fn(),
   useEditorStore: Object.assign(
     vi.fn((selector?: (s: object) => unknown) => {
       const state = {

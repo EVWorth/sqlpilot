@@ -14,28 +14,50 @@ type ViewMode = "table" | "tree";
  * places is what left index_merge and friends rendering as an unexplained grey
  * badge with no legend entry (#426).
  */
-const ACCESS_TYPES: ReadonlyArray<{ type: string; color: string }> = [
-  { type: "ALL", color: "surface-error-strong text-white" },
-  { type: "index", color: "surface-warning-strong text-white" },
-  { type: "index_merge", color: "surface-warning-strong text-white" },
-  { type: "range", color: "surface-warning-strong text-white" },
-  { type: "index_subquery", color: "bg-lime-600/80 text-white" },
-  { type: "unique_subquery", color: "bg-lime-500/80 text-white" },
-  { type: "ref_or_null", color: "surface-success-strong text-white" },
-  { type: "fulltext", color: "bg-purple-600/80 text-white" },
-  { type: "spatial", color: "bg-pink-600/80 text-white" },
-  { type: "ref", color: "surface-success-strong text-white" },
-  { type: "eq_ref", color: "surface-success-strong text-white" },
-  { type: "const", color: "surface-accent text-white" },
-  { type: "system", color: "surface-accent text-white" },
+export type AccessTone = "error" | "warning" | "success" | "accent";
+
+export const ACCESS_TYPES: ReadonlyArray<{ type: string; tone: AccessTone }> = [
+  { type: "ALL", tone: "error" },
+  { type: "index", tone: "warning" },
+  { type: "index_merge", tone: "warning" },
+  { type: "range", tone: "warning" },
+  { type: "index_subquery", tone: "success" },
+  { type: "unique_subquery", tone: "success" },
+  { type: "ref_or_null", tone: "success" },
+  { type: "fulltext", tone: "accent" },
+  { type: "spatial", tone: "accent" },
+  { type: "ref", tone: "success" },
+  { type: "eq_ref", tone: "success" },
+  { type: "const", tone: "accent" },
+  { type: "system", tone: "accent" },
 ];
 
+/**
+ * The status colour, darkened (or lightened) toward the theme's text colour,
+ * on a light wash of itself.
+ *
+ * White text on the translucent `-strong` tints was unreadable in the light
+ * theme, where those tints are pale; ALL, the access type users most need to
+ * notice, was the faintest of them (#849). The status colour alone does not
+ * reach AA in every theme either (Nord's red, Solarized's), so the text is
+ * mixed 45% status to 55% text colour, which clears 4.5:1 in every built-in
+ * theme (see accessBadgeContrast.test.ts).
+ */
+export const TONE_TEXT_SHARE = 0.45;
+
+export const TONE_CLASS: Record<AccessTone, string> = {
+  error: "surface-error text-[color-mix(in_srgb,var(--color-error)_45%,var(--color-text-primary))]",
+  warning: "surface-warning text-[color-mix(in_srgb,var(--color-warning)_45%,var(--color-text-primary))]",
+  success: "surface-success text-[color-mix(in_srgb,var(--color-success)_45%,var(--color-text-primary))]",
+  accent: "surface-accent text-[color-mix(in_srgb,var(--color-accent)_45%,var(--color-text-primary))]",
+};
+
 const TYPE_COLORS: Record<string, string> = Object.fromEntries(
-  ACCESS_TYPES.map(({ type, color }) => [type, color]),
+  ACCESS_TYPES.map(({ type, tone }) => [type, TONE_CLASS[tone]]),
 );
 
 function getTypeColor(type: string): string {
-  return TYPE_COLORS[type] ?? "bg-gray-600/80 text-white";
+  return TYPE_COLORS[type] ?? "bg-[var(--color-bg-tertiary)] text-[var(--color-text-secondary)]";
 }
 
 export interface ExplainRow {
@@ -825,7 +847,7 @@ export function ExplainPanel() {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
+      <div className="flex flex-wrap items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-2 py-1">
         <span className="mr-2 text-[10px] font-medium text-[var(--color-text-secondary)]">
           {explainAnalyze ? "ANALYZE" : "EXPLAIN"}
         </span>
@@ -858,12 +880,16 @@ export function ExplainPanel() {
         </div>
 
         {/* Legend for type badges */}
-        <div className="flex items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]">
+        {/* Wraps rather than running off the panel's edge at 1024px (#849). */}
+        <div
+          data-testid="access-type-legend"
+          className="flex min-w-0 flex-wrap items-center gap-1.5 text-[10px] text-[var(--color-text-muted)]"
+        >
           <span>Access type:</span>
-          {ACCESS_TYPES.map(({ type, color }) => (
+          {ACCESS_TYPES.map(({ type, tone }) => (
             <span
               key={type}
-              className={`rounded px-1 py-0.5 text-[9px] font-semibold ${color}`}
+              className={`rounded px-1 py-0.5 text-[9px] font-semibold ${TONE_CLASS[tone]}`}
             >
               {type}
             </span>

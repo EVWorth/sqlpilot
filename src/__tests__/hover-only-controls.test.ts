@@ -33,11 +33,6 @@ const ALLOWED: { file: string; contains: string; why: string }[] = [
     contains: "opacity-0 transition-opacity group-hover:opacity-100",
     why: "the drag grip is an aria-hidden icon, not a control; the header itself takes focus",
   },
-  {
-    file: "grid/EditableCell.tsx",
-    contains: "hover:opacity-100 group-hover:opacity-60",
-    why: "the NULL toggle needs a focus reveal; left to the grid work in flight (#784)",
-  },
 ];
 
 function sourceFiles(dir: string): string[] {

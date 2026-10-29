@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { describeSelection, NO_SELECTION, rowsToCopy, selectAll, type Selection, selectRow } from "../grid-selection";
+import {
+  describeSelection,
+  NO_SELECTION,
+  rowsToCopy,
+  selectAll,
+  type Selection,
+  selectRow,
+  stepSelection,
+} from "../grid-selection";
 
 const plain = { toggle: false, extend: false };
 const ctrl = { toggle: true, extend: false };
@@ -101,5 +109,31 @@ describe("grid-selection (#416)", () => {
     it("counts the whole result when there is not", () => {
       expect(describeSelection(NO_SELECTION, 4200)).toBe("4,200 rows");
     });
+  });
+});
+
+describe("stepSelection (#852)", () => {
+  // On screen: 2, 0, 1.
+  const order = [2, 0, 1];
+
+  it("starts at the first row on screen going down, the last going up", () => {
+    expect([...stepSelection(NO_SELECTION, 1, false, order).rows]).toEqual([2]);
+    expect([...stepSelection(NO_SELECTION, -1, false, order).rows]).toEqual([1]);
+  });
+
+  it("moves through screen order and stops at the ends", () => {
+    const one = stepSelection(NO_SELECTION, 1, false, order);
+    const two = stepSelection(one, 1, false, order);
+    expect([...two.rows]).toEqual([0]);
+    expect([...stepSelection(two, Infinity, false, order).rows]).toEqual([1]);
+    expect([...stepSelection(two, -Infinity, false, order).rows]).toEqual([2]);
+  });
+
+  it("extends from the anchor with Shift, and shrinks back", () => {
+    const start = stepSelection(NO_SELECTION, 1, false, order);
+    const grown = stepSelection(stepSelection(start, 1, true, order), 1, true, order);
+    expect([...grown.rows].sort()).toEqual([0, 1, 2]);
+    expect(grown.anchor).toBe(2);
+    expect([...stepSelection(grown, -1, true, order).rows].sort()).toEqual([0, 2]);
   });
 });

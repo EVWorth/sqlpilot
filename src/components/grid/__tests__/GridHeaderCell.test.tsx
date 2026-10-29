@@ -185,3 +185,29 @@ describe("GridHeaderCell", () => {
     });
   });
 });
+
+// #852: the header could only be sorted with a mouse.
+describe("GridHeaderCell from the keyboard", () => {
+  it("is focusable and sorts on Enter and Space, passing Shift through", () => {
+    const onSort = vi.fn();
+    render(<GridHeaderCell {...props({ onSort })} />);
+    const header = screen.getByTitle(/Shift\+click/);
+
+    expect(header.tabIndex).toBe(0);
+    fireEvent.keyDown(header, { key: "Enter" });
+    fireEvent.keyDown(header, { key: " " });
+    fireEvent.keyDown(header, { key: "Enter", shiftKey: true });
+
+    expect(onSort).toHaveBeenCalledTimes(3);
+    expect(onSort.mock.calls[2][0].shiftKey).toBe(true);
+  });
+
+  it("ignores other keys", () => {
+    const onSort = vi.fn();
+    render(<GridHeaderCell {...props({ onSort })} />);
+
+    fireEvent.keyDown(screen.getByTitle(/Shift\+click/), { key: "a" });
+
+    expect(onSort).not.toHaveBeenCalled();
+  });
+});

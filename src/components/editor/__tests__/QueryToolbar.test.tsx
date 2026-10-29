@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 let connSelId: string | null = "conn-1";
 let connProfiles: { id: string; name: string; host: string; port: number; environment: string | null }[] = [];
@@ -16,6 +16,7 @@ let connActive: any[] = [
   },
 ];
 
+import { useTransactionStore } from "../../../stores/transactionStore";
 import { QueryToolbar } from "../QueryToolbar";
 
 vi.mock("../../../lib/tauri-api", () => ({
@@ -191,6 +192,7 @@ describe("QueryToolbar", () => {
       getAction: vi.fn().mockReturnValue({ run: vi.fn() }),
       getPosition: vi.fn().mockReturnValue({ lineNumber: 1, column: 1 }),
       executeEdits: vi.fn(),
+      trigger: vi.fn(),
       focus: vi.fn(),
     };
     mockRefreshSchema.mockClear();
@@ -242,6 +244,55 @@ describe("QueryToolbar", () => {
     render(<QueryToolbar />);
     fireEvent.click(screen.getByText("Run"));
     expect(mockExecuteQuery).toHaveBeenCalledWith("SELECT * FROM users");
+  });
+
+  // #853: the suggestion list stayed open over the results after a run.
+  it("closes the suggestion list before running", () => {
+    render(<QueryToolbar />);
+    fireEvent.click(screen.getByText("Run"));
+    expect(mockEditorInstance.trigger).toHaveBeenCalledWith("run", "hideSuggestWidget", null);
+  });
+
+  // #843: an open transaction was visible nowhere.
+  describe("transaction indicator", () => {
+    afterEach(() => useTransactionStore.setState({ open: {} }));
+
+    it("shows nothing when no transaction is open", () => {
+      render(<QueryToolbar />);
+      expect(screen.queryByText("Transaction open")).toBeNull();
+    });
+
+    it("offers Commit and Rollback on the tab's session when one is", () => {
+      useTransactionStore.setState({ open: { "tab-0": true } });
+      render(<QueryToolbar />);
+
+      expect(screen.getByText("Transaction open")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Commit" }));
+      expect(mockExecuteQuery).toHaveBeenCalledWith("COMMIT");
+      fireEvent.click(screen.getByRole("button", { name: "Rollback" }));
+      expect(mockExecuteQuery).toHaveBeenCalledWith("ROLLBACK");
+    });
+  });
+
+  describe("accessible state (#853)", () => {
+    it("names the Explain menu button, says whether it is open, and closes on Escape", () => {
+      render(<QueryToolbar />);
+      const toggle = screen.getByRole("button", { name: "Explain options" });
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+
+      fireEvent.click(toggle);
+      expect(toggle.getAttribute("aria-expanded")).toBe("true");
+      expect(screen.getByText("EXPLAIN ANALYZE")).toBeInTheDocument();
+
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByText("EXPLAIN ANALYZE")).toBeNull();
+      expect(document.activeElement).toBe(toggle);
+    });
+
+    it("exposes the LIMIT toggle's state", () => {
+      render(<QueryToolbar />);
+      expect(screen.getByText("LIMIT").closest("button")?.getAttribute("aria-pressed")).toBe("true");
+    });
   });
 
   it("calls executeExplain when Explain button is clicked", () => {

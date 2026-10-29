@@ -17,8 +17,6 @@ import { gridFeatures } from "../../lib/grid-features";
 import { recallGrid, useKeepGridOnUnmount } from "../../lib/grid-memory";
 import { columnTypesOf } from "../../lib/sql-generator";
 import { isNumericSqlType } from "../../lib/sql-types";
-import { useConnectionStore } from "../../stores/connectionStore";
-import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import type { SqlValue } from "../../types";
 import { CellViewerModal } from "./CellViewerModal";
@@ -27,8 +25,9 @@ import { GridBanners } from "./GridBanners";
 import { GridCellContext, type GridCellState } from "./GridCell";
 import { GridFooter } from "./GridFooter";
 import { GridHeaderRow } from "./GridHeaderRow";
-import { GridPlaceholder } from "./GridPlaceholder";
+import { GridPlaceholder, QueryErrorBox } from "./GridPlaceholder";
 import { TableGridRows, VirtualGridRows } from "./GridRows";
+import { ResultTabs } from "./ResultTabs";
 
 function ExportToast({ message }: { message: string }) {
   return (
@@ -43,6 +42,7 @@ export function ResultsGrid() {
   const activeResultIndex = useResultStore((s) => s.activeResultIndex);
   const isExecuting = useResultStore((s) => s.isExecuting);
   const error = useResultStore((s) => s.error);
+  const failedStatement = useResultStore((s) => s.failedStatement);
   const executionStartedAt = useResultStore((s) => s.executionStartedAt);
   const cancelledAfterMs = useResultStore((s) => s.cancelledAfterMs);
   const page = useResultStore((s) => s.page);
@@ -107,10 +107,17 @@ export function ResultsGrid() {
 
   const activeResult = results[activeResultIndex];
 
-  const activeEditorTab = useEditorStore((s) => s.tabs.find((t) => t.id === s.activeTabId));
-  const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
-  const gridConnectionId = activeEditorTab?.connectionId ?? selectedConnectionId;
-  const gridDatabase = activeEditorTab?.database ?? null;
+  // Where the result on screen was read, never the editor tab's current
+  // connection and database: the tab can be pointed elsewhere after the query
+  // ran, and a row key read from another server's table of the same name puts
+  // the wrong columns in the WHERE of an UPDATE or DELETE (#857).
+  const resultSource = useResultStore((s) => s.resultSource);
+  const gridConnectionId = resultSource?.connectionId ?? null;
+  const gridDatabase = resultSource?.database ?? null;
+  // Saving needs the source too; without it there is nowhere safe to write.
+  const editBlockedReason = resultSource
+    ? null
+    : "Editing is unavailable: the connection this result came from is unknown. Run the query again.";
 
   // FR-3.1.5: a dragged column order outlives the query that produced it.
   const layout = useColumnLayout(gridConnectionId, gridDatabase, activeResult?.columns);
@@ -119,7 +126,7 @@ export function ResultsGrid() {
   const filters = useColumnFilters(layoutId);
   const columnFilters = filters.active;
 
-  const { selection, clickRow } = useRowSelection(
+  const { selection, clickRow, step } = useRowSelection(
     activeResult?.rows.length ?? 0,
     layoutId,
     gridRef,
@@ -195,35 +202,6 @@ export function ResultsGrid() {
     if (droppedEdits) showToast(`Discarded ${droppedEdits.count} unsaved change(s): the results changed`);
   }, [droppedEdits, showToast]);
 
-  const { setCellNull } = useGridShortcuts({ result: activeResult, editing, editingCell });
-
-  const { copyAll, copyAs, exportAs } = useGridExport({
-    result: activeResult,
-    orderedColumns,
-    selection,
-    rowKey,
-    onMessage: showToast,
-  });
-
-  const handleRowContextMenu = useGridContextMenu({
-    result: activeResult,
-    orderedColumns,
-    selection,
-    editing,
-    showContextMenu,
-    onCopyAs: copyAs,
-    onSetNull: setCellNull,
-  });
-
-  const { isSaving, save } = useGridSave({
-    result: activeResult,
-    editing,
-    rowKey,
-    keyWarning,
-    columnTypes,
-    onMessage: showToast,
-  });
-
   const maxContentLen = useMemo<Record<string, number>>(() => {
     if (!activeResult) return {};
     const lens: Record<string, number> = {};
@@ -242,24 +220,6 @@ export function ResultsGrid() {
   }, [activeResult]);
 
   const columns = useGridColumns({ result: activeResult, maxContentLen });
-
-  // What the cells need that changes from render to render. Handed down by
-  // context rather than captured in the column definitions, so the cells keep
-  // their identity across a click and a double-click can land (#841).
-  const cellState = useMemo<GridCellState | null>(
-    () =>
-      activeResult
-        ? {
-          result: activeResult,
-          editing,
-          editingCell,
-          onEditCellAt: editCellAt,
-          onStopEditing: stopEditing,
-          onViewCell: setCellViewer,
-        }
-        : null,
-    [activeResult, editing, editingCell, editCellAt, stopEditing],
-  );
 
   const data = useMemo(() => {
     if (!activeResult) return [];
@@ -298,6 +258,63 @@ export function ResultsGrid() {
     sortDescFirst: false,
   });
 
+  /**
+   * Result indices in the order the rows are on screen, read when needed:
+   * Tab, a copy and a Shift range all follow what the user sees, which after
+   * a sort or filter is not the result's order (#839, #858).
+   */
+  const getScreenOrder = useCallback(() => table.getRowModel().rows.map((r) => r.index), [table]);
+
+  const { setCellNull } = useGridShortcuts({ result: activeResult, editing, editingCell });
+
+  const { copyAll, copyAs, exportAs } = useGridExport({
+    result: activeResult,
+    orderedColumns,
+    selection,
+    rowKey,
+    getScreenOrder,
+    onMessage: showToast,
+  });
+
+  const handleRowContextMenu = useGridContextMenu({
+    result: activeResult,
+    orderedColumns,
+    selection,
+    editing,
+    showContextMenu,
+    onCopyAs: copyAs,
+    onSetNull: setCellNull,
+  });
+
+  const { isSaving, save } = useGridSave({
+    result: activeResult,
+    editing,
+    rowKey,
+    keyWarning,
+    columnTypes,
+    onMessage: showToast,
+  });
+
+  // What the cells need that changes from render to render. Handed down by
+  // context rather than captured in the column definitions, so the cells keep
+  // their identity across a click and a double-click can land (#841).
+  const cellState = useMemo<GridCellState | null>(
+    () =>
+      activeResult
+        ? {
+          result: activeResult,
+          editing,
+          editingCell,
+          onEditCellAt: editCellAt,
+          onStopEditing: stopEditing,
+          onViewCell: setCellViewer,
+          getScreenOrder,
+          columnOrder: orderedColumns,
+        }
+        : null,
+    [activeResult, editing, editingCell, editCellAt, stopEditing, getScreenOrder, orderedColumns],
+  );
+
   /** Widen a column to fit its widest value, capped so one JSON blob cannot own the grid. */
   const autoSizeColumn = useCallback((colName: string) => {
     let maxLen = colName.length;
@@ -315,8 +332,46 @@ export function ResultsGrid() {
 
   /** A row click, with the on-screen order so Shift ranges follow the sort (#839). */
   const clickGridRow = useCallback((e: React.MouseEvent, dataIdx: number) => {
-    clickRow(e, dataIdx, table.getRowModel().rows.map((r) => r.index));
-  }, [clickRow, table]);
+    clickRow(e, dataIdx, getScreenOrder());
+  }, [clickRow, getScreenOrder]);
+
+  /**
+   * The grid's keyboard path (#852): arrows, Home and End move the selection
+   * through the rows on screen, Shift extends it, and Ctrl+C copies the
+   * selected rows as TSV — the browser's own copy took the cell text one value
+   * per line. Not while typing in a cell editor or a filter.
+   */
+  const handleGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
+    const ctrl = e.ctrlKey || e.metaKey;
+    if (ctrl && e.key.toLowerCase() === "c") {
+      if (selection.rows.size === 0 || window.getSelection()?.toString()) return;
+      e.preventDefault();
+      void copyAs("tsv");
+      return;
+    }
+    if (ctrl || e.altKey) return;
+    const deltas: Record<string, number> = {
+      ArrowDown: 1,
+      ArrowUp: -1,
+      PageDown: 10,
+      PageUp: -10,
+      Home: -Infinity,
+      End: Infinity,
+    };
+    const delta = deltas[e.key];
+    if (delta === undefined) return;
+    e.preventDefault();
+    const order = getScreenOrder();
+    const moved = step(delta, e.shiftKey, order);
+    if (moved === undefined) return;
+    if (shouldVirtualize) {
+      rowVirtualizer.scrollToIndex(order.indexOf(moved), { align: "auto" });
+    } else {
+      gridRef.current?.querySelector(`[data-row-index="${moved}"]`)?.scrollIntoView?.({ block: "nearest" });
+    }
+  };
 
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
@@ -333,27 +388,62 @@ export function ResultsGrid() {
     overscan: 5,
   });
 
+  // Every result of a script stays reachable, whether or not the one shown
+  // has a grid (#844). Not while running: the results are the last run's.
+  const resultTabs = isExecuting ? null : (
+    <ResultTabs
+      results={results}
+      activeIndex={activeResultIndex}
+      onSelect={(idx) => useResultStore.getState().setActiveResult(idx)}
+    />
+  );
+
   // Running, failed, a statement that returned a count, or nothing run yet —
   // none of which is a grid.
-  if (isExecuting || error || !activeResult || activeResult.columns.length === 0) {
-    return (
+  // A script that failed part-way still shows what the statements before the
+  // failing one returned, under the error (#845).
+  const errorOverResults = error !== null && results.length > 0;
+  if (isExecuting || (error && !errorOverResults) || !activeResult || activeResult.columns.length === 0) {
+    const placeholder = (
       <GridPlaceholder
         isExecuting={isExecuting}
         error={error}
         result={activeResult}
         startedAt={executionStartedAt}
         cancelledAfterMs={cancelledAfterMs}
+        failedStatement={failedStatement}
       />
+    );
+    if (!resultTabs || results.length < 2) return placeholder;
+    return (
+      <div className="flex h-full min-h-0 flex-col">
+        {resultTabs}
+        <div className="min-h-0 flex-1">{placeholder}</div>
+      </div>
     );
   }
 
   return (
-    // tabIndex so the grid can hold focus, which is what scopes Ctrl+A to it.
-    <div ref={gridRef} tabIndex={-1} className="flex h-full flex-col min-h-0 outline-none">
+    // Focusable, so it can hold focus: that scopes Ctrl+A, Ctrl+C and the
+    // arrow keys to it, and puts the rows one Tab away (#852).
+    <div
+      ref={gridRef}
+      tabIndex={0}
+      aria-label="Query results"
+      onKeyDown={handleGridKeyDown}
+      className="flex h-full flex-col min-h-0 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-500"
+    >
+      {errorOverResults && error && (
+        <QueryErrorBox error={error} failedStatement={failedStatement} className="m-2 shrink-0 p-2" />
+      )}
+
+      {resultTabs}
+
       {/* Edit toolbar */}
       <EditToolbar
         editMode={editing.editMode}
         onToggleEditMode={editing.toggleEditMode}
+        editBlockedReason={editBlockedReason}
         pendingCount={editing.pendingCount}
         hasChanges={editing.hasChanges}
         keyWarning={keyWarning}
@@ -374,25 +464,6 @@ export function ResultsGrid() {
         warnings={activeResult.warnings}
         rowCount={rowCount}
       />
-
-      {/* Result set tabs */}
-      {results.length > 1 && (
-        <div className="flex border-b border-[var(--color-border)] bg-[var(--color-bg-secondary)]">
-          {results.map((_, idx) => (
-            <button
-              key={idx}
-              onClick={() => useResultStore.getState().setActiveResult(idx)}
-              className={`px-3 py-1 text-xs ${
-                idx === activeResultIndex
-                  ? "border-b-2 border-brand-500 text-[var(--color-text-primary)]"
-                  : "text-[var(--color-text-muted)]"
-              }`}
-            >
-              Result {idx + 1}
-            </button>
-          ))}
-        </div>
-      )}
 
       {/* Table */}
       <GridCellContext.Provider value={cellState}>

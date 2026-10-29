@@ -40,23 +40,17 @@ export function useGridContextMenu({
   return useCallback(
     (e: React.MouseEvent<HTMLElement>, rowIdx: number) => {
       if (!result) return;
-      const td = (e.target as HTMLElement).closest("td");
       const row = result.rows[rowIdx];
       const colNames = result.columns.map((c) => c.name);
 
-      // The cell's position in the row is its *display* position, which stops
-      // being its position in the result once a column has been dragged
-      // (#392).
-      let cellColIdx = 0;
-      if (td?.parentElement) {
-        const displayIdx = Math.max(
-          0,
-          Array.from(td.parentElement.children).indexOf(td) - 1,
-        );
-        const displayed = orderedColumns[displayIdx]?.name;
-        const inResult = colNames.indexOf(displayed ?? "");
-        cellColIdx = inResult >= 0 ? inResult : displayIdx;
-      }
+      // Each cell names its column, in both layouts. Counting the cell's
+      // position among its row's children found nothing in the virtualized
+      // layout, which renders divs rather than tds, so every action there
+      // took column 0 (#858). The name also survives a dragged column (#392).
+      const cellEl = (e.target as HTMLElement).closest<HTMLElement>("[data-col]");
+      const clickedName = cellEl?.dataset.col;
+      const clickedIdx = clickedName === undefined ? -1 : colNames.indexOf(clickedName);
+      const cellColIdx = Math.max(0, clickedIdx >= 0 ? clickedIdx : colNames.indexOf(orderedColumns[0]?.name ?? ""));
       const cellValue = row[cellColIdx];
       const cellColumn = colNames[cellColIdx];
       const rowTsv = row.map((v) => SqlValueGuard.toString(v)).join("\t");

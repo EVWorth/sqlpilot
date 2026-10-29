@@ -266,14 +266,14 @@ describe("ResultsGrid", () => {
       },
     ];
     render(<ResultsGrid />);
-    expect(screen.getByText("Result 1")).toBeInTheDocument();
-    expect(screen.getByText("Result 2")).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")[0]).toBeInTheDocument();
+    expect(screen.getAllByRole("tab")[1]).toBeInTheDocument();
   });
 
   it("does not show tabs when only one result", () => {
     state.results = [{ ...baseResult }];
     render(<ResultsGrid />);
-    expect(screen.queryByText("Result 1")).toBeNull();
+    expect(screen.queryByRole("tab")).toBeNull();
   });
 
   it("shows footer with row count and execution time", () => {
@@ -417,7 +417,7 @@ describe("ResultsGrid tab switching", () => {
     ];
     state.activeResultIndex = 0;
     render(<ResultsGrid />);
-    fireEvent.click(screen.getByText("Result 2"));
+    fireEvent.click(screen.getAllByRole("tab")[1]);
   });
 });
 
@@ -618,5 +618,62 @@ describe("saving edits safely", () => {
       });
       expect(useProductionGuardStore.getState().pending).toBeNull();
     });
+  });
+});
+
+// #844: a script's results were unreachable once the one shown had no grid.
+describe("every result of a script is reachable", () => {
+  const script = () => [
+    {
+      ...baseResult,
+      query_id: "u",
+      sql: "UPDATE products SET price = 1 WHERE id = 1",
+      columns: [],
+      rows: [],
+      rows_affected: 1,
+    },
+    { ...baseResult, query_id: "s", statement_index: 1, sql: "SELECT * FROM products", rows: [[1], [2]] },
+  ];
+
+  it("keeps the tabs above a statement that returned only a count", () => {
+    state.results = script();
+    state.activeResultIndex = 0;
+    render(<ResultsGrid />);
+
+    expect(screen.getByText(/1 row\(s\) affected/)).toBeInTheDocument();
+    const tabs = screen.getAllByRole("tab");
+    expect(tabs.map((t) => t.textContent)).toEqual([
+      "1. UPDATE products · 1 affected",
+      "2. SELECT products · 2 rows",
+    ]);
+    expect(tabs[0].getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("keeps the tabs above the grid", () => {
+    state.results = script();
+    state.activeResultIndex = 1;
+    render(<ResultsGrid />);
+
+    expect(screen.getAllByRole("tab")[1].getAttribute("aria-selected")).toBe("true");
+  });
+});
+
+// #845: a failure part-way through a script kept nothing of what ran before it.
+describe("a script that failed part-way", () => {
+  it("shows the earlier results under the error", () => {
+    state.results = [{ ...baseResult, sql: "SELECT * FROM products", rows: [[1], [2]] }];
+    state.activeResultIndex = 0;
+    state.error = "Table 'shop.nope' doesn't exist";
+    (state as Record<string, unknown>).failedStatement = { index: 1, count: 3, sql: "SELECT * FROM nope", code: 1146 };
+    try {
+      render(<ResultsGrid />);
+
+      expect(screen.getByRole("alert").textContent).toContain("Statement 2 of 3 failed (1146)");
+      // The grid itself, not the placeholder, is drawn under the error.
+      expect(document.querySelector("table")).not.toBeNull();
+    } finally {
+      state.error = null;
+      delete (state as Record<string, unknown>).failedStatement;
+    }
   });
 });

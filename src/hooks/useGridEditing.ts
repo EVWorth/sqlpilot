@@ -1,5 +1,6 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { type GridMemoryScope, recallGrid, useKeepGridOnUnmount } from "../lib/grid-memory";
+import { noteGridEdits } from "../lib/unsaved-grid-edits";
 import type { SqlValue } from "../types";
 
 export interface CellChange {
@@ -218,14 +219,19 @@ export function useGridEditing(memory: GridMemoryScope | null = null, owner: unk
     });
   }, [deletes]);
 
+  const memoryTab = memory?.tab ?? null;
+
   const discardAll = useCallback(() => {
+    // Now rather than on the next render: a save discards and then refreshes
+    // in one go, and the refresh must not ask about edits it just applied.
+    if (memoryTab) noteGridEdits(memoryTab, 0);
     setUpdates(new Map());
     setInserts([]);
     setDeletes(new Set());
     undoStack.current = [];
     redoStack.current = [];
     bumpVersion();
-  }, []);
+  }, [memoryTab]);
 
   /** Apply one action. Actions state the outcome, so this never inverts. */
   const applyAction = useCallback((action: EditAction) => {
@@ -333,6 +339,12 @@ export function useGridEditing(memory: GridMemoryScope | null = null, owner: unk
   }, [updates, inserts, deletes]);
 
   const hasChanges = getPendingCount > 0;
+
+  // Not cleared on unmount: the edits are kept for the tab while it is hidden
+  // (#842), and a run there would still discard them.
+  useEffect(() => {
+    if (memoryTab) noteGridEdits(memoryTab, getPendingCount);
+  }, [memoryTab, getPendingCount]);
 
   const getCellValue = useCallback(
     (rowIndex: number, column: string, originalValue: SqlValue): SqlValue => {

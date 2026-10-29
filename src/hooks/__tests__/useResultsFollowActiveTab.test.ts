@@ -2,7 +2,7 @@ import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it } from "vitest";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
-import { useResultStore } from "../../stores/resultStore";
+import { resetRunBookkeeping, useResultStore } from "../../stores/resultStore";
 import type { ConnectionInfo, EditorTab, QueryResult } from "../../types";
 import { useResultsFollowActiveTab } from "../useResultsFollowActiveTab";
 
@@ -31,6 +31,7 @@ const tab = (id: string, connectionId?: string): EditorTab => ({
 // #842: a grid read on one server is not shown under another.
 describe("useResultsFollowActiveTab", () => {
   beforeEach(() => {
+    resetRunBookkeeping();
     useConnectionStore.setState({
       activeConnections: [connection("dev"), connection("prod")],
       selectedConnectionId: "dev",

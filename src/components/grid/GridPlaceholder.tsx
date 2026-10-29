@@ -1,5 +1,6 @@
 import { AlertCircle, CircleSlash, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import type { FailedStatement } from "../../stores/resultStore";
 import type { QueryResult } from "../../types";
 
 /**
@@ -19,6 +20,8 @@ export interface GridPlaceholderProps {
   startedAt?: number | null;
   /** Set when the user cancelled the last run (#850). */
   cancelledAfterMs?: number | null;
+  /** Which statement of a script the error came from (#845). */
+  failedStatement?: FailedStatement | null;
 }
 
 /** Seconds with one decimal: "1.2 s". */
@@ -47,6 +50,7 @@ export function GridPlaceholder({
   result,
   startedAt,
   cancelledAfterMs,
+  failedStatement,
 }: GridPlaceholderProps) {
   if (isExecuting) {
     return (
@@ -74,13 +78,7 @@ export function GridPlaceholder({
   if (error) {
     return (
       <div className="flex h-full items-center justify-center gap-2 p-4">
-        <div className="max-w-lg rounded border edge-error surface-error-strong p-4">
-          <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-error)]">
-            <AlertCircle className="h-4 w-4" />
-            Query Error
-          </div>
-          <pre className="mt-2 whitespace-pre-wrap text-xs text-[var(--color-error)]">{error}</pre>
-        </div>
+        <QueryErrorBox error={error} failedStatement={failedStatement} className="max-w-lg" />
       </div>
     );
   }
@@ -103,4 +101,37 @@ export function GridPlaceholder({
   }
 
   return null;
+}
+
+/** What failed, and where in the script: "Statement 2 of 3 failed (1146)" (#845). */
+export function errorTitle(failed: FailedStatement | null | undefined): string {
+  if (!failed) return "Query Error";
+  const where = failed.count > 1 ? `Statement ${failed.index + 1} of ${failed.count} failed` : "Statement failed";
+  return failed.code !== null ? `${where} (${failed.code})` : where;
+}
+
+/** The error box, shared by the placeholder and the banner over earlier results. */
+export function QueryErrorBox({
+  error,
+  failedStatement,
+  className,
+}: {
+  error: string;
+  failedStatement?: FailedStatement | null;
+  className?: string;
+}) {
+  return (
+    <div role="alert" className={`rounded border edge-error surface-error-strong p-4 ${className ?? ""}`}>
+      <div className="flex items-center gap-2 text-sm font-medium text-[var(--color-error)]">
+        <AlertCircle className="h-4 w-4" />
+        {errorTitle(failedStatement)}
+      </div>
+      <pre className="mt-2 whitespace-pre-wrap text-xs text-[var(--color-error)]">{error}</pre>
+      {failedStatement?.sql && (
+        <pre className="mt-2 max-h-24 overflow-auto whitespace-pre-wrap rounded bg-[var(--color-bg-primary)] p-2 font-mono text-xs text-[var(--color-text-secondary)]">
+          {failedStatement.sql}
+        </pre>
+      )}
+    </div>
+  );
 }
