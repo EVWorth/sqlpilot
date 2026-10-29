@@ -1,8 +1,7 @@
 import { ChevronRight, Database, KeyRound, Loader2, Pencil, Shield, ShieldCheck, Trash2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
-import { quoteStringLiteral } from "../../lib/sql-quote";
-import { api } from "../../lib/tauri-api";
+import { useEffect, useId, useMemo, useState } from "react";
 import { cn } from "../../lib/utils";
+import { grantsOf, useAdminStore } from "../../stores/adminStore";
 import { PrivilegesEditor } from "./PrivilegesEditor";
 import type { DetailTab } from "./UserManagement";
 import { categorizeGrants, type ParsedGrant, parseGrantStatements } from "./userPrivileges";
@@ -134,26 +133,16 @@ function GrantsView({
   user: string;
   host: string;
 }) {
-  const [rawGrants, setRawGrants] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The grants, their loading and their error are the store's, keyed by this
+  // view (#862).
+  const view = useId();
+  const { grants: rawGrants, loading, error } = useAdminStore((s) => grantsOf(s, view));
+
+  useEffect(() => () => useAdminStore.getState().release(view), [view]);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api
-      .executeQuery(
-        connectionId,
-        `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
-      )
-      .then((results) => {
-        if (results.length > 0) {
-          setRawGrants(results[0].rows.map((row) => String(row[0] ?? "")));
-        }
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [connectionId, user, host]);
+    void useAdminStore.getState().loadGrants(view, connectionId, user, host);
+  }, [view, connectionId, user, host]);
 
   const parsed = useMemo(() => parseGrantStatements(rawGrants), [rawGrants]);
   const categorized = useMemo(() => categorizeGrants(parsed), [parsed]);

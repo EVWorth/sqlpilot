@@ -1,8 +1,8 @@
 import { ArrowUpDown, Check, ChevronDown, ChevronRight, Copy, Loader2, Pencil, Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { serverFlavour } from "../../lib/server-flavour";
-import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
+import { useAdminStore, variablesOf } from "../../stores/adminStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type { ServerVariable } from "../../types";
 import { SetVariableDialog } from "./SetVariableDialog";
@@ -11,9 +11,10 @@ type SortField = "name" | "value";
 type SortDir = "asc" | "desc";
 
 export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
-  const [variables, setVariables] = useState<ServerVariable[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The variables, their loading and their error are the store's, keyed by
+  // this tab (#862).
+  const view = useId();
+  const { variables, loading, error } = useAdminStore((s) => variablesOf(s, view));
   const [filter, setFilter] = useState("");
   const [sortField, setSortField] = useState<SortField>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -30,20 +31,14 @@ export function ServerVariablesTab({ connectionId }: { connectionId: string }) {
   /** The variable just changed through the dialog, highlighted for a moment. */
   const [updatedName, setUpdatedName] = useState<string | null>(null);
 
+  useEffect(() => () => useAdminStore.getState().release(view), [view]);
+
   useEffect(() => {
     // Only the first load (and a connection switch) shows the full-pane
     // spinner. A reload after SET refreshes in the background so the table
     // and its scroll position stay put (#819).
-    if (reloadToken === 0) setLoading(true);
-    api
-      .getServerVariables(connectionId)
-      .then((data) => {
-        setVariables(data);
-        setError(null);
-      })
-      .catch((e) => setError(String(e)))
-      .finally(() => setLoading(false));
-  }, [connectionId, reloadToken]);
+    void useAdminStore.getState().loadVariables(view, connectionId, { background: reloadToken !== 0 });
+  }, [view, connectionId, reloadToken]);
 
   useEffect(() => {
     if (!updatedName) return;

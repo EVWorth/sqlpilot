@@ -2,8 +2,8 @@ import { Check, Database, Loader2, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { runStatement } from "../../lib/run-statement";
 import { quoteIdentifier, quoteStringLiteral } from "../../lib/sql-quote";
-import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
+import { useAdminStore } from "../../stores/adminStore";
 import { confirmDestructive } from "../../stores/productionGuardStore";
 import { SQLPreviewDialog } from "../common/SQLPreviewDialog";
 import { describePartialFailure, setsEqual } from "./grantReporting";
@@ -105,12 +105,12 @@ export function PrivilegesEditor({
 
   // Load databases
   useEffect(() => {
-    api
-      .getDatabases(connectionId)
-      .then((dbs) =>
+    useAdminStore
+      .getState()
+      .listDatabaseNames(connectionId)
+      .then((names) =>
         setDatabases(
-          dbs
-            .map((d) => d.name)
+          names
             .filter(
               (name) =>
                 name !== "information_schema"
@@ -132,14 +132,11 @@ export function PrivilegesEditor({
     // Already held — including any unapplied edits — so leave it alone.
     if (dbPrivs.has(selectedDb)) return;
     setDbLoading(true);
-    api
-      .executeQuery(
-        connectionId,
-        `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
-      )
-      .then((results) => {
-        if (results.length > 0) {
-          const rawGrants = results[0].rows.map((row) => String(row[0] ?? ""));
+    useAdminStore
+      .getState()
+      .showGrants(connectionId, user, host)
+      .then((rawGrants) => {
+        if (rawGrants) {
           const parsed = parseGrantStatements(rawGrants);
           const categorized = categorizeGrants(parsed);
           const dbGrant = categorized.database.get(selectedDb);
