@@ -10,10 +10,9 @@ import {
   Terminal,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { StartupProblem } from "../../lib/bindings";
 import { releaseUrl } from "../../lib/repo";
 import { serverFlavour } from "../../lib/server-flavour";
-import { api } from "../../lib/tauri-api";
+import { useAppInfoStore } from "../../stores/appInfoStore";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
@@ -62,12 +61,10 @@ export function StatusBar() {
   const connectionError = useConnectionStore((s) => s.failedProfileId ? null : s.error);
   // Undefined until the check answers; only `false` shows the warning, so a
   // slow reply never flashes it at someone whose keyring is fine.
-  const [keyringAvailable, setKeyringAvailable] = useState<boolean | undefined>();
+  const keyringAvailable = useAppInfoStore((s) => s.keyringAvailable);
 
   useEffect(() => {
-    api.keyringAvailable().then(setKeyringAvailable).catch(() => {
-      // The check itself failing says nothing about the keyring; stay quiet.
-    });
+    void useAppInfoStore.getState().checkKeyring();
   }, []);
   const storageErrors = useStorageErrorStore((s) => s.errors);
   const dismissStorageError = useStorageErrorStore((s) => s.dismissStorageError);
@@ -92,7 +89,7 @@ export function StatusBar() {
   const [showUpdateConfirm, setShowUpdateConfirm] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedCommand, setCopiedCommand] = useState(false);
-  const [appVersion, setAppVersion] = useState("");
+  const appVersion = useAppInfoStore((s) => s.appVersion);
   const updateStatus = useSettingsStore((s) => s.updateStatus);
   const updateVersion = useSettingsStore((s) => s.updateVersion);
   const manualUpdateCommand = useSettingsStore((s) => s.manualUpdateCommand);
@@ -106,20 +103,17 @@ export function StatusBar() {
   const updateConfirmRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
+    void useAppInfoStore.getState().loadAppVersion();
   }, []);
 
   // What the backend could not do before the window existed — no saved
   // connections, no history, a data folder that will not persist. These used
   // to be panics, which meant the process vanished and the user saw nothing
   // at all.
-  const [startupProblems, setStartupProblems] = useState<StartupProblem[]>([]);
+  const startupProblems = useAppInfoStore((s) => s.startupProblems);
   const [dismissedProblems, setDismissedProblems] = useState<string[]>([]);
   useEffect(() => {
-    api.startupProblems().then(setStartupProblems).catch((e) => {
-      // The report failing to arrive says nothing about the app's state.
-      console.warn("Could not read the startup report", e);
-    });
+    void useAppInfoStore.getState().loadStartupProblems();
   }, []);
 
   useEffect(() => {
