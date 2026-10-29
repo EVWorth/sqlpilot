@@ -13,6 +13,7 @@
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
 import { injectedFailure } from "./failures";
+import { resetAccounts } from "./handlers/accounts";
 import { adminHandlers } from "./handlers/admin";
 import { agentHandlers } from "./handlers/agent";
 import { connectionHandlers } from "./handlers/connections";
@@ -42,6 +43,7 @@ export function installMockBackend(
   options: MockOptions = optionsFromUrl(window.location.search),
 ): void {
   resetState(scenario, options);
+  resetAccounts();
   mockWindows("main");
   mockIPC(
     async (cmd, payload) => {

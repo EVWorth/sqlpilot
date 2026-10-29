@@ -71,4 +71,11 @@ Some states need no switch, only the right click:
 - **Query errors:** a statement containing `syntax_error` or starting with a
   misspelt verb fails with 1064; an unknown table with 1146; `SELECT SLEEP(n)`
   waits up to 5s and Cancel interrupts it.
+- **Data:** 130 history entries (three pages); `shop` has routines, a
+  trigger and events in each state, `analytics` a partitioned table; the
+  SQLite fixture has a view.
+- **Users and roles:** `mysql.user`, the role tables and SHOW GRANTS answer
+  from a list of eleven accounts that CREATE/ALTER/RENAME/DROP USER, CREATE
+  ROLE, GRANT and REVOKE change. On MariaDB the Users tab's full query fails
+  with 1054 and it falls back, as on a real MariaDB.
 - **Backup and restore** run for about three seconds of real time.

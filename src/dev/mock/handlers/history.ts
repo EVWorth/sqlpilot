@@ -9,6 +9,7 @@
 // keeps a screenshot the same from one day to the next.
 
 import type { HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery } from "../../../lib/bindings";
+import { rand } from "../dataset";
 import { delay, type Handlers } from "../router";
 
 interface Stored extends HistoryEntry {
@@ -201,11 +202,55 @@ const SEED: SeedRow[] = [
   [30_240, "SHOW PROCESSLIST", PROD, null, "editor", 2, 14],
 ];
 
+/**
+ * The routine queries of the month before: enough of them that the panel has
+ * pages to turn (it loads 50 at a time), all older than the hand-written seed
+ * above so the first screen stays the one worth looking at.
+ */
+const ROUTINE: [sql: string, connection: string, database: string, origin: string][] = [
+  ["SELECT * FROM `orders` LIMIT 200 OFFSET 0", LOCAL, "shop", "grid"],
+  ["SELECT * FROM `customers` LIMIT 200 OFFSET 0", LOCAL, "shop", "grid"],
+  ["SELECT COUNT(*) FROM orders WHERE status = 'pending'", LOCAL, "shop", "editor"],
+  ["SELECT id, email FROM customers WHERE is_active = 0 ORDER BY created_at", LOCAL, "shop", "editor"],
+  ["UPDATE `products` SET `stock` = `stock` - 1 WHERE `id` = 4", LOCAL, "shop", "grid"],
+  [
+    "SELECT name, COUNT(*) FROM events WHERE occurred_at >= CURDATE() - INTERVAL 1 DAY GROUP BY name",
+    STAGING,
+    "analytics",
+    "editor",
+  ],
+  ["SELECT * FROM daily_signups ORDER BY day DESC LIMIT 7", STAGING, "analytics", "editor"],
+  ["SHOW CREATE TABLE `orders`", LOCAL, "shop", "schema"],
+  ["SELECT status, COUNT(*) FROM orders GROUP BY status", PROD, "shop", "editor"],
+  ["EXPLAIN SELECT * FROM orders WHERE customer_id = 812", PROD, "shop", "editor"],
+  ["SELECT * FROM order_items WHERE order_id = 7731", LOCAL, "shop", "editor"],
+  ["SELECT VERSION()", MARIA, "", "editor"],
+];
+
+const ROUTINE_ENTRIES = 90;
+const LOCK_WAIT = "Lock wait timeout exceeded; try restarting transaction";
+
+function routineRows(after: number): SeedRow[] {
+  return Array.from({ length: ROUTINE_ENTRIES }, (_, i): SeedRow => {
+    const [sql, connection, database, origin] = ROUTINE[Math.floor(rand(i, 61) * ROUTINE.length)];
+    const ms = 1 + Math.floor(rand(i, 62) ** 3 * 4_000);
+    const rows = sql.startsWith("UPDATE") ? 1 : Math.floor(rand(i, 63) * 200);
+    // One in fifteen of them failed, the way a lock wait does now and then.
+    const failed = rand(i, 64) < 1 / 15;
+    const at = after + 120 + i * 137;
+    const db = database || null;
+    if (!failed) return [at, sql, connection, db, origin, ms, rows];
+    return [at, sql, connection, db, origin, 50_001, 0, [1205, "HY000", LOCK_WAIT]];
+  });
+}
+
+const ALL_SEED: SeedRow[] = [...SEED, ...routineRows(SEED[SEED.length - 1][0])];
+
 function seedEntries(): Stored[] {
   const now = Math.floor(Date.now() / 60_000) * 60_000;
   // Oldest first, so `seq` grows with time as rowid does.
-  return [...SEED].reverse().map(([ago, sql, connectionName, database, origin, ms, rows, err], i) => ({
-    id: `hist-${String(SEED.length - i).padStart(3, "0")}`,
+  return [...ALL_SEED].reverse().map(([ago, sql, connectionName, database, origin, ms, rows, err], i) => ({
+    id: `hist-${String(ALL_SEED.length - i).padStart(3, "0")}`,
     sql,
     connectionName,
     database,
