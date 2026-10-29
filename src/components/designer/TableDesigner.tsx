@@ -13,7 +13,7 @@ import {
   Settings,
   Trash2,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { parseColumnType, parseOnUpdate } from "../../lib/column-modifiers";
 import {
   type DesignerColumn,
@@ -26,9 +26,9 @@ import {
 } from "../../lib/ddl-generator";
 import { foreignKeyTypeProblem } from "../../lib/fk-compat";
 import { DEFAULT_TABLE_OPTIONS, parseTableOptions } from "../../lib/table-options";
-import { api } from "../../lib/tauri-api";
-import { cn, errorMessage } from "../../lib/utils";
+import { cn } from "../../lib/utils";
 import { useResultStore } from "../../stores/resultStore";
+import { referencesOf, type TablePart, useTableDetailsStore } from "../../stores/tableDetailsStore";
 import type { ColumnInfo, ForeignKeyInfo, IndexInfo, TableInfo } from "../../types";
 import { SQLPreviewDialog } from "../common/SQLPreviewDialog";
 import { ColumnsTab } from "./ColumnsTab";
@@ -40,6 +40,16 @@ const INDEX_TYPES = ["PRIMARY KEY", "UNIQUE", "INDEX", "FULLTEXT"] as const;
 const FK_ACTIONS = ["RESTRICT", "CASCADE", "SET NULL", "NO ACTION"] as const;
 const ENGINES = ["InnoDB", "MyISAM", "MEMORY", "CSV", "ARCHIVE"] as const;
 type SubTab = "columns" | "indexes" | "foreignKeys" | "options";
+
+/**
+ * What alter mode reads. Foreign keys, because the tab was empty for every
+ * table without them and an existing constraint could not be seen, edited or
+ * removed (#386). The DDL, because engine, charset, collation and comment are
+ * only available from it: without them both the form and the diff baseline
+ * showed the defaults, so any change towards a default value was diffed
+ * against itself and silently dropped (#378).
+ */
+const DESIGNER_PARTS: readonly TablePart[] = ["columns", "indexes", "foreignKeys", "ddl"];
 
 interface TableDesignerProps {
   connectionId: string;
@@ -97,7 +107,6 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
   const [options, setOptions] = useState<TableOptions>({ ...DEFAULT_TABLE_OPTIONS });
 
   const [originalConfig, setOriginalConfig] = useState<TableDesignerConfig | null>(null);
-  const [loading, setLoading] = useState(isAlter);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -112,41 +121,35 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  const [refTables, setRefTables] = useState<TableInfo[]>([]);
+  // Keyed by this view, so the reads and their errors live in the store
+  // without two designers of the same table sharing one answer (#862).
+  const view = useId();
+  const references = useTableDetailsStore((s) => referencesOf(s, view));
+  const refTables = references.tables;
   // Name and type. The type is what makes a mismatched foreign key visible
   // before the server rejects it (#385).
-  const [refTableColumns, setRefTableColumns] = useState<Record<string, RefColumn[]>>({});
-  // Why a reference table's columns could not be read, by table. Swallowed,
-  // the key's target columns vanished and the type check went quiet (#810).
-  const [refColumnErrors, setRefColumnErrors] = useState<Record<string, string>>({});
+  const refTableColumns = useMemo(() => {
+    const out: Record<string, RefColumn[]> = {};
+    for (const [table, cols] of Object.entries(references.columns)) {
+      out[table] = cols.map((c) => ({ name: c.name, type: c.column_type }));
+    }
+    return out;
+  }, [references.columns]);
+  const refColumnErrors = references.columnErrors;
+  // Alter mode is loading until its first read has settled.
+  const loading = useTableDetailsStore((s) => isAlter && (s.details[view]?.loading ?? true));
+
+  useEffect(() => () => useTableDetailsStore.getState().release(view), [view]);
 
   // Load reference tables for FK tab
   useEffect(() => {
-    api.getTables(connectionId, database).then(setRefTables).catch((e) =>
-      console.error("Failed to load reference tables", e)
-    );
-  }, [connectionId, database]);
+    void useTableDetailsStore.getState().loadReferenceTables(view, connectionId, database);
+  }, [view, connectionId, database]);
 
   // Load columns for reference tables as needed
   const loadRefTableColumns = useCallback(
-    async (table: string) => {
-      if (refTableColumns[table]) return;
-      try {
-        const cols = await api.getColumns(connectionId, database, table);
-        setRefTableColumns((prev) => ({
-          ...prev,
-          [table]: cols.map((c) => ({ name: c.name, type: c.column_type })),
-        }));
-        setRefColumnErrors((prev) => {
-          const rest = { ...prev };
-          delete rest[table];
-          return rest;
-        });
-      } catch (e) {
-        setRefColumnErrors((prev) => ({ ...prev, [table]: errorMessage(e) }));
-      }
-    },
-    [connectionId, database, refTableColumns],
+    (table: string) => useTableDetailsStore.getState().loadReferenceColumns(view, { connectionId, database, table }),
+    [view, connectionId, database],
   );
 
   // Load existing table data in ALTER mode
@@ -155,42 +158,33 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
 
     const load = async () => {
       try {
-        setLoading(true);
         setLoadError(null);
         setLoadWarning(null);
         // Settled rather than all: one failed read used to empty the whole
         // form, as TableStructure already avoids (#796).
-        const [colsResult, idxResult, fkResult, ddlResult] = await Promise.allSettled([
-          api.getColumns(connectionId, database, tableName),
-          api.getIndexes(connectionId, database, tableName),
-          // The Foreign Keys tab was empty for every table: the type existed
-          // in Rust with nothing producing it, so an existing constraint
-          // could not be seen, edited or removed (#386).
-          api.getForeignKeys(connectionId, database, tableName),
-          // Engine, charset, collation and comment are only available from
-          // the table's own DDL. Without them both the form and the diff
-          // baseline showed the defaults for every table, so the Options tab
-          // misreported the table and any change towards a default value was
-          // diffed against itself and silently dropped (#378).
-          api.getTableDdl(connectionId, database, tableName),
-        ]);
-        if (colsResult.status === "rejected") {
+        const loaded = await useTableDetailsStore.getState().loadDetails(
+          view,
+          { connectionId, database, table: tableName },
+          DESIGNER_PARTS,
+        );
+        const { errors } = loaded;
+        if (errors.columns !== undefined) {
           setOriginalConfig(null);
-          setLoadError(`Failed to load table structure: ${String(colsResult.reason)}`);
+          setLoadError(`Failed to load table structure: ${errors.columns}`);
           return;
         }
-        if (ddlResult.status === "rejected") {
+        if (errors.ddl !== undefined) {
           setOriginalConfig(null);
-          setLoadError(`Failed to load table structure: ${String(ddlResult.reason)}`);
+          setLoadError(`Failed to load table structure: ${errors.ddl}`);
           return;
         }
-        const colsData = colsResult.value;
-        const tableDdl = ddlResult.value;
-        const idxData = idxResult.status === "fulfilled" ? idxResult.value : [];
-        const fkData = fkResult.status === "fulfilled" ? fkResult.value : [];
+        const colsData = loaded.columns;
+        const tableDdl = loaded.ddl;
+        const idxData = loaded.indexes;
+        const fkData = loaded.foreignKeys;
         const missing = [
-          idxResult.status === "rejected" ? `indexes (${String(idxResult.reason)})` : null,
-          fkResult.status === "rejected" ? `foreign keys (${String(fkResult.reason)})` : null,
+          errors.indexes !== undefined ? `indexes (${errors.indexes})` : null,
+          errors.foreignKeys !== undefined ? `foreign keys (${errors.foreignKeys})` : null,
         ].filter((m): m is string => m !== null);
         if (missing.length > 0) {
           setLoadWarning(`Could not load ${missing.join(" and ")}. Those tabs may be incomplete.`);
@@ -259,12 +253,10 @@ export function TableDesigner({ connectionId, database, tableName }: TableDesign
       } catch (e) {
         setOriginalConfig(null);
         setLoadError(`Failed to load table structure: ${e}`);
-      } finally {
-        setLoading(false);
       }
     };
     load();
-  }, [isAlter, tableName, connectionId, database, reloadKey]);
+  }, [view, isAlter, tableName, connectionId, database, reloadKey]);
 
   const currentConfig = useCallback((): TableDesignerConfig => ({
     tableName: tblName,
