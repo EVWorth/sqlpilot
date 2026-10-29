@@ -43,12 +43,15 @@ export function scenarioFromUrl(search: string): Scenario {
  * - `keyring=missing`: no OS credential store.
  * - `startup=problems`: the backend reports that the connection and history
  *   stores could not be opened.
+ * - `agent=uninstalled,no-tools`: no harness installed; sessions without the
+ *   database tools.
  */
 export interface MockOptions {
   fail: string[];
   update: UpdateMode;
   keyring: boolean;
   startupProblems: boolean;
+  agent: string[];
 }
 
 export type UpdateMode = "none" | "available" | "downloading" | "download-error" | "error";
@@ -60,6 +63,7 @@ export const defaultOptions = (): MockOptions => ({
   update: "none",
   keyring: true,
   startupProblems: false,
+  agent: [],
 });
 
 const list = (value: string | null): string[] => (value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -71,6 +75,7 @@ export function optionsFromUrl(search: string): MockOptions {
     update: UPDATE_MODES.find((m) => m === params.get("update")) ?? "none",
     keyring: params.get("keyring") !== "missing",
     startupProblems: params.get("startup") === "problems",
+    agent: list(params.get("agent")),
   };
 }
 

@@ -49,6 +49,8 @@ Separate URL parameters, which combine with any scenario and with each other:
 | `update=error`          | the update check fails                                                                 |
 | `keyring=missing`       | no OS credential store: "Passwords not saved"                                          |
 | `startup=problems`      | the connection and history stores could not be opened at startup                       |
+| `agent=uninstalled`     | no agent CLI installed: the panel shows the install commands                           |
+| `agent=no-tools`        | sessions start without the database tools                                              |
 
 The update chip appears after the automatic check; click it to download.
 
@@ -78,4 +80,13 @@ Some states need no switch, only the right click:
   from a list of eleven accounts that CREATE/ALTER/RENAME/DROP USER, CREATE
   ROLE, GRANT and REVOKE change. On MariaDB the Users tab's full query fails
   with 1054 and it falls back, as on a real MariaDB.
+- **Agent turns:** in an agent session, the message picks the turn.
+  "delete" or "update" asks to change Local dev; "production" or "staging"
+  asks on that environment; "schema", "alter", "index" or "column" asks for a
+  schema change (with "production", on production); "both" sends two
+  approvals at once, one from another client; "rewrite", "propose" or
+  "improve" proposes an edit to the active tab; "draft" or "open" opens a
+  draft tab. Anything else is a read. GitHub Copilot fails its first turn as
+  not signed in, and an approval from an endpoint client arrives six seconds
+  into the first session.
 - **Backup and restore** run for about three seconds of real time.
