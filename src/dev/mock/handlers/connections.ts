@@ -200,10 +200,28 @@ export function scenarioConnection(): ConnectionInfo | undefined {
   return info;
 }
 
+/** What `startup=problems` reports, worded as `lib.rs` words it. */
+const DATA_DIR = "~/.local/share/com.sqlpilot.app";
+const STARTUP_PROBLEMS: StartupProblem[] = [
+  {
+    kind: "connection-store",
+    summary: "Saved connections could not be opened — they are not lost.",
+    detail: `Your connections are still in this file:\n${DATA_DIR}/connections.db\n\nDo not delete it. `
+      + "Nothing is written here while it cannot be read, and a later version may open it again.\n\n"
+      + "What went wrong: Storage error: file is not a database",
+  },
+  {
+    kind: "history-store",
+    summary: "Query history could not be opened — this session will not be kept.",
+    detail: "Everything else works; queries run normally and results are unaffected. Only the record of what "
+      + `you ran is missing.\n\n${DATA_DIR}/history.db\n\nWhat went wrong: Storage error: database is locked`,
+  },
+];
+
 export const connectionHandlers: Handlers = {
-  // The OS keyring works, as it does on any desktop the app supports; the
-  // warning for a missing one is a separate screen to review on purpose.
-  keyring_available: () => true,
+  // The OS keyring works, as it does on any desktop the app supports, unless
+  // the page asks for the warning with `keyring=missing`.
+  keyring_available: () => state.options.keyring,
   list_connection_profiles: async (): Promise<ConnectionProfileSummary_Serialize[]> => {
     await delay(60);
     return state.profiles.map((p) => ({ ...p }));
@@ -334,5 +352,5 @@ export const connectionHandlers: Handlers = {
     return unhealthy(conn.id, failures + 1);
   },
 
-  startup_problems: (): StartupProblem[] => [],
+  startup_problems: (): StartupProblem[] => (state.options.startupProblems ? STARTUP_PROBLEMS : []),
 };

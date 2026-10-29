@@ -40,9 +40,17 @@ pointing at `db.qa.example.internal` or `10.20.30.40` behaves the same way.
 Separate URL parameters, which combine with any scenario and with each other:
 `?mock=connected&fail=get_foreign_keys`.
 
-| Parameter          | Effect                                                                                 |
-| ------------------ | -------------------------------------------------------------------------------------- |
-| `fail=<cmd>,<cmd>` | those commands reject with the error shape the real one has; `get_*` matches by prefix |
+| Parameter               | Effect                                                                                 |
+| ----------------------- | -------------------------------------------------------------------------------------- |
+| `fail=<cmd>,<cmd>`      | those commands reject with the error shape the real one has; `get_*` matches by prefix |
+| `update=available`      | the updater offers 1.5.0, which downloads in about five seconds                        |
+| `update=downloading`    | the same release, downloading over two minutes, to look at the progress                |
+| `update=download-error` | the download breaks halfway                                                            |
+| `update=error`          | the update check fails                                                                 |
+| `keyring=missing`       | no OS credential store: "Passwords not saved"                                          |
+| `startup=problems`      | the connection and history stores could not be opened at startup                       |
+
+The update chip appears after the automatic check; click it to download.
 
 `fail=` takes the Rust command names from `src/lib/bindings.ts`
 (`get_foreign_keys`, `save_connection_profile`) or a plugin command
