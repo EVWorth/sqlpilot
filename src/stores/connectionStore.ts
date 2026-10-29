@@ -3,7 +3,9 @@ import { api } from "../lib/tauri-api";
 import { errorMessage } from "../lib/utils";
 import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary, TestConnectionResult } from "../types";
 import { useConnectionHealthStore } from "./connectionHealthStore";
+import { useEditorStore } from "./editorStore";
 import { useSchemaStore } from "./schemaStore";
+import { useTransactionStore } from "./transactionStore";
 
 interface ConnectionState {
   profiles: ConnectionProfileSummary[];
@@ -227,6 +229,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       // Same reasoning for the health record: it describes a connection that
       // no longer exists, and a later id could otherwise inherit its state.
       useConnectionHealthStore.getState().forget(connectionId);
+      // Closing the connection ended its tabs' sessions, and with them any
+      // transaction they had open: the server rolled it back. A badge still
+      // saying "open" claims work is pending that is already gone (#910).
+      useTransactionStore.getState().forget(
+        useEditorStore.getState().tabs.filter((t) => t.connectionId === connectionId).map((t) => t.id),
+      );
       set((state) => ({
         activeConnections: state.activeConnections.filter(
           (c) => c.id !== connectionId,
