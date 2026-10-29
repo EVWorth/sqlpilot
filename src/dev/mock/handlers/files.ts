@@ -377,7 +377,10 @@ async function runRestore(args: Record<string, unknown>): Promise<RestoreSummary
       elapsedMs: Math.round(elapsed),
       cancelled,
       rolledBack,
-      partiallyApplied: (cancelled || failed) && (!rolledBack || committedSomething),
+      // Nothing ran, so nothing can have been applied: with every statement
+      // refused (read-only production, Stop on error off) the summary must
+      // not tell the user their database is half-restored.
+      partiallyApplied: run > 0 && (cancelled || failed) && (!rolledBack || committedSomething),
       errors,
     };
   } finally {

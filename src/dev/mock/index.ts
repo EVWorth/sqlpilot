@@ -50,7 +50,28 @@ export function installMockBackend(scenario: Scenario = scenarioFromUrl(window.l
     },
     { shouldMockEvents: true },
   );
+  fixUnlisten();
   console.info(`[mock backend] installed (scenario: ${scenario})`);
+}
+
+type Invoke = (cmd: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
+
+/**
+ * Make `unlisten` actually remove the listener.
+ *
+ * `@tauri-apps/api/event` unlistens with `{ event, eventId }`, but the event
+ * mock in `@tauri-apps/api/mocks` (2.12) looks for `args.id`, finds nothing,
+ * and keeps the listener. Its callback is gone by then, so every later
+ * `emit` of that event logged "[TAURI] Couldn't find callback id" — a
+ * console full of them after one backup. Passing the id under both names
+ * lets the mock remove it, and an event nobody listens to any more goes
+ * nowhere, as it does in the app.
+ */
+function fixUnlisten(): void {
+  const internals = (window as unknown as { __TAURI_INTERNALS__: { invoke: Invoke } }).__TAURI_INTERNALS__;
+  const mocked = internals.invoke;
+  internals.invoke = (cmd, args, options) =>
+    mocked(cmd, cmd === "plugin:event|unlisten" && args ? { ...args, id: args.eventId } : args, options);
 }
 
 /**
