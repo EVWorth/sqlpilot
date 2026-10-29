@@ -12,6 +12,7 @@
 // and leaving a screen that looks broken for no visible reason.
 
 import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+import { injectedFailure } from "./failures";
 import { adminHandlers } from "./handlers/admin";
 import { agentHandlers } from "./handlers/agent";
 import { connectionHandlers } from "./handlers/connections";
@@ -21,8 +22,8 @@ import { pluginHandlers } from "./handlers/plugins";
 import { queryHandlers } from "./handlers/query";
 import { schemaHandlers } from "./handlers/schema";
 import { sqliteHandlers } from "./handlers/sqlite";
-import type { Handlers } from "./router";
-import { resetState, type Scenario, scenarioFromUrl } from "./state";
+import { delay, type Handlers } from "./router";
+import { type MockOptions, optionsFromUrl, resetState, type Scenario, scenarioFromUrl } from "./state";
 
 export const handlers: Handlers = {
   ...connectionHandlers,
@@ -36,8 +37,11 @@ export const handlers: Handlers = {
   ...pluginHandlers,
 };
 
-export function installMockBackend(scenario: Scenario = scenarioFromUrl(window.location.search)): void {
-  resetState(scenario);
+export function installMockBackend(
+  scenario: Scenario = scenarioFromUrl(window.location.search),
+  options: MockOptions = optionsFromUrl(window.location.search),
+): void {
+  resetState(scenario, options);
   mockWindows("main");
   mockIPC(
     async (cmd, payload) => {
@@ -46,12 +50,19 @@ export function installMockBackend(scenario: Scenario = scenarioFromUrl(window.l
         console.error(`[mock backend] no handler for "${cmd}"`, payload);
         throw `The mock backend has no handler for "${cmd}". Add one in src/dev/mock/handlers/.`;
       }
+      const failure = injectedFailure(cmd);
+      if (failure !== undefined) {
+        console.warn(`[mock backend] "${cmd}" fails because the URL names it in ?fail=`);
+        await delay();
+        throw failure;
+      }
       return handler((payload ?? {}) as Record<string, unknown>);
     },
     { shouldMockEvents: true },
   );
   fixUnlisten();
-  console.info(`[mock backend] installed (scenario: ${scenario})`);
+  const fail = options.fail.length ? `, failing: ${options.fail.join(", ")}` : "";
+  console.info(`[mock backend] installed (scenario: ${scenario}${fail})`);
 }
 
 type Invoke = (cmd: string, args?: Record<string, unknown>, options?: unknown) => Promise<unknown>;
