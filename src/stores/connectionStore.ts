@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
 import { errorMessage } from "../lib/utils";
-import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary } from "../types";
+import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary, TestConnectionResult } from "../types";
 import { useConnectionHealthStore } from "./connectionHealthStore";
 import { useSchemaStore } from "./schemaStore";
 
@@ -42,6 +42,12 @@ interface ConnectionState {
 
   loadProfiles: () => Promise<void>;
   saveProfile: (profile: ConnectionProfileInput) => Promise<void>;
+  /**
+   * Try a profile's settings without saving them. Never rejects: a failure
+   * comes back as an unsuccessful result saying why, which is what the
+   * dialog shows either way.
+   */
+  testConnection: (profile: ConnectionProfileInput) => Promise<TestConnectionResult>;
   deleteProfile: (id: string) => Promise<void>;
   connect: (profileId: string) => Promise<ConnectionInfo>;
   disconnect: (connectionId: string) => Promise<void>;
@@ -95,6 +101,15 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       set({ error: errorMessage(e), loading: false });
       // The dialog has to know, or it closes and takes the form with it (#792).
       throw e;
+    }
+  },
+
+  testConnection: async (profile) => {
+    try {
+      return await api.testConnection(profile);
+    } catch (e) {
+      // Without the "Error: " prefix String(e) would add (#804).
+      return { success: false, message: errorMessage(e), server_version: null, latency_ms: 0 };
     }
   },
 

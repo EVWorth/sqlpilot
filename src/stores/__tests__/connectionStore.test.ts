@@ -10,6 +10,7 @@ vi.mock("../../lib/tauri-api", () => ({
     deleteConnectionProfile: vi.fn(),
     connect: vi.fn(),
     disconnect: vi.fn(),
+    testConnection: vi.fn(),
   },
 }));
 
@@ -147,6 +148,37 @@ describe("connectionStore", () => {
       const state = useConnectionStore.getState();
       expect(state.error).toBe("Save failed");
       expect(state.loading).toBe(false);
+    });
+  });
+
+  describe("testConnection", () => {
+    const profile = { name: "Draft", host: "db.example.com" } as never;
+
+    it("hands back what the server answered", async () => {
+      const answer = { success: true, message: "Connected", server_version: "8.0.36", latency_ms: 4 };
+      vi.mocked(api.testConnection).mockResolvedValue(answer);
+
+      expect(await useConnectionStore.getState().testConnection(profile)).toEqual(answer);
+      expect(api.testConnection).toHaveBeenCalledWith(profile);
+    });
+
+    it("turns a thrown failure into a result, without a doubled \"Error: \" prefix (#804)", async () => {
+      vi.mocked(api.testConnection).mockRejectedValue(new Error("SSH tunnel error: no route to bastion"));
+
+      expect(await useConnectionStore.getState().testConnection(profile)).toEqual({
+        success: false,
+        message: "SSH tunnel error: no route to bastion",
+        server_version: null,
+        latency_ms: 0,
+      });
+    });
+
+    it("leaves the store's own error alone", async () => {
+      vi.mocked(api.testConnection).mockRejectedValue(new Error("Access denied"));
+
+      await useConnectionStore.getState().testConnection(profile);
+
+      expect(useConnectionStore.getState().error).toBeNull();
     });
   });
 
