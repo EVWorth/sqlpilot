@@ -1,6 +1,7 @@
 use crate::connection::{ConnectionManager, Route};
 use crate::error::CoreError;
 use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
+use crate::query::grid_edits::{transaction_state, TransactionState};
 use crate::query::in_flight::{InFlightMap, InFlightTicket, InFlightTracker};
 use crate::query::redact::{redact_credentials, redacted_preview, LOG_PREVIEW_CHARS};
 use dashmap::DashMap;
@@ -408,10 +409,12 @@ impl QueryExecutor {
                 })
                 .map_err(|e| match failing_statement {
                     // Which statement broke, so a script's third line can be
-                    // pointed at rather than the whole script blamed (#329).
+                    // pointed at rather than the whole script blamed (#329),
+                    // with what the ones before it returned (#845).
                     Some(index) => CoreError::AtStatement {
                         index,
                         source: Box::new(e),
+                        completed: std::mem::take(&mut results),
                     },
                     None => e,
                 })?;
@@ -595,6 +598,7 @@ impl QueryExecutor {
                                 rows_truncated: false,
                                 truncation_reason: None,
                                 total_rows_available: None,
+                                transaction: None,
                             });
                         }
 
@@ -675,7 +679,40 @@ impl QueryExecutor {
             }
         }
 
+        // An editor tab's session outlives the run, and so does a
+        // transaction left open in it. Ask the server rather than leave the
+        // frontend to infer it from the SQL, which `SET autocommit = 0`, DDL's
+        // implicit commit and a deadlock's rollback all defeat (#843). The
+        // stream holds the session's one connection until it is dropped.
+        drop(stream);
+        if matches!(route, Route::Session(_)) {
+            if let Some(last) = results.last_mut() {
+                last.transaction = session_transaction(&pool).await;
+            }
+        }
+
         Ok(results)
+    }
+}
+
+/// Whether the session behind `pool` is inside a transaction, or `None` when
+/// that cannot be told. Never an error: the run it follows has succeeded, and
+/// failing to describe the session afterwards is no reason to report it as
+/// failed.
+async fn session_transaction(pool: &sqlx::MySqlPool) -> Option<TransactionState> {
+    let mut conn = match pool.acquire().await {
+        Ok(conn) => conn,
+        Err(e) => {
+            tracing::warn!(error = %e, "Could not reach the session to read its transaction state");
+            return None;
+        }
+    };
+    match transaction_state(&mut conn).await {
+        Ok(state) => state,
+        Err(e) => {
+            tracing::warn!(error = %e, "Could not read the session's transaction state");
+            None
+        }
     }
 }
 
@@ -1081,6 +1118,7 @@ fn build_select_result(
         } else {
             None
         },
+        transaction: None,
     }
 }
 
