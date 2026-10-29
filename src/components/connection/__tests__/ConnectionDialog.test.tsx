@@ -1,18 +1,16 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { api } from "../../../lib/tauri-api";
 import { ConnectionDialog } from "../ConnectionDialog";
 
-const { saveProfileFn } = vi.hoisted(() => ({ saveProfileFn: vi.fn() }));
+const { saveProfileFn, testConnectionFn } = vi.hoisted(() => ({
+  saveProfileFn: vi.fn(),
+  testConnectionFn: vi.fn(),
+}));
 
 vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: vi.fn((selector: (s: unknown) => unknown) => {
-    return selector({ saveProfile: saveProfileFn });
+    return selector({ saveProfile: saveProfileFn, testConnection: testConnectionFn });
   }),
-}));
-
-vi.mock("../../../lib/tauri-api", () => ({
-  api: { testConnection: vi.fn().mockResolvedValue({ success: true, message: "Connected", latency_ms: 12 }) },
 }));
 
 vi.mock("@tauri-apps/api/core", () => ({
@@ -22,6 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   saveProfileFn.mockResolvedValue(undefined);
+  testConnectionFn.mockResolvedValue({ success: true, message: "Connected", server_version: null, latency_ms: 12 });
 });
 
 describe("ConnectionDialog", () => {
@@ -447,7 +446,7 @@ describe("the test result (#804)", () => {
   it("shows a failure in full rather than cutting it off", async () => {
     const message = "Nothing is listening on localhost:3307. The server is stopped, or it is listening on a "
       + "different port.";
-    vi.mocked(api.testConnection).mockResolvedValueOnce({
+    testConnectionFn.mockResolvedValueOnce({
       success: false,
       message,
       server_version: null,

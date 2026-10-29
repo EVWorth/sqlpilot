@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { api } from "../../lib/tauri-api";
 import { errorMessage } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import type {
@@ -159,6 +158,7 @@ export function useConnectionForm(
     () => numberTexts(initialForm(editProfile, duplicateOf)),
   );
   const saveProfile = useConnectionStore((s) => s.saveProfile);
+  const testConnection = useConnectionStore((s) => s.testConnection);
 
   // Reopening is a fresh start, whether that is a new profile or the same one
   // again after an edit was abandoned.
@@ -250,11 +250,7 @@ export function useConnectionForm(
   const handleTest = async () => {
     setTesting(true);
     setTestResult(null);
-    try {
-      setTestResult(await api.testConnection(buildProfileForSave()));
-    } catch (e) {
-      setTestResult({ success: false, message: errorMessage(e), server_version: null, latency_ms: 0 });
-    }
+    setTestResult(await testConnection(buildProfileForSave()));
     setTesting(false);
   };
 

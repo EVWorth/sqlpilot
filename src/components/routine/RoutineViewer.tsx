@@ -24,8 +24,8 @@ import {
 } from "../../lib/routine-sql";
 import { runStatement } from "../../lib/run-statement";
 import { isNumericSqlType } from "../../lib/sql-types";
-import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
+import { ddlKey, type DdlTarget, useDdlStore } from "../../stores/ddlStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { confirmDrop } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
@@ -45,9 +45,16 @@ export function RoutineViewer({
   routineName,
   routineType,
 }: RoutineViewerProps) {
-  const [ddl, setDdl] = useState("");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The DDL, its loading and its error are the DDL store's, shared with the
+  // DDL tab for the same routine (#862).
+  const target = useMemo(
+    (): DdlTarget => ({ connectionId, database, objectName: routineName, objectType: routineType }),
+    [connectionId, database, routineName, routineType],
+  );
+  const entry = useDdlStore((s) => s.entries[ddlKey(target)]);
+  const ddl = entry?.ddl ?? "";
+  const loading = entry?.loading ?? true;
+  const error = entry?.error ?? null;
   const [showDdl, setShowDdl] = useState(true);
   const effectiveTheme = useThemeStore((s) => s.effectiveTheme);
   const [paramValues, setParamValues] = useState<Record<string, string>>({});
@@ -59,26 +66,10 @@ export function RoutineViewer({
     Record<string, string>
   >({});
 
-  const loadDdl = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const text = await api.getRoutineDdl(
-        connectionId,
-        database,
-        routineName,
-        routineType,
-      );
-      setDdl(text);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [connectionId, database, routineName, routineType]);
+  const loadDdl = useCallback(() => useDdlStore.getState().load(target), [target]);
 
   useEffect(() => {
-    loadDdl();
+    void loadDdl();
   }, [loadDdl]);
 
   const metadata = useMemo(() => parseRoutineMetadata(ddl), [ddl]);

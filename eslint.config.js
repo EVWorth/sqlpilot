@@ -19,4 +19,20 @@ export default tseslint.config(
       "react-hooks/exhaustive-deps": "warn",
     },
   },
+  {
+    // Components call store actions, never the IPC layer: the store owns the
+    // loading and error state, and a component's tests mock the store (#862).
+    // A type-only import is fine; it carries no call.
+    files: ["src/components/**/*.{ts,tsx}"],
+    ignores: ["src/components/**/__tests__/**", "src/components/**/*.test.{ts,tsx}"],
+    rules: {
+      "@typescript-eslint/no-restricted-imports": ["error", {
+        patterns: [{
+          regex: "(^|/)lib/tauri-api(\\.ts)?$",
+          message: "Components call store actions, not api.*. Move the call into a store (src/CLAUDE.md).",
+          allowTypeImports: true,
+        }],
+      }],
+    },
+  },
 );

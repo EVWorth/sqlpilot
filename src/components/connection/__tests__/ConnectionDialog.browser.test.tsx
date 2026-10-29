@@ -4,10 +4,10 @@ import "../../../styles/globals.css";
 import { ConnectionDialog } from "../ConnectionDialog";
 
 vi.mock("../../../stores/connectionStore", () => ({
-  useConnectionStore: vi.fn((selector: (s: unknown) => unknown) => selector({ saveProfile: vi.fn() })),
+  useConnectionStore: vi.fn((selector: (s: unknown) => unknown) =>
+    selector({ saveProfile: vi.fn(), testConnection: vi.fn() })
+  ),
 }));
-
-vi.mock("../../../lib/tauri-api", () => ({ api: { testConnection: vi.fn() } }));
 
 /**
  * The dialog's box, with real layout.

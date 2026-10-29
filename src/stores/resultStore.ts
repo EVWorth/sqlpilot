@@ -9,6 +9,7 @@ import { isDestructiveStatement } from "../lib/sql-safety";
 import { api, CommandError } from "../lib/tauri-api";
 import { transactionAfter } from "../lib/transaction-tracking";
 import { forgetGridEdits, gridEditsIn } from "../lib/unsaved-grid-edits";
+import { errorMessage } from "../lib/utils";
 import type { EditorTab, QueryResult } from "../types";
 import { useConnectionStore } from "./connectionStore";
 import { useEditorStore } from "./editorStore";
@@ -1072,15 +1073,19 @@ async function doExecuteQuery(
       });
     }
 
+    // The message alone: the box is already titled as an error, and
+    // `String(e)` prefixed it with "Error: " (#853). The outcome carries the
+    // same text, so a caller showing it — the designer, the routine viewer —
+    // does not put the prefix back (#912).
+    const message = errorMessage(e);
     if (isCurrent(run)) {
       shown = true;
       // What the statements before the failing one returned stays on screen,
       // when the backend reports it, and the error says which one failed
-      // (#845). The message alone: the box is already titled as an error, and
-      // `String(e)` prefixed it with "Error: " (#853).
+      // (#845).
       const completed = structured?.completedResults ?? [];
       set({
-        error: e instanceof Error ? e.message : String(e),
+        error: message,
         failedStatement: failedStatementOf(sql, structured),
         isExecuting: tabBusy(run.tab, run),
         results: completed,
@@ -1095,7 +1100,7 @@ async function doExecuteQuery(
           : null,
       });
     }
-    return { status: "failed", error: String(e) };
+    return { status: "failed", error: message };
   } finally {
     endExecution(run, shown);
   }

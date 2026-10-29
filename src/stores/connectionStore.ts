@@ -1,9 +1,11 @@
 import { create } from "zustand";
 import { api } from "../lib/tauri-api";
 import { errorMessage } from "../lib/utils";
-import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary } from "../types";
+import type { ConnectionInfo, ConnectionProfileInput, ConnectionProfileSummary, TestConnectionResult } from "../types";
 import { useConnectionHealthStore } from "./connectionHealthStore";
+import { useEditorStore } from "./editorStore";
 import { useSchemaStore } from "./schemaStore";
+import { useTransactionStore } from "./transactionStore";
 
 interface ConnectionState {
   profiles: ConnectionProfileSummary[];
@@ -42,6 +44,12 @@ interface ConnectionState {
 
   loadProfiles: () => Promise<void>;
   saveProfile: (profile: ConnectionProfileInput) => Promise<void>;
+  /**
+   * Try a profile's settings without saving them. Never rejects: a failure
+   * comes back as an unsuccessful result saying why, which is what the
+   * dialog shows either way.
+   */
+  testConnection: (profile: ConnectionProfileInput) => Promise<TestConnectionResult>;
   deleteProfile: (id: string) => Promise<void>;
   connect: (profileId: string) => Promise<ConnectionInfo>;
   disconnect: (connectionId: string) => Promise<void>;
@@ -95,6 +103,15 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       set({ error: errorMessage(e), loading: false });
       // The dialog has to know, or it closes and takes the form with it (#792).
       throw e;
+    }
+  },
+
+  testConnection: async (profile) => {
+    try {
+      return await api.testConnection(profile);
+    } catch (e) {
+      // Without the "Error: " prefix String(e) would add (#804).
+      return { success: false, message: errorMessage(e), server_version: null, latency_ms: 0 };
     }
   },
 
@@ -212,6 +229,12 @@ export const useConnectionStore = create<ConnectionState>((set, get) => ({
       // Same reasoning for the health record: it describes a connection that
       // no longer exists, and a later id could otherwise inherit its state.
       useConnectionHealthStore.getState().forget(connectionId);
+      // Closing the connection ended its tabs' sessions, and with them any
+      // transaction they had open: the server rolled it back. A badge still
+      // saying "open" claims work is pending that is already gone (#910).
+      useTransactionStore.getState().forget(
+        useEditorStore.getState().tabs.filter((t) => t.connectionId === connectionId).map((t) => t.id),
+      );
       set((state) => ({
         activeConnections: state.activeConnections.filter(
           (c) => c.id !== connectionId,

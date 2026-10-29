@@ -1,6 +1,6 @@
 import { Info, Keyboard, X } from "lucide-react";
 import { useEffect, useState } from "react";
-import { api } from "../../lib/tauri-api";
+import { useAppInfoStore } from "../../stores/appInfoStore";
 import { Modal } from "./Modal";
 
 interface HelpDialogProps {
@@ -60,14 +60,14 @@ const sections: { title: string; shortcuts: ShortcutEntry[] }[] = [
 
 export function HelpDialog({ isOpen, onClose, initialTab = "shortcuts" }: HelpDialogProps) {
   const [tab, setTab] = useState<"shortcuts" | "about">(initialTab);
-  const [appVersion, setAppVersion] = useState("");
+  const appVersion = useAppInfoStore((s) => s.appVersion);
 
   useEffect(() => {
     if (isOpen) setTab(initialTab);
   }, [isOpen, initialTab]);
 
   useEffect(() => {
-    api.getAppVersion().then(setAppVersion).catch((e) => console.error("Failed to get app version", e));
+    void useAppInfoStore.getState().loadAppVersion();
   }, []);
 
   if (!isOpen) return null;

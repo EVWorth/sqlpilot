@@ -13,13 +13,6 @@ vi.mock("../../../stores/historyStore", () => ({
     f.connectionNames.length > 0 || f.status !== "" || Boolean(f.includeAppOrigins),
 }));
 
-vi.mock("../../../lib/tauri-api", () => ({
-  api: {
-    pickSaveFile: vi.fn().mockResolvedValue("/tmp/history.csv"),
-    writeFileContents: vi.fn().mockResolvedValue(undefined),
-  },
-}));
-
 vi.mock("../../../stores/connectionStore", () => ({
   useConnectionStore: { getState: () => ({ activeConnections: mockActiveConnections }) },
 }));
@@ -77,7 +70,8 @@ const mockRemoveEntry = vi.fn();
 const mockSetLimit = vi.fn();
 const mockSetFilters = vi.fn().mockResolvedValue(undefined);
 const mockResetFilters = vi.fn().mockResolvedValue(undefined);
-const mockExportMatching = vi.fn().mockResolvedValue("csv,data");
+const mockExportToFile = vi.fn();
+let mockExporting = false;
 const mockLoad = vi.fn().mockResolvedValue(undefined);
 const mockExecuteQuery = vi.fn().mockResolvedValue(undefined);
 const mockSetMaxAgeDays = vi.fn().mockResolvedValue(undefined);
@@ -115,7 +109,8 @@ function storeExtras() {
     resetFilters: mockResetFilters,
     matchCount: mockMatchCount,
     facets: mockFacets,
-    exportMatching: mockExportMatching,
+    exportToFile: mockExportToFile,
+    exporting: mockExporting,
     load: mockLoad,
     loading: false,
     error: null,
@@ -178,7 +173,7 @@ describe("QueryHistory", () => {
     mockLoad.mockResolvedValue(undefined);
     mockSetFilters.mockResolvedValue(undefined);
     mockResetFilters.mockResolvedValue(undefined);
-    mockExportMatching.mockResolvedValue("csv,data");
+    mockExporting = false;
     mockExecuteQuery.mockResolvedValue(undefined);
     mockActiveConnections = [{ id: "conn-other", name: "OtherDB" }];
     mockEntries = baseEntries;
@@ -628,27 +623,24 @@ describe("QueryHistory", () => {
       expect(screen.getByText("3 shown")).toBeInTheDocument();
     });
 
-    it("writes an export to the file the user picked", async () => {
-      const { api } = await import("../../../lib/tauri-api");
+    it("exports through the store in the format asked for", () => {
       render(<QueryHistory />);
       openFilters();
 
       fireEvent.click(screen.getByText("CSV"));
+      expect(mockExportToFile).toHaveBeenCalledWith("csv");
 
-      await waitFor(() => expect(mockExportMatching).toHaveBeenCalledWith("csv"));
-      await waitFor(() => expect(api.writeFileContents).toHaveBeenCalledWith("/tmp/history.csv", "csv,data"));
+      fireEvent.click(screen.getByText("SQL"));
+      expect(mockExportToFile).toHaveBeenCalledWith("sql");
     });
 
-    it("writes nothing when the save dialog is cancelled", async () => {
-      const { api } = await import("../../../lib/tauri-api");
-      vi.mocked(api.pickSaveFile).mockResolvedValueOnce(null);
+    it("disables the export buttons while an export is writing", () => {
+      mockExporting = true;
       render(<QueryHistory />);
       openFilters();
 
-      fireEvent.click(screen.getByText("SQL"));
-
-      await waitFor(() => expect(mockExportMatching).toHaveBeenCalledWith("sql"));
-      expect(api.writeFileContents).not.toHaveBeenCalled();
+      expect(screen.getByText("CSV").closest("button")).toBeDisabled();
+      expect(screen.getByText("SQL").closest("button")).toBeDisabled();
     });
   });
 

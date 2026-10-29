@@ -1,8 +1,8 @@
 import { ChevronDown, ChevronRight, Loader2, RefreshCw, Search, Skull } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { formatDurationSeconds } from "../../lib/format-duration";
-import { api } from "../../lib/tauri-api";
 import { cn } from "../../lib/utils";
+import { type KillScope, processListOf, useAdminStore } from "../../stores/adminStore";
 import type { ProcessInfo } from "../../types";
 import {
   filterProcesses,
@@ -28,9 +28,9 @@ export function timeColor(command: string, time: number): string {
 }
 
 export function ProcessListTab({ connectionId }: { connectionId: string }) {
-  const [processes, setProcesses] = useState<ProcessInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  // The list, its loading and its error are the store's, keyed by this tab (#862).
+  const view = useId();
+  const { processes, ownThreadIds: own, loading, error } = useAdminStore((s) => processListOf(s, view));
   const [filters, setFilters] = useState<ProcessFilters>(NO_PROCESS_FILTERS);
   const [refreshInterval, setRefreshInterval] = useState<RefreshInterval>(0);
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -39,7 +39,7 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
   // one disconnects the app from the server it is managing, and killing the
   // last exhausted the pool and reported "pool timed out" — which does not
   // tell the user what they just did (#433).
-  const [ownThreadIds, setOwnThreadIds] = useState<Set<number>>(new Set());
+  const ownThreadIds = useMemo(() => new Set(own), [own]);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // The skull whose confirm is open, so Escape/Cancel can hand focus back.
   const skullRef = useRef<HTMLButtonElement | null>(null);
@@ -50,26 +50,17 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
     skull?.focus();
   };
 
-  const fetchProcesses = useCallback(async () => {
-    try {
-      const [data, own] = await Promise.all([
-        api.getProcessList(connectionId),
-        api.getOwnThreadIds(connectionId),
-      ]);
-      setProcesses(data);
-      setOwnThreadIds(new Set(own));
-      setError(null);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [connectionId]);
+  // A refresh, by the timer or after a kill, keeps the list on screen.
+  const fetchProcesses = useCallback(
+    () => useAdminStore.getState().loadProcesses(view, connectionId, { background: true }),
+    [view, connectionId],
+  );
+
+  useEffect(() => () => useAdminStore.getState().release(view), [view]);
 
   useEffect(() => {
-    setLoading(true);
-    fetchProcesses();
-  }, [fetchProcesses]);
+    void useAdminStore.getState().loadProcesses(view, connectionId);
+  }, [view, connectionId]);
 
   useEffect(() => {
     if (intervalRef.current) clearInterval(intervalRef.current);
@@ -84,20 +75,10 @@ export function ProcessListTab({ connectionId }: { connectionId: string }) {
   // Two scopes, because they are not interchangeable: aborting a long SELECT
   // should not also discard the session's transaction, prepared statements and
   // variables, which is all `KILL` could do before (#430).
-  const handleKill = async (processId: number, scope: "query" | "connection") => {
-    try {
-      if (scope === "query") {
-        await api.killQuery(connectionId, processId);
-      } else {
-        await api.killProcess(connectionId, processId);
-      }
-      setConfirmKillId(null);
-      await fetchProcesses();
-    } catch (e) {
-      setError(
-        `Failed to kill ${scope === "query" ? "query on" : "connection"} ${processId}: ${e}`,
-      );
-    }
+  const handleKill = async (processId: number, scope: KillScope) => {
+    if (!(await useAdminStore.getState().killProcess(view, connectionId, processId, scope))) return;
+    setConfirmKillId(null);
+    await fetchProcesses();
   };
 
   const filtered = useMemo(() => filterProcesses(processes, filters), [processes, filters]);
