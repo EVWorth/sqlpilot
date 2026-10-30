@@ -1,5 +1,5 @@
 import { Settings2 } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { formatSql, PREVIEW_SQL } from "../../lib/sql-format";
 import { DEFAULT_FORMATTER_SETTINGS, type FormatterSettings, useSettingsStore } from "../../stores/settingsStore";
 import { Modal } from "../common/Modal";
@@ -41,10 +41,16 @@ export function FormatterSettingsDialog({ isOpen, onClose, sample }: FormatterSe
   // Always merge with defaults so new fields are never undefined
   const [local, setLocal] = useState<FormatterSettings>({ ...DEFAULTS, ...formatterSettings });
 
-  // Reset local state each time the dialog opens so stale edits never appear
-  useEffect(() => {
+  // Start from the saved settings each time the dialog opens, so edits that
+  // were cancelled never come back. Only on opening: a change to the saved
+  // settings while it is open must not wipe what the user is editing. Done
+  // while rendering, on the change of `isOpen`, rather than in an effect that
+  // listed `isOpen` alone and so had to switch the dependency check off (#930).
+  const [wasOpen, setWasOpen] = useState(isOpen);
+  if (isOpen !== wasOpen) {
+    setWasOpen(isOpen);
     if (isOpen) setLocal({ ...DEFAULTS, ...formatterSettings });
-  }, [isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   // Dirty = any field differs from the persisted settings. Saves a no-op
   // localStorage round-trip when the user opens the dialog and clicks Save

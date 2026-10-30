@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useSettingsStore } from "../../../stores/settingsStore";
 import { FormatterSettingsDialog } from "../FormatterSettingsDialog";
@@ -289,5 +289,40 @@ describe("FormatterSettingsDialog defaults (F28 of #322)", () => {
     fireEvent.click(screen.getByText("Save"));
 
     expect(useSettingsStore.getState().formatterSettings).toEqual(DEFAULT_FORMATTER_SETTINGS);
+  });
+});
+
+describe("FormatterSettingsDialog opening (#930)", () => {
+  const keywords = () => screen.getByLabelText("Keywords") as HTMLSelectElement;
+
+  beforeEach(async () => {
+    const { DEFAULT_FORMATTER_SETTINGS } = await import("../../../stores/settingsStore");
+    useSettingsStore.setState({ formatterSettings: { ...DEFAULT_FORMATTER_SETTINGS, keywordCase: "upper" } });
+  });
+
+  it("drops cancelled edits and shows the saved settings when it opens again", () => {
+    const { rerender } = render(<FormatterSettingsDialog isOpen onClose={vi.fn()} />);
+    fireEvent.change(keywords(), { target: { value: "lower" } });
+
+    rerender(<FormatterSettingsDialog isOpen={false} onClose={vi.fn()} />);
+    useSettingsStore.setState({
+      formatterSettings: { ...useSettingsStore.getState().formatterSettings, keywordCase: "preserve" },
+    });
+    rerender(<FormatterSettingsDialog isOpen onClose={vi.fn()} />);
+
+    expect(keywords().value).toBe("preserve");
+  });
+
+  it("keeps the edits in progress when the saved settings change while it is open", () => {
+    render(<FormatterSettingsDialog isOpen onClose={vi.fn()} />);
+    fireEvent.change(keywords(), { target: { value: "lower" } });
+
+    act(() => {
+      useSettingsStore.setState({
+        formatterSettings: { ...useSettingsStore.getState().formatterSettings, tabWidth: 8 },
+      });
+    });
+
+    expect(keywords().value).toBe("lower");
   });
 });
