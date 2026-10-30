@@ -253,3 +253,42 @@ async fn a_script_that_times_out_keeps_what_ran_before_it() {
 
     manager.disconnect(&info.id).await.unwrap();
 }
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_timeout_on_a_session_reports_the_open_transaction() {
+    // KILL QUERY stops the statement, not the transaction around it.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&profile(Some(1))).await.unwrap();
+    let tab = "tab-timeout-transaction";
+
+    let started = Instant::now();
+    let err = executor
+        .execute_in_session(
+            tab,
+            info.id.clone(),
+            "BEGIN; SELECT SLEEP(5)".to_string(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("the sleep runs past the timeout");
+
+    assert!(matches!(err.root(), CoreError::Timeout(_)), "got {err:?}");
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.statement_index, Some(1));
+    assert_eq!(
+        reported.transaction,
+        Some(mas_core::query::TransactionState::Open)
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(4),
+        "the probe did not hold the error back: took {:?}",
+        started.elapsed()
+    );
+
+    manager.close_session(&info.id, tab).await;
+    manager.disconnect(&info.id).await.unwrap();
+}

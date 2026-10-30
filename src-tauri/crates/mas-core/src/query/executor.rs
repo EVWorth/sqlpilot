@@ -651,10 +651,27 @@ impl QueryExecutor {
             //
             // Reading on gives sqlx the server's "query interrupted" error,
             // which ends the stream properly and returns the connection.
+            //
+            // The KILL goes through the shared pool, as `cancel` does. An
+            // editor tab's or an agent's pool is the very one the timed-out
+            // statement is holding, so a KILL sent through it waited for a
+            // connection that was never coming and the tab sat out the whole
+            // statement instead of stopping at its deadline.
             let thread_id = my_thread_id;
             if thread_id != 0 {
-                if let Err(e) = kill_query(&pool, thread_id).await {
-                    tracing::warn!(error = %e, thread_id, "Failed to kill timed-out query");
+                let kill_pool = match route {
+                    Route::Interactive => Ok(pool.clone()),
+                    _ => self.connection_manager.get_pool(&connection_id),
+                };
+                match kill_pool {
+                    Ok(kill_pool) => {
+                        if let Err(e) = kill_query(&kill_pool, thread_id).await {
+                            tracing::warn!(error = %e, thread_id, "Failed to kill timed-out query");
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, thread_id, "No pool to kill the timed-out query on");
+                    }
                 }
             }
             drain_after_kill(&mut stream).await;
