@@ -99,7 +99,7 @@ is the source of truth. The ones not covered above:
 | `just build`          | Production desktop build (`npx tauri build`)         |
 | `just test-all`       | `db-up`, unit tests and integration tests            |
 | `just lint-workflows` | actionlint, pinned action SHAs, release script tests |
-| `just db-down`        | Remove the test containers                           |
+| `just db-down`        | Remove the test containers and their data volumes    |
 | `just db-seed`        | Re-apply `tests/fixtures/sql/seed.sql` to both       |
 | `just db-reset`       | Rebuild the seeded images, recreate the containers   |
 | `just ssl-certs`      | Generate certificates for the (unused) SSL container |

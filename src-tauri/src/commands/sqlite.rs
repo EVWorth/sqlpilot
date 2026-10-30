@@ -63,6 +63,7 @@ pub async fn sqlite_execute(
                 sql_state: None,
                 statement_index: None,
                 completed_results: None,
+                transaction: None,
             },
         })
 }

@@ -1,4 +1,5 @@
 use crate::models::query::QueryResult;
+use crate::query::TransactionState;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -57,6 +58,10 @@ pub enum CoreError {
         /// Empty when the first statement failed, and from callers that do
         /// not collect results.
         completed: Vec<QueryResult>,
+        /// Whether the editor session the run failed on is still inside a
+        /// transaction, asked of the server after the failure (#917). `None`
+        /// off a session, and when the server could not say.
+        transaction: Option<TransactionState>,
     },
 
     #[error(transparent)]
@@ -70,6 +75,17 @@ pub enum CoreError {
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+impl CoreError {
+    /// The error underneath any statement tag, for callers that care what
+    /// went wrong rather than where in a batch it did.
+    pub fn root(&self) -> &CoreError {
+        match self {
+            CoreError::AtStatement { source, .. } => source.root(),
+            other => other,
+        }
+    }
 }
 
 impl serde::Serialize for CoreError {
@@ -118,6 +134,16 @@ pub struct QueryError {
     /// left out of the payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_results: Option<Vec<QueryResult>>,
+    /// Whether the editor session the run failed on is still inside a
+    /// transaction, read from the server after the failure (#917).
+    ///
+    /// A failing statement does not end a transaction, so a script that
+    /// opened one and then failed leaves it open, and only the server can
+    /// say so reliably. `None` off an editor session, when the probe could
+    /// not tell, and for failures with no statement index; then left out of
+    /// the payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<TransactionState>,
 }
 
 impl QueryError {
@@ -132,12 +158,14 @@ impl QueryError {
             index,
             source,
             completed,
+            transaction,
         } = err
         {
             let mut reported = Self::from_core(source).at_statement(*index);
             if *index > 0 && !completed.is_empty() {
                 reported.completed_results = Some(completed.clone());
             }
+            reported.transaction = *transaction;
             return reported;
         }
 
@@ -157,6 +185,7 @@ impl QueryError {
                     sql_state,
                     statement_index: None,
                     completed_results: None,
+                    transaction: None,
                 }
             }
             CoreError::Rusqlite(e) => Self::from_rusqlite(e, &message),
@@ -166,6 +195,7 @@ impl QueryError {
                 sql_state: None,
                 statement_index: None,
                 completed_results: None,
+                transaction: None,
             },
         }
     }
@@ -183,6 +213,7 @@ impl QueryError {
                 code: Some(e.extended_code.unsigned_abs()),
                 sql_state: None,
                 completed_results: None,
+                transaction: None,
             },
             _ => Self {
                 message: fallback.to_string(),
@@ -190,6 +221,7 @@ impl QueryError {
                 sql_state: None,
                 statement_index: None,
                 completed_results: None,
+                transaction: None,
             },
         }
     }
@@ -263,6 +295,7 @@ mod tests {
             index,
             source: Box::new(CoreError::Query("boom".into())),
             completed,
+            transaction: None,
         }
     }
 
@@ -306,6 +339,41 @@ mod tests {
             json.get("completedResults").is_none(),
             "omitted when none: {json}"
         );
+    }
+
+    #[test]
+    fn a_failure_on_a_session_carries_its_transaction_state() {
+        let err = CoreError::AtStatement {
+            index: 1,
+            source: Box::new(CoreError::Query("boom".into())),
+            completed: vec![count_result(0, "BEGIN")],
+            transaction: Some(TransactionState::Open),
+        };
+        let reported = QueryError::from_core(&err);
+        assert_eq!(reported.transaction, Some(TransactionState::Open));
+
+        let json = serde_json::to_value(&reported).expect("serialises");
+        assert_eq!(json["transaction"], "open");
+        assert_eq!(json["statementIndex"], 1);
+    }
+
+    #[test]
+    fn transaction_state_is_omitted_when_unknown() {
+        let json =
+            serde_json::to_value(QueryError::from_core(&failed_at(1, vec![]))).expect("serialises");
+        assert!(json.get("transaction").is_none(), "omitted: {json}");
+    }
+
+    #[test]
+    fn root_sees_through_the_statement_tag() {
+        let err = CoreError::AtStatement {
+            index: 2,
+            source: Box::new(CoreError::Timeout("took too long".into())),
+            completed: vec![],
+            transaction: None,
+        };
+        assert!(matches!(err.root(), CoreError::Timeout(_)));
+        assert!(matches!(CoreError::Cancelled.root(), CoreError::Cancelled));
     }
 
     #[test]

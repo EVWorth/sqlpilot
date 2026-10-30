@@ -342,6 +342,10 @@ impl QueryExecutor {
         // the end of the data.
         let mut skipped_shape: Option<sqlx::mysql::MySqlRow> = None;
         let mut start = Instant::now();
+        // The error that ended the stream, with the statement it belongs to.
+        // Held until the stream is dropped, because on an editor session the
+        // stream holds the only connection the transaction probe can use.
+        let mut failure: Option<(Option<usize>, CoreError)> = None;
 
         loop {
             let next = match deadline {
@@ -357,67 +361,57 @@ impl QueryExecutor {
             let Some(item) = next else { break };
             // Read out of the loop variable before the closure borrows it.
             let failing_statement = usize::try_from(stmt_idx).ok();
-            let item = item
-                .map_err(|e| {
-                    // A pool that has run out reports "pool timed out while waiting
-                    // for an open connection", which names neither the pool nor
-                    // the limit that caused it (#279).
-                    let described = self
-                        .connection_manager
-                        .pool_limits(&connection_id, &route)
-                        .and_then(|limits| {
-                            // What is running on the interactive lane right now,
-                            // so the message can say why it is full rather than
-                            // only that it is. Only that lane's own queries: an
-                            // agent's, and an editor tab's on its session, hold
-                            // none of its connections.
-                            let editor_running = self
-                                .in_flight
-                                .iter()
-                                .filter(|entry| {
-                                    entry.key().0 == connection_id
-                                        && entry.value().route == Route::Interactive
-                                })
-                                .count();
-                            // Only a pool actually holding connections has run
-                            // out. An empty one timing out is a server that went
-                            // away, and logging it as exhaustion is the very
-                            // misreading describe_pool_error refuses to make.
-                            if matches!(e, sqlx::Error::PoolTimedOut) && limits.held > 0 {
-                                tracing::warn!(
-                                    connection = %limits.profile_name,
-                                    ?route,
-                                    held = limits.held,
-                                    max = limits.max,
-                                    editor_running,
-                                    "Ran out of connections"
-                                );
-                            }
-                            crate::connection::describe_pool_error(
-                                &e,
-                                &limits,
-                                &route,
+            let item = item.map_err(|e| {
+                // A pool that has run out reports "pool timed out while waiting
+                // for an open connection", which names neither the pool nor
+                // the limit that caused it (#279).
+                let described = self
+                    .connection_manager
+                    .pool_limits(&connection_id, &route)
+                    .and_then(|limits| {
+                        // What is running on the interactive lane right now,
+                        // so the message can say why it is full rather than
+                        // only that it is. Only that lane's own queries: an
+                        // agent's, and an editor tab's on its session, hold
+                        // none of its connections.
+                        let editor_running = self
+                            .in_flight
+                            .iter()
+                            .filter(|entry| {
+                                entry.key().0 == connection_id
+                                    && entry.value().route == Route::Interactive
+                            })
+                            .count();
+                        // Only a pool actually holding connections has run
+                        // out. An empty one timing out is a server that went
+                        // away, and logging it as exhaustion is the very
+                        // misreading describe_pool_error refuses to make.
+                        if matches!(e, sqlx::Error::PoolTimedOut) && limits.held > 0 {
+                            tracing::warn!(
+                                connection = %limits.profile_name,
+                                ?route,
+                                held = limits.held,
+                                max = limits.max,
                                 editor_running,
-                            )
-                        });
-                    described
-                        // Kept as the driver's own error rather than flattened to
-                        // a string: the error number and SQLSTATE are the only
-                        // things that let the caller tell a missing table from a
-                        // syntax error, and to_string() drops both (#324).
-                        .unwrap_or_else(|| CoreError::Sqlx(e))
-                })
-                .map_err(|e| match failing_statement {
-                    // Which statement broke, so a script's third line can be
-                    // pointed at rather than the whole script blamed (#329),
-                    // with what the ones before it returned (#845).
-                    Some(index) => CoreError::AtStatement {
-                        index,
-                        source: Box::new(e),
-                        completed: std::mem::take(&mut results),
-                    },
-                    None => e,
-                })?;
+                                "Ran out of connections"
+                            );
+                        }
+                        crate::connection::describe_pool_error(&e, &limits, &route, editor_running)
+                    });
+                described
+                    // Kept as the driver's own error rather than flattened to
+                    // a string: the error number and SQLSTATE are the only
+                    // things that let the caller tell a missing table from a
+                    // syntax error, and to_string() drops both (#324).
+                    .unwrap_or_else(|| CoreError::Sqlx(e))
+            });
+            let item = match item {
+                Ok(item) => item,
+                Err(e) => {
+                    failure = Some((failing_statement, e));
+                    break;
+                }
+            };
             match item {
                 Either::Right(row) => {
                     // The first prelude row carries CONNECTION_ID(). Record it so
@@ -629,6 +623,18 @@ impl QueryExecutor {
             }
         }
 
+        if let Some((failing_statement, e)) = failure {
+            drop(stream);
+            return Err(tag_statement(
+                failing_statement,
+                e,
+                std::mem::take(&mut results),
+                &route,
+                &pool,
+            )
+            .await);
+        }
+
         // Abandoning the stream would leave the statement running on the server,
         // so tell the server to stop before reporting the timeout.
         if timed_out {
@@ -655,7 +661,20 @@ impl QueryExecutor {
             drop(stream);
             let secs = query_timeout.map(|d| d.as_secs()).unwrap_or(0);
             tracing::warn!(connection_id = %connection_id, timeout_secs = secs, "Query timed out");
-            return Err(timeout_error(secs));
+            // Tagged like any other failure, so a script that timed out at
+            // its third statement keeps the first two results (#917). A
+            // timeout still inside the prelude has nothing to point at.
+            let running = usize::try_from(stmt_idx)
+                .ok()
+                .map(|idx| idx.min(statements.len().saturating_sub(1)));
+            return Err(tag_statement(
+                running,
+                timeout_error(secs),
+                std::mem::take(&mut results),
+                &route,
+                &pool,
+            )
+            .await);
         }
 
         // If memory guard triggered mid-stream, process accumulated rows for current statement
@@ -713,6 +732,50 @@ async fn session_transaction(pool: &sqlx::MySqlPool) -> Option<TransactionState>
             tracing::warn!(error = %e, "Could not read the session's transaction state");
             None
         }
+    }
+}
+
+/// How long the transaction probe after a failed run may take. The failure
+/// is what the user needs to see; a session that cannot be reached quickly
+/// gets no transaction state rather than holding the error back.
+const FAILURE_PROBE_BOUND: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// Tag a failed run's error with the statement that raised it.
+///
+/// Which statement broke, so a script's third line can be pointed at rather
+/// than the whole script blamed (#329), with what the ones before it returned
+/// (#845) and, on an editor session, whether a transaction is still open
+/// (#917). A failure with no statement to point at is returned as it is.
+///
+/// The probe is bounded and never fails: it can only add to the error, not
+/// replace it. The caller must have dropped the run's stream, which holds an
+/// editor session's one connection.
+async fn tag_statement(
+    index: Option<usize>,
+    source: CoreError,
+    completed: Vec<QueryResult>,
+    route: &Route,
+    pool: &sqlx::MySqlPool,
+) -> CoreError {
+    let Some(index) = index else {
+        return source;
+    };
+    let transaction = if matches!(route, Route::Session(_)) {
+        match tokio::time::timeout(FAILURE_PROBE_BOUND, session_transaction(pool)).await {
+            Ok(state) => state,
+            Err(_) => {
+                tracing::warn!("Timed out reading the session's transaction state after a failure");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    CoreError::AtStatement {
+        index,
+        source: Box::new(source),
+        completed,
+        transaction,
     }
 }
 
