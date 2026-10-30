@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { runStatement } from "../lib/run-statement";
 import { quoteStringLiteral } from "../lib/sql-quote";
 import { api } from "../lib/tauri-api";
 import type { ProcessInfo, ServerVariable } from "../types";
@@ -105,11 +106,17 @@ function begin(slice: Slice, view: string): () => boolean {
   return () => latest.get(key) === token;
 }
 
+/**
+ * Every `SHOW GRANTS` the app makes goes through here, recorded as an internal
+ * read, so the account view and the privileges editor do not differ in what
+ * history shows (#921).
+ */
 async function readGrants(connectionId: string, user: string, host: string): Promise<string[] | null> {
-  const results = await api.executeQuery(
+  const results = await runStatement({
     connectionId,
-    `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
-  );
+    sql: `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
+    origin: "internal",
+  });
   if (results.length === 0) return null;
   return results[0].rows.map((row) => String(row[0] ?? ""));
 }
