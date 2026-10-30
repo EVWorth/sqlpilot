@@ -733,8 +733,9 @@ describe("TableDesigner", () => {
       vi.mocked(api.getIndexes).mockResolvedValue(mockIndexes);
 
       render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
-      await screen.findByDisplayValue("users");
-      fireEvent.click(screen.getByLabelText("Remove column name"));
+      // The table name is a prop and shows at once; the columns load after,
+      // so wait for the row itself (#923).
+      fireEvent.click(await screen.findByLabelText("Remove column name"));
       await act(async () => {
         fireEvent.click(screen.getByText("Apply Changes"));
       });
@@ -771,9 +772,7 @@ describe("TableDesigner", () => {
       vi.mocked(api.getIndexes).mockResolvedValue([]);
 
       render(<TableDesigner connectionId="conn-1" database="testdb" tableName="users" />);
-      await screen.findByDisplayValue("users");
-
-      expect(screen.getByDisplayValue("BIT")).toBeDefined();
+      expect(await screen.findByDisplayValue("BIT")).toBeDefined();
       expect(screen.getByDisplayValue("8")).toBeDefined();
     });
 
