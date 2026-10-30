@@ -35,7 +35,6 @@ describe("SqlValueGuard.isNull", () => {
     if (SqlValueGuard.isNull(val)) {
       // val should be narrowed to null
       expect(val).toBe(null);
-      // eslint-disable-next-line @typescript-eslint/no-unused-expressions
       void val;
     }
   });

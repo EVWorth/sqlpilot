@@ -1242,6 +1242,25 @@ describe("SchemaTree keyboard navigation (#823)", () => {
     expect(screen.getAllByRole("treeitem").filter((r) => r.tabIndex === 0)).toEqual([row("app_db")]);
   });
 
+  it("falls back to the first row when the focused one's parent closes (#930)", async () => {
+    // The key does not change when the row goes, so watching the key alone
+    // would leave the tree with no tab stop at all.
+    const user = await renderTree();
+    await user.click(screen.getByText("logs"));
+    await user.click(screen.getByText("Tables"));
+    await waitFor(() => screen.getByText("events"));
+    act(() => row("events").focus());
+    expect(row("events").tabIndex).toBe(0);
+
+    // A click that does not move focus, so the key stays on the closed row.
+    fireEvent.click(row("logs"));
+    await waitFor(() => expect(screen.queryByText("events")).toBeNull());
+
+    await waitFor(() =>
+      expect(screen.getAllByRole("treeitem").filter((r) => r.tabIndex === 0)).toEqual([row("app_db")])
+    );
+  });
+
   it("opens a row's menu from the context-menu key", async () => {
     // Shift+F10 and the menu key fire `contextmenu` on the focused row.
     const user = await renderTree();

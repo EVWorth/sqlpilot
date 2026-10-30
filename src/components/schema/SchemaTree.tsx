@@ -169,26 +169,28 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   // Keyed by the names, not the array: `databases` is rebuilt every render,
   // and each load below re-renders the tree. Keyed by the array, the effect
   // restarted on every one of those renders, and a load that failed (and so
-  // was never cached) was retried in a loop that never ended.
+  // was never cached) was retried in a loop that never ended. The effect
+  // reads the names back out of the key, so the key is all it depends on
+  // (#930). A database name cannot contain NUL, so the split is exact.
   const databaseNames = databases.map((d) => d.name).join("\u0000");
   useEffect(() => {
-    if (!filterActive || databases.length === 0) return;
+    if (!filterActive || databaseNames === "") return;
+    const names = databaseNames.split("\u0000");
     let cancelled = false;
     void (async () => {
       const store = useSchemaStore.getState();
-      for (const db of databases) {
+      for (const name of names) {
         if (cancelled) break;
-        await store.ensureTables(connectionId, db.name);
-        await store.ensureViews(connectionId, db.name);
-        await store.ensureRoutines(connectionId, db.name);
-        await store.ensureTriggers(connectionId, db.name);
-        await store.ensureEvents(connectionId, db.name);
+        await store.ensureTables(connectionId, name);
+        await store.ensureViews(connectionId, name);
+        await store.ensureRoutines(connectionId, name);
+        await store.ensureTriggers(connectionId, name);
+        await store.ensureEvents(connectionId, name);
       }
     })();
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filterActive, databaseNames, connectionId]);
 
   const toggleDb = async (dbName: string) => {

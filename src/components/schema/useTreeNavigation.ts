@@ -21,19 +21,25 @@ export function useTreeNavigation(firstKey: string | null) {
   const treeRef = useRef<HTMLDivElement>(null);
   const [activeKey, setActiveKey] = useState<string | null>(null);
 
-  const rows = (): HTMLElement[] =>
-    Array.from(treeRef.current?.querySelectorAll<HTMLElement>("[role='treeitem'][data-tree-key]") ?? []);
+  const rows = (): HTMLElement[] => rowsIn(treeRef.current);
 
   // The row in the tab order went away (its parent closed, or the filter hid
-  // it): fall back to the first row, so Tab can still reach the tree. After
-  // every render, because what is rendered changes without the key changing;
-  // it settles at once, since it only ever sets the key to null.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // it): fall back to the first row, so Tab can still reach the tree. What is
+  // rendered changes without the key changing, so this watches the tree's
+  // rows rather than running after every render, which the dependency check
+  // had to be switched off for (#930). It also sees a row that a child
+  // component removed without the tree itself rendering again.
   useLayoutEffect(() => {
-    if (activeKey !== null && !rows().some((r) => r.dataset.treeKey === activeKey)) {
-      setActiveKey(null);
-    }
-  });
+    const tree = treeRef.current;
+    if (activeKey === null || !tree) return;
+    const settle = () => {
+      if (!rowsIn(tree).some((r) => r.dataset.treeKey === activeKey)) setActiveKey(null);
+    };
+    settle();
+    const observer = new MutationObserver(settle);
+    observer.observe(tree, { childList: true, subtree: true, attributeFilter: ["data-tree-key"] });
+    return () => observer.disconnect();
+  }, [activeKey]);
 
   const current = activeKey ?? firstKey;
 
@@ -110,4 +116,9 @@ export function useTreeNavigation(firstKey: string | null) {
   };
 
   return { treeRef, rowProps, treeProps: { ref: treeRef, onKeyDown, onFocus } };
+}
+
+/** The rows on screen, in the order they are shown. */
+function rowsIn(tree: HTMLElement | null): HTMLElement[] {
+  return Array.from(tree?.querySelectorAll<HTMLElement>("[role='treeitem'][data-tree-key]") ?? []);
 }
