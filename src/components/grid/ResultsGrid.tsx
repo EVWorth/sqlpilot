@@ -8,6 +8,7 @@ import { useGridColumns } from "../../hooks/useGridColumns";
 import { useGridContextMenu } from "../../hooks/useGridContextMenu";
 import { useGridEditing } from "../../hooks/useGridEditing";
 import { useGridExport } from "../../hooks/useGridExport";
+import { useGridKeyboard } from "../../hooks/useGridKeyboard";
 import { useGridSave } from "../../hooks/useGridSave";
 import { useGridShortcuts } from "../../hooks/useGridShortcuts";
 import { useRowCount } from "../../hooks/useRowCount";
@@ -126,7 +127,7 @@ export function ResultsGrid() {
   const filters = useColumnFilters(layoutId);
   const columnFilters = filters.active;
 
-  const { selection, clickRow, step } = useRowSelection(
+  const { selection, clickRow, step, clear: clearSelection } = useRowSelection(
     activeResult?.rows.length ?? 0,
     layoutId,
     gridRef,
@@ -330,49 +331,6 @@ export function ResultsGrid() {
 
   const sortedColumnCount = sorting.length;
 
-  /** A row click, with the on-screen order so Shift ranges follow the sort (#839). */
-  const clickGridRow = useCallback((e: React.MouseEvent, dataIdx: number) => {
-    clickRow(e, dataIdx, getScreenOrder());
-  }, [clickRow, getScreenOrder]);
-
-  /**
-   * The grid's keyboard path (#852): arrows, Home and End move the selection
-   * through the rows on screen, Shift extends it, and Ctrl+C copies the
-   * selected rows as TSV — the browser's own copy took the cell text one value
-   * per line. Not while typing in a cell editor or a filter.
-   */
-  const handleGridKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.closest("input, textarea, select, [contenteditable='true'], [role='dialog']")) return;
-    const ctrl = e.ctrlKey || e.metaKey;
-    if (ctrl && e.key.toLowerCase() === "c") {
-      if (selection.rows.size === 0 || window.getSelection()?.toString()) return;
-      e.preventDefault();
-      void copyAs("tsv");
-      return;
-    }
-    if (ctrl || e.altKey) return;
-    const deltas: Record<string, number> = {
-      ArrowDown: 1,
-      ArrowUp: -1,
-      PageDown: 10,
-      PageUp: -10,
-      Home: -Infinity,
-      End: Infinity,
-    };
-    const delta = deltas[e.key];
-    if (delta === undefined) return;
-    e.preventDefault();
-    const order = getScreenOrder();
-    const moved = step(delta, e.shiftKey, order);
-    if (moved === undefined) return;
-    if (shouldVirtualize) {
-      rowVirtualizer.scrollToIndex(order.indexOf(moved), { align: "auto" });
-    } else {
-      gridRef.current?.querySelector(`[data-row-index="${moved}"]`)?.scrollIntoView?.({ block: "nearest" });
-    }
-  };
-
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
   const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
@@ -387,6 +345,40 @@ export function ResultsGrid() {
     enabled: shouldVirtualize,
     overscan: 5,
   });
+
+  const keyboard = useGridKeyboard({
+    result: activeResult,
+    orderedColumns,
+    selection,
+    step,
+    clearSelection,
+    getScreenOrder,
+    editing,
+    editingCell,
+    onEditCellAt: editCellAt,
+    onCopyRows: () => void copyAs("tsv"),
+    onMessage: showToast,
+    gridRef,
+    scrollRef: scrollContainerRef,
+    virtualRowHeight: shouldVirtualize ? ROW_HEIGHT : null,
+    resetKey: layoutId,
+  });
+  const { focusFromClick } = keyboard;
+  const focusedCell = keyboard.focusedCell && activeResult
+    ? {
+      rowIndex: keyboard.focusedCell.rowIndex,
+      columnName: activeResult.columns[keyboard.focusedCell.colIndex]?.name ?? "",
+    }
+    : null;
+
+  /**
+   * A row click, with the on-screen order so Shift ranges follow the sort
+   * (#839). It also focuses the cell clicked, for the arrow keys (#852).
+   */
+  const clickGridRow = useCallback((e: React.MouseEvent, dataIdx: number) => {
+    clickRow(e, dataIdx, getScreenOrder());
+    focusFromClick(e, dataIdx);
+  }, [clickRow, getScreenOrder, focusFromClick]);
 
   // Every result of a script stays reachable, whether or not the one shown
   // has a grid (#844). Not while running: the results are the last run's.
@@ -430,7 +422,7 @@ export function ResultsGrid() {
       ref={gridRef}
       tabIndex={0}
       aria-label="Query results"
-      onKeyDown={handleGridKeyDown}
+      onKeyDown={keyboard.onKeyDown}
       className="flex h-full flex-col min-h-0 outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-brand-500"
     >
       {errorOverResults && error && (
@@ -477,7 +469,7 @@ export function ResultsGrid() {
           {shouldVirtualize
             ? (
               <div style={{ height: `${totalRows * ROW_HEIGHT + ROW_HEIGHT}px`, position: "relative" }}>
-                <div className="sticky top-0 z-10 flex bg-[var(--color-bg-tertiary)] text-xs">
+                <div data-grid-header className="sticky top-0 z-10 flex bg-[var(--color-bg-tertiary)] text-xs">
                   <div
                     className="flex items-center justify-center border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]"
                     style={{ flex: "0 0 48px" }}
@@ -504,6 +496,7 @@ export function ResultsGrid() {
                   editing={editing}
                   editingCell={editingCell}
                   selection={selection}
+                  focusedCell={focusedCell}
                   orderedColumns={orderedColumns}
                   maxContentLen={maxContentLen}
                   numericColumns={numericColumns}
@@ -522,7 +515,7 @@ export function ResultsGrid() {
                 className="border-separate border-spacing-0 text-xs"
                 style={{ tableLayout: "fixed", width: "100%" }}
               >
-                <thead className="sticky top-0 z-10 bg-[var(--color-bg-tertiary)]">
+                <thead data-grid-header className="sticky top-0 z-10 bg-[var(--color-bg-tertiary)]">
                   <tr>
                     <th className="w-12 border-b border-r border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-2 py-1.5 text-center font-normal text-[var(--color-text-muted)]">
                       #
@@ -549,6 +542,7 @@ export function ResultsGrid() {
                     editing={editing}
                     editingCell={editingCell}
                     selection={selection}
+                    focusedCell={focusedCell}
                     orderedColumns={orderedColumns}
                     maxContentLen={maxContentLen}
                     numericColumns={numericColumns}

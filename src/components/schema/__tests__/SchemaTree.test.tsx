@@ -57,6 +57,7 @@ import { confirmDestructive, confirmDrop, confirmTruncate } from "../../../store
 import { resetRunBookkeeping, useResultStore } from "../../../stores/resultStore";
 import { useSchemaStore } from "../../../stores/schemaStore";
 import { useSettingsStore } from "../../../stores/settingsStore";
+import { useTransactionStore } from "../../../stores/transactionStore";
 import type { DatabaseInfo, RoutineInfo, TableInfo, TriggerInfo, ViewInfo } from "../../../types";
 
 const dbs: DatabaseInfo[] = [
@@ -1354,5 +1355,47 @@ describe("SchemaTree accessibility (F3.11 of #299)", () => {
     await waitFor(() => expect(node.getAttribute("aria-expanded")).toBe("true"));
     fireEvent.keyDown(button, { key: "ArrowRight" });
     expect(node.getAttribute("aria-expanded")).toBe("true");
+  });
+});
+
+// #843: picking a database in another connection's tree moved the active tab
+// there at once, ending its session and rolling back its open transaction.
+describe("pointing the active tab at another connection", () => {
+  beforeEach(() => {
+    shownMenus.length = 0;
+    useSchemaStore.setState({ byConnection: {} });
+    useEditorStore.setState({
+      tabs: [{ id: "tab-1", title: "Query", content: "", type: "query", isDirty: false, connectionId: "conn-2" }],
+      activeTabId: "tab-1",
+      pendingSwitch: null,
+    } as never);
+  });
+  afterEach(() => useTransactionStore.setState({ open: {} }));
+
+  const setAsDefault = async () => {
+    render(<SchemaTree connectionId="conn-1" />);
+    await waitFor(() => screen.getByText("app_db"));
+    fireEvent.contextMenu(screen.getByText("app_db"));
+    const menu = shownMenus.at(-1) ?? [];
+    act(() => menu.find((i) => i.label === "Set as Default")?.onClick?.());
+  };
+  const tab = () => useEditorStore.getState().tabs[0];
+
+  it("asks first when the tab has a transaction open, and moves it only on confirm", async () => {
+    useTransactionStore.getState().setOpen("tab-1", true);
+
+    await setAsDefault();
+
+    expect(tab().connectionId).toBe("conn-2");
+    expect(useEditorStore.getState().pendingSwitch?.inTransaction.map((t) => t.id)).toEqual(["tab-1"]);
+    act(() => useEditorStore.getState().confirmPendingSwitch());
+    expect(tab()).toMatchObject({ connectionId: "conn-1", database: "app_db" });
+  });
+
+  it("moves it at once when no transaction is open", async () => {
+    await setAsDefault();
+
+    expect(useEditorStore.getState().pendingSwitch).toBeNull();
+    expect(tab()).toMatchObject({ connectionId: "conn-1", database: "app_db" });
   });
 });

@@ -209,9 +209,19 @@ export function ConnectionTabs() {
     setReconnectOffer(live.id);
   };
 
-  /** Reopen a connection with its profile's current settings, keeping its editor tabs on it. */
-  const handleReconnect = async (connectionId: string) => {
+  /**
+   * Reopen a connection with its profile's current settings, keeping its
+   * editor tabs on it. That closes the old connection and every tab session
+   * on it, so a tab with a transaction open asks first (#843).
+   */
+  const handleReconnect = (connectionId: string) => {
     setReconnectOffer(null);
+    const { tabs, confirmRollback } = useEditorStore.getState();
+    const onIt = tabs.filter((t) => t.connectionId === connectionId).map((t) => t.id);
+    confirmRollback(onIt, () => void reopen(connectionId));
+  };
+
+  const reopen = async (connectionId: string) => {
     try {
       const fresh = await reconnect(connectionId);
       const { tabs, setTabConnection } = useEditorStore.getState();
@@ -250,7 +260,7 @@ export function ConnectionTabs() {
       ? [{
         label: "Reconnect to Apply Changes",
         icon: <RefreshCw className="h-3.5 w-3.5" />,
-        onClick: () => void handleReconnect(connectionId),
+        onClick: () => handleReconnect(connectionId),
       }]
       : []),
     {
@@ -480,7 +490,7 @@ export function ConnectionTabs() {
           <ReconnectPrompt
             name={profile?.name || conn.name}
             oldServer={`${conn.host}:${conn.port}`}
-            onReconnect={() => void handleReconnect(conn.id)}
+            onReconnect={() => handleReconnect(conn.id)}
             onLater={() => {
               setReconnectOffer(null);
               tablistRef.current?.querySelector<HTMLElement>(`[data-connection-id="${conn.id}"]`)?.focus();

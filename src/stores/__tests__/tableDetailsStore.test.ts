@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const api = vi.hoisted(() => ({
   getColumns: vi.fn(),
@@ -7,10 +7,15 @@ const api = vi.hoisted(() => ({
   getPartitions: vi.fn(),
   getTableDdl: vi.fn(),
   getTables: vi.fn(),
+  sqliteGetColumns: vi.fn(),
+  sqliteGetIndexes: vi.fn(),
+  sqliteGetTableDdl: vi.fn(),
+  sqliteGetTables: vi.fn(),
 }));
 
 vi.mock("../../lib/tauri-api", () => ({ api }));
 
+import { forgetConnectionKind, registerConnectionKind } from "../../lib/datasource";
 import { referencesOf, useTableDetailsStore } from "../tableDetailsStore";
 
 const target = { connectionId: "conn-1", database: "shop", table: "orders" };
@@ -124,6 +129,55 @@ describe("tableDetailsStore", () => {
       const refs = referencesOf(useTableDetailsStore.getState(), "v1");
       expect(refs.columns.orders).toEqual([column]);
       expect(refs.columnErrors).toEqual({});
+    });
+  });
+
+  describe("a SQLite connection (#921)", () => {
+    const lite = { connectionId: "lite-1", database: "main", table: "orders" };
+
+    beforeEach(() => registerConnectionKind("lite-1", "sqlite"));
+    afterEach(() => forgetConnectionKind("lite-1"));
+
+    it("reads every part through the SQLite source, never the MySQL commands", async () => {
+      api.sqliteGetColumns.mockResolvedValue([
+        { name: "id", data_type: "INTEGER", nullable: false, default_value: null, is_primary_key: true },
+      ]);
+      api.sqliteGetIndexes.mockResolvedValue([]);
+      api.sqliteGetTableDdl.mockResolvedValue("CREATE TABLE orders (id INTEGER PRIMARY KEY)");
+
+      const details = await useTableDetailsStore.getState().loadDetails("v1", lite, [
+        "columns",
+        "indexes",
+        "foreignKeys",
+        "partitions",
+        "ddl",
+      ]);
+
+      expect(api.sqliteGetColumns).toHaveBeenCalledWith("lite-1", "orders");
+      expect(api.sqliteGetIndexes).toHaveBeenCalledWith("lite-1", "orders");
+      expect(api.sqliteGetTableDdl).toHaveBeenCalledWith("lite-1", "orders");
+      for (
+        const mysqlCall of [api.getColumns, api.getIndexes, api.getForeignKeys, api.getPartitions, api.getTableDdl]
+      ) {
+        expect(mysqlCall).not.toHaveBeenCalled();
+      }
+      expect(details.errors).toEqual({});
+      expect(details.columns.map((c) => c.name)).toEqual(["id"]);
+      expect(details.ddl).toBe("CREATE TABLE orders (id INTEGER PRIMARY KEY)");
+    });
+
+    it("lists reference tables and columns through the SQLite source", async () => {
+      api.sqliteGetTables.mockResolvedValue([{ name: "customers", table_type: "table", row_count: 1, sql: "" }]);
+      api.sqliteGetColumns.mockResolvedValue([]);
+      const store = useTableDetailsStore.getState();
+
+      await store.loadReferenceTables("v1", "lite-1", "main");
+      await store.loadReferenceColumns("v1", { ...lite, table: "customers" });
+
+      expect(referencesOf(useTableDetailsStore.getState(), "v1").tables.map((t) => t.name)).toEqual(["customers"]);
+      expect(api.sqliteGetColumns).toHaveBeenCalledWith("lite-1", "customers");
+      expect(api.getTables).not.toHaveBeenCalled();
+      expect(api.getColumns).not.toHaveBeenCalled();
     });
   });
 

@@ -49,7 +49,14 @@ vi.mock("../../../stores/connectionStore", () => {
 });
 
 vi.mock("../../../stores/editorStore", () => {
-  const state = () => ({ tabs: [], activeTabId: null, addTab: vi.fn(), setTabConnection: vi.fn() });
+  const state = () => ({
+    tabs: [],
+    activeTabId: null,
+    addTab: vi.fn(),
+    setTabConnection: vi.fn(),
+    requestTabConnection: vi.fn(),
+    confirmRollback: (_ids: string[], proceed: () => void) => proceed(),
+  });
   const hook = vi.fn((s: (v: unknown) => unknown) => s(state())) as unknown as {
     (s: (v: unknown) => unknown): unknown;
     getState: () => unknown;
@@ -177,6 +184,8 @@ describe("startup reconnect (#276)", () => {
       activeTabId: "t1",
       addTab: vi.fn(),
       setTabConnection: vi.fn(),
+      requestTabConnection: vi.fn(),
+      confirmRollback: (_ids: string[], proceed: () => void) => proceed(),
     } as never);
 
     render(<ConnectionTabs />);
@@ -673,6 +682,33 @@ describe("editing a connected profile (#831)", () => {
     });
     expect(reconnect).toHaveBeenCalledWith("c1");
     expect(screen.queryByTestId("reconnect-prompt")).toBeNull();
+  });
+
+  // #843: reconnecting closes every session on the old connection.
+  it("asks before a reconnect would roll back a tab's open transaction", async () => {
+    const reconnect = vi.fn().mockResolvedValue({ ...conn, id: "c2" });
+    storeState = { profiles: [profile], activeConnections: [conn], reconnect };
+    let proceed: (() => void) | undefined;
+    const confirmRollback = vi.fn((_ids: string[], go: () => void) => {
+      proceed = go;
+    });
+    vi.mocked(useEditorStore.getState).mockReturnValue({
+      tabs: [{ id: "t1", connectionId: "c1" }, { id: "t2", connectionId: "c9" }],
+      activeTabId: "t1",
+      setTabConnection: vi.fn(),
+      confirmRollback,
+    } as never);
+    render(<ConnectionTabs />);
+    fireEvent.contextMenu(screen.getByText("Local dev"));
+    editAndSave({ host: "10.9.9.9" });
+
+    fireEvent.click(screen.getByText("Reconnect now"));
+    expect(confirmRollback).toHaveBeenCalledWith(["t1"], expect.any(Function));
+    expect(reconnect).not.toHaveBeenCalled();
+
+    await act(async () => proceed?.());
+    expect(reconnect).toHaveBeenCalledWith("c1");
+    vi.mocked(useEditorStore.getState).mockReset();
   });
 
   it("puts the prompt away on Later and leaves the tab marked", () => {

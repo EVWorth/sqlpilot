@@ -105,6 +105,76 @@ describe("editorStore", () => {
     });
   });
 
+  // #843: pointing a tab at another connection ends its session, which
+  // rolled an open transaction back without a word.
+  describe("requestTabConnection", () => {
+    async function inTransaction() {
+      const { useTransactionStore } = await import("../transactionStore");
+      const a = useEditorStore.getState().addTab("conn-a", "shop");
+      useTransactionStore.getState().setOpen(a, true);
+      return { a, done: () => useTransactionStore.getState().setOpen(a, false) };
+    }
+    const connectionOf = (id: string) => useEditorStore.getState().tabs.find((t) => t.id === id)?.connectionId;
+
+    it("asks before moving a tab with an open transaction to another connection, and moves on confirm", async () => {
+      const { a, done } = await inTransaction();
+
+      useEditorStore.getState().requestTabConnection(a, "conn-b", "crm", "prof-b");
+      expect(connectionOf(a)).toBe("conn-a");
+      expect(useEditorStore.getState().pendingSwitch?.inTransaction.map((t) => t.id)).toEqual([a]);
+
+      useEditorStore.getState().confirmPendingSwitch();
+      expect(connectionOf(a)).toBe("conn-b");
+      expect(useEditorStore.getState().pendingSwitch).toBeNull();
+      done();
+    });
+
+    it("leaves the tab where it was when the user cancels", async () => {
+      const { a, done } = await inTransaction();
+
+      useEditorStore.getState().requestTabConnection(a, "conn-b");
+      useEditorStore.getState().cancelPendingSwitch();
+
+      expect(connectionOf(a)).toBe("conn-a");
+      expect(useEditorStore.getState().pendingSwitch).toBeNull();
+      done();
+    });
+
+    it("does not ask for another database on the same connection, which keeps the session", async () => {
+      const { a, done } = await inTransaction();
+
+      useEditorStore.getState().requestTabConnection(a, "conn-a", "crm");
+
+      expect(useEditorStore.getState().pendingSwitch).toBeNull();
+      expect(useEditorStore.getState().tabs.find((t) => t.id === a)?.database).toBe("crm");
+      done();
+    });
+
+    it("moves a tab with no transaction open without asking", () => {
+      const a = useEditorStore.getState().addTab("conn-a");
+
+      useEditorStore.getState().requestTabConnection(a, "conn-b");
+
+      expect(useEditorStore.getState().pendingSwitch).toBeNull();
+      expect(connectionOf(a)).toBe("conn-b");
+    });
+
+    it("runs any other session-ending action through the same question", async () => {
+      const { a, done } = await inTransaction();
+      const proceed = vi.fn();
+
+      useEditorStore.getState().confirmRollback([a], proceed);
+      expect(proceed).not.toHaveBeenCalled();
+      useEditorStore.getState().confirmPendingSwitch();
+      expect(proceed).toHaveBeenCalledOnce();
+
+      const plain = useEditorStore.getState().addTab("conn-c");
+      useEditorStore.getState().confirmRollback([plain], proceed);
+      expect(proceed).toHaveBeenCalledTimes(2);
+      done();
+    });
+  });
+
   describe("closeTab", () => {
     it("should close a tab when multiple tabs exist", () => {
       const id1 = useEditorStore.getState().addTab();

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { nextEditableCell } from "../grid-navigation";
+import { nextEditableCell, stepColumn } from "../grid-navigation";
 
 const at = (rowIndex: number, colIndex: number) => ({ rowIndex, colIndex });
 
@@ -37,5 +37,31 @@ describe("nextEditableCell", () => {
   it("handles a single cell", () => {
     expect(nextEditableCell(at(0, 0), false, 1, 1)).toBeNull();
     expect(nextEditableCell(at(0, 0), true, 1, 1)).toBeNull();
+  });
+});
+
+describe("stepColumn (#852)", () => {
+  it("moves one column either way, stopping at the edges", () => {
+    expect(stepColumn(1, 1, 3)).toBe(2);
+    expect(stepColumn(2, 1, 3)).toBe(2);
+    expect(stepColumn(1, -1, 3)).toBe(0);
+    expect(stepColumn(0, -1, 3)).toBe(0);
+  });
+
+  it("goes to the first or last column for Home and End", () => {
+    expect(stepColumn(1, -Infinity, 3)).toBe(0);
+    expect(stepColumn(1, Infinity, 3)).toBe(2);
+  });
+
+  it("starts at the first column with nothing focused, or the last for End", () => {
+    expect(stepColumn(null, 1, 3)).toBe(0);
+    expect(stepColumn(null, -1, 3)).toBe(0);
+    expect(stepColumn(null, Infinity, 3)).toBe(2);
+    // A column that has gone, after a reorder or a new result.
+    expect(stepColumn(7, 1, 3)).toBe(0);
+  });
+
+  it("has nowhere to go without columns", () => {
+    expect(stepColumn(0, 1, 0)).toBeNull();
   });
 });

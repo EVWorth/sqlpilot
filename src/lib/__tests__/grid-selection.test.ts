@@ -121,6 +121,11 @@ describe("stepSelection (#852)", () => {
     expect([...stepSelection(NO_SELECTION, -1, false, order).rows]).toEqual([1]);
   });
 
+  it("goes to the last row for End and the first for Home, from nothing too", () => {
+    expect([...stepSelection(NO_SELECTION, Infinity, false, order).rows]).toEqual([1]);
+    expect([...stepSelection(NO_SELECTION, -Infinity, false, order).rows]).toEqual([2]);
+  });
+
   it("moves through screen order and stops at the ends", () => {
     const one = stepSelection(NO_SELECTION, 1, false, order);
     const two = stepSelection(one, 1, false, order);

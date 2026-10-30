@@ -135,5 +135,19 @@ describe("connection scenarios", () => {
       const left = await call<ConnectionInfo[]>("list_connections");
       expect(left.map((c) => c.id)).not.toContain(conn.id);
     });
+
+    it.each(["connected", "lost"])("keeps Local dev closed after a disconnect in ?mock=%s (#921)", async (scenario) => {
+      install(`?mock=${scenario}`);
+      vi.useFakeTimers();
+      const [conn] = await call<ConnectionInfo[]>("list_connections");
+      expect(conn.profile_id).toBe("profile-local");
+
+      await settle(call("disconnect", { connectionId: conn.id }));
+
+      expect(await call<ConnectionInfo[]>("list_connections")).toEqual([]);
+      // Connecting again still works.
+      const again = await settle(call<ConnectionInfo>("connect", { profileId: "profile-local" }));
+      expect((await call<ConnectionInfo[]>("list_connections")).map((c) => c.id)).toEqual([again.id]);
+    });
   });
 });

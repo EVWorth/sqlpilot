@@ -13,6 +13,8 @@ const api = vi.hoisted(() => ({
 vi.mock("../../lib/tauri-api", () => ({ api }));
 
 import { grantsOf, processListOf, useAdminStore, variablesOf } from "../adminStore";
+import { useConnectionStore } from "../connectionStore";
+import { useHistoryStore } from "../historyStore";
 
 const process = { id: 7, user: "app", command: "Query", time: 3 };
 
@@ -140,7 +142,7 @@ describe("adminStore", () => {
 
       await useAdminStore.getState().loadGrants("v1", "conn-1", "o'neil", "%");
 
-      expect(api.executeQuery).toHaveBeenCalledWith("conn-1", "SHOW GRANTS FOR 'o''neil'@'%'");
+      expect(api.executeQuery).toHaveBeenCalledWith("conn-1", "SHOW GRANTS FOR 'o''neil'@'%'", undefined);
       expect(grantsOf(useAdminStore.getState(), "v1")).toEqual({
         grants: ["GRANT USAGE ON *.* TO `o'neil`@`%`"],
         loading: false,
@@ -157,6 +159,25 @@ describe("adminStore", () => {
         error: "There is no such grant defined",
         loading: false,
       });
+    });
+
+    it("records every grant read as internal, the account view's and the editor's alike (#921)", async () => {
+      const addEntry = vi.fn().mockResolvedValue(undefined);
+      useHistoryStore.setState({ addEntry });
+      useConnectionStore.setState({
+        activeConnections: [{ id: "conn-1", name: "Local" }],
+      } as unknown as Partial<ReturnType<typeof useConnectionStore.getState>>);
+      api.executeQuery.mockResolvedValue(grantRows("GRANT USAGE ON *.* TO `app`@`%`"));
+      const store = useAdminStore.getState();
+
+      await store.loadGrants("v1", "conn-1", "app", "%");
+      await store.showGrants("conn-1", "app", "%");
+
+      expect(addEntry).toHaveBeenCalledTimes(2);
+      for (const [entry] of addEntry.mock.calls) {
+        expect(entry).toMatchObject({ sql: "SHOW GRANTS FOR 'app'@'%'", origin: "internal" });
+      }
+      useConnectionStore.setState({ activeConnections: [] });
     });
 
     it("hands the grant lines to a caller that keeps them, or null without a result set", async () => {
