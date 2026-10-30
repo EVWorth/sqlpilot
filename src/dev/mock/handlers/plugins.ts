@@ -10,8 +10,12 @@
 // drag or maximise, so the window calls answer as a normal, unmaximised
 // window would and otherwise do nothing.
 
+import { version as packageVersion } from "../../../../package.json";
 import { delay, fail, type Handlers } from "../router";
 import { state } from "../state";
+
+/** The running app's version: package.json's, so the mock can't drift from it. */
+export const APP_VERSION: string = packageVersion;
 
 /** The version every `update=` mode offers. */
 export const UPDATE_VERSION = "1.5.0";
@@ -82,7 +86,7 @@ async function checkForUpdate(): Promise<unknown> {
     default:
       return {
         rid: 1,
-        currentVersion: "1.3.0",
+        currentVersion: APP_VERSION,
         version: UPDATE_VERSION,
         date: "2026-10-27 09:00:00.0 +00:00:00",
         body: "Faster schema browsing, and the agent panel remembers its width.",
@@ -106,7 +110,7 @@ const WINDOW_NOOPS = [
 ];
 
 export const pluginHandlers: Handlers = {
-  "plugin:app|version": () => "1.3.0",
+  "plugin:app|version": () => APP_VERSION,
   "plugin:app|name": () => "SQLPilot",
   "plugin:app|tauri_version": () => "2.12.3",
   // Up to date unless the page asks otherwise with `update=`.
