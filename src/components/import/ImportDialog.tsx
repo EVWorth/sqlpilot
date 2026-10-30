@@ -360,7 +360,7 @@ export function ImportDialog({
     prog.done = true;
     setProgress({ ...prog });
     setCsvImporting(false);
-  }, [targetTable, csvHeaders, csvRows, csvBareEmpty, columnMapping, connectionId]);
+  }, [targetTable, csvHeaders, csvRows, csvBareEmpty, columnMapping, connectionId, database]);
 
   // Every control is disabled during a run, including the one that started
   // it, so focus would fall to <body> and the keyboard would lose the dialog

@@ -37,6 +37,22 @@ export function nextEditableCell(
 }
 
 /**
+ * Left, Right, Home and End for the grid's focused cell (#852).
+ *
+ * `from` is a position in the columns as they are on screen, or null when no
+ * cell is focused yet, which starts from the first column. Clamped at both
+ * ends rather than wrapping into the next row: a spreadsheet stops at the
+ * edge, and Tab is the key that carries on. ±Infinity is Home and End.
+ */
+export function stepColumn(from: number | null, delta: number, columnCount: number): number | null {
+  if (columnCount <= 0) return null;
+  if (from === null || from < 0 || from >= columnCount) {
+    return delta === Infinity ? columnCount - 1 : 0;
+  }
+  return Math.max(0, Math.min(columnCount - 1, from + delta));
+}
+
+/**
  * A one-line summary of pending grid edits, for the production confirmation.
  *
  * The dialog has to say what is about to be written. "Apply 12 change(s)"

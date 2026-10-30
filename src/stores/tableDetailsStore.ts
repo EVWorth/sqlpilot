@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api } from "../lib/tauri-api";
+import { dataSourceFor } from "../lib/datasource";
 import { errorMessage } from "../lib/utils";
 import type { ColumnInfo, ForeignKeyInfo, IndexInfo, PartitionInfo, TableInfo } from "../types";
 
@@ -96,18 +96,23 @@ export function referencesOf(state: Pick<TableDetailsState, "references">, view:
   return state.references[view] ?? NO_REFERENCES;
 }
 
+/**
+ * One part, through the connection's data source like every other schema
+ * read, so a SQLite file is not asked MySQL's questions (#921).
+ */
 function fetchPart(part: TablePart, { connectionId, database, table }: TableTarget): Promise<unknown> {
+  const source = dataSourceFor(connectionId);
   switch (part) {
     case "columns":
-      return api.getColumns(connectionId, database, table);
+      return source.getColumns(connectionId, database, table);
     case "indexes":
-      return api.getIndexes(connectionId, database, table);
+      return source.getIndexes(connectionId, database, table);
     case "foreignKeys":
-      return api.getForeignKeys(connectionId, database, table);
+      return source.getForeignKeys(connectionId, database, table);
     case "partitions":
-      return api.getPartitions(connectionId, database, table);
+      return source.getPartitions(connectionId, database, table);
     case "ddl":
-      return api.getTableDdl(connectionId, database, table);
+      return source.getTableDdl(connectionId, database, table);
   }
 }
 
@@ -182,7 +187,7 @@ export const useTableDetailsStore = create<TableDetailsState>((set, get) => {
     loadReferenceTables: async (view, connectionId, database) => {
       const generation = referenceGenerationOf(view);
       try {
-        const tables = await api.getTables(connectionId, database);
+        const tables = await dataSourceFor(connectionId).listTables(connectionId, database);
         putReferences(view, generation, () => ({ tables }));
       } catch (e) {
         console.error("Failed to load reference tables", e);
@@ -193,7 +198,11 @@ export const useTableDetailsStore = create<TableDetailsState>((set, get) => {
       if (referencesOf(get(), view).columns[target.table]) return;
       const generation = referenceGenerationOf(view);
       try {
-        const columns = await api.getColumns(target.connectionId, target.database, target.table);
+        const columns = await dataSourceFor(target.connectionId).getColumns(
+          target.connectionId,
+          target.database,
+          target.table,
+        );
         putReferences(view, generation, (entry) => {
           const columnErrors = { ...entry.columnErrors };
           delete columnErrors[target.table];

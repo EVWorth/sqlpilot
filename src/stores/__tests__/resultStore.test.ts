@@ -1175,6 +1175,26 @@ describe("resultStore", () => {
       expect(open()).toBe(true);
     });
 
+    it("takes the backend's \"none\" over a BEGIN in the statements", async () => {
+      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN", transaction: "none" })]);
+      await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
+
+      expect(open()).toBe(false);
+    });
+
+    it("takes the state reported on the results before a failure over the statements", async () => {
+      useTransactionStore.getState().setOpen("tab-1", true);
+      executeQueryMock.mockRejectedValue(
+        new CommandError("nope", {
+          statementIndex: 1,
+          completedResults: [makeQueryResult({ sql: "SELECT 1", transaction: "none" })],
+        }),
+      );
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1; UPDATE nope SET a = 1;", undefined, "tab-1");
+
+      expect(open()).toBe(false);
+    });
+
     it("counts the statements before a failure", async () => {
       executeQueryMock.mockRejectedValue(new CommandError("nope", { statementIndex: 1 }));
       await useResultStore.getState().executeQuery("conn-1", "BEGIN; UPDATE nope SET a = 1;", undefined, "tab-1");

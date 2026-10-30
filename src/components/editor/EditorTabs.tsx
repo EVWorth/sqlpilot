@@ -6,6 +6,7 @@ import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useTransactionStore } from "../../stores/transactionStore";
 import { ConfirmDialog } from "../common/ConfirmDialog";
+import { RollbackSwitchDialog } from "./RollbackSwitchDialog";
 
 export function EditorTabs() {
   const tabs = useEditorStore((s) => s.tabs);
@@ -314,6 +315,7 @@ export function EditorTabs() {
       </div>
       {contextMenu}
       <UnsavedCloseDialog />
+      <RollbackSwitchDialog />
     </div>
   );
 }

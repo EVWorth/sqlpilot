@@ -1,12 +1,14 @@
 /**
  * Whether a tab's session is inside a transaction after the statements it
- * just ran (#843).
+ * just ran (#843) — the fallback.
  *
- * The backend reports this only from a grid save (`apply_grid_edits`), not
- * from `execute_query`, so until it does the editor reads it off the
- * statements themselves. That is a best guess, and errs towards "open": the
- * indicator and the close prompt it drives cost a click when wrong, while
- * missing a transaction rolls back the user's work without a word.
+ * The backend reports the session's state on a run's last result (#916),
+ * and the editor takes that when it is there. It is not always: MySQL has no
+ * `@@in_transaction` to read, the server may not say, and a failed run
+ * reports nothing. Then the state is read off the statements themselves. That
+ * is a best guess, and errs towards "open": the indicator and the prompts it
+ * drives cost a click when wrong, while missing a transaction rolls back the
+ * user's work without a word.
  */
 
 /** The statement with comments stripped and whitespace collapsed, upper-cased. */

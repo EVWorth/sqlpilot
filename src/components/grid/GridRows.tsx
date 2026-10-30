@@ -23,6 +23,8 @@ export interface GridRowsProps {
   editing: ReturnType<typeof useGridEditing>;
   editingCell: { rowIndex: number; colIndex: number } | null;
   selection: Selection;
+  /** The cell the arrow keys move, by result row and column name (#852). */
+  focusedCell: { rowIndex: number; columnName: string } | null;
   /** Columns in display order, for the insert rows laid out by hand (#392). */
   orderedColumns: ColumnMeta[];
   maxContentLen: Record<string, number>;
@@ -36,6 +38,15 @@ export interface GridRowsProps {
   onRowContextMenu: (e: React.MouseEvent<HTMLElement>, dataIdx: number) => void;
 }
 
+/** The focused cell's outline, inside its borders so it does not shift the layout. */
+const FOCUSED_CELL = "outline outline-2 -outline-offset-2 outline-brand-500";
+
+const isFocused = (
+  focusedCell: GridRowsProps["focusedCell"],
+  rowIndex: number,
+  columnName: string,
+) => focusedCell?.rowIndex === rowIndex && focusedCell.columnName === columnName;
+
 export interface VirtualGridRowsProps extends GridRowsProps {
   rowVirtualizer: Virtualizer<HTMLDivElement, Element>;
   /** Also the sticky header's height, which every row is offset by. */
@@ -48,6 +59,7 @@ export function VirtualGridRows({
   editing,
   editingCell,
   selection,
+  focusedCell,
   orderedColumns,
   maxContentLen,
   numericColumns,
@@ -162,13 +174,15 @@ export function VirtualGridRows({
             </div>
             {tableRow.getVisibleCells().map((cell) => {
               const minW = Math.max(50, Math.min(maxContentLen[cell.column.id] ?? 5, 20) * 7 + 30);
+              const focused = isFocused(focusedCell, dataIdx, cell.column.id);
               return (
                 <div
                   key={cell.id}
                   data-col={cell.column.id}
+                  data-focused-cell={focused || undefined}
                   className={`select-none border-b border-r border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-primary)] ${rowBg} ${
                     numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
-                  }`}
+                  } ${focused ? FOCUSED_CELL : ""}`}
                   style={{ flex: `1 1 ${cell.column.getSize()}px`, minWidth: minW }}
                 >
                   {flexRender(
@@ -190,6 +204,7 @@ export function TableGridRows({
   editing,
   editingCell,
   selection,
+  focusedCell,
   orderedColumns,
   numericColumns,
   insertRowIndex,
@@ -227,20 +242,24 @@ export function TableGridRows({
             <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
               {rowIdx + 1}
             </td>
-            {row.getVisibleCells().map((cell) => (
-              <td
-                key={cell.id}
-                data-col={cell.column.id}
-                className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)] ${
-                  numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
-                }`}
-              >
-                {flexRender(
-                  cell.column.columnDef.cell,
-                  cell.getContext(),
-                )}
-              </td>
-            ))}
+            {row.getVisibleCells().map((cell) => {
+              const focused = isFocused(focusedCell, dataIdx, cell.column.id);
+              return (
+                <td
+                  key={cell.id}
+                  data-col={cell.column.id}
+                  data-focused-cell={focused || undefined}
+                  className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)] ${
+                    numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
+                  } ${focused ? FOCUSED_CELL : ""}`}
+                >
+                  {flexRender(
+                    cell.column.columnDef.cell,
+                    cell.getContext(),
+                  )}
+                </td>
+              );
+            })}
           </tr>
         );
       })}

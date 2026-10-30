@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import type { ExplainFormat } from "../lib/bindings";
+import type { ExplainFormat, TransactionState } from "../lib/bindings";
 import { connectionKind, dataSourceFor } from "../lib/datasource";
 import { forgetGridMemory } from "../lib/grid-memory";
 import { firstGridIndex } from "../lib/result-label";
@@ -1000,7 +1000,9 @@ async function doExecuteQuery(
     if (!paging) {
       recordSuccess(results, sql, connectionId, connectionName, effectiveDatabase, startTime, conn === undefined);
     }
-    if (session && source.kind === "mysql") noteTransaction(session, sql, results);
+    if (session && source.kind === "mysql") {
+      noteTransaction(session, results[results.length - 1]?.transaction, statementsRun(sql, results));
+    }
 
     if (!isCurrent(run)) return run.cancelled ? { status: "cancelled" } : { status: "succeeded", results };
 
@@ -1054,7 +1056,8 @@ async function doExecuteQuery(
     // The statements before the failing one ran, BEGIN included (#843).
     if (session && structured?.statementIndex !== undefined && connectionKind(connectionId) === "mysql") {
       const ran = splitSqlStatements(sql).slice(0, structured.statementIndex);
-      useTransactionStore.getState().setOpen(session, transactionAfter(ran, hasOpenTransaction(session)));
+      const completed = structured.completedResults ?? [];
+      noteTransaction(session, completed[completed.length - 1]?.transaction, ran);
     }
     if (conn) {
       void useHistoryStore.getState().addEntry({
@@ -1109,20 +1112,19 @@ async function doExecuteQuery(
 /**
  * Record whether the tab's session is inside a transaction after a run (#843).
  *
- * Read from the result when the backend reports it (a `transaction` field of
- * "open" or "none" on the last result, the shape `apply_grid_edits` already
- * uses); until then, inferred from the statements that ran.
+ * The backend's answer wins: it asks the server after the run and reports it
+ * on the last result. It has none on MySQL (no `@@in_transaction`), when the
+ * server could not say, and after a failed run, so then the statements that
+ * ran are read instead (lib/transaction-tracking).
  */
-function noteTransaction(session: string, sql: string, results: QueryResult[]) {
-  const reported: unknown = (results[results.length - 1] as { transaction?: unknown } | undefined)?.transaction;
-  if (reported === "open" || reported === "none") {
-    useTransactionStore.getState().setOpen(session, reported === "open");
-    return;
-  }
-  const statements = results.length > 0 && results.every((r) => r.sql)
-    ? results.map((r) => r.sql)
-    : splitSqlStatements(sql);
-  useTransactionStore.getState().setOpen(session, transactionAfter(statements, hasOpenTransaction(session)));
+function noteTransaction(session: string, reported: TransactionState | null | undefined, ran: readonly string[]) {
+  const open = reported ? reported === "open" : transactionAfter(ran, hasOpenTransaction(session));
+  useTransactionStore.getState().setOpen(session, open);
+}
+
+/** The statements a successful run ran, from its results when they carry them. */
+function statementsRun(sql: string, results: QueryResult[]): string[] {
+  return results.length > 0 && results.every((r) => r.sql) ? results.map((r) => r.sql) : splitSqlStatements(sql);
 }
 
 /** Which statement of `sql` the error names, when it names one (#845). */

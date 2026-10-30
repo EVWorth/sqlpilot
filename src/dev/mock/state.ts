@@ -90,6 +90,12 @@ export const state = {
    * checks have failed in a row.
    */
   down: new Map<string, number>(),
+  /**
+   * Whether the scenario's "Local dev" connection has been opened. Once it
+   * has, listing connections must not open it again: a user who disconnected
+   * it expects it to stay closed (#921).
+   */
+  scenarioOpened: false,
   /** Counter for ids the mock hands out. */
   nextId: 1,
 };
@@ -105,6 +111,7 @@ export function resetState(scenario: Scenario, options: MockOptions = defaultOpt
   state.profiles = profiles.map((p) => ({ ...p }));
   state.connections.clear();
   state.down.clear();
+  state.scenarioOpened = false;
   state.nextId = 1;
 }
 

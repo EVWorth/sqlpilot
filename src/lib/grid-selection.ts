@@ -133,8 +133,10 @@ export function stepSelection(
   if (order.length === 0) return current;
   const from = current.cursor ?? current.anchor;
   const pos = from === null || from === undefined ? -1 : order.indexOf(from);
+  // From nothing, a step down starts at the top and a step up at the bottom,
+  // but Home and End (±Infinity) still go where they say (#852).
   const next = pos < 0
-    ? (delta > 0 ? 0 : order.length - 1)
+    ? (delta === Infinity || (delta < 0 && delta !== -Infinity) ? order.length - 1 : 0)
     : Math.max(0, Math.min(order.length - 1, pos + delta));
   const target = order[next];
   const anchorPos = current.anchor === null ? -1 : order.indexOf(current.anchor);

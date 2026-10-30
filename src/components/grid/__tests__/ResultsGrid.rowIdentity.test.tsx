@@ -313,7 +313,10 @@ describe("the grid from the keyboard (#852)", () => {
     expect(selectedNames()).toEqual(["ada"]);
     fireEvent.keyDown(grid(), { key: "ArrowDown", shiftKey: true });
     expect(selectedNames()).toEqual(["ada", "bob"]);
+    // End stays in the row; Ctrl+End goes to the last row (#852).
     fireEvent.keyDown(grid(), { key: "End" });
+    expect(selectedNames()).toEqual(["ada", "bob"]);
+    fireEvent.keyDown(grid(), { key: "End", ctrlKey: true });
     expect(selectedNames()).toEqual(["cy"]);
   });
 
@@ -334,5 +337,107 @@ describe("the grid from the keyboard (#852)", () => {
     render(<ResultsGrid />);
 
     expect(bodyRows()[0].className).toContain("select-none");
+  });
+});
+
+describe("the focused cell (#852)", () => {
+  const grid = () => screen.getByLabelText("Query results");
+  const key = (k: string, init: Partial<KeyboardEventInit> = {}) => fireEvent.keyDown(grid(), { key: k, ...init });
+  /** The focused cell's row (by its name cell) and column. */
+  const focused = () => {
+    const cell = document.querySelector("[data-focused-cell]");
+    if (!cell) return null;
+    const row = cell.closest("tr");
+    return [row?.querySelectorAll("td")[2]?.textContent?.trim(), cell.getAttribute("data-col")];
+  };
+
+  it("moves along the row with Left, Right, Home and End, and stops at the edges", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+
+    key("ArrowDown");
+    expect(focused()).toEqual(["ada", "id"]);
+    key("ArrowRight");
+    expect(focused()).toEqual(["ada", "name"]);
+    key("ArrowRight");
+    expect(focused()).toEqual(["ada", "name"]);
+    key("Home");
+    expect(focused()).toEqual(["ada", "id"]);
+    key("ArrowLeft");
+    expect(focused()).toEqual(["ada", "id"]);
+    key("End");
+    expect(focused()).toEqual(["ada", "name"]);
+  });
+
+  it("keeps its column as Up and Down move the row, in screen order", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+
+    fireEvent.click(screen.getByText("ada"));
+    expect(focused()).toEqual(["ada", "name"]);
+    key("ArrowDown");
+    expect(focused()).toEqual(["bob", "name"]);
+    key("ArrowUp");
+    expect(focused()).toEqual(["ada", "name"]);
+  });
+
+  it("goes to the corners with Ctrl+Home and Ctrl+End", async () => {
+    render(<ResultsGrid />);
+    await sortByName();
+    fireEvent.click(screen.getByText("bob"));
+
+    key("End", { ctrlKey: true });
+    expect(focused()).toEqual(["cy", "name"]);
+    key("Home", { ctrlKey: true });
+    expect(focused()).toEqual(["ada", "id"]);
+  });
+
+  it("copies the focused cell on Ctrl+C when no row is selected", async () => {
+    render(<ResultsGrid />);
+    fireEvent.click(screen.getByText("ada"));
+
+    // Escape drops the row selection and leaves the cell.
+    key("Escape");
+    expect(bodyRows().some((tr) => tr.getAttribute("aria-selected") === "true")).toBe(false);
+    expect(focused()).toEqual(["ada", "name"]);
+    key("c", { ctrlKey: true });
+
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("ada"));
+
+    // A second Escape leaves the cell too.
+    key("Escape");
+    expect(focused()).toBeNull();
+  });
+
+  it("edits the focused cell on Enter or F2 in Edit Mode, and the arrows carry on after", async () => {
+    render(<ResultsGrid />);
+    fireEvent.click(screen.getByRole("button", { name: /edit mode/i }));
+    fireEvent.click(screen.getByText("ada"));
+    // The focus is on the grid, as after a click on a cell.
+    grid().focus();
+
+    key("Enter");
+    const input = await screen.findByDisplayValue("ada");
+    fireEvent.keyDown(input, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByDisplayValue("ada")).toBeNull());
+    // Focus comes back to the grid, so the keyboard is not stranded.
+    expect(document.activeElement).toBe(grid());
+
+    key("ArrowLeft");
+    key("F2");
+    expect(await screen.findByDisplayValue("2")).toBeDefined();
+  });
+
+  it("does not edit outside Edit Mode, nor from a header's own Enter", async () => {
+    render(<ResultsGrid />);
+    fireEvent.click(screen.getByText("ada"));
+
+    key("Enter");
+    expect(screen.queryByDisplayValue("ada")).toBeNull();
+
+    const header = screen.getAllByText("name")[0].closest("th");
+    if (!header) throw new Error("no header");
+    fireEvent.keyDown(header, { key: "ArrowDown" });
+    expect(focused()).toEqual(["ada", "name"]);
   });
 });

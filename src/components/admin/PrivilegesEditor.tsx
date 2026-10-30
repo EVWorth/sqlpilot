@@ -71,13 +71,8 @@ export function PrivilegesEditor({
     setLoading(true);
     setError(null);
     try {
-      const results = await runStatement({
-        connectionId,
-        sql: `SHOW GRANTS FOR ${quoteStringLiteral(user)}@${quoteStringLiteral(host)}`,
-        origin: "internal",
-      });
-      if (results.length > 0) {
-        const rawGrants = results[0].rows.map((row) => String(row[0] ?? ""));
+      const rawGrants = await useAdminStore.getState().showGrants(connectionId, user, host);
+      if (rawGrants) {
         const parsed = parseGrantStatements(rawGrants);
         const categorized = categorizeGrants(parsed);
 

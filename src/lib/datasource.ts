@@ -2,7 +2,9 @@ import type {
   ColumnInfo,
   DatabaseInfo,
   EventInfo,
+  ForeignKeyInfo,
   IndexInfo,
+  PartitionInfo,
   QueryResult,
   RoutineInfo,
   TableInfo,
@@ -40,6 +42,8 @@ export interface DataSource {
   listEvents(connectionId: string, database: string): Promise<EventInfo[]>;
   getColumns(connectionId: string, database: string, table: string): Promise<ColumnInfo[]>;
   getIndexes(connectionId: string, database: string, table: string): Promise<IndexInfo[]>;
+  getForeignKeys(connectionId: string, database: string, table: string): Promise<ForeignKeyInfo[]>;
+  getPartitions(connectionId: string, database: string, table: string): Promise<PartitionInfo[]>;
   getTableDdl(connectionId: string, database: string, table: string): Promise<string>;
   getViewDdl(connectionId: string, database: string, view: string): Promise<string>;
   execute(
@@ -68,6 +72,8 @@ const mysql: DataSource = {
   listEvents: (c, d) => api.getEvents(c, d),
   getColumns: (c, d, t) => api.getColumns(c, d, t),
   getIndexes: (c, d, t) => api.getIndexes(c, d, t),
+  getForeignKeys: (c, d, t) => api.getForeignKeys(c, d, t),
+  getPartitions: (c, d, t) => api.getPartitions(c, d, t),
   getTableDdl: (c, d, t) => api.getTableDdl(c, d, t),
   getViewDdl: (c, d, v) => api.getViewDdl(c, d, v),
   execute: (c, sql, d, limit, offset, session) => api.executeQuery(c, sql, d, limit, offset, session),
@@ -150,6 +156,12 @@ const sqlite: DataSource = {
       is_unique: i.is_unique,
       index_type: "BTREE",
     })),
+  // The SQLite backend has no command for `PRAGMA foreign_key_list` yet, so
+  // the structure views show none rather than asking MySQL's
+  // information_schema about a file it has never seen (#921).
+  getForeignKeys: async () => [],
+  // SQLite has no partitioning.
+  getPartitions: async () => [],
   getTableDdl: (c, _d, t) => api.sqliteGetTableDdl(c, t),
   // `sqlite_get_table_ddl` reads only `type='table'` rows, but the listing
   // already carries every object's `CREATE` statement, views included.

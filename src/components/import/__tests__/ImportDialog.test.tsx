@@ -455,6 +455,45 @@ describe("ImportDialog", () => {
         expect(screen.getByText("people")).toBeDefined();
       });
     });
+    it("imports into the database selected at the time of the import (#921)", async () => {
+      vi.mocked(api.pickFile).mockResolvedValue("/path/to/data.csv");
+      vi.mocked(api.readFileContents).mockResolvedValue("name,age\nAlice,30");
+      vi.mocked(parseCSV).mockReturnValue({
+        headers: ["name", "age"],
+        rows: [["Alice", "30"]],
+        bareEmpty: [[false, false]],
+      });
+      vi.mocked(api.getTables).mockResolvedValue([
+        { name: "people", table_type: "BASE TABLE", row_count: 0 },
+      ]);
+      vi.mocked(api.getColumns).mockResolvedValue([
+        { name: "name" },
+        { name: "age" },
+      ] as Awaited<ReturnType<typeof api.getColumns>>);
+      vi.mocked(api.executeQuery).mockResolvedValue([]);
+
+      const { rerender } = render(<ImportDialog {...mockProps} />);
+      fireEvent.click(screen.getByText("CSV File"));
+      await act(async () => {
+        fireEvent.click(screen.getByText("Select file..."));
+      });
+      await screen.findByText("people");
+      await act(async () => {
+        fireEvent.change(screen.getByLabelText("Target table:"), { target: { value: "people" } });
+      });
+
+      // The target database changes while the dialog is open.
+      rerender(<ImportDialog {...mockProps} database="otherdb" />);
+
+      await act(async () => {
+        fireEvent.click(screen.getByText("Import CSV"));
+      });
+
+      await waitFor(() => expect(api.executeQuery).toHaveBeenCalled());
+      for (const call of vi.mocked(api.executeQuery).mock.calls) {
+        expect(call[2]).toBe("otherdb");
+      }
+    });
   });
 
   describe("progress and errors", () => {

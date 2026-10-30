@@ -196,6 +196,7 @@ export function scenarioConnection(): ConnectionInfo | undefined {
   const profile = state.profiles.find((p) => p.id === SCENARIO_PROFILE);
   if (!profile) return undefined;
   const info = openConnection(profile);
+  state.scenarioOpened = true;
   if (state.scenario === "lost") loseServer(info.id);
   return info;
 }
@@ -331,7 +332,9 @@ export const connectionHandlers: Handlers = {
   },
 
   list_connections: (): ConnectionInfo[] => {
-    scenarioConnection();
+    // Opened on first ask only. After a disconnect it stays closed until the
+    // user connects again, as on a real backend (#921).
+    if (!state.scenarioOpened) scenarioConnection();
     return [...state.connections.values()];
   },
 
