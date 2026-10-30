@@ -125,3 +125,36 @@ pub async fn sqlite_get_table_ddl(
         .await
         .map_err(|e| e.to_string())
 }
+
+/// A SQLite table's foreign keys, in the shape `get_foreign_keys` returns for
+/// MySQL, so the structure and designer views read both the same way. SQLite
+/// keeps no constraint names; see `SqliteForeignKeyInfo` for the made-up ones.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn sqlite_get_foreign_keys(
+    state: State<'_, AppState>,
+    connection_id: String,
+    table: String,
+) -> Result<Vec<mas_core::schema::inspector::ForeignKeyInfo>, String> {
+    let keys = state
+        .sqlite_inspector
+        .get_foreign_keys(&connection_id, &table)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, "Failed to get SQLite foreign keys");
+            e.to_string()
+        })?;
+    tracing::info!(count = keys.len(), "Listed SQLite foreign keys");
+    Ok(keys
+        .into_iter()
+        .map(|k| mas_core::schema::inspector::ForeignKeyInfo {
+            name: k.name,
+            columns: k.columns,
+            referenced_table: k.referenced_table,
+            referenced_columns: k.referenced_columns,
+            on_update: k.on_update,
+            on_delete: k.on_delete,
+        })
+        .collect())
+}

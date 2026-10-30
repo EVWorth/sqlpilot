@@ -7,6 +7,7 @@
 // tables and auto-indexes are left out, as the real inspector leaves them out.
 
 import type {
+  ForeignKeyInfo,
   QueryError,
   SqliteColumnInfo,
   SqliteIndexInfo,
@@ -24,6 +25,8 @@ interface FakeTable {
   ddl: string;
   columns: SqliteColumnInfo[];
   indexes: SqliteIndexInfo[];
+  /** As `PRAGMA foreign_key_list` reports them, named `fk_<table>_<id>`. */
+  foreignKeys?: ForeignKeyInfo[];
   rows: Value[][];
 }
 
@@ -97,7 +100,42 @@ const SETTINGS: FakeTable = {
   ],
 };
 
-const TABLES = [NOTES, SETTINGS];
+/** A table with a foreign key, so the structure view has one to show (#924). */
+const NOTE_TAGS: FakeTable = {
+  name: "note_tags",
+  ddl: [
+    "CREATE TABLE note_tags (",
+    "  note_id INTEGER NOT NULL REFERENCES notes (id) ON DELETE CASCADE,",
+    "  tag TEXT NOT NULL,",
+    "  PRIMARY KEY (note_id, tag)",
+    ")",
+  ].join("\n"),
+  columns: [
+    column("note_id", "INTEGER", { nullable: false, is_primary_key: true }),
+    column("tag", "TEXT", { nullable: false, is_primary_key: true }),
+  ],
+  // The composite primary key's index is a `sqlite_autoindex_`, left out.
+  indexes: [],
+  foreignKeys: [{
+    // SQLite keeps no constraint names; the backend makes this one up.
+    name: "fk_note_tags_0",
+    columns: ["note_id"],
+    referenced_table: "notes",
+    referenced_columns: ["id"],
+    on_update: "NO ACTION",
+    on_delete: "CASCADE",
+  }],
+  rows: [
+    [1, "shopping"],
+    [2, "work"],
+    [2, "release"],
+    [3, "work"],
+    [5, "reading"],
+    [8, "work"],
+  ],
+};
+
+const TABLES = [NOTES, NOTE_TAGS, SETTINGS];
 
 /**
  * A view, so the Views folder has something in it (#825). `sqlite_master`
@@ -271,6 +309,12 @@ export const sqliteHandlers: Handlers = {
   sqlite_get_indexes: ({ connectionId, table: name }: Args): SqliteIndexInfo[] => {
     session(connectionId);
     return table(String(name))?.indexes ?? [];
+  },
+
+  // Like the pragma: an unknown table or a view has none.
+  sqlite_get_foreign_keys: ({ connectionId, table: name }: Args): ForeignKeyInfo[] => {
+    session(connectionId);
+    return table(String(name))?.foreignKeys ?? [];
   },
 
   sqlite_get_table_ddl: ({ connectionId, table: name }: Args): string => {

@@ -6,7 +6,7 @@
 use mas_sqlite::connection::SqliteConnectionManager;
 use mas_sqlite::error::SqliteError;
 use mas_sqlite::query::SqliteQueryExecutor;
-use mas_sqlite::schema::SqliteSchemaInspector;
+use mas_sqlite::schema::{SqliteForeignKeyInfo, SqliteSchemaInspector};
 use std::sync::Arc;
 
 fn manager() -> Arc<SqliteConnectionManager> {
@@ -333,6 +333,133 @@ async fn schema_get_table_ddl_missing_table_fails() {
 
     let err = insp.get_table_ddl("s", "no_such_table").await.unwrap_err();
     assert!(matches!(err, SqliteError::Schema(_)));
+}
+
+/// An in-memory database with `statements` run in it, one at a time (the
+/// executor runs only the first statement of a string), and an inspector
+/// over it.
+async fn inspector_with(statements: &[&str]) -> SqliteSchemaInspector {
+    let mgr = manager();
+    open_in_memory(&mgr, "s").await;
+    let exec = executor_for(&mgr);
+    for sql in statements {
+        exec.execute("s", sql).await.unwrap();
+    }
+    SqliteSchemaInspector::new(mgr)
+}
+
+#[tokio::test]
+async fn schema_get_foreign_keys_groups_a_composite_key_in_order() {
+    let insp = inspector_with(&[
+        "CREATE TABLE parent (a INTEGER, b INTEGER, PRIMARY KEY (a, b))",
+        "CREATE TABLE child (
+           id INTEGER PRIMARY KEY,
+           pb INTEGER,
+           pa INTEGER,
+           CONSTRAINT fk_child_parent FOREIGN KEY (pa, pb) REFERENCES parent (a, b)
+             ON DELETE CASCADE ON UPDATE SET NULL
+         )",
+    ])
+    .await;
+
+    let keys = insp.get_foreign_keys("s", "child").await.unwrap();
+    assert_eq!(
+        keys,
+        vec![SqliteForeignKeyInfo {
+            // SQLite keeps no constraint names; this one is made up.
+            name: "fk_child_0".into(),
+            columns: vec!["pa".into(), "pb".into()],
+            referenced_table: "parent".into(),
+            referenced_columns: vec!["a".into(), "b".into()],
+            on_update: "SET NULL".into(),
+            on_delete: "CASCADE".into(),
+        }]
+    );
+}
+
+#[tokio::test]
+async fn schema_get_foreign_keys_reports_each_key_and_its_actions() {
+    let insp = inspector_with(&[
+        "CREATE TABLE users (id INTEGER PRIMARY KEY)",
+        "CREATE TABLE teams (id INTEGER PRIMARY KEY)",
+        "CREATE TABLE members (
+           user_id INTEGER REFERENCES users (id) ON DELETE RESTRICT,
+           team_id INTEGER REFERENCES teams (id) ON DELETE SET DEFAULT ON UPDATE CASCADE
+         )",
+    ])
+    .await;
+
+    let mut keys = insp.get_foreign_keys("s", "members").await.unwrap();
+    keys.sort_by(|a, b| a.referenced_table.cmp(&b.referenced_table));
+    assert_eq!(keys.len(), 2);
+    assert_ne!(keys[0].name, keys[1].name);
+
+    assert_eq!(keys[0].referenced_table, "teams");
+    assert_eq!(keys[0].columns, vec!["team_id".to_string()]);
+    assert_eq!(keys[0].on_delete, "SET DEFAULT");
+    assert_eq!(keys[0].on_update, "CASCADE");
+
+    assert_eq!(keys[1].referenced_table, "users");
+    assert_eq!(keys[1].columns, vec!["user_id".to_string()]);
+    assert_eq!(keys[1].referenced_columns, vec!["id".to_string()]);
+    assert_eq!(keys[1].on_delete, "RESTRICT");
+    // Unspecified actions read as SQLite's default.
+    assert_eq!(keys[1].on_update, "NO ACTION");
+}
+
+#[tokio::test]
+async fn schema_get_foreign_keys_resolves_an_implicit_parent_key() {
+    let insp = inspector_with(&[
+        "CREATE TABLE parent (x TEXT, y TEXT, PRIMARY KEY (y, x))",
+        "CREATE TABLE child (p TEXT, q TEXT, FOREIGN KEY (p, q) REFERENCES parent)",
+    ])
+    .await;
+
+    let keys = insp.get_foreign_keys("s", "child").await.unwrap();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].columns, vec!["p".to_string(), "q".to_string()]);
+    // The parent's primary key, in its key order rather than column order.
+    assert_eq!(
+        keys[0].referenced_columns,
+        vec!["y".to_string(), "x".to_string()]
+    );
+}
+
+#[tokio::test]
+async fn schema_get_foreign_keys_is_empty_without_keys() {
+    let insp = inspector_with(&["CREATE TABLE plain (id INTEGER PRIMARY KEY, v TEXT)"]).await;
+    assert!(insp
+        .get_foreign_keys("s", "plain")
+        .await
+        .unwrap()
+        .is_empty());
+    assert!(insp
+        .get_foreign_keys("s", "no_such_table")
+        .await
+        .unwrap()
+        .is_empty());
+}
+
+#[tokio::test]
+async fn schema_get_foreign_keys_takes_any_table_name() {
+    // Quotes and a semicolon in the name: it is bound, never spliced in.
+    let insp = inspector_with(&[
+        "CREATE TABLE p (id INTEGER PRIMARY KEY)",
+        r#"CREATE TABLE "we""ird; name" (pid INTEGER REFERENCES p (id))"#,
+    ])
+    .await;
+
+    let keys = insp.get_foreign_keys("s", r#"we"ird; name"#).await.unwrap();
+    assert_eq!(keys.len(), 1);
+    assert_eq!(keys[0].referenced_table, "p");
+    assert_eq!(keys[0].columns, vec!["pid".to_string()]);
+}
+
+#[tokio::test]
+async fn schema_get_foreign_keys_unknown_connection_returns_not_found() {
+    let insp = SqliteSchemaInspector::new(manager());
+    let err = insp.get_foreign_keys("ghost", "t").await.unwrap_err();
+    assert!(matches!(err, SqliteError::NotFound(_)));
 }
 
 #[tokio::test]

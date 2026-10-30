@@ -3,6 +3,7 @@ import { listRoleGrantsQuery, listRolesQuery } from "../../../lib/admin/roles";
 import type {
   ConnectionInfo,
   EventInfo,
+  ForeignKeyInfo,
   HistoryEntry,
   QueryResult_Serialize,
   SqliteTableInfo,
@@ -57,6 +58,18 @@ describe("fixture data", () => {
     const id = await settle(call<string>("sqlite_open", { path: "/tmp/sqlpilot-mock/inventory.sqlite" }));
     const tables = await call<SqliteTableInfo[]>("sqlite_get_tables", { connectionId: id });
     expect(tables.some((t) => t.table_type === "view")).toBe(true);
+  });
+
+  it("has a foreign key in the SQLite fixture (#924)", async () => {
+    const id = await settle(call<string>("sqlite_open", { path: "/tmp/sqlpilot-mock/inventory.sqlite" }));
+    const keys = await call<ForeignKeyInfo[]>("sqlite_get_foreign_keys", { connectionId: id, table: "note_tags" });
+    expect(keys).toEqual([expect.objectContaining({
+      columns: ["note_id"],
+      referenced_table: "notes",
+      referenced_columns: ["id"],
+      on_delete: "CASCADE",
+    })]);
+    expect(await call("sqlite_get_foreign_keys", { connectionId: id, table: "notes" })).toEqual([]);
   });
 
   describe("server accounts", () => {

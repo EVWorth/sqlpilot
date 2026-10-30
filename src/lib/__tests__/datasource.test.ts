@@ -24,6 +24,8 @@ vi.mock("../tauri-api", () => ({
     sqliteGetColumns: vi.fn(),
     sqliteGetIndexes: vi.fn(),
     sqliteGetTableDdl: vi.fn(),
+    sqliteGetForeignKeys: vi.fn(),
+    getForeignKeys: vi.fn(),
     sqliteExecute: vi.fn(),
   },
 }));
@@ -105,6 +107,21 @@ describe("the SQLite source", () => {
     vi.mocked(api.sqliteGetColumns).mockResolvedValue([] as never);
     await dataSourceFor("c-sqlite").getColumns("c-sqlite", "ignored", "users");
     expect(api.sqliteGetColumns).toHaveBeenCalledWith("c-sqlite", "users");
+  });
+
+  it("reads foreign keys from sqlite_get_foreign_keys, not MySQL's command (#924)", async () => {
+    const keys = [{
+      name: "fk_orders_0",
+      columns: ["customer_id"],
+      referenced_table: "customers",
+      referenced_columns: ["id"],
+      on_update: "NO ACTION",
+      on_delete: "CASCADE",
+    }];
+    vi.mocked(api.sqliteGetForeignKeys).mockResolvedValue(keys);
+    expect(await dataSourceFor("c-sqlite").getForeignKeys("c-sqlite", "main", "orders")).toEqual(keys);
+    expect(api.sqliteGetForeignKeys).toHaveBeenCalledWith("c-sqlite", "orders");
+    expect(api.getForeignKeys).not.toHaveBeenCalled();
   });
 
   describe("views (#825)", () => {
