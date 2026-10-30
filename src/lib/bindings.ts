@@ -216,7 +216,7 @@ export const commands = {
 	sqliteOpen: (path: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_open", { path })),
 	sqliteClose: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("sqlite_close", { connectionId })),
 	sqliteList: () => typedError<string[], string>(__TAURI_INVOKE("sqlite_list")),
-	sqliteExecute: (connectionId: string, sql: string) => typedError<SqliteQueryResult[], QueryError_Serialize>(__TAURI_INVOKE("sqlite_execute", { connectionId, sql })),
+	sqliteExecute: (connectionId: string, sql: string, limit: number | null, offset: number | null) => typedError<SqliteQueryResult[], QueryError_Serialize>(__TAURI_INVOKE("sqlite_execute", { connectionId, sql, limit, offset })),
 	sqliteGetTables: (connectionId: string) => typedError<SqliteTableInfo[], string>(__TAURI_INVOKE("sqlite_get_tables", { connectionId })),
 	sqliteGetColumns: (connectionId: string, table: string) => typedError<SqliteColumnInfo[], string>(__TAURI_INVOKE("sqlite_get_columns", { connectionId, table })),
 	sqliteGetIndexes: (connectionId: string, table: string) => typedError<SqliteIndexInfo[], string>(__TAURI_INVOKE("sqlite_get_indexes", { connectionId, table })),
@@ -1671,12 +1671,33 @@ export type SqliteIndexInfo = {
 export type SqliteQueryResult = {
 	query_id: string,
 	statement_index: number,
+	/**
+	 *  The statement this result came from, trimmed and without its `;`, so
+	 *  history can say which statement of a script ran (#928).
+	 */
+	sql: string,
 	columns: SqliteColumnMeta[],
 	rows: unknown[][],
 	rows_affected: number,
 	execution_time_ms: number,
 	warnings: string[],
+	/**
+	 *  Whether rows were withheld. Set from `truncation_reason` where the
+	 *  result is built, so the two cannot disagree (#933).
+	 */
 	rows_truncated: boolean,
+	/**
+	 *  Why rows were withheld, when they were, as the MySQL executor reports
+	 *  it: the banner's advice depends on whether the cap was the row limit
+	 *  or memory.
+	 */
+	truncation_reason: SqliteTruncationReason | null,
+	/**
+	 *  Whether the connection is inside a transaction after this statement,
+	 *  from `sqlite3_get_autocommit` rather than guessed from the SQL (#933).
+	 *  SQLite answers this for free, so every result carries it.
+	 */
+	in_transaction: boolean,
 };
 
 export type SqliteTableInfo = {
@@ -1685,6 +1706,16 @@ export type SqliteTableInfo = {
 	row_count: number | null,
 	sql: string | null,
 };
+
+/**
+ *  What stopped a SQLite result set from being complete. The same values as
+ *  `mas_core`'s `TruncationReason`, which this crate does not depend on.
+ */
+export type SqliteTruncationReason = 
+/**  The caller's row limit was reached. */
+"row_limit" | 
+/**  Free system memory fell below the floor mid-fetch. */
+"memory_guard";
 
 /**  What starting a session produced. */
 export type StartedSession = {

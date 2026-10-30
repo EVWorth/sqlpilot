@@ -406,8 +406,21 @@ describe("api (Tauri available)", () => {
     expect(invokeMock).toHaveBeenCalledWith("sqlite_execute", {
       connectionId: "conn-1",
       sql: "SELECT 1",
+      limit: null,
+      offset: null,
     });
     expect(result).toEqual(fakeResults);
+  });
+
+  it("sqliteExecute passes the row limit and offset (#933)", async () => {
+    invokeMock.mockResolvedValue([]);
+    await api.sqliteExecute("conn-1", "SELECT 1", 100, 200);
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_execute", {
+      connectionId: "conn-1",
+      sql: "SELECT 1",
+      limit: 100,
+      offset: 200,
+    });
   });
 
   it("sqliteGetTables calls invoke with connectionId", async () => {

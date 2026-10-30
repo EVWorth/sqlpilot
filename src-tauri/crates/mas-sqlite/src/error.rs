@@ -1,3 +1,4 @@
+use crate::query::SqliteQueryResult;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -13,6 +14,18 @@ pub enum SqliteError {
 
     #[error("Not found: {0}")]
     NotFound(String),
+
+    /// Another error, tagged with which statement of a script raised it,
+    /// mirroring `mas_core::CoreError::AtStatement` (#928). Display passes
+    /// straight through.
+    #[error("{source}")]
+    AtStatement {
+        index: usize,
+        source: Box<SqliteError>,
+        /// What the statements before this one returned, in order. Empty
+        /// when the first statement failed.
+        completed: Vec<SqliteQueryResult>,
+    },
 
     #[error(transparent)]
     Rusqlite(#[from] rusqlite::Error),

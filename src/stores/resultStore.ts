@@ -6,6 +6,7 @@ import { firstGridIndex } from "../lib/result-label";
 import { noteSession } from "../lib/server-sessions";
 import { splitSqlStatements } from "../lib/sql-import";
 import { isDestructiveStatement } from "../lib/sql-safety";
+import { splitSqliteStatements } from "../lib/sqlite-split";
 import { api, CommandError } from "../lib/tauri-api";
 import { transactionAfter } from "../lib/transaction-tracking";
 import { forgetGridEdits, gridEditsIn } from "../lib/unsaved-grid-edits";
@@ -1089,7 +1090,7 @@ async function doExecuteQuery(
       const completed = structured?.completedResults ?? [];
       set({
         error: message,
-        failedStatement: failedStatementOf(sql, structured),
+        failedStatement: failedStatementOf(sql, structured, connectionId),
         isExecuting: tabBusy(run.tab, run),
         results: completed,
         activeResultIndex: firstGridIndex(completed),
@@ -1127,10 +1128,17 @@ function statementsRun(sql: string, results: QueryResult[]): string[] {
   return results.length > 0 && results.every((r) => r.sql) ? results.map((r) => r.sql) : splitSqlStatements(sql);
 }
 
-/** Which statement of `sql` the error names, when it names one (#845). */
-function failedStatementOf(sql: string, e: CommandError | undefined): FailedStatement | null {
+/**
+ * Which statement of `sql` the error names, when it names one (#845).
+ *
+ * The index is the backend's, so the script is split the way that backend
+ * split it: SQLite keeps a trigger body's `BEGIN … END;` whole and knows no
+ * `#` comments or backslash escapes, and the MySQL splitter would count and
+ * cut its statements differently (#932).
+ */
+function failedStatementOf(sql: string, e: CommandError | undefined, connectionId: string): FailedStatement | null {
   if (e?.statementIndex === undefined) return null;
-  const statements = splitSqlStatements(sql);
+  const statements = connectionKind(connectionId) === "sqlite" ? splitSqliteStatements(sql) : splitSqlStatements(sql);
   return {
     index: e.statementIndex,
     count: Math.max(statements.length, e.statementIndex + 1),
