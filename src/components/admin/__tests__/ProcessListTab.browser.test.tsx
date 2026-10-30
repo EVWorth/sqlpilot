@@ -1,7 +1,10 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../../../lib/tauri-api", () => ({
+// Keep the module's other exports: the admin store reaches CommandError
+// through runStatement.
+vi.mock("../../../lib/tauri-api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../../lib/tauri-api")>()),
   api: {
     getProcessList: vi.fn(),
     getOwnThreadIds: vi.fn(),
