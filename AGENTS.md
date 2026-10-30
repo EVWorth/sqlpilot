@@ -111,3 +111,6 @@ Conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`,
 `test:`, `perf:`, `build:`, `ci:`), subject of 50 characters or fewer, body
 only when the why isn't obvious. Code, commits, PRs and issues are written in
 plain English for people who weren't in the conversation.
+
+Close issues with one keyword per issue: `Closes #1, closes #2`. GitHub reads
+`Closes #1, #2` as closing only #1.

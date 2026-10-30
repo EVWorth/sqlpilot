@@ -402,6 +402,9 @@ export const api = {
   sqliteGetTableDdl: (connectionId: string, table: string) =>
     unwrap("sqlite_get_table_ddl", () => commands.sqliteGetTableDdl(connectionId, table)),
 
+  sqliteGetForeignKeys: (connectionId: string, table: string) =>
+    unwrap("sqlite_get_foreign_keys", () => commands.sqliteGetForeignKeys(connectionId, table)),
+
   // Platform detection
   // How this copy was installed, and on what architecture. Decides whether
   // the app may update itself at all (#354, #571).

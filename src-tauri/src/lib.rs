@@ -203,6 +203,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::sqlite::sqlite_get_columns,
             commands::sqlite::sqlite_get_indexes,
             commands::sqlite::sqlite_get_table_ddl,
+            commands::sqlite::sqlite_get_foreign_keys,
             commands::agents::list_agent_connections,
             commands::agents::share_connection_with_agents,
             commands::agents::revoke_agent_connection,
