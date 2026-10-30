@@ -156,10 +156,9 @@ const sqlite: DataSource = {
       is_unique: i.is_unique,
       index_type: "BTREE",
     })),
-  // The SQLite backend has no command for `PRAGMA foreign_key_list` yet, so
-  // the structure views show none rather than asking MySQL's
-  // information_schema about a file it has never seen (#921).
-  getForeignKeys: async () => [],
+  // From `PRAGMA foreign_key_list`, already in MySQL's shape. SQLite keeps no
+  // constraint names, so each key's name is made up by the backend (#924).
+  getForeignKeys: (c, _d, t) => api.sqliteGetForeignKeys(c, t),
   // SQLite has no partitioning.
   getPartitions: async () => [],
   getTableDdl: (c, _d, t) => api.sqliteGetTableDdl(c, t),

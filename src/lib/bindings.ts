@@ -221,6 +221,12 @@ export const commands = {
 	sqliteGetColumns: (connectionId: string, table: string) => typedError<SqliteColumnInfo[], string>(__TAURI_INVOKE("sqlite_get_columns", { connectionId, table })),
 	sqliteGetIndexes: (connectionId: string, table: string) => typedError<SqliteIndexInfo[], string>(__TAURI_INVOKE("sqlite_get_indexes", { connectionId, table })),
 	sqliteGetTableDdl: (connectionId: string, table: string) => typedError<string, string>(__TAURI_INVOKE("sqlite_get_table_ddl", { connectionId, table })),
+	/**
+	 *  A SQLite table's foreign keys, in the shape `get_foreign_keys` returns for
+	 *  MySQL, so the structure and designer views read both the same way. SQLite
+	 *  keeps no constraint names; see `SqliteForeignKeyInfo` for the made-up ones.
+	 */
+	sqliteGetForeignKeys: (connectionId: string, table: string) => typedError<ForeignKeyInfo[], string>(__TAURI_INVOKE("sqlite_get_foreign_keys", { connectionId, table })),
 	/**  Every connection, with its sharing state. */
 	listAgentConnections: () => typedError<AgentConnection_Serialize[], string>(__TAURI_INVOKE("list_agent_connections")),
 	/**

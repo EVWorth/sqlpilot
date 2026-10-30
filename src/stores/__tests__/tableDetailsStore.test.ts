@@ -11,6 +11,7 @@ const api = vi.hoisted(() => ({
   sqliteGetIndexes: vi.fn(),
   sqliteGetTableDdl: vi.fn(),
   sqliteGetTables: vi.fn(),
+  sqliteGetForeignKeys: vi.fn(),
 }));
 
 vi.mock("../../lib/tauri-api", () => ({ api }));
@@ -144,6 +145,15 @@ describe("tableDetailsStore", () => {
       ]);
       api.sqliteGetIndexes.mockResolvedValue([]);
       api.sqliteGetTableDdl.mockResolvedValue("CREATE TABLE orders (id INTEGER PRIMARY KEY)");
+      const fk = {
+        name: "fk_orders_0",
+        columns: ["customer_id"],
+        referenced_table: "customers",
+        referenced_columns: ["id"],
+        on_update: "NO ACTION",
+        on_delete: "CASCADE",
+      };
+      api.sqliteGetForeignKeys.mockResolvedValue([fk]);
 
       const details = await useTableDetailsStore.getState().loadDetails("v1", lite, [
         "columns",
@@ -156,6 +166,7 @@ describe("tableDetailsStore", () => {
       expect(api.sqliteGetColumns).toHaveBeenCalledWith("lite-1", "orders");
       expect(api.sqliteGetIndexes).toHaveBeenCalledWith("lite-1", "orders");
       expect(api.sqliteGetTableDdl).toHaveBeenCalledWith("lite-1", "orders");
+      expect(api.sqliteGetForeignKeys).toHaveBeenCalledWith("lite-1", "orders");
       for (
         const mysqlCall of [api.getColumns, api.getIndexes, api.getForeignKeys, api.getPartitions, api.getTableDdl]
       ) {
@@ -164,6 +175,8 @@ describe("tableDetailsStore", () => {
       expect(details.errors).toEqual({});
       expect(details.columns.map((c) => c.name)).toEqual(["id"]);
       expect(details.ddl).toBe("CREATE TABLE orders (id INTEGER PRIMARY KEY)");
+      // From `sqlite_get_foreign_keys`, not an empty stand-in (#924).
+      expect(details.foreignKeys).toEqual([fk]);
     });
 
     it("lists reference tables and columns through the SQLite source", async () => {

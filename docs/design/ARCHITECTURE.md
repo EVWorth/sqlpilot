@@ -500,6 +500,7 @@ async fn sqlite_get_tables(connection_id: String) -> Result<Vec<SqliteTableInfo>
 async fn sqlite_get_columns(connection_id: String, table: String) -> Result<Vec<SqliteColumnInfo>, String>;
 async fn sqlite_get_indexes(connection_id: String, table: String) -> Result<Vec<SqliteIndexInfo>, String>;
 async fn sqlite_get_table_ddl(connection_id: String, table: String) -> Result<String, String>;
+async fn sqlite_get_foreign_keys(connection_id: String, table: String) -> Result<Vec<ForeignKeyInfo>, String>;
 ```
 
 `sqlite_open` checks the file header first, so a typo does not create an

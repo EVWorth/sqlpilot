@@ -31,6 +31,28 @@ pub struct SqliteIndexInfo {
     pub is_unique: bool,
 }
 
+/// A foreign key, in the shape `mas-core`'s `ForeignKeyInfo` has, so the
+/// app can hand both backends' keys to the same views.
+///
+/// `PRAGMA foreign_key_list` has no constraint names: SQLite parses
+/// `CONSTRAINT <name>` and then drops it. `name` is therefore made up as
+/// `fk_<table>_<id>`, from the pragma's per-table key id, which is stable for
+/// a given schema and unique within the table.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, specta::Type)]
+pub struct SqliteForeignKeyInfo {
+    pub name: String,
+    /// In key order (the pragma's `seq`).
+    pub columns: Vec<String>,
+    pub referenced_table: String,
+    /// Paired with `columns`. A key declared as `REFERENCES parent` with no
+    /// column list points at the parent's primary key, which is read here.
+    pub referenced_columns: Vec<String>,
+    /// `NO ACTION`, `RESTRICT`, `SET NULL`, `SET DEFAULT` or `CASCADE`: the
+    /// same words MySQL's `REFERENTIAL_CONSTRAINTS` uses.
+    pub on_update: String,
+    pub on_delete: String,
+}
+
 pub struct SqliteSchemaInspector {
     manager: Arc<SqliteConnectionManager>,
 }
@@ -185,4 +207,103 @@ impl SqliteSchemaInspector {
         .await
         .map_err(|e| SqliteError::Schema(e.to_string()))?
     }
+
+    /// The foreign keys `table` declares, from `PRAGMA foreign_key_list`.
+    /// A table with none, a view or an unknown name gives an empty list.
+    #[tracing::instrument(skip(self))]
+    pub async fn get_foreign_keys(
+        &self,
+        connection_id: &str,
+        table: &str,
+    ) -> Result<Vec<SqliteForeignKeyInfo>, SqliteError> {
+        let conn = self.manager.get(connection_id)?;
+        let table = table.to_string();
+        tokio::task::spawn_blocking(move || {
+            let db = conn
+                .db
+                .lock()
+                .map_err(|e| SqliteError::Schema(e.to_string()))?;
+            read_foreign_keys(&db, &table)
+        })
+        .await
+        .map_err(|e| SqliteError::Schema(e.to_string()))?
+    }
+}
+
+/// One row of `PRAGMA foreign_key_list`: a column pair of one key.
+struct ForeignKeyRow {
+    id: i64,
+    parent: String,
+    from: String,
+    /// `NULL` when the key names no parent columns.
+    to: Option<String>,
+    on_update: String,
+    on_delete: String,
+}
+
+/// The table-valued form of the pragma takes the table name as a bound
+/// parameter, so no name, however it is spelt, needs quoting.
+fn read_foreign_keys(
+    db: &rusqlite::Connection,
+    table: &str,
+) -> Result<Vec<SqliteForeignKeyInfo>, SqliteError> {
+    let mut stmt = db.prepare(
+        "SELECT id, \"table\", \"from\", \"to\", on_update, on_delete \
+         FROM pragma_foreign_key_list(?1) ORDER BY id, seq",
+    )?;
+    let rows = stmt
+        .query_map([table], |row| {
+            Ok(ForeignKeyRow {
+                id: row.get(0)?,
+                parent: row.get(1)?,
+                from: row.get(2)?,
+                to: row.get(3)?,
+                on_update: row.get(4)?,
+                on_delete: row.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    let mut keys: Vec<(i64, SqliteForeignKeyInfo, bool)> = Vec::new();
+    for row in rows {
+        let implicit = row.to.is_none();
+        match keys.last_mut() {
+            Some((id, key, implicit_key)) if *id == row.id => {
+                key.columns.push(row.from);
+                key.referenced_columns.extend(row.to);
+                *implicit_key |= implicit;
+            }
+            _ => keys.push((
+                row.id,
+                SqliteForeignKeyInfo {
+                    name: format!("fk_{table}_{}", row.id),
+                    columns: vec![row.from],
+                    referenced_table: row.parent,
+                    referenced_columns: row.to.into_iter().collect(),
+                    on_update: row.on_update,
+                    on_delete: row.on_delete,
+                },
+                implicit,
+            )),
+        }
+    }
+
+    keys.into_iter()
+        .map(|(_, mut key, implicit)| {
+            if implicit {
+                key.referenced_columns = primary_key_columns(db, &key.referenced_table)?;
+            }
+            Ok(key)
+        })
+        .collect()
+}
+
+/// The parent's primary key columns, in key order. Empty if the parent does
+/// not exist (SQLite allows a key to point at a table not created yet).
+fn primary_key_columns(db: &rusqlite::Connection, table: &str) -> Result<Vec<String>, SqliteError> {
+    let mut stmt = db.prepare("SELECT name FROM pragma_table_info(?1) WHERE pk > 0 ORDER BY pk")?;
+    let columns = stmt
+        .query_map([table], |row| row.get(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(columns)
 }
