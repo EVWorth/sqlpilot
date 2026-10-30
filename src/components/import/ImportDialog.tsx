@@ -126,6 +126,33 @@ export function ImportDialog({
     setColumnMapping({});
   }, []);
 
+  const parseCsvContent = useCallback(
+    (content: string, options: CsvParseOptions) => {
+      try {
+        const result = parseCSV(content, options);
+        setCsvHeaders(result.headers);
+        setCsvRows(result.rows);
+        // Defaulted: a result without the field falls back to treating every
+        // empty cell as absent, which is what callers got before it existed.
+        setCsvBareEmpty(result.bareEmpty ?? []);
+        setCsvPreviewRows(result.rows.slice(0, 10));
+      } catch (e) {
+        console.error("CSV parse error:", e);
+      }
+    },
+    [],
+  );
+
+  const loadTables = useCallback(async () => {
+    try {
+      const tableList = await useBackupStore.getState().listTables(connectionId, database);
+      setTables(tableList);
+    } catch (e) {
+      console.error("Failed to load tables:", e);
+    }
+  }, [connectionId, database]);
+
+  // After the two callbacks it uses, which must exist before it can list them.
   const handlePickFile = useCallback(async () => {
     try {
       const filters: [string, string[]][] = mode === "sql"
@@ -165,33 +192,7 @@ export function ImportDialog({
     } catch (e) {
       console.error("Failed to pick file:", e);
     }
-  }, [mode, csvOptions, connectionId, database]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const parseCsvContent = useCallback(
-    (content: string, options: CsvParseOptions) => {
-      try {
-        const result = parseCSV(content, options);
-        setCsvHeaders(result.headers);
-        setCsvRows(result.rows);
-        // Defaulted: a result without the field falls back to treating every
-        // empty cell as absent, which is what callers got before it existed.
-        setCsvBareEmpty(result.bareEmpty ?? []);
-        setCsvPreviewRows(result.rows.slice(0, 10));
-      } catch (e) {
-        console.error("CSV parse error:", e);
-      }
-    },
-    [],
-  );
-
-  const loadTables = useCallback(async () => {
-    try {
-      const tableList = await useBackupStore.getState().listTables(connectionId, database);
-      setTables(tableList);
-    } catch (e) {
-      console.error("Failed to load tables:", e);
-    }
-  }, [connectionId, database]);
+  }, [mode, csvOptions, parseCsvContent, loadTables]);
 
   const handleTargetTableChange = useCallback(
     async (table: string) => {
