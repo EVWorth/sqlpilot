@@ -1,5 +1,6 @@
 import { Channel } from "@tauri-apps/api/core";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import packageJson from "../../../../package.json";
 import type { StartupProblem } from "../../../lib/bindings";
 import { UPDATE_VERSION } from "../handlers/plugins";
 import { optionsFromUrl } from "../state";
@@ -30,6 +31,13 @@ describe("app state switches", () => {
     expect(await settle(call("plugin:updater|check"))).toBeNull();
     expect(await call("keyring_available")).toBe(true);
     expect(await call("startup_problems")).toEqual([]);
+  });
+
+  it("reports package.json's version as the running app's", async () => {
+    install("?mock=connected&update=available");
+    vi.useFakeTimers();
+    expect(await call("plugin:app|version")).toBe(packageJson.version);
+    expect(await settle(call("plugin:updater|check"))).toMatchObject({ currentVersion: packageJson.version });
   });
 
   it("keyring=missing reports no credential store", async () => {

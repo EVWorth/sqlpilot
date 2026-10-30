@@ -449,6 +449,24 @@ describe("api (Tauri available)", () => {
     expect(result).toBe("CREATE TABLE users (id INTEGER)");
   });
 
+  it("sqliteGetForeignKeys calls invoke with connectionId and table", async () => {
+    const keys = [{
+      name: "fk_orders_0",
+      columns: ["customer_id"],
+      referenced_table: "customers",
+      referenced_columns: ["id"],
+      on_update: "NO ACTION",
+      on_delete: "CASCADE",
+    }];
+    invokeMock.mockResolvedValue(keys);
+    const result = await api.sqliteGetForeignKeys("conn-1", "orders");
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_get_foreign_keys", {
+      connectionId: "conn-1",
+      table: "orders",
+    });
+    expect(result).toEqual(keys);
+  });
+
   // -- Platform detection --------------------------------------------------
 
   it("getPlatformInfo calls invoke with no args", async () => {
