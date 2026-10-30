@@ -75,13 +75,15 @@ export function useConnectionSwitching() {
    */
   const attach = (connectionId: string, conn?: ConnectionInfo) => {
     setSelectedConnection(connectionId);
-    const { tabs, activeTabId, setTabConnection } = useEditorStore.getState();
+    const { tabs, activeTabId, requestTabConnection } = useEditorStore.getState();
     const active = tabs.find((t) => t.id === activeTabId);
     const activeHasServer = !!active?.connectionId
       && active.connectionId !== connectionId
       && liveConnectionIds().includes(active.connectionId);
     if (active && !activeHasServer) {
-      setTabConnection(active.id, connectionId, conn?.database ?? undefined, conn?.profile_id);
+      // Only a tab with no live server is taken over, so this does not
+      // normally move a session; through the guard all the same (#843).
+      requestTabConnection(active.id, connectionId, conn?.database ?? undefined, conn?.profile_id);
       return;
     }
     openTabFor(connectionId, conn);

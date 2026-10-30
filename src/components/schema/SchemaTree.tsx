@@ -109,7 +109,7 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const setTabDirty = useEditorStore((s) => s.setTabDirty);
   const renameTab = useEditorStore((s) => s.renameTab);
   const setActiveTab = useEditorStore((s) => s.setActiveTab);
-  const setTabConnection = useEditorStore((s) => s.setTabConnection);
+  const requestTabConnection = useEditorStore((s) => s.requestTabConnection);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
   const executeQuery = useResultStore((s) => s.executeQuery);
@@ -123,11 +123,13 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const connectionDefault = activeConnections.find((c) => c.id === connectionId)?.database;
   const selectedDb = activeTab?.database || connectionDefault || null;
 
-  // Set the active tab's database context to the given DB
+  // Set the active tab's database context to the given DB. From another
+  // connection's tree that moves the tab there, which asks first when the tab
+  // has a transaction open (#843).
   const selectDatabase = (dbName: string) => {
     if (!activeTabId) return;
     const conn = activeConnections.find((c) => c.id === connectionId);
-    setTabConnection(activeTabId, connectionId, dbName, conn?.profile_id);
+    requestTabConnection(activeTabId, connectionId, dbName, conn?.profile_id);
   };
 
   // Tracks pending single-click timers keyed by "db.name"

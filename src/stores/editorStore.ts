@@ -21,6 +21,18 @@ export interface PendingClose {
   inTransaction: EditorTab[];
 }
 
+/**
+ * Something the user asked for that would end the server session of a tab
+ * with an open transaction, and so roll it back: pointing the tab at another
+ * connection, or reconnecting its server (#843).
+ */
+export interface PendingSwitch {
+  /** The tabs whose transaction it would roll back. */
+  inTransaction: EditorTab[];
+  /** What the user asked for, run once they agree. */
+  proceed: () => void;
+}
+
 /** The tabs a close command would remove. */
 export function tabsClosedBy(tabs: readonly EditorTab[], kind: CloseKind, id: string): EditorTab[] {
   if (kind === "close") return tabs.filter((t) => t.id === id);
@@ -91,6 +103,22 @@ interface EditorState {
   pendingClose: PendingClose | null;
   confirmPendingClose: () => void;
   cancelPendingClose: () => void;
+  /**
+   * Run `proceed`, which ends the sessions of `tabIds`: now when none of them
+   * has a transaction open, otherwise once the user agrees to roll it back
+   * (#843).
+   */
+  confirmRollback: (tabIds: readonly string[], proceed: () => void) => void;
+  /** The switch waiting on the user's answer, if any. */
+  pendingSwitch: PendingSwitch | null;
+  confirmPendingSwitch: () => void;
+  cancelPendingSwitch: () => void;
+  /**
+   * Point a tab at a connection, asking first when that moves it off a
+   * server where its transaction is open (#843). `setTabConnection` sets it
+   * unconditionally.
+   */
+  requestTabConnection: (id: string, connectionId: string, database?: string, profileId?: string) => void;
   setActiveTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
   setTabConnection: (
@@ -129,6 +157,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   activeTabId: restoredSession?.activeTabId ?? "tab-0",
   editorInstance: null,
   pendingClose: null,
+  pendingSwitch: null,
 
   requestClose: (kind, id) => {
     pendingContentFlush?.();
@@ -152,6 +181,37 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   cancelPendingClose: () => set({ pendingClose: null }),
+
+  confirmRollback: (tabIds, proceed) => {
+    const inTransaction = get().tabs.filter((t) => tabIds.includes(t.id) && hasOpenTransaction(t.id));
+    if (inTransaction.length === 0) {
+      proceed();
+      return;
+    }
+    set({ pendingSwitch: { inTransaction, proceed } });
+  },
+
+  confirmPendingSwitch: () => {
+    const pending = get().pendingSwitch;
+    if (!pending) return;
+    set({ pendingSwitch: null });
+    pending.proceed();
+  },
+
+  cancelPendingSwitch: () => set({ pendingSwitch: null }),
+
+  requestTabConnection: (id, connectionId, database, profileId) => {
+    const tab = get().tabs.find((t) => t.id === id);
+    const apply = () => get().setTabConnection(id, connectionId, database, profileId);
+    // Another database on the same server keeps the session, and with it the
+    // transaction; only another connection ends it.
+    const moving = tab?.connectionId !== undefined && tab.connectionId !== connectionId;
+    if (!moving) {
+      apply();
+      return;
+    }
+    get().confirmRollback([id], apply);
+  },
 
   /**
    * Open a tab of any kind, or activate the one already open for it.
