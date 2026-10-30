@@ -179,6 +179,7 @@ describe("the SQLite source", () => {
     vi.mocked(api.sqliteExecute).mockResolvedValue([{
       query_id: "q1",
       statement_index: 0,
+      sql: "SELECT 1",
       columns: [{ name: "id", data_type: "INTEGER", nullable: false, is_primary_key: true }],
       rows: [[1]],
       rows_affected: 0,
@@ -191,6 +192,7 @@ describe("the SQLite source", () => {
 
     expect(result.rows).toEqual([[1]]);
     expect(result.columns[0].name).toBe("id");
+    expect(result.sql).toBe("SELECT 1");
     expect(api.sqliteExecute).toHaveBeenCalledWith("c-sqlite", "SELECT 1");
   });
 });

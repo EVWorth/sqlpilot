@@ -1671,6 +1671,11 @@ export type SqliteIndexInfo = {
 export type SqliteQueryResult = {
 	query_id: string,
 	statement_index: number,
+	/**
+	 *  The statement this result came from, trimmed and without its `;`, so
+	 *  history can say which statement of a script ran (#928).
+	 */
+	sql: string,
 	columns: SqliteColumnMeta[],
 	rows: unknown[][],
 	rows_affected: number,
