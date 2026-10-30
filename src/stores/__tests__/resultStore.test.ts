@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { executeQueryMock, explainQueryMock, cancelQueryMock } = vi.hoisted(() => ({
+const { executeQueryMock, explainQueryMock, cancelQueryMock, sqliteExecuteMock } = vi.hoisted(() => ({
   executeQueryMock: vi.fn().mockResolvedValue([]),
+  sqliteExecuteMock: vi.fn().mockResolvedValue([]),
   explainQueryMock: vi.fn(),
   cancelQueryMock: vi.fn().mockResolvedValue(undefined),
 }));
@@ -21,6 +22,7 @@ vi.mock("../../lib/tauri-api", () => ({
     executeQuery: executeQueryMock,
     explainQuery: explainQueryMock,
     cancelQuery: cancelQueryMock,
+    sqliteExecute: sqliteExecuteMock,
     closeSession: vi.fn().mockResolvedValue(undefined),
   },
   // Stands in for the real class so `instanceof` in the store resolves against
@@ -70,6 +72,7 @@ vi.mock("../settingsStore", () => ({
   },
 }));
 
+import { forgetConnectionKind, registerConnectionKind } from "../../lib/datasource";
 import { CommandError } from "../../lib/tauri-api";
 import { noteGridEdits, resetGridEdits } from "../../lib/unsaved-grid-edits";
 import type { EditorTab, QueryResult } from "../../types";
@@ -1241,6 +1244,32 @@ describe("resultStore", () => {
       expect(state.results).toEqual([first]);
       expect(state.resultSource?.connectionId).toBe("conn-1");
       expect(state.error).toBe("Table 'shop.nope' doesn't exist");
+    });
+
+    it("splits a SQLite script as SQLite does, trigger bodies whole (#932)", async () => {
+      registerConnectionKind("lite-1", "sqlite");
+      try {
+        // The MySQL splitter would cut the trigger at its inner `;`, so index
+        // 2 would land on `END` and the count would read 5.
+        const script = "CREATE TABLE t(x);\n"
+          + "CREATE TRIGGER tr AFTER INSERT ON t BEGIN\n  INSERT INTO t VALUES (1);\nEND;\n"
+          + "SELECT * FROM nope;\nSELECT 1;";
+        sqliteExecuteMock.mockRejectedValueOnce(
+          new CommandError("no such table: nope", { code: 1, statementIndex: 2 }),
+        );
+
+        await useResultStore.getState().executeQuery("lite-1", script);
+
+        expect(sqliteExecuteMock).toHaveBeenCalled();
+        expect(useResultStore.getState().failedStatement).toEqual({
+          index: 2,
+          count: 4,
+          sql: "SELECT * FROM nope",
+          code: 1,
+        });
+      } finally {
+        forgetConnectionKind("lite-1");
+      }
     });
 
     it("clears the failure when the next run starts", async () => {
