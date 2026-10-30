@@ -141,7 +141,7 @@ MAS_TEST_PORT=13308 just test-integration   # MariaDB 11
 databases and collide when run in parallel.
 
 Other recipes: `just db-seed` re-applies `seed.sql`, `just db-reset`
-recreates the containers, `just db-down` removes them, and `just ssl-certs`
+recreates the containers, `just db-down` removes them and their data volumes, and `just ssl-certs`
 generates certificates for the unused SSL service.
 
 Run these before touching the connection manager, query executor, schema

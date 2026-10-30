@@ -1236,6 +1236,17 @@ export type QueryError_Deserialize = {
 	 *  left out of the payload.
 	 */
 	completedResults?: QueryResult_Deserialize[] | null,
+	/**
+	 *  Whether the editor session the run failed on is still inside a
+	 *  transaction, read from the server after the failure (#917).
+	 * 
+	 *  A failing statement does not end a transaction, so a script that
+	 *  opened one and then failed leaves it open, and only the server can
+	 *  say so reliably. `None` off an editor session, when the probe could
+	 *  not tell, and for failures with no statement index; then left out of
+	 *  the payload.
+	 */
+	transaction?: TransactionState | null,
 };
 
 /**
@@ -1279,6 +1290,17 @@ export type QueryError_Serialize = {
 	 *  left out of the payload.
 	 */
 	completedResults?: QueryResult_Serialize[] | null,
+	/**
+	 *  Whether the editor session the run failed on is still inside a
+	 *  transaction, read from the server after the failure (#917).
+	 * 
+	 *  A failing statement does not end a transaction, so a script that
+	 *  opened one and then failed leaves it open, and only the server can
+	 *  say so reliably. `None` off an editor session, when the probe could
+	 *  not tell, and for failures with no statement index; then left out of
+	 *  the payload.
+	 */
+	transaction?: TransactionState | null,
 };
 
 export type QueryResult = QueryResult_Serialize | QueryResult_Deserialize;

@@ -129,6 +129,9 @@ async fn run_each(
                 source: Box::new(CoreError::Sqlx(e)),
                 // A save reports counts, not result sets.
                 completed: Vec::new(),
+                // The save already knows the state it began in; see
+                // `apply_in_session`.
+                transaction: None,
             })?;
         affected.push(done.rows_affected());
     }

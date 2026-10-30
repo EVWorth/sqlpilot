@@ -47,4 +47,17 @@ describe("execute_query", () => {
     // No session, no transaction state.
     expect((await run("SELECT 1"))[0].transaction).toBeUndefined();
   });
+
+  it("reports a tab session's transaction state on a failure too", async () => {
+    const failed = (sql: string, session: string | null) =>
+      settle(rejection("execute_query", { connectionId: conn.id, sql, database: "shop", session }));
+
+    const error = await failed("BEGIN; SELECT * FROM nope", "tab-2");
+    expect(error).toMatchObject({ statementIndex: 1, transaction: "open" });
+
+    await run("ROLLBACK", "tab-2");
+    expect(await failed("SELECT * FROM nope", "tab-2")).toMatchObject({ transaction: "none" });
+    // No session, no transaction state.
+    expect(await failed("BEGIN; SELECT * FROM nope", null)).not.toHaveProperty("transaction");
+  });
 });
