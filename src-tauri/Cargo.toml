@@ -33,6 +33,8 @@ sqlx = { version = "=0.9.0", default-features = false, features = [
   "json",
   "uuid",
 ] }
+# mas-core and mas-sqlite both stop a fetch on low free memory with it.
+sysinfo = "0.39.2"
 tauri = { version = "2.12.0", features = [] }
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 thiserror = "2"

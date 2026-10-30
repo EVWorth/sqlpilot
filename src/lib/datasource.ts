@@ -171,12 +171,10 @@ const sqlite: DataSource = {
     if (!view?.sql) throw new Error(`No definition found for view ${v}`);
     return view.sql;
   },
-  // Paging is not wired through the SQLite backend yet, so an offset is
-  // ignored rather than silently returning the first page again. The grid
-  // only offers paging where the source reports a truncated result, which
-  // SQLite does not.
-  execute: async (c, sql) =>
-    (await api.sqliteExecute(c, sql)).map((r) => ({
+  // The row limit and page offset are applied while reading, as on MySQL
+  // (#933). There are no sessions: one connection serves every tab.
+  execute: async (c, sql, _d, limit, offset) =>
+    (await api.sqliteExecute(c, sql, limit, offset)).map((r) => ({
       query_id: r.query_id,
       statement_index: r.statement_index,
       // The statement this result came from, as the backend split it (#928).
@@ -193,6 +191,9 @@ const sqlite: DataSource = {
       execution_time_ms: r.execution_time_ms,
       warnings: r.warnings,
       rows_truncated: r.rows_truncated,
+      truncation_reason: r.truncation_reason,
+      // SQLite answers for the whole connection, after every statement.
+      transaction: r.in_transaction ? "open" : "none",
     })) as QueryResult[],
 };
 

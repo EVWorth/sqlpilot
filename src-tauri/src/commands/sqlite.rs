@@ -46,12 +46,20 @@ pub async fn sqlite_execute(
     state: State<'_, AppState>,
     connection_id: String,
     sql: String,
+    // The row limit and page offset, as `execute_query` takes them (#933).
+    // u32 because specta forbids exporting u64; widened for the executor.
+    limit: Option<u32>,
+    offset: Option<u32>,
 ) -> Result<Vec<mas_sqlite::query::SqliteQueryResult>, mas_core::QueryError> {
+    let window = mas_sqlite::query::FetchWindow {
+        limit: limit.map(u64::from),
+        offset: offset.map(u64::from),
+    };
     // Same shape as the MySQL path: the shared pane reads one error type
     // whichever backend answered (#324).
     state
         .sqlite_executor
-        .execute(&connection_id, &sql)
+        .execute_window(&connection_id, &sql, window)
         .await
         .map_err(|e| sqlite_query_error(&e))
 }
@@ -93,7 +101,9 @@ fn sqlite_query_error(err: &mas_sqlite::error::SqliteError) -> mas_core::QueryEr
 /// A SQLite result as the shared result type, for `completed_results`, which
 /// the frontend reads as MySQL-shaped results whichever backend failed.
 fn core_result(r: mas_sqlite::query::SqliteQueryResult) -> mas_core::models::query::QueryResult {
-    use mas_core::models::query::{ColumnMeta, QueryResult};
+    use mas_core::models::query::{ColumnMeta, QueryResult, TruncationReason};
+    use mas_core::query::TransactionState;
+    use mas_sqlite::query::SqliteTruncationReason;
     QueryResult {
         query_id: r.query_id,
         statement_index: r.statement_index,
@@ -117,9 +127,16 @@ fn core_result(r: mas_sqlite::query::SqliteQueryResult) -> mas_core::models::que
         execution_time_ms: r.execution_time_ms,
         warnings: r.warnings,
         rows_truncated: r.rows_truncated,
-        truncation_reason: None,
+        truncation_reason: r.truncation_reason.map(|reason| match reason {
+            SqliteTruncationReason::RowLimit => TruncationReason::RowLimit,
+            SqliteTruncationReason::MemoryGuard => TruncationReason::MemoryGuard,
+        }),
         total_rows_available: None,
-        transaction: None,
+        transaction: Some(if r.in_transaction {
+            TransactionState::Open
+        } else {
+            TransactionState::None
+        }),
     }
 }
 
@@ -281,6 +298,37 @@ mod tests {
         let reported = run("SELECT * FROM missing; SELECT 1").await;
         assert_eq!(reported.statement_index, Some(0));
         assert!(reported.completed_results.is_none());
+    }
+
+    #[tokio::test]
+    async fn an_earlier_result_keeps_its_truncation_and_transaction() {
+        let manager = Arc::new(SqliteConnectionManager::new());
+        manager.open("c", ":memory:").expect("opens");
+        let window = mas_sqlite::query::FetchWindow {
+            limit: Some(1),
+            offset: None,
+        };
+        let err = SqliteQueryExecutor::new(manager)
+            .execute_window(
+                "c",
+                "SELECT 1 UNION ALL SELECT 2; SELECT * FROM missing",
+                window,
+            )
+            .await
+            .expect_err("the script fails");
+        let completed = sqlite_query_error(&err)
+            .completed_results
+            .expect("earlier results kept");
+        assert_eq!(completed[0].rows.len(), 1);
+        assert!(completed[0].rows_truncated);
+        assert_eq!(
+            completed[0].truncation_reason,
+            Some(mas_core::models::query::TruncationReason::RowLimit)
+        );
+        assert_eq!(
+            completed[0].transaction,
+            Some(mas_core::query::TransactionState::None)
+        );
     }
 
     #[test]

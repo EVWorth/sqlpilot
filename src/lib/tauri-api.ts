@@ -388,8 +388,12 @@ export const api = {
 
   sqliteList: () => unwrap("sqlite_list", () => commands.sqliteList()),
 
-  sqliteExecute: (connectionId: string, sql: string) =>
-    unwrap("sqlite_execute", () => commands.sqliteExecute(connectionId, sql)),
+  // The row limit and page offset, as `executeQuery` takes them (#933).
+  sqliteExecute: (connectionId: string, sql: string, limit?: number, offset?: number) =>
+    unwrap(
+      "sqlite_execute",
+      () => commands.sqliteExecute(connectionId, sql, orNull(limit), orNull(offset)),
+    ),
 
   sqliteGetTables: (connectionId: string) => unwrap("sqlite_get_tables", () => commands.sqliteGetTables(connectionId)),
 

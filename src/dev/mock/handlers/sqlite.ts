@@ -199,7 +199,18 @@ function result(index: number, sql: string, columns: string[], rows: Value[][], 
     execution_time_ms: 1 + (sql.length % 4),
     warnings: [],
     rows_truncated: false,
+    truncation_reason: null,
+    // The mock keeps no transactions, so none is ever open.
+    in_transaction: false,
   };
+}
+
+/** Skip `offset` rows and keep `limit`, as the executor reads them (#933). */
+function windowed(r: SqliteQueryResult, limit: unknown, offset: unknown): SqliteQueryResult {
+  const skip = typeof offset === "number" ? offset : 0;
+  const rest = r.rows.slice(skip);
+  if (typeof limit !== "number" || rest.length <= limit) return { ...r, rows: rest };
+  return { ...r, rows: rest.slice(0, limit), rows_truncated: true, truncation_reason: "row_limit" };
 }
 
 /** A literal from a select list with no FROM: `1`, `'x'`, `sqlite_version()`. */
@@ -262,10 +273,11 @@ const isQueryError = (e: unknown): e is QueryError =>
   typeof e === "object" && e !== null && "message" in e && "statementIndex" in e;
 
 /** A SQLite result in the shared shape, as `completedResults` carries it. */
-const shared = (r: SqliteQueryResult): QueryResult => ({
+const shared = ({ in_transaction, ...r }: SqliteQueryResult): QueryResult => ({
   ...r,
   columns: r.columns.map((c) => ({ ...c })),
   rows: r.rows as QueryResult["rows"],
+  transaction: in_transaction ? "open" : "none",
 });
 
 export const sqliteHandlers: Handlers = {
@@ -287,7 +299,7 @@ export const sqliteHandlers: Handlers = {
 
   sqlite_list: () => [...sessions.keys()],
 
-  sqlite_execute: async ({ connectionId, sql }: Args) => {
+  sqlite_execute: async ({ connectionId, sql, limit, offset }: Args) => {
     session(connectionId);
     await delay(80);
     // One result per statement; the first failure stops the run and carries
@@ -297,7 +309,7 @@ export const sqliteHandlers: Handlers = {
       try {
         const body = s.replace(/^\s*(--[^\n]*\n\s*)*/, "");
         const r = /^(select|pragma|explain|with)\b/i.test(body) ? select(body, i) : write(body, i);
-        results.push({ ...r, sql: s });
+        results.push(windowed({ ...r, sql: s }, limit, offset));
       } catch (e) {
         if (isQueryError(e) && results.length > 0) fail({ ...e, completedResults: results.map(shared) });
         throw e;

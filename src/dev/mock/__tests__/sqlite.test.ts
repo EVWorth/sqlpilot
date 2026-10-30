@@ -21,6 +21,26 @@ describe("sqlite_execute", () => {
     expect(results.map((r) => [r.statement_index, r.sql])).toEqual([[0, "SELECT 'a;b'"], [1, "SELECT 2"]]);
   });
 
+  it("caps rows at the limit and pages from the offset (#933)", async () => {
+    const all = await settle(
+      call<SqliteQueryResult[]>("sqlite_execute", { connectionId: id, sql: "SELECT * FROM notes" }),
+    );
+    expect(all[0].rows.length).toBeGreaterThan(3);
+    expect(all[0].rows_truncated).toBe(false);
+
+    const [page] = await settle(
+      call<SqliteQueryResult[]>("sqlite_execute", {
+        connectionId: id,
+        sql: "SELECT * FROM notes",
+        limit: 2,
+        offset: 1,
+      }),
+    );
+    expect(page.rows).toEqual(all[0].rows.slice(1, 3));
+    expect(page.rows_truncated).toBe(true);
+    expect(page.truncation_reason).toBe("row_limit");
+  });
+
   it("reports a failing second statement with what ran before it", async () => {
     const pending = call("sqlite_execute", { connectionId: id, sql: "SELECT 1; SELECT * FROM missing" });
     const failure = settle(pending).catch((e: unknown) => e);

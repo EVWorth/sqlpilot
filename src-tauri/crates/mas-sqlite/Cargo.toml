@@ -12,6 +12,7 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 specta = { workspace = true }
 specta-typescript = { workspace = true }
+sysinfo = { workspace = true }
 thiserror = "2"
 tokio = { workspace = true }
 tracing = { workspace = true }
