@@ -247,6 +247,19 @@ pub struct StartupProblem {
     pub detail: String,
 }
 
+/// Status-bar summary when the data folder fell back to the temp directory.
+fn fallback_data_dir_summary(fallback: &std::path::Path) -> String {
+    format!(
+        "Could not use the usual data folder, so this session is working in {} — \
+         connections and settings saved now may not be there next time.",
+        fallback.display()
+    )
+}
+
+/// Status-bar summary when no writable data folder could be created.
+const NO_DATA_DIR_SUMMARY: &str =
+    "Could not create a data folder anywhere writable. Connections and settings will not be saved.";
+
 /// A directory the app can write to, preferring the platform's own.
 ///
 /// Falls back to a temp directory, then to the working directory. Only the
@@ -266,10 +279,7 @@ fn usable_data_dir() -> (std::path::PathBuf, Option<StartupProblem>) {
                     fallback.clone(),
                     Some(StartupProblem {
                         kind: "data-directory".to_string(),
-                        summary: format!(
-                            "Could not use the usual data folder, so this session is working in {} —                              connections and settings saved now may not be there next time.",
-                            fallback.display()
-                        ),
+                        summary: fallback_data_dir_summary(&fallback),
                         detail,
                     }),
                 )
@@ -278,8 +288,7 @@ fn usable_data_dir() -> (std::path::PathBuf, Option<StartupProblem>) {
                     std::path::PathBuf::from("."),
                     Some(StartupProblem {
                         kind: "data-directory".to_string(),
-                        summary: "Could not create a data folder anywhere writable. Connections                                   and settings will not be saved."
-                            .to_string(),
+                        summary: NO_DATA_DIR_SUMMARY.to_string(),
                         detail,
                     }),
                 )
@@ -601,6 +610,19 @@ pub fn run() {
 #[cfg(test)]
 mod startup_tests {
     use super::*;
+
+    /// A string literal broken across lines without a `\` continuation
+    /// carries the next line's indentation into the message (#920).
+    #[test]
+    fn data_dir_summaries_have_no_runs_of_spaces() {
+        let fallback = std::env::temp_dir().join("sqlpilot");
+        for summary in [
+            fallback_data_dir_summary(&fallback),
+            NO_DATA_DIR_SUMMARY.to_string(),
+        ] {
+            assert!(!summary.contains("  "), "double space in {summary:?}");
+        }
+    }
 
     fn env_of(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let map: std::collections::HashMap<String, String> = pairs
