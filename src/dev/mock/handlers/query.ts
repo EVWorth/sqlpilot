@@ -1089,8 +1089,20 @@ export const queryHandlers: Handlers = {
         results.push(r);
       } catch (e) {
         // What ran before the failing statement rides along, as the backend
-        // sends it (#845).
-        if (isQueryError(e) && results.length > 0) fail({ ...e, completedResults: results });
+        // sends it (#845), and a tab's session says whether a transaction is
+        // still open (#917).
+        if (!isQueryError(e)) throw e;
+        const session = tabSession(args.session);
+        const transaction = session && e.statementIndex !== null
+          ? (openTransactions.has(sessionKey(ctx.conn.id, args.session)) ? "open" : "none")
+          : undefined;
+        if (results.length > 0 || transaction) {
+          fail({
+            ...e,
+            ...(results.length > 0 ? { completedResults: results } : {}),
+            ...(transaction ? { transaction } : {}),
+          });
+        }
         throw e;
       }
     }

@@ -296,15 +296,33 @@ pub async fn run_restore(
         elapsed_ms: started.elapsed().as_millis() as u64,
         cancelled,
         rolled_back: roll_back && !rollback_failed,
-        // A rollback undoes only what had not already been committed. Any DDL
-        // in the file commits as it runs, so a dump that got as far as a
-        // CREATE has changed the database whatever happens next.
-        // A rollback that itself failed cannot be claimed to have undone
-        // anything.
-        partially_applied: (cancelled || failed)
-            && (!roll_back || rollback_failed || committed_something),
+        partially_applied: partially_applied(
+            cancelled || failed,
+            state.statements_run,
+            roll_back,
+            rollback_failed,
+            committed_something,
+        ),
         errors,
     })
+}
+
+/// Whether a restore that did not finish cleanly left some of its changes.
+///
+/// A rollback undoes only what had not already been committed. Any DDL in
+/// the file commits as it runs, so a dump that got as far as a CREATE has
+/// changed the database whatever happens next. A rollback that itself failed
+/// cannot be claimed to have undone anything. And when no statement ran at
+/// all, for example every one was refused with "Stop on error" off, nothing
+/// changed (#919).
+fn partially_applied(
+    interrupted: bool,
+    statements_run: u64,
+    roll_back: bool,
+    rollback_failed: bool,
+    committed_something: bool,
+) -> bool {
+    interrupted && statements_run > 0 && (!roll_back || rollback_failed || committed_something)
 }
 
 async fn run_one(
@@ -451,5 +469,28 @@ mod tests {
         };
         assert!(summary.statements_failed > 0);
         assert!(summary.errors[0].contains("none of them took effect"));
+    }
+
+    /// Every statement refused with "Stop on error" off: nothing ran, so
+    /// nothing was applied, even with no rollback (#919).
+    #[test]
+    fn nothing_run_is_not_partially_applied() {
+        assert!(!partially_applied(true, 0, false, false, false));
+        assert!(!partially_applied(true, 0, true, true, false));
+    }
+
+    /// The partial cases that existed before #919 still report as partial.
+    #[test]
+    fn some_run_and_kept_is_partially_applied() {
+        // Carried on past errors without a rollback.
+        assert!(partially_applied(true, 3, false, false, false));
+        // Rolled back, but DDL had already committed.
+        assert!(partially_applied(true, 3, true, false, true));
+        // The rollback itself failed.
+        assert!(partially_applied(true, 3, true, true, false));
+        // Rolled back cleanly with nothing committed: not partial.
+        assert!(!partially_applied(true, 3, true, false, false));
+        // A clean run is never "partial".
+        assert!(!partially_applied(false, 3, false, false, true));
     }
 }

@@ -60,7 +60,7 @@ async fn a_statement_past_the_timeout_is_stopped_and_says_so() {
 
     let elapsed = started.elapsed();
     assert!(
-        matches!(err, CoreError::Timeout(_)),
+        matches!(err.root(), CoreError::Timeout(_)),
         "the error has to say it was a timeout, or the UI cannot tell it from \
          a server error the user should act on: {err:?}"
     );
@@ -141,7 +141,7 @@ async fn the_timeout_bounds_the_batch_rather_than_the_gap_between_rows() {
         .await
         .expect_err("four seconds of work against a two-second limit");
 
-    assert!(matches!(err, CoreError::Timeout(_)), "got {err:?}");
+    assert!(matches!(err.root(), CoreError::Timeout(_)), "got {err:?}");
     manager.disconnect(&info.id).await.unwrap();
 }
 
@@ -183,7 +183,7 @@ async fn a_timed_out_statement_gives_its_connection_back() {
             .expect_err("a 5s sleep under a 1s timeout is not a result");
 
         assert!(
-            matches!(err, CoreError::Timeout(_)),
+            matches!(err.root(), CoreError::Timeout(_)),
             "attempt {attempt}: {err:?}"
         );
         assert!(
@@ -210,4 +210,85 @@ async fn a_timed_out_statement_gives_its_connection_back() {
     .await
     .expect("disconnect should not hang after a timeout")
     .unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_script_that_times_out_keeps_what_ran_before_it() {
+    // A timeout used to come back without a statement index, so the results
+    // of the statements that had already finished were thrown away (#917).
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&profile(Some(1))).await.unwrap();
+
+    let err = executor
+        .execute(
+            &info.id,
+            "SELECT 'first' AS label; SELECT SLEEP(5); SELECT 'never'",
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("the second statement runs past the timeout");
+
+    assert!(matches!(err.root(), CoreError::Timeout(_)), "got {err:?}");
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.statement_index, Some(1), "the second statement");
+    assert!(
+        reported.message.contains("timeout"),
+        "still says it timed out: {}",
+        reported.message
+    );
+    let completed = reported
+        .completed_results
+        .expect("the first statement's result is kept");
+    assert_eq!(completed.len(), 1);
+    assert_eq!(completed[0].statement_index, 0);
+    assert_eq!(
+        completed[0].rows,
+        vec![vec![mas_core::models::SqlValue::String("first".into())]]
+    );
+    assert_eq!(reported.transaction, None, "not an editor session");
+
+    manager.disconnect(&info.id).await.unwrap();
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_timeout_on_a_session_reports_the_open_transaction() {
+    // KILL QUERY stops the statement, not the transaction around it.
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&profile(Some(1))).await.unwrap();
+    let tab = "tab-timeout-transaction";
+
+    let started = Instant::now();
+    let err = executor
+        .execute_in_session(
+            tab,
+            info.id.clone(),
+            "BEGIN; SELECT SLEEP(5)".to_string(),
+            None,
+            None,
+            None,
+        )
+        .await
+        .expect_err("the sleep runs past the timeout");
+
+    assert!(matches!(err.root(), CoreError::Timeout(_)), "got {err:?}");
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.statement_index, Some(1));
+    assert_eq!(
+        reported.transaction,
+        Some(mas_core::query::TransactionState::Open)
+    );
+    assert!(
+        started.elapsed() < std::time::Duration::from_secs(4),
+        "the probe did not hold the error back: took {:?}",
+        started.elapsed()
+    );
+
+    manager.close_session(&info.id, tab).await;
+    manager.disconnect(&info.id).await.unwrap();
 }

@@ -600,3 +600,71 @@ async fn a_failed_run_on_a_session_keeps_what_ran_before_it() {
 
     manager.close_session(&id, tab).await;
 }
+
+// ====== TRANSACTION STATE AFTER A FAILURE (#917) ======
+//
+// A failing statement does not end a transaction, so the error itself has to
+// say whether one is still open; the frontend otherwise guesses from the SQL.
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_failed_run_on_a_session_reports_an_open_transaction() {
+    let (manager, executor, id) = connect(5).await;
+    let tab = "tab-failed-transaction";
+
+    let err = run(
+        &executor,
+        &id,
+        tab,
+        "BEGIN; SELECT * FROM definitely_not_a_table",
+    )
+    .await
+    .expect_err("the second statement fails");
+
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.statement_index, Some(1));
+    assert_eq!(
+        reported.transaction,
+        Some(TransactionState::Open),
+        "the failure leaves BEGIN's transaction open"
+    );
+    let json = serde_json::to_value(&reported).expect("serialises");
+    assert_eq!(json["transaction"], "open");
+
+    // And the probe did not disturb the session: ending the transaction
+    // works, and a later failure says there is none.
+    run(&executor, &id, tab, "ROLLBACK")
+        .await
+        .expect("rolls back");
+    let err = run(&executor, &id, tab, "SELECT * FROM definitely_not_a_table")
+        .await
+        .expect_err("fails");
+    assert_eq!(
+        mas_core::QueryError::from_core(&err).transaction,
+        Some(TransactionState::None)
+    );
+
+    manager.close_session(&id, tab).await;
+}
+
+#[tokio::test]
+#[ignore = "needs a live MySQL/MariaDB server: just test-integration"]
+async fn a_failed_run_off_a_session_reports_no_transaction_state() {
+    let (_manager, executor, id) = connect(5).await;
+
+    let err = executor
+        .execute(
+            &id,
+            "BEGIN; SELECT * FROM definitely_not_a_table",
+            Some("test_db".to_string()),
+            None,
+            None,
+        )
+        .await
+        .expect_err("the second statement fails");
+
+    let reported = mas_core::QueryError::from_core(&err);
+    assert_eq!(reported.transaction, None);
+    let json = serde_json::to_value(&reported).expect("serialises");
+    assert!(json.get("transaction").is_none(), "omitted: {json}");
+}

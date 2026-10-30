@@ -55,4 +55,6 @@ line from the `justfile` directly.
 Copilot installed and logged in, and they spend that account's quota, so run
 them only when asked or when changing `mas-agent` or the MCP bridge.
 
-`just db-down` stops the containers when you're done.
+`just db-down` removes the containers and their data volumes when you're
+done; `just db-up` recreates them from scratch. To pause them and keep the
+data, use `docker stop mas-mysql-8 mas-mariadb-11`.
