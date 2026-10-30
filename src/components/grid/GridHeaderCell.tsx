@@ -76,6 +76,8 @@ export function GridHeaderCell({
   return (
     <Tag
       key={columnId}
+      // Found by the keyboard path, to scroll a column into view (#852).
+      data-header-col={columnId}
       // Drag has to be declared on the element that owns the pointer, so the
       // resize handle below opts out of it explicitly.
       draggable={draggable}
