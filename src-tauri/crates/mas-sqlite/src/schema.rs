@@ -86,8 +86,12 @@ impl SqliteSchemaInspector {
             let mut tables = Vec::new();
             for (name, ttype, sql) in table_rows {
                 let row_count = if ttype == "table" {
+                    // A table name cannot be a bound parameter, so it is
+                    // quoted instead, every `"` in it doubled (#929). The
+                    // listing comes from `main`, so the count does too, not
+                    // from a temp table that shadows the name.
                     db.query_row(
-                        &format!("SELECT COUNT(*) FROM \"{}\"", name),
+                        &format!("SELECT COUNT(*) FROM \"main\".{}", quote_identifier(&name)),
                         [],
                         |r| r.get(0),
                     )
@@ -120,15 +124,20 @@ impl SqliteSchemaInspector {
                 .db
                 .lock()
                 .map_err(|e| SqliteError::Schema(e.to_string()))?;
-            let mut stmt = db.prepare(&format!("PRAGMA table_info(\"{}\")", table))?;
+            // The table-valued pragma takes the name as a bound parameter,
+            // so no name, however it is spelt, needs quoting (#929).
+            let mut stmt = db.prepare(
+                "SELECT name, type, \"notnull\", dflt_value, pk \
+                 FROM pragma_table_info(?1) ORDER BY cid",
+            )?;
             let columns = stmt
-                .query_map([], |row| {
+                .query_map([&table], |row| {
                     Ok(SqliteColumnInfo {
-                        name: row.get(1)?,
-                        data_type: row.get::<_, String>(2).unwrap_or_default(),
-                        nullable: row.get::<_, i32>(3).unwrap_or(0) == 0,
-                        default_value: row.get(4)?,
-                        is_primary_key: row.get::<_, i32>(5).unwrap_or(0) > 0,
+                        name: row.get(0)?,
+                        data_type: row.get::<_, String>(1).unwrap_or_default(),
+                        nullable: row.get::<_, i32>(2).unwrap_or(0) == 0,
+                        default_value: row.get(3)?,
+                        is_primary_key: row.get::<_, i32>(4).unwrap_or(0) > 0,
                     })
                 })?
                 .collect::<Result<Vec<_>, _>>()?;
@@ -146,40 +155,11 @@ impl SqliteSchemaInspector {
         let conn = self.manager.get(connection_id)?;
         let table = table.to_string();
         tokio::task::spawn_blocking(move || {
-            let db = conn.db.lock().map_err(|e| SqliteError::Schema(e.to_string()))?;
-            let mut stmt = db.prepare(
-                "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name=?1 AND name NOT LIKE 'sqlite_%'"
-            )?;
-            let indexes = stmt
-                .query_map([&table], |row| {
-                    let name: String = row.get(0)?;
-                    Ok(SqliteIndexInfo {
-                        name,
-                        columns: row
-                            .get::<_, Option<String>>(1)
-                            .ok()
-                            .flatten()
-                            .and_then(|sql| {
-                                let start = sql.find('(')?;
-                                let end = sql.rfind(')')?;
-                                Some(
-                                    sql[start + 1..end]
-                                        .split(',')
-                                        .map(|s| s.trim().trim_matches('"').trim_matches('\'').to_string())
-                                        .collect(),
-                                )
-                            })
-                            .unwrap_or_default(),
-                        is_unique: row
-                            .get::<_, Option<String>>(1)
-                            .ok()
-                            .flatten()
-                            .map(|s| s.to_uppercase().contains("UNIQUE"))
-                            .unwrap_or(false),
-                    })
-                })?
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(indexes)
+            let db = conn
+                .db
+                .lock()
+                .map_err(|e| SqliteError::Schema(e.to_string()))?;
+            read_indexes(&db, &table)
         })
         .await
         .map_err(|e| SqliteError::Schema(e.to_string()))?
@@ -306,4 +286,81 @@ fn primary_key_columns(db: &rusqlite::Connection, table: &str) -> Result<Vec<Str
         .query_map([table], |row| row.get(0))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(columns)
+}
+
+/// The indexes created on `table` with `CREATE INDEX`, in name order.
+///
+/// Read from `pragma_index_list` and `pragma_index_xinfo` rather than parsed
+/// out of the `CREATE INDEX` text (#929), which split expression indexes and
+/// `COLLATE`/`DESC` columns wrongly. The automatic indexes behind PRIMARY KEY
+/// and UNIQUE constraints (origin `pk` and `u`) are left out, as they were.
+fn read_indexes(
+    db: &rusqlite::Connection,
+    table: &str,
+) -> Result<Vec<SqliteIndexInfo>, SqliteError> {
+    let mut stmt = db.prepare(
+        "SELECT name, \"unique\" FROM pragma_index_list(?1) WHERE origin = 'c' ORDER BY name",
+    )?;
+    let listed = stmt
+        .query_map([table], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, bool>(1)?))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+
+    listed
+        .into_iter()
+        .map(|(name, is_unique)| {
+            Ok(SqliteIndexInfo {
+                columns: index_key_columns(db, &name)?,
+                name,
+                is_unique,
+            })
+        })
+        .collect()
+}
+
+/// What an expression column of an index is reported as. SQLite records no
+/// name for it, and the expression text exists only in the `CREATE INDEX`.
+pub const EXPRESSION_COLUMN: &str = "<expression>";
+
+/// The key columns of an index, in key order. The row id SQLite appends to
+/// every index is not a key column and is left out; an expression column
+/// reads as [`EXPRESSION_COLUMN`].
+fn index_key_columns(db: &rusqlite::Connection, index: &str) -> Result<Vec<String>, SqliteError> {
+    let mut stmt = db
+        .prepare("SELECT cid, name FROM pragma_index_xinfo(?1) WHERE \"key\" = 1 ORDER BY seqno")?;
+    let columns = stmt
+        .query_map([index], |row| {
+            let cid: i64 = row.get(0)?;
+            let name: Option<String> = row.get(1)?;
+            Ok(match (name, cid) {
+                (Some(name), _) => name,
+                // -1 is the row id, named explicitly as a key column.
+                (None, -1) => "rowid".to_string(),
+                (None, _) => EXPRESSION_COLUMN.to_string(),
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(columns)
+}
+
+/// `name` as a quoted SQL identifier: wrapped in `"`, every `"` inside it
+/// doubled. For the places a name cannot be a bound parameter.
+pub fn quote_identifier(name: &str) -> String {
+    format!("\"{}\"", name.replace('"', "\"\""))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn quote_identifier_doubles_embedded_quotes() {
+        assert_eq!(quote_identifier("plain"), "\"plain\"");
+        assert_eq!(quote_identifier("a\"b"), "\"a\"\"b\"");
+        assert_eq!(
+            quote_identifier("x\"; DROP TABLE t; --"),
+            "\"x\"\"; DROP TABLE t; --\""
+        );
+    }
 }

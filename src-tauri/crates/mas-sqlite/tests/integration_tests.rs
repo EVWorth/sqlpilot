@@ -455,6 +455,104 @@ async fn schema_get_foreign_keys_takes_any_table_name() {
     assert_eq!(keys[0].columns, vec!["pid".to_string()]);
 }
 
+// ---------------------------------------------------------------------------
+// Names that need quoting, and indexes read from the pragmas (#929)
+// ---------------------------------------------------------------------------
+
+const ODD_TABLE: &str = r#"we"ird; name"#;
+
+async fn odd_inspector() -> SqliteSchemaInspector {
+    inspector_with(&[r#"CREATE TABLE "we""ird; name" (
+             "id" INTEGER PRIMARY KEY,
+             "co""l; x" TEXT NOT NULL DEFAULT 'a;b',
+             email TEXT,
+             created INTEGER
+           );
+           INSERT INTO "we""ird; name" ("co""l; x", email, created)
+             VALUES ('x', 'A@x', 1), ('y', 'b@x', 2), ('z', 'c@x', 3);
+           CREATE UNIQUE INDEX "ix""q; 1" ON "we""ird; name" ("co""l; x");
+           CREATE INDEX ix_desc ON "we""ird; name" (created DESC, email COLLATE NOCASE);
+           CREATE INDEX ix_expr ON "we""ird; name" (lower(email), created);"#])
+    .await
+}
+
+#[tokio::test]
+async fn schema_get_tables_counts_a_table_whose_name_needs_quoting() {
+    let insp = odd_inspector().await;
+    let tables = insp.get_tables("s").await.unwrap();
+    let t = tables.iter().find(|t| t.name == ODD_TABLE).expect("listed");
+    assert_eq!(t.row_count, Some(3));
+}
+
+#[tokio::test]
+async fn schema_get_columns_reads_a_table_whose_name_needs_quoting() {
+    let insp = odd_inspector().await;
+    let cols = insp.get_columns("s", ODD_TABLE).await.unwrap();
+    let names: Vec<&str> = cols.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["id", r#"co"l; x"#, "email", "created"]);
+    assert!(cols[0].is_primary_key);
+    assert!(!cols[1].nullable);
+    assert_eq!(cols[1].default_value.as_deref(), Some("'a;b'"));
+}
+
+#[tokio::test]
+async fn schema_get_columns_does_not_run_sql_from_a_name() {
+    let insp = inspector_with(&["CREATE TABLE victim (x)"]).await;
+    // Would have closed the quoted name and run a DROP under the old
+    // `PRAGMA table_info("{}")`.
+    let cols = insp
+        .get_columns("s", r#"victim"); DROP TABLE victim; --"#)
+        .await
+        .unwrap();
+    assert!(cols.is_empty());
+    let tables = insp.get_tables("s").await.unwrap();
+    assert!(tables.iter().any(|t| t.name == "victim"));
+}
+
+#[tokio::test]
+async fn schema_get_indexes_reads_key_columns_from_the_pragmas() {
+    let insp = odd_inspector().await;
+    let indexes = insp.get_indexes("s", ODD_TABLE).await.unwrap();
+    let summary: Vec<(&str, Vec<&str>, bool)> = indexes
+        .iter()
+        .map(|i| {
+            (
+                i.name.as_str(),
+                i.columns.iter().map(String::as_str).collect(),
+                i.is_unique,
+            )
+        })
+        .collect();
+    assert_eq!(
+        summary,
+        [
+            // In name order, which puts `"` before `_`.
+            (r#"ix"q; 1"#, vec![r#"co"l; x"#], true),
+            // DESC and COLLATE do not leak into the column names.
+            ("ix_desc", vec!["created", "email"], false),
+            // An expression has no name; the plain column after it keeps its own.
+            (
+                "ix_expr",
+                vec![mas_sqlite::schema::EXPRESSION_COLUMN, "created"],
+                false
+            ),
+        ]
+    );
+}
+
+#[tokio::test]
+async fn schema_get_indexes_leaves_out_constraint_indexes() {
+    let insp = inspector_with(&[
+        "CREATE TABLE t (a TEXT PRIMARY KEY, b TEXT UNIQUE, c TEXT)",
+        "CREATE UNIQUE INDEX ix_c ON t (c)",
+    ])
+    .await;
+    let indexes = insp.get_indexes("s", "t").await.unwrap();
+    let names: Vec<&str> = indexes.iter().map(|i| i.name.as_str()).collect();
+    assert_eq!(names, ["ix_c"]);
+    assert!(indexes[0].is_unique);
+}
+
 #[tokio::test]
 async fn schema_get_foreign_keys_unknown_connection_returns_not_found() {
     let insp = SqliteSchemaInspector::new(manager());
