@@ -1,10 +1,13 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useEditorStore } from "../../../stores/editorStore";
+import { useSqliteStore } from "../../../stores/sqliteStore";
+import { useTransactionStore } from "../../../stores/transactionStore";
 import type { EditorTab } from "../../../types";
 import { RollbackSwitchDialog } from "../RollbackSwitchDialog";
 
-const tab = (id: string, title: string) => ({ id, title, content: "", type: "query", isDirty: false }) as EditorTab;
+const tab = (id: string, title: string, connectionId?: string) =>
+  ({ id, title, connectionId, content: "", type: "query", isDirty: false }) as EditorTab;
 
 describe("RollbackSwitchDialog (#843)", () => {
   beforeEach(() => useEditorStore.setState({ pendingSwitch: null }));
@@ -26,6 +29,21 @@ describe("RollbackSwitchDialog (#843)", () => {
     fireEvent.click(screen.getByText("Roll back and switch"));
     expect(proceed).toHaveBeenCalledOnce();
     expect(useEditorStore.getState().pendingSwitch).toBeNull();
+  });
+
+  // #935: on a SQLite file the transaction is the file's connection's, and
+  // only moving the last tab off the file ends it.
+  it("says the transaction is on the file's connection for the last tab on a SQLite file", () => {
+    useSqliteStore.setState({ sessions: [{ id: "lite-1", path: "/data/app.db", name: "app.db", openedAt: "" }] });
+    useTransactionStore.setState({ open: {}, openConnections: { "lite-1": true } });
+    useEditorStore.setState({ pendingSwitch: { inTransaction: [tab("t1", "Notes", "lite-1")], proceed: vi.fn() } });
+    render(<RollbackSwitchDialog />);
+
+    expect(screen.getByText(/"Notes" is the last tab on app\.db, and a transaction is open on the file's connection/))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/ends the session/)).toBeNull();
+    useTransactionStore.setState({ openConnections: {} });
+    useSqliteStore.setState({ sessions: [] });
   });
 
   it("keeps everything as it was on Cancel", () => {

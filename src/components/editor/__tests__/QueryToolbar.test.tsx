@@ -112,6 +112,7 @@ let mockEditorInstance: any = {
   focus: vi.fn(),
 };
 let mockActiveTabContent = "SELECT * FROM users";
+let mockActiveTabConnectionId: string | undefined;
 
 vi.mock("../../../stores/editorStore", () => ({
   useEditorStore: Object.assign(
@@ -124,6 +125,7 @@ vi.mock("../../../stores/editorStore", () => ({
             id: "tab-0",
             title: "Untitled Query",
             content: mockActiveTabContent,
+            connectionId: mockActiveTabConnectionId,
             type: "query",
             isDirty: false,
           },
@@ -255,7 +257,10 @@ describe("QueryToolbar", () => {
 
   // #843: an open transaction was visible nowhere.
   describe("transaction indicator", () => {
-    afterEach(() => useTransactionStore.setState({ open: {} }));
+    afterEach(() => {
+      useTransactionStore.setState({ open: {}, openConnections: {} });
+      mockActiveTabConnectionId = undefined;
+    });
 
     it("shows nothing when no transaction is open", () => {
       render(<QueryToolbar />);
@@ -271,6 +276,27 @@ describe("QueryToolbar", () => {
       expect(mockExecuteQuery).toHaveBeenCalledWith("COMMIT");
       fireEvent.click(screen.getByRole("button", { name: "Rollback" }));
       expect(mockExecuteQuery).toHaveBeenCalledWith("ROLLBACK");
+    });
+
+    // #935: a SQLite file's transaction is on its one connection, shared by
+    // every tab on it. Commit and Rollback run on the tab's connection, which
+    // is that one.
+    it("offers Commit and Rollback on a tab bound to a SQLite file with a transaction open", () => {
+      mockActiveTabConnectionId = "lite-1";
+      useTransactionStore.setState({ openConnections: { "lite-1": true } });
+      render(<QueryToolbar />);
+
+      expect(screen.getByText("Transaction open")).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Commit" }));
+      expect(mockExecuteQuery).toHaveBeenCalledWith("COMMIT");
+    });
+
+    it("shows nothing for a tab on another connection than the one with a transaction", () => {
+      mockActiveTabConnectionId = "lite-2";
+      useTransactionStore.setState({ openConnections: { "lite-1": true } });
+      render(<QueryToolbar />);
+
+      expect(screen.queryByText("Transaction open")).toBeNull();
     });
   });
 

@@ -21,7 +21,7 @@ import { useEditorStore } from "../../stores/editorStore";
 import { useResultStore } from "../../stores/resultStore";
 import { schemaFor, useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useTransactionStore } from "../../stores/transactionStore";
+import { tabTransactionOpen, useTransactionStore } from "../../stores/transactionStore";
 import { EnvironmentBadge } from "../connection/EnvironmentBadge";
 import { SaveFavoriteDialog } from "../favorites/SaveFavoriteDialog";
 import { FormatterSettingsDialog } from "./FormatterSettingsDialog";
@@ -61,8 +61,10 @@ export function QueryToolbar() {
   } = useQueryExecution();
 
   const cancelActiveQuery = useResultStore((s) => s.cancelActiveQuery);
-  // The tab's session is inside a transaction (#843).
-  const transactionOpen = useTransactionStore((s) => (activeTabId ? Boolean(s.open[activeTabId]) : false));
+  // The tab's session is inside a transaction (#843), or the SQLite file's
+  // connection it shares is (#935). Commit and Rollback below run on the
+  // tab's connection either way, so on a file they end it for every tab.
+  const transactionOpen = useTransactionStore((s) => (activeTab ? tabTransactionOpen(s, activeTab) : false));
 
   const activeConnection = activeConnections.find(
     (c) => c.id === selectedConnectionId,

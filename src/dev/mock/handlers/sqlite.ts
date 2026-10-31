@@ -163,6 +163,12 @@ const VIEWS = [RECENT_NOTES];
 /** Open files, by connection id. */
 const sessions = new Map<string, string>();
 
+/**
+ * Connections inside BEGIN ... COMMIT. One per file, shared by every tab on
+ * it, as the real connection is (#935).
+ */
+const openTransactions = new Set<string>();
+
 function session(connectionId: unknown): string {
   const path = sessions.get(String(connectionId));
   if (path === undefined) fail(`Not found: SQLite connection not found: ${String(connectionId)}`);
@@ -177,6 +183,30 @@ function table(name: string): FakeTable | undefined {
 function queryError(message: string, statementIndex: number): never {
   const error: QueryError = { message, code: 1, sqlState: null, statementIndex };
   fail(error);
+}
+
+/**
+ * What a statement does to the connection's transaction, as SQLite has it:
+ * BEGIN opens one and refuses to nest, COMMIT/END and ROLLBACK end it and
+ * refuse when there is none. `ROLLBACK TO` a savepoint keeps it open. Returns
+ * a result for a transaction statement, or null for anything else.
+ */
+function transactionStatement(connectionId: string, sql: string, index: number): SqliteQueryResult | null {
+  const s = sql.trim().toUpperCase();
+  const open = openTransactions.has(connectionId);
+  if (/^BEGIN\b/.test(s)) {
+    if (open) queryError("cannot start a transaction within a transaction", index);
+    openTransactions.add(connectionId);
+  } else if (/^(COMMIT|END)\b/.test(s)) {
+    if (!open) queryError("cannot commit - no transaction is active", index);
+    openTransactions.delete(connectionId);
+  } else if (/^ROLLBACK\b/.test(s) && !/^ROLLBACK\b.*\bTO\b/.test(s)) {
+    if (!open) queryError("cannot rollback - no transaction is active", index);
+    openTransactions.delete(connectionId);
+  } else {
+    return null;
+  }
+  return result(index, sql, [], []);
 }
 
 /**
@@ -200,7 +230,7 @@ function result(index: number, sql: string, columns: string[], rows: Value[][], 
     warnings: [],
     rows_truncated: false,
     truncation_reason: null,
-    // The mock keeps no transactions, so none is ever open.
+    // Set by `sqlite_execute` from the connection, after each statement.
     in_transaction: false,
   };
 }
@@ -294,6 +324,8 @@ export const sqliteHandlers: Handlers = {
   sqlite_close: ({ connectionId }: Args) => {
     session(connectionId);
     sessions.delete(String(connectionId));
+    // Closing the connection rolls back what it had open.
+    openTransactions.delete(String(connectionId));
     return null;
   },
 
@@ -301,18 +333,22 @@ export const sqliteHandlers: Handlers = {
 
   sqlite_execute: async ({ connectionId, sql, limit, offset }: Args) => {
     session(connectionId);
+    const id = String(connectionId);
     await delay(80);
     // One result per statement; the first failure stops the run and carries
-    // what ran before it, as the backend reports it (#928).
+    // what ran before it, as the backend reports it (#928), and whether the
+    // connection is still inside a transaction (#935).
     const results: SqliteQueryResult[] = [];
     for (const [i, s] of splitSqliteStatements(String(sql ?? "")).entries()) {
       try {
         const body = s.replace(/^\s*(--[^\n]*\n\s*)*/, "");
-        const r = /^(select|pragma|explain|with)\b/i.test(body) ? select(body, i) : write(body, i);
-        results.push(windowed({ ...r, sql: s }, limit, offset));
+        const r = transactionStatement(id, body, i)
+          ?? (/^(select|pragma|explain|with)\b/i.test(body) ? select(body, i) : write(body, i));
+        results.push(windowed({ ...r, sql: s, in_transaction: openTransactions.has(id) }, limit, offset));
       } catch (e) {
-        if (isQueryError(e) && results.length > 0) fail({ ...e, completedResults: results.map(shared) });
-        throw e;
+        if (!isQueryError(e)) throw e;
+        const transaction = openTransactions.has(id) ? "open" : "none";
+        fail({ ...e, ...(results.length > 0 ? { completedResults: results.map(shared) } : {}), transaction });
       }
     }
     return results;

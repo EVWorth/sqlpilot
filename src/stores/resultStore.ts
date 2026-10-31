@@ -7,6 +7,7 @@ import { noteSession } from "../lib/server-sessions";
 import { splitSqlStatements } from "../lib/sql-import";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { splitSqliteStatements } from "../lib/sqlite-split";
+import { noteSqliteTransaction } from "../lib/sqlite-transactions";
 import { api, CommandError } from "../lib/tauri-api";
 import { transactionAfter } from "../lib/transaction-tracking";
 import { forgetGridEdits, gridEditsIn } from "../lib/unsaved-grid-edits";
@@ -1004,6 +1005,9 @@ async function doExecuteQuery(
     if (session && source.kind === "mysql") {
       noteTransaction(session, results[results.length - 1]?.transaction, statementsRun(sql, results));
     }
+    // A SQLite file's one connection answers for every tab on it, whoever
+    // ran the statement (#935).
+    if (source.kind === "sqlite") noteSqliteTransaction(connectionId, results[results.length - 1]?.transaction);
 
     if (!isCurrent(run)) return run.cancelled ? { status: "cancelled" } : { status: "succeeded", results };
 
@@ -1060,6 +1064,9 @@ async function doExecuteQuery(
       const completed = structured.completedResults ?? [];
       noteTransaction(session, completed[completed.length - 1]?.transaction, ran);
     }
+    // A failed statement does not end a transaction; the backend says
+    // whether one is still open on the file's connection (#935).
+    if (connectionKind(connectionId) === "sqlite") noteSqliteTransaction(connectionId, structured?.transaction);
     if (conn) {
       void useHistoryStore.getState().addEntry({
         id: crypto.randomUUID(),

@@ -25,6 +25,11 @@ pub enum SqliteError {
         /// What the statements before this one returned, in order. Empty
         /// when the first statement failed.
         completed: Vec<SqliteQueryResult>,
+        /// Whether the connection was inside a transaction after the
+        /// failure, from `is_autocommit()` (#935). A failing statement does
+        /// not end a transaction, so a script that ran BEGIN and then failed
+        /// leaves it open on the connection every tab on the file shares.
+        in_transaction: bool,
     },
 
     #[error(transparent)]

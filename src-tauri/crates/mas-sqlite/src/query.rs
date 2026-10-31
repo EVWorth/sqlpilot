@@ -140,7 +140,8 @@ impl SqliteQueryExecutor {
 /// The first failure stops the run. It comes back tagged with the failing
 /// statement's index and what the statements before it returned, as the MySQL
 /// executor reports it, and those earlier statements stay done: SQLite is in
-/// autocommit unless the script opened a transaction.
+/// autocommit unless the script opened a transaction. Whether one is open
+/// after the failure rides along on the error (#935).
 ///
 /// A result cut short by the memory guard ends the run: the statements after
 /// it are not started, as the MySQL executor stops reading its batch.
@@ -171,6 +172,7 @@ fn execute_sync(
                     index,
                     source: Box::new(source),
                     completed: results,
+                    in_transaction: !db.is_autocommit(),
                 })
             }
         }
@@ -455,6 +457,21 @@ mod tests {
         assert_eq!(open, [false, true, true, false]);
     }
 
+    #[test]
+    fn a_failure_says_whether_a_transaction_is_still_open() {
+        let conn = memory();
+        let in_transaction = |sql: &str| match run(&conn, sql).expect_err("fails") {
+            SqliteError::AtStatement { in_transaction, .. } => in_transaction,
+            other => panic!("expected a statement-tagged error, got {other:?}"),
+        };
+        // BEGIN ran, the failure after it did not end the transaction.
+        assert!(in_transaction("BEGIN; SELECT * FROM missing"));
+        // Still open on the connection for the next run, until it ends.
+        assert!(in_transaction("SELECT * FROM missing"));
+        run(&conn, "ROLLBACK").expect("rolls back");
+        assert!(!in_transaction("SELECT * FROM missing"));
+    }
+
     fn tables(conn: &SqliteConnection) -> Vec<String> {
         let db = conn.db.lock().expect("lock");
         let mut stmt = db
@@ -512,8 +529,10 @@ mod tests {
                 index,
                 source,
                 completed,
+                in_transaction,
             } => {
                 assert_eq!(index, 1);
+                assert!(!in_transaction);
                 assert!(matches!(*source, SqliteError::Rusqlite(_)));
                 assert!(source.to_string().contains("no such table: missing"));
                 assert_eq!(completed.len(), 1);
