@@ -1208,6 +1208,62 @@ describe("resultStore", () => {
       expect(open()).toBe(true);
     });
 
+    describe("after a failure that reports the session's state (#942)", () => {
+      async function begin() {
+        executeQueryMock.mockResolvedValueOnce([makeQueryResult({ sql: "BEGIN" })]);
+        await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
+        expect(open()).toBe(true);
+      }
+
+      it("keeps the badge when a later run fails inside the transaction", async () => {
+        await begin();
+        executeQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 0, transaction: "open" }));
+        await useResultStore.getState().executeQuery("conn-1", "UPDATE nope SET a = 1", undefined, "tab-1");
+
+        expect(open()).toBe(true);
+      });
+
+      it("clears it when the failing statement ended the transaction", async () => {
+        // DDL commits before it runs, so it commits even when it then fails;
+        // the statements alone would say the BEGIN is still open.
+        await begin();
+        executeQueryMock.mockRejectedValueOnce(new CommandError("exists", { statementIndex: 0, transaction: "none" }));
+        await useResultStore.getState().executeQuery("conn-1", "CREATE TABLE t (a INT)", undefined, "tab-1");
+
+        expect(open()).toBe(false);
+      });
+
+      it("takes it over a BEGIN before the failing statement", async () => {
+        executeQueryMock.mockRejectedValueOnce(
+          new CommandError("Deadlock found", { statementIndex: 1, transaction: "none" }),
+        );
+        await useResultStore.getState().executeQuery("conn-1", "BEGIN; UPDATE t SET a = 1;", undefined, "tab-1");
+
+        expect(open()).toBe(false);
+      });
+
+      it("shows one opened where the statements cannot tell", async () => {
+        // A procedure can START TRANSACTION; the CALL says nothing about it.
+        executeQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 1, transaction: "open" }));
+        await useResultStore.getState().executeQuery(
+          "conn-1",
+          "CALL begin_work(); UPDATE nope SET a = 1;",
+          undefined,
+          "tab-1",
+        );
+
+        expect(open()).toBe(true);
+      });
+
+      it("falls back to the statements when the error does not say", async () => {
+        await begin();
+        executeQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 0 }));
+        await useResultStore.getState().executeQuery("conn-1", "UPDATE nope SET a = 1", undefined, "tab-1");
+
+        expect(open()).toBe(true);
+      });
+    });
+
     it("tracks nothing for a run off the tab's session", async () => {
       executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN" })]);
       await useResultStore.getState().executeQuery("conn-1", "BEGIN");

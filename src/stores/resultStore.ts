@@ -1058,11 +1058,18 @@ async function doExecuteQuery(
     // The driver's code and SQLSTATE ride along where it supplied them, so
     // the history panel can say which failure this was (#324).
     const structured = e instanceof CommandError ? e : undefined;
-    // The statements before the failing one ran, BEGIN included (#843).
-    if (session && structured?.statementIndex !== undefined && connectionKind(connectionId) === "mysql") {
-      const ran = splitSqlStatements(sql).slice(0, structured.statementIndex);
-      const completed = structured.completedResults ?? [];
-      noteTransaction(session, completed[completed.length - 1]?.transaction, ran);
+    // The session's state after the failure, when the backend could ask it
+    // (#917, #942): the failing statement may itself have changed it — DDL
+    // commits before it runs, a deadlock rolls back. Otherwise the statements
+    // before the failing one ran, BEGIN included (#843).
+    if (session && structured && connectionKind(connectionId) === "mysql") {
+      if (structured.transaction) {
+        noteTransaction(session, structured.transaction, []);
+      } else if (structured.statementIndex !== undefined) {
+        const ran = splitSqlStatements(sql).slice(0, structured.statementIndex);
+        const completed = structured.completedResults ?? [];
+        noteTransaction(session, completed[completed.length - 1]?.transaction, ran);
+      }
     }
     // A failed statement does not end a transaction; the backend says
     // whether one is still open on the file's connection (#935).
@@ -1121,9 +1128,9 @@ async function doExecuteQuery(
  * Record whether the tab's session is inside a transaction after a run (#843).
  *
  * The backend's answer wins: it asks the server after the run and reports it
- * on the last result. It has none on MySQL (no `@@in_transaction`), when the
- * server could not say, and after a failed run, so then the statements that
- * ran are read instead (lib/transaction-tracking).
+ * on the last result, or on the error of a run that failed (#917). It has
+ * none on MySQL (no `@@in_transaction`) or when the server could not say, so
+ * then the statements that ran are read instead (lib/transaction-tracking).
  */
 function noteTransaction(session: string, reported: TransactionState | null | undefined, ran: readonly string[]) {
   const open = reported ? reported === "open" : transactionAfter(ran, hasOpenTransaction(session));
