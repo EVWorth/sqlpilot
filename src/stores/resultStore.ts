@@ -900,7 +900,10 @@ async function doExplain(
 
     // Statement normalization (trailing `;`, multi-statement) and the
     // ANALYZE-safety decision both happen backend-side (#412, #418).
-    if (session) noteSession(session, connectionId);
+    if (session) {
+      bindUnboundTab(session, connectionId, connectionProfileId(connectionId));
+      noteSession(session, connectionId);
+    }
     const response = await api.explainQuery(connectionId, sql, analyze, database, format, session);
     if (!isCurrent(run)) return;
 
@@ -984,6 +987,7 @@ async function doExecuteQuery(
     // Noted before the call: the backend opens the session as the statement
     // starts, and a tab closed while it runs should still end it.
     const source = dataSourceFor(connectionId);
+    if (session) bindUnboundTab(session, connectionId, conn?.profile_id);
     if (session && source.kind === "mysql") noteSession(session, connectionId);
     const results = await source.execute(
       connectionId,
@@ -1058,11 +1062,18 @@ async function doExecuteQuery(
     // The driver's code and SQLSTATE ride along where it supplied them, so
     // the history panel can say which failure this was (#324).
     const structured = e instanceof CommandError ? e : undefined;
-    // The statements before the failing one ran, BEGIN included (#843).
-    if (session && structured?.statementIndex !== undefined && connectionKind(connectionId) === "mysql") {
-      const ran = splitSqlStatements(sql).slice(0, structured.statementIndex);
-      const completed = structured.completedResults ?? [];
-      noteTransaction(session, completed[completed.length - 1]?.transaction, ran);
+    // The session's state after the failure, when the backend could ask it
+    // (#917, #942): the failing statement may itself have changed it — DDL
+    // commits before it runs, a deadlock rolls back. Otherwise the statements
+    // before the failing one ran, BEGIN included (#843).
+    if (session && structured && connectionKind(connectionId) === "mysql") {
+      if (structured.transaction) {
+        noteTransaction(session, structured.transaction, []);
+      } else if (structured.statementIndex !== undefined) {
+        const ran = splitSqlStatements(sql).slice(0, structured.statementIndex);
+        const completed = structured.completedResults ?? [];
+        noteTransaction(session, completed[completed.length - 1]?.transaction, ran);
+      }
     }
     // A failed statement does not end a transaction; the backend says
     // whether one is still open on the file's connection (#935).
@@ -1117,13 +1128,40 @@ async function doExecuteQuery(
   }
 }
 
+/** The saved profile a live MySQL connection was opened from, if any. */
+function connectionProfileId(connectionId: string): string | undefined {
+  return useConnectionStore.getState().activeConnections.find((c) => c.id === connectionId)?.profile_id;
+}
+
+/**
+ * Bind a tab that has no connection to the one its first run goes to (#942).
+ *
+ * A tab opened with "+" has none, and runs on the selected connection
+ * (`runConnectionId`). Once it has run there, it has state there — a MySQL
+ * session, or a SQLite file's open transaction — and everything that guards
+ * that state reads the tab's connection: the TX badge on a file's tabs, the
+ * prompt and rollback when the last tab on a file goes, the prompt before a
+ * tab is pointed at another server. An unbound tab slipped past all of them,
+ * and followed the selection to another server while its transaction stayed
+ * open on the first. Bound, it behaves as every tab opened on a connection
+ * does, and is marked with that connection's colour as Run already treats it.
+ */
+function bindUnboundTab(tabId: string, connectionId: string, profileId: string | undefined) {
+  // A test that replaces the editor store with a bare mock has no tabs to bind.
+  if (typeof useEditorStore.getState !== "function") return;
+  const { tabs, setTabConnection } = useEditorStore.getState();
+  const tab = tabs?.find((t) => t.id === tabId);
+  if (!tab || tab.connectionId !== undefined || typeof setTabConnection !== "function") return;
+  setTabConnection(tabId, connectionId, tab.database, profileId);
+}
+
 /**
  * Record whether the tab's session is inside a transaction after a run (#843).
  *
  * The backend's answer wins: it asks the server after the run and reports it
- * on the last result. It has none on MySQL (no `@@in_transaction`), when the
- * server could not say, and after a failed run, so then the statements that
- * ran are read instead (lib/transaction-tracking).
+ * on the last result, or on the error of a run that failed (#917). It has
+ * none on MySQL (no `@@in_transaction`) or when the server could not say, so
+ * then the statements that ran are read instead (lib/transaction-tracking).
  */
 function noteTransaction(session: string, reported: TransactionState | null | undefined, ran: readonly string[]) {
   const open = reported ? reported === "open" : transactionAfter(ran, hasOpenTransaction(session));
