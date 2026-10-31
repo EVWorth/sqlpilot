@@ -68,7 +68,8 @@ pub async fn sqlite_execute(
 ///
 /// A statement-tagged failure (#928) carries its index and, from the second
 /// statement on, what the statements before it returned, as the MySQL path
-/// reports them.
+/// reports them. It also says whether the connection is still inside a
+/// transaction, as #917 does for a MySQL session (#935).
 fn sqlite_query_error(err: &mas_sqlite::error::SqliteError) -> mas_core::QueryError {
     use mas_sqlite::error::SqliteError;
     match err {
@@ -76,12 +77,14 @@ fn sqlite_query_error(err: &mas_sqlite::error::SqliteError) -> mas_core::QueryEr
             index,
             source,
             completed,
+            in_transaction,
         } => {
             let mut reported = sqlite_query_error(source).at_statement(*index);
             if *index > 0 && !completed.is_empty() {
                 reported.completed_results =
                     Some(completed.iter().cloned().map(core_result).collect());
             }
+            reported.transaction = Some(transaction_state(*in_transaction));
             reported
         }
         SqliteError::Rusqlite(inner) => {
@@ -102,7 +105,6 @@ fn sqlite_query_error(err: &mas_sqlite::error::SqliteError) -> mas_core::QueryEr
 /// the frontend reads as MySQL-shaped results whichever backend failed.
 fn core_result(r: mas_sqlite::query::SqliteQueryResult) -> mas_core::models::query::QueryResult {
     use mas_core::models::query::{ColumnMeta, QueryResult, TruncationReason};
-    use mas_core::query::TransactionState;
     use mas_sqlite::query::SqliteTruncationReason;
     QueryResult {
         query_id: r.query_id,
@@ -132,11 +134,17 @@ fn core_result(r: mas_sqlite::query::SqliteQueryResult) -> mas_core::models::que
             SqliteTruncationReason::MemoryGuard => TruncationReason::MemoryGuard,
         }),
         total_rows_available: None,
-        transaction: Some(if r.in_transaction {
-            TransactionState::Open
-        } else {
-            TransactionState::None
-        }),
+        transaction: Some(transaction_state(r.in_transaction)),
+    }
+}
+
+/// `is_autocommit()`'s answer in the shared transaction type.
+fn transaction_state(in_transaction: bool) -> mas_core::query::TransactionState {
+    use mas_core::query::TransactionState;
+    if in_transaction {
+        TransactionState::Open
+    } else {
+        TransactionState::None
     }
 }
 
@@ -331,10 +339,34 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn a_failure_reports_whether_the_connection_is_in_a_transaction() {
+        use mas_core::query::TransactionState;
+        let manager = Arc::new(SqliteConnectionManager::new());
+        manager.open("c", ":memory:").expect("opens");
+        let executor = SqliteQueryExecutor::new(manager);
+        let err = executor
+            .execute("c", "BEGIN; SELECT * FROM missing")
+            .await
+            .expect_err("fails");
+        let reported = sqlite_query_error(&err);
+        assert_eq!(reported.transaction, Some(TransactionState::Open));
+        let json = serde_json::to_value(&reported).expect("serialises");
+        assert_eq!(json["transaction"], "open");
+        executor.execute("c", "ROLLBACK").await.expect("rolls back");
+        let err = executor
+            .execute("c", "SELECT * FROM missing")
+            .await
+            .expect_err("fails");
+        let reported = sqlite_query_error(&err);
+        assert_eq!(reported.transaction, Some(TransactionState::None));
+    }
+
     #[test]
     fn an_untagged_failure_has_no_index() {
         let reported = sqlite_query_error(&SqliteError::NotFound("gone".into()));
         assert_eq!(reported.message, "Not found: gone");
         assert_eq!(reported.statement_index, None);
+        assert_eq!(reported.transaction, None);
     }
 }
