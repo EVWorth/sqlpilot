@@ -32,9 +32,10 @@ export function noteSqliteTransaction(connectionId: string, state: TransactionSt
  * Connections with a transaction open that `before` had a tab bound to and
  * `after` has none: those the editor has just let go of.
  *
- * Only a connection that had a tab is counted, so a run from a tab that was
- * never bound to the file does not have its transaction rolled back the next
- * time any tab changes.
+ * Only a connection that had a tab is counted, so a run on the file from no
+ * tab's session does not have its transaction rolled back the next time any
+ * tab changes. A tab with no connection is bound to the file by its first run
+ * there (#942), so its transaction is counted like any other tab's.
  */
 export function connectionsLeft(
   openConnections: Readonly<Record<string, true>>,

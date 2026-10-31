@@ -900,7 +900,10 @@ async function doExplain(
 
     // Statement normalization (trailing `;`, multi-statement) and the
     // ANALYZE-safety decision both happen backend-side (#412, #418).
-    if (session) noteSession(session, connectionId);
+    if (session) {
+      bindUnboundTab(session, connectionId, connectionProfileId(connectionId));
+      noteSession(session, connectionId);
+    }
     const response = await api.explainQuery(connectionId, sql, analyze, database, format, session);
     if (!isCurrent(run)) return;
 
@@ -984,6 +987,7 @@ async function doExecuteQuery(
     // Noted before the call: the backend opens the session as the statement
     // starts, and a tab closed while it runs should still end it.
     const source = dataSourceFor(connectionId);
+    if (session) bindUnboundTab(session, connectionId, conn?.profile_id);
     if (session && source.kind === "mysql") noteSession(session, connectionId);
     const results = await source.execute(
       connectionId,
@@ -1122,6 +1126,33 @@ async function doExecuteQuery(
   } finally {
     endExecution(run, shown);
   }
+}
+
+/** The saved profile a live MySQL connection was opened from, if any. */
+function connectionProfileId(connectionId: string): string | undefined {
+  return useConnectionStore.getState().activeConnections.find((c) => c.id === connectionId)?.profile_id;
+}
+
+/**
+ * Bind a tab that has no connection to the one its first run goes to (#942).
+ *
+ * A tab opened with "+" has none, and runs on the selected connection
+ * (`runConnectionId`). Once it has run there, it has state there — a MySQL
+ * session, or a SQLite file's open transaction — and everything that guards
+ * that state reads the tab's connection: the TX badge on a file's tabs, the
+ * prompt and rollback when the last tab on a file goes, the prompt before a
+ * tab is pointed at another server. An unbound tab slipped past all of them,
+ * and followed the selection to another server while its transaction stayed
+ * open on the first. Bound, it behaves as every tab opened on a connection
+ * does, and is marked with that connection's colour as Run already treats it.
+ */
+function bindUnboundTab(tabId: string, connectionId: string, profileId: string | undefined) {
+  // A test that replaces the editor store with a bare mock has no tabs to bind.
+  if (typeof useEditorStore.getState !== "function") return;
+  const { tabs, setTabConnection } = useEditorStore.getState();
+  const tab = tabs?.find((t) => t.id === tabId);
+  if (!tab || tab.connectionId !== undefined || typeof setTabConnection !== "function") return;
+  setTabConnection(tabId, connectionId, tab.database, profileId);
 }
 
 /**

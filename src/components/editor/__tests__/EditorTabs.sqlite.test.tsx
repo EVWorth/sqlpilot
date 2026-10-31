@@ -128,6 +128,46 @@ describe("a SQLite file's shared transaction in the tab strip (#935)", () => {
     await vi.waitFor(() => expect(useTransactionStore.getState().openConnections).toEqual({}));
   });
 
+  /** Open a tab with "+", which has no connection until it runs (#942). */
+  function newTab(): { id: string; title: string } {
+    fireEvent.click(screen.getByRole("button", { name: "New query tab" }));
+    const { tabs, activeTabId } = useEditorStore.getState();
+    const added = tabs.find((t) => t.id === activeTabId);
+    if (!added || added.connectionId !== undefined) throw new Error("expected a fresh unbound tab");
+    return added;
+  }
+
+  it("marks a \"+\" tab that began a transaction on the file, and the file's other tabs (#942)", async () => {
+    render(<EditorTabs />);
+    const added = newTab();
+
+    // Run sends an unbound tab's statements to the selected connection, here the file.
+    await run("BEGIN", added.id, true);
+
+    expect(badgeOn(added.title)).toBeInTheDocument();
+    expect(badgeOn("Notes A")).toBeInTheDocument();
+    expect(badgeOn("Notes B")).toBeInTheDocument();
+    expect(badgeOn("Other")).toBeNull();
+  });
+
+  it("asks before closing a \"+\" tab that is the last on the file, and rolls back (#942)", async () => {
+    useEditorStore.setState({ tabs: [tab("tab-c", "Other", "conn-x")], activeTabId: "tab-c" });
+    render(<EditorTabs />);
+    const added = newTab();
+    await run("BEGIN", added.id, true);
+    expect(badgeOn(added.title)).toBeInTheDocument();
+
+    act(() => useEditorStore.getState().requestClose("close", added.id));
+    expect(screen.getByText("Close tab with an open transaction?")).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`"${added.title}" is the last tab on app\\.db`))).toBeInTheDocument();
+
+    sqliteExecute.mockResolvedValueOnce(ran("ROLLBACK", false));
+    fireEvent.click(screen.getByText("Roll back and close"));
+    expect(screen.queryByText(added.title)).toBeNull();
+    expect(sqliteExecute).toHaveBeenLastCalledWith("lite-1", "ROLLBACK");
+    await vi.waitFor(() => expect(useTransactionStore.getState().openConnections).toEqual({}));
+  });
+
   it("drops the badges when the file is closed", async () => {
     render(<EditorTabs />);
     await run("BEGIN", "tab-a", true);

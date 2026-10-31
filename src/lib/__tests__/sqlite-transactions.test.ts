@@ -26,7 +26,7 @@ describe("connectionsLeft (#935)", () => {
       .toEqual([]);
   });
 
-  it("skips one no tab was on, so a run from an unbound tab is not rolled back", () => {
+  it("skips one no tab was on, so a run from no tab is not rolled back", () => {
     expect(connectionsLeft({ "lite-1": true }, [tab("a")], [])).toEqual([]);
   });
 });

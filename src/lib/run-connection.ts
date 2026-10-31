@@ -8,7 +8,9 @@ import type { EditorTab } from "../types";
  * selected connection instead, so a tab marked as production could run on
  * dev and the reverse (#788). The selected connection is the answer only for a
  * tab that has no live connection of its own: a fresh tab, or one whose
- * server has gone — and such a tab carries no server markers either.
+ * server has gone — and such a tab carries no server markers either. A fresh
+ * tab is bound to where its first run went (`resultStore`, #942), and from
+ * then on runs there like any other.
  */
 export function runConnectionId(
   tab: Pick<EditorTab, "connectionId"> | undefined,
