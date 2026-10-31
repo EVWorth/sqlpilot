@@ -175,6 +175,77 @@ describe("editorStore", () => {
     });
   });
 
+  // #935: a SQLite file has one connection, shared by every tab on it, so a
+  // transaction there ends only when the last tab on the file goes.
+  describe("a SQLite file's shared transaction", () => {
+    async function onFile() {
+      const { useTransactionStore } = await import("../transactionStore");
+      const a = useEditorStore.getState().addTab("lite-1");
+      const b = useEditorStore.getState().addTab("lite-1");
+      useTransactionStore.getState().setConnectionOpen("lite-1", true);
+      return { a, b };
+    }
+    const ids = (tabs: { id: string }[] | undefined) => tabs?.map((t) => t.id);
+
+    it("closes one of two tabs on the file without asking", async () => {
+      const { a } = await onFile();
+
+      useEditorStore.getState().requestClose("close", a);
+
+      expect(useEditorStore.getState().pendingClose).toBeNull();
+      expect(useEditorStore.getState().tabs.some((t) => t.id === a)).toBe(false);
+    });
+
+    it("asks before closing the last tab on the file", async () => {
+      const { a, b } = await onFile();
+      useEditorStore.getState().addTab("conn-other");
+      useEditorStore.getState().requestClose("close", a);
+
+      useEditorStore.getState().requestClose("close", b);
+
+      expect(ids(useEditorStore.getState().pendingClose?.inTransaction)).toEqual([b]);
+      expect(useEditorStore.getState().tabs.some((t) => t.id === b)).toBe(true);
+    });
+
+    it("asks when one command closes every tab on the file, naming each", async () => {
+      const { a, b } = await onFile();
+      const keep = useEditorStore.getState().addTab("conn-other");
+
+      useEditorStore.getState().requestClose("others", keep);
+
+      expect(ids(useEditorStore.getState().pendingClose?.inTransaction)).toEqual([a, b]);
+    });
+
+    it("does not ask when the last query tab is replaced by a fresh one on the same file", async () => {
+      const { a, b } = await onFile();
+      useEditorStore.getState().closeTab(a);
+
+      useEditorStore.getState().requestClose("close", b);
+
+      expect(useEditorStore.getState().pendingClose).toBeNull();
+      expect(useEditorStore.getState().tabs.map((t) => t.connectionId)).toEqual(["lite-1"]);
+    });
+
+    it("moves one of two tabs off the file without asking", async () => {
+      const { a } = await onFile();
+
+      useEditorStore.getState().requestTabConnection(a, "conn-b");
+
+      expect(useEditorStore.getState().pendingSwitch).toBeNull();
+      expect(useEditorStore.getState().tabs.find((t) => t.id === a)?.connectionId).toBe("conn-b");
+    });
+
+    it("asks before moving the last tab off the file", async () => {
+      const { a, b } = await onFile();
+      useEditorStore.getState().requestTabConnection(a, "conn-b");
+
+      useEditorStore.getState().requestTabConnection(b, "conn-b");
+
+      expect(ids(useEditorStore.getState().pendingSwitch?.inTransaction)).toEqual([b]);
+      expect(useEditorStore.getState().tabs.find((t) => t.id === b)?.connectionId).toBe("lite-1");
+    });
+  });
+
   describe("closeTab", () => {
     it("should close a tab when multiple tabs exist", () => {
       const id1 = useEditorStore.getState().addTab();

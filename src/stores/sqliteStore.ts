@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { forgetConnectionKind, registerConnectionKind } from "../lib/datasource";
 import { api } from "../lib/tauri-api";
+import { useTransactionStore } from "./transactionStore";
 
 /**
  * SQLite databases the user has opened.
@@ -91,6 +92,10 @@ export const useSqliteStore = create<SqliteState>((set, get) => ({
     // handle goes when the app does.
     set((state) => ({ sessions: state.sessions.filter((s) => s.id !== connectionId) }));
     forgetConnectionKind(connectionId);
+    // Closing the connection rolls back any transaction left open on it, so
+    // its tabs stop saying one is pending, as a MySQL disconnect has them
+    // (#910, #935).
+    useTransactionStore.getState().forgetConnection(connectionId);
     try {
       await api.sqliteClose(connectionId);
     } catch (e) {

@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { connectionKind } from "../../lib/datasource";
 import { api } from "../../lib/tauri-api";
 import { useSqliteStore } from "../sqliteStore";
+import { useTransactionStore } from "../transactionStore";
 
 vi.mock("../../lib/tauri-api", () => ({
   api: {
@@ -69,6 +70,21 @@ describe("useSqliteStore", () => {
 
     expect(useSqliteStore.getState().sessions).toHaveLength(0);
     expect(connectionKind("conn-4")).toBe("mysql");
+  });
+
+  // #935: closing the file's connection rolls back what it had open, so its
+  // tabs must stop saying a transaction is pending, as a MySQL disconnect has
+  // them stop (#910).
+  it("forgets the transaction open on the connection", async () => {
+    vi.mocked(api.sqliteOpen).mockResolvedValue("conn-6");
+    vi.mocked(api.sqliteClose).mockResolvedValue(undefined as never);
+    await useSqliteStore.getState().openPath("/home/a/app.db");
+    useTransactionStore.getState().setConnectionOpen("conn-6", true);
+    useTransactionStore.getState().setConnectionOpen("conn-7", true);
+
+    await useSqliteStore.getState().close("conn-6");
+
+    expect(useTransactionStore.getState().openConnections).toEqual({ "conn-7": true });
   });
 
   it("still removes the session when the backend refuses to close", async () => {

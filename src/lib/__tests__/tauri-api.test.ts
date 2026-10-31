@@ -561,3 +561,15 @@ describe("api (Tauri unavailable)", () => {
     expect(version).toBe("2.0.0");
   });
 });
+
+// #935: a failed run says whether its connection is still inside a
+// transaction, as the backend reports it (#917).
+describe("CommandError", () => {
+  it("carries the transaction state the backend reported, and nothing else", async () => {
+    const { CommandError } = await import("../tauri-api");
+    expect(new CommandError("x", { statementIndex: 1, transaction: "open" }).transaction).toBe("open");
+    expect(new CommandError("x", { transaction: "none" }).transaction).toBe("none");
+    expect(new CommandError("x", { transaction: null }).transaction).toBeUndefined();
+    expect(new CommandError("x").transaction).toBeUndefined();
+  });
+});

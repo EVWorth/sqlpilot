@@ -5,8 +5,9 @@ import { cn } from "../../lib/utils";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useTransactionStore } from "../../stores/transactionStore";
-import { ConfirmDialog } from "../common/ConfirmDialog";
 import { RollbackSwitchDialog } from "./RollbackSwitchDialog";
+import { TransactionBadge } from "./TransactionBadge";
+import { UnsavedCloseDialog } from "./UnsavedCloseDialog";
 
 export function EditorTabs() {
   const tabs = useEditorStore((s) => s.tabs);
@@ -21,6 +22,7 @@ export function EditorTabs() {
   const closeTabsToRight = (id: string) => requestClose("right", id);
   const activeConnections = useConnectionStore((s) => s.activeConnections);
   const openTransactions = useTransactionStore((s) => s.open);
+  const openConnections = useTransactionStore((s) => s.openConnections);
   const profiles = useConnectionStore((s) => s.profiles);
   const { contextMenu, showContextMenu } = useContextMenu();
 
@@ -248,14 +250,7 @@ export function EditorTabs() {
                 <span className="absolute left-0 top-1 bottom-1 w-0.5 rounded bg-brand-500" />
               )}
               {isProduction && <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-red-500" title="Production" />}
-              {openTransactions[tab.id] && (
-                <span
-                  className="shrink-0 rounded surface-warning px-1 text-[9px] font-semibold text-[var(--color-warning)]"
-                  title="Transaction open: COMMIT or ROLLBACK it. Closing the tab rolls it back."
-                >
-                  TX<span className="sr-only">, transaction open</span>
-                </span>
-              )}
+              <TransactionBadge tab={tab} flags={{ open: openTransactions, openConnections }} />
               {tab.isDirty && (
                 // Named, so the dot is not a mystery to a mouse or a screen
                 // reader (#853).
@@ -317,43 +312,5 @@ export function EditorTabs() {
       <UnsavedCloseDialog />
       <RollbackSwitchDialog />
     </div>
-  );
-}
-
-/** Asks before a close would discard a tab's unsaved SQL or open transaction (#843). */
-function UnsavedCloseDialog() {
-  const pending = useEditorStore((s) => s.pendingClose);
-  const confirm = useEditorStore((s) => s.confirmPendingClose);
-  const cancel = useEditorStore((s) => s.cancelPendingClose);
-  const names = (tabs: { title: string }[]) => tabs.map((t) => `"${t.title}"`).join(", ");
-  const inTx = pending?.inTransaction ?? [];
-  const unsaved = (pending?.atRisk ?? []).filter((t) => !inTx.includes(t));
-  const one = pending?.atRisk.length === 1;
-  const parts: string[] = [];
-  if (inTx.length > 0) {
-    parts.push(
-      `${names(inTx)} ${inTx.length === 1 ? "has a transaction" : "have transactions"} open. `
-        + `Closing ends the session, which rolls back everything not committed.`,
-    );
-  }
-  if (unsaved.length > 0) {
-    parts.push(
-      `${names(unsaved)} ${
-        unsaved.length === 1 ? "has" : "have"
-      } SQL that is not saved anywhere else. Closing discards it.`,
-    );
-  }
-  return (
-    <ConfirmDialog
-      isOpen={!!pending}
-      title={inTx.length > 0
-        ? (one ? "Close tab with an open transaction?" : "Close tabs with open transactions?")
-        : (one ? "Close tab with unsaved SQL?" : "Close tabs with unsaved SQL?")}
-      message={parts.join("\n\n")}
-      confirmLabel={inTx.length > 0 ? "Roll back and close" : "Discard and close"}
-      danger
-      onConfirm={confirm}
-      onCancel={cancel}
-    />
   );
 }

@@ -3,7 +3,7 @@ import { create } from "zustand";
 import { loadSession, maxTabCounter, saveSession } from "../lib/editor-session";
 import { buildTab, findOpenTab, type TabKind, type TabParams } from "../lib/tab-kinds";
 import type { EditorTab, RoutineKind } from "../types";
-import { hasOpenTransaction } from "./transactionStore";
+import { useTransactionStore } from "./transactionStore";
 
 /** Which close command is waiting on the user (#843). */
 export type CloseKind = "close" | "others" | "right";
@@ -15,8 +15,9 @@ export interface PendingClose {
   /** The tabs it would close that hold work, for the prompt to name. */
   atRisk: EditorTab[];
   /**
-   * Those of them whose session has a transaction open, which closing rolls
-   * back (#843). Also listed in `atRisk`.
+   * Those of them whose closing rolls back an open transaction (#843): their
+   * own session's, or that of the shared SQLite connection they are the last
+   * tabs on (#935). Also listed in `atRisk`.
    */
   inTransaction: EditorTab[];
 }
@@ -39,6 +40,42 @@ export function tabsClosedBy(tabs: readonly EditorTab[], kind: CloseKind, id: st
   if (kind === "others") return tabs.some((t) => t.id === id) ? tabs.filter((t) => t.id !== id) : [];
   const idx = tabs.findIndex((t) => t.id === id);
   return idx === -1 ? [] : tabs.slice(idx + 1);
+}
+
+/**
+ * What a close command leaves bound to a connection: the tabs it keeps, and
+ * the fresh query tab that replaces the last query tab closed, which keeps
+ * that tab's connection (see `closeTab`).
+ */
+function tabsLeftBy(tabs: readonly EditorTab[], kind: CloseKind, id: string): Pick<EditorTab, "connectionId">[] {
+  const closing = tabsClosedBy(tabs, kind, id);
+  const left: Pick<EditorTab, "connectionId">[] = tabs.filter((t) => !closing.includes(t));
+  const only = closing[0];
+  if (kind === "close" && only?.type === "query" && tabs.filter((t) => t.type === "query").length <= 1) {
+    left.push({ connectionId: only.connectionId });
+  }
+  return left;
+}
+
+/**
+ * Which of the tabs `leaving` would roll back an open transaction by going
+ * (#843, #935).
+ *
+ * A MySQL tab's transaction is on its own session, which goes with it. A
+ * SQLite tab's is on the file's one connection, shared with every other tab
+ * bound to it, so it ends only when the last of them goes: `staying` is what
+ * remains bound afterwards. `lib/sqlite-transactions` rolls it back then.
+ */
+export function transactionsEndedBy(
+  leaving: readonly EditorTab[],
+  staying: readonly Pick<EditorTab, "connectionId">[],
+): EditorTab[] {
+  const { open, openConnections } = useTransactionStore.getState();
+  return leaving.filter((t) =>
+    open[t.id]
+    || (t.connectionId !== undefined && openConnections[t.connectionId]
+      && !staying.some((s) => s.connectionId === t.connectionId))
+  );
 }
 
 /**
@@ -163,9 +200,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     pendingContentFlush?.();
     const closing = tabsClosedBy(get().tabs, kind, id);
     // An open transaction is work too: closing the tab ends its session,
-    // which rolls the transaction back (#843).
-    const inTransaction = closing.filter((t) => hasOpenTransaction(t.id));
-    const atRisk = closing.filter((t) => holdsUnsavedWork(t) || hasOpenTransaction(t.id));
+    // which rolls the transaction back (#843). On a SQLite file only closing
+    // the last tab on it does (#935).
+    const inTransaction = transactionsEndedBy(closing, tabsLeftBy(get().tabs, kind, id));
+    const atRisk = closing.filter((t) => holdsUnsavedWork(t) || inTransaction.includes(t));
     if (atRisk.length > 0) {
       set({ pendingClose: { kind, targetId: id, atRisk, inTransaction } });
       return;
@@ -183,7 +221,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   cancelPendingClose: () => set({ pendingClose: null }),
 
   confirmRollback: (tabIds, proceed) => {
-    const inTransaction = get().tabs.filter((t) => tabIds.includes(t.id) && hasOpenTransaction(t.id));
+    const tabs = get().tabs;
+    const inTransaction = transactionsEndedBy(
+      tabs.filter((t) => tabIds.includes(t.id)),
+      tabs.filter((t) => !tabIds.includes(t.id)),
+    );
     if (inTransaction.length === 0) {
       proceed();
       return;
@@ -204,7 +246,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const tab = get().tabs.find((t) => t.id === id);
     const apply = () => get().setTabConnection(id, connectionId, database, profileId);
     // Another database on the same server keeps the session, and with it the
-    // transaction; only another connection ends it.
+    // transaction; only another connection ends it. On a SQLite file, only
+    // when no other tab stays on the file (#935).
     const moving = tab?.connectionId !== undefined && tab.connectionId !== connectionId;
     if (!moving) {
       apply();

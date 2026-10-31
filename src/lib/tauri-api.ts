@@ -11,6 +11,7 @@ import type {
   NativeMenu,
   RestoreOptions,
   SetupTarget,
+  TransactionState,
 } from "./bindings";
 import { commands } from "./bindings";
 
@@ -58,6 +59,11 @@ export class CommandError extends Error {
    * its error (#845).
    */
   readonly completedResults?: QueryResult[];
+  /**
+   * Whether the connection or session the run failed on is still inside a
+   * transaction, when the backend could tell (#917, #935).
+   */
+  readonly transaction?: TransactionState;
 
   constructor(
     message: string,
@@ -66,6 +72,7 @@ export class CommandError extends Error {
       sqlState?: string | null;
       statementIndex?: number | null;
       completedResults?: unknown;
+      transaction?: TransactionState | null;
     },
   ) {
     super(message);
@@ -75,6 +82,7 @@ export class CommandError extends Error {
     if (fields?.sqlState != null) this.sqlState = fields.sqlState;
     if (fields?.statementIndex != null) this.statementIndex = fields.statementIndex;
     if (Array.isArray(fields?.completedResults)) this.completedResults = fields.completedResults as QueryResult[];
+    if (fields?.transaction === "open" || fields?.transaction === "none") this.transaction = fields.transaction;
   }
 }
 

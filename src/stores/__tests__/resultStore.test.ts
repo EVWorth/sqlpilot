@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const { executeQueryMock, explainQueryMock, cancelQueryMock, sqliteExecuteMock } = vi.hoisted(() => ({
   executeQueryMock: vi.fn().mockResolvedValue([]),
@@ -32,6 +32,7 @@ vi.mock("../../lib/tauri-api", () => ({
     sqlState?: string;
     statementIndex?: number;
     completedResults?: unknown[];
+    transaction?: string;
     constructor(
       message: string,
       fields?: {
@@ -39,6 +40,7 @@ vi.mock("../../lib/tauri-api", () => ({
         sqlState?: string | null;
         statementIndex?: number | null;
         completedResults?: unknown[];
+        transaction?: string | null;
       },
     ) {
       super(message);
@@ -48,6 +50,7 @@ vi.mock("../../lib/tauri-api", () => ({
       if (fields?.sqlState != null) this.sqlState = fields.sqlState;
       if (fields?.statementIndex != null) this.statementIndex = fields.statementIndex;
       if (fields?.completedResults) this.completedResults = fields.completedResults;
+      if (fields?.transaction) this.transaction = fields.transaction;
     }
   },
 }));
@@ -1210,6 +1213,63 @@ describe("resultStore", () => {
       await useResultStore.getState().executeQuery("conn-1", "BEGIN");
 
       expect(useTransactionStore.getState().open).toEqual({});
+    });
+  });
+
+  describe("transaction state per SQLite connection (#935)", () => {
+    const sqliteResult = (sql: string, inTransaction: boolean) => ({
+      ...makeQueryResult({ sql }),
+      in_transaction: inTransaction,
+      truncation_reason: null,
+    });
+    const connectionOpen = () => Boolean(useTransactionStore.getState().openConnections["lite-1"]);
+
+    beforeEach(() => {
+      registerConnectionKind("lite-1", "sqlite");
+      useTransactionStore.setState({ open: {}, openConnections: {} });
+    });
+    afterEach(() => forgetConnectionKind("lite-1"));
+
+    it("records the file's connection as open after BEGIN, for no tab in particular", async () => {
+      sqliteExecuteMock.mockResolvedValueOnce([sqliteResult("BEGIN", true)]);
+      await useResultStore.getState().executeQuery("lite-1", "BEGIN", undefined, "tab-1");
+
+      expect(connectionOpen()).toBe(true);
+      // Not the tab's own flag: every tab on the file shares it.
+      expect(useTransactionStore.getState().open).toEqual({});
+    });
+
+    it("clears it after COMMIT, from whichever tab", async () => {
+      useTransactionStore.getState().setConnectionOpen("lite-1", true);
+      sqliteExecuteMock.mockResolvedValueOnce([sqliteResult("COMMIT", false)]);
+      await useResultStore.getState().executeQuery("lite-1", "COMMIT", undefined, "tab-2");
+
+      expect(connectionOpen()).toBe(false);
+    });
+
+    it("takes what the backend reports after a failure", async () => {
+      sqliteExecuteMock.mockRejectedValueOnce(
+        new CommandError("no such table: nope", { statementIndex: 1, transaction: "open" }),
+      );
+      await useResultStore.getState().executeQuery("lite-1", "BEGIN; SELECT * FROM nope", undefined, "tab-1");
+
+      expect(connectionOpen()).toBe(true);
+    });
+
+    it("leaves the state alone after a failure that does not say", async () => {
+      useTransactionStore.getState().setConnectionOpen("lite-1", true);
+      sqliteExecuteMock.mockRejectedValueOnce(new CommandError("database is locked"));
+      await useResultStore.getState().executeQuery("lite-1", "SELECT 1", undefined, "tab-1");
+
+      expect(connectionOpen()).toBe(true);
+    });
+
+    it("leaves MySQL tabs' state per tab", async () => {
+      executeQueryMock.mockResolvedValueOnce([makeQueryResult({ sql: "BEGIN", transaction: "open" })]);
+      await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
+
+      expect(useTransactionStore.getState().open).toEqual({ "tab-1": true });
+      expect(useTransactionStore.getState().openConnections).toEqual({});
     });
   });
 
