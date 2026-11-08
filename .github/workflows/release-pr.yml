@@ -1,0 +1,91 @@
+name: Release PR
+
+# Keeps one PR open from dev to main, titled with the version merging it would
+# release and carrying that release's changelog. Work collects on dev; merging
+# this PR (with a merge commit, never squash) cuts the release
+# (auto-release.yml).
+#
+# Opened with GITHUB_TOKEN, which needs the repository setting "Allow GitHub
+# Actions to create and approve pull requests" (dprint-update.yml relies on it
+# too). GitHub runs no pull_request workflows for a PR opened that way; the
+# checks on it come from CI's push run on the same dev commit.
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+concurrency:
+  group: release-pr
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  release-pr:
+    name: Open or update the release PR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write # open and edit the release PR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          fetch-depth: 0 # commitizen reads the history since the last tag
+          persist-credentials: false
+
+      - name: Install commitizen
+        run: |
+          python3 -m venv "$RUNNER_TEMP/cz"
+          "$RUNNER_TEMP/cz/bin/pip" install --quiet --require-hashes -r .github/release/requirements.txt
+          echo "$RUNNER_TEMP/cz/bin" >> "$GITHUB_PATH"
+
+      - name: Open or update the PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main
+          if [ "$(git rev-list --count origin/main..HEAD)" -eq 0 ]; then
+            echo "dev has nothing main lacks; no release PR needed."
+            exit 0
+          fi
+
+          last=$(git describe --tags --abbrev=0 2>/dev/null || echo "none")
+          {
+            if next=$(cz bump --get-next 2>/dev/null); then
+              title="Release v$next"
+              echo "Merging this releases **v$next** (last release: \`$last\`)."
+              echo
+              cz changelog --dry-run --incremental --unreleased-version "v$next" |
+                sed 's/^## /### /; s/^### \([A-Z]\)/#### \1/'
+            else
+              title="Release: nothing to release yet"
+              echo "Nothing on dev since \`$last\` calls for a release: only"
+              echo "docs, ci, chore, test and similar commits. Merging this"
+              echo "brings main up to date without tagging anything."
+            fi
+            echo
+            echo "---"
+            echo
+            echo "**Merge with \"Create a merge commit\", never squash.** Commitizen"
+            echo "reads every commit from dev to pick the version, and dev and main"
+            echo "must keep sharing history."
+            echo
+            echo "On merge, \`auto-release.yml\` bumps the five version files, writes"
+            echo "the CHANGELOG, tags main, builds all four platforms, publishes the"
+            echo "release and merges main back into dev. See \`docs/RELEASING.md\`."
+            echo
+            echo "_Kept up to date by \`.github/workflows/release-pr.yml\`._"
+          } > "$RUNNER_TEMP/body.md"
+
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --base main --head dev \
+            --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --title "$title" --body-file "$RUNNER_TEMP/body.md"
+            echo "Updated #$pr: $title"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base main --head dev \
+              --title "$title" --body-file "$RUNNER_TEMP/body.md"
+          fi

@@ -37,6 +37,8 @@ jobs:
       pull-requests: write # open the auto-PR
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev # work collects on dev; main only takes the release PR
 
       # Install from the lockfile rather than naming a dprint version here.
       # A hardcoded range silently goes stale every time package.json moves,
@@ -101,6 +103,7 @@ jobs:
           title: "chore(deps): bump dprint plugins"
           commit-message: "chore(deps): bump dprint plugins via dprint config update"
           branch: chore/dprint-plugin-update
+          base: dev
           delete-branch: true
           body: |
             Weekly dprint plugin bump via `npx dprint config update -y` +

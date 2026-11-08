@@ -11,6 +11,7 @@ multi-ecosystem-groups:
   tauri:
     schedule:
       interval: "weekly"
+    target-branch: "dev"
     labels:
       - "dependencies"
     # Group PRs get no prefix by default; match the other dependency PRs.
@@ -18,6 +19,9 @@ multi-ecosystem-groups:
       prefix: "chore(deps)"
 
 updates:
+  # Every entry targets dev, where work collects until the release PR merges
+  # it into main (docs/RELEASING.md). The tauri group sets it above. Security
+  # updates ignore target-branch and use the default branch, which is dev.
   # Supply-chain defense: minimum 7-day cooldown before Dependabot opens
   # a version-bump PR. Matches `.npmrc` `min-release-age=7` and the
   # cargo audit `min-age` policy. Security updates bypass cooldown by
@@ -55,6 +59,7 @@ updates:
 
   - package-ecosystem: "github-actions"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
@@ -65,6 +70,7 @@ updates:
 
   - package-ecosystem: "cargo"
     directory: "/src-tauri"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:
@@ -92,6 +98,7 @@ updates:
 
   - package-ecosystem: "npm"
     directory: "/"
+    target-branch: "dev"
     schedule:
       interval: "weekly"
     cooldown:

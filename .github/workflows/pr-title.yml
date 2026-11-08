@@ -1,0 +1,52 @@
+name: PR title
+
+# PRs into dev are squash-merged, so the title becomes the commit commitizen
+# reads to decide the next release (fix -> patch, feat -> minor, `!` -> major;
+# docs, ci, chore, test and friends release nothing). Check it with the same
+# rules. Only dev merges into main: that PR is the release.
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  conventional-title:
+    name: Conventional title
+    if: github.base_ref == 'dev'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install commitizen
+        run: |
+          python3 -m venv "$RUNNER_TEMP/cz"
+          "$RUNNER_TEMP/cz/bin/pip" install --quiet --require-hashes -r .github/release/requirements.txt
+
+      - name: Check the title is a conventional commit
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          if ! "$RUNNER_TEMP/cz/bin/cz" check --message "$TITLE"; then
+            echo "::error::PR title '$TITLE' is not a conventional commit. Use e.g. 'fix: ...', 'feat: ...', 'feat!: ...' for a breaking change, or 'docs:' / 'ci:' / 'chore:' for changes that release nothing."
+            exit 1
+          fi
+
+  release-source:
+    name: Only dev merges into main
+    if: github.base_ref == 'main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check the head branch
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+          SAME_REPO: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+        run: |
+          if [ "$HEAD_REF" != "dev" ] || [ "$SAME_REPO" != "true" ]; then
+            echo "::error::PRs target dev. main only takes the release PR from dev (see docs/RELEASING.md); retarget this PR to dev."
+            exit 1
+          fi

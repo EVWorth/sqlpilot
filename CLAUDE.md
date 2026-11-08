@@ -25,7 +25,7 @@ task comes up, or by `/<name>`.
 
 | Skill               | Use it to                                                         |
 | ------------------- | ----------------------------------------------------------------- |
-| `release`           | cut a release: bump, release PR, tag, publish the draft           |
+| `release`           | cut a release: merge the dev → main release PR, watch it ship     |
 | `add-tauri-command` | add or change a Tauri command across Rust, bindings, API and mock |
 | `integration-tests` | run the database-backed Rust tests against MySQL and MariaDB      |
 | `ui-preview`        | see or screenshot the UI with the mock backend                    |
@@ -80,11 +80,10 @@ Code, commits, PRs, issues and log lines are written in normal English.
 
 ## Cloud sessions
 
-- The session pushes only to its own branch. **Tag pushes get HTTP 403**, and
-  the GitHub tools cannot create tags or publish releases; the `release` skill
-  covers the hand-off.
+- The session pushes only to its own branch, and opens its PRs against `dev`.
+  **Tag pushes get HTTP 403**; releases don't need one, CI tags them.
 - GitHub deletes the session branch when its PR merges. Recreate it from
-  `origin/main`.
+  `origin/dev`.
 - The disk fills quickly with test binaries. Before a long Rust run, run
   `bash scripts/clean-debug.sh` (or `just clean-debug`; `just` may not be
   installed) and set `CARGO_INCREMENTAL=0`. The `rm -rf` deny rule blocks

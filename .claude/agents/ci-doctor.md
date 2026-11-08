@@ -93,7 +93,7 @@ Verdict: <one line>
 
 ```
 Cause: package.json != Cargo.toml != tauri.conf.json
-Fix:   just bump patch   # or manual sync
+Fix:   scripts/bump-version.sh <the latest tag's version>
 ```
 
 ### Clippy `-D warnings` (`Lint (Rust)`)
