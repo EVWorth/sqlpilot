@@ -273,22 +273,31 @@ fn execute_one(
 /// Watches system-wide free memory during a fetch, as `mas_core`'s guard
 /// does, so a huge result stops before it takes the app down.
 struct MemoryGuard {
-    sys: sysinfo::System,
+    /// None when the platform's memory information could not be opened. The
+    /// guard is a safety net, so losing it should not stop every query.
+    sys: Option<sysinfo::System>,
     floor_mb: u64,
 }
 
 impl MemoryGuard {
     fn new(floor_mb: u64) -> Self {
         Self {
-            sys: sysinfo::System::new(),
+            sys: sysinfo::System::new()
+                .inspect_err(|e| {
+                    tracing::warn!(error = %e, "Could not read system memory; large fetches are unguarded");
+                })
+                .ok(),
             floor_mb,
         }
     }
 
     /// True while free memory is at or above the floor.
     fn check(&mut self) -> bool {
-        self.sys.refresh_memory();
-        let available_mb = self.sys.available_memory() / 1024 / 1024;
+        let Some(sys) = self.sys.as_mut() else {
+            return true;
+        };
+        sys.refresh_memory();
+        let available_mb = sys.available_memory() / 1024 / 1024;
         if available_mb < self.floor_mb {
             tracing::warn!(
                 available_mb,
