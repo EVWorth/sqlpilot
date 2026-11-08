@@ -515,7 +515,20 @@ async fn get_platform_info() -> Result<PlatformInfo, String>;
 
 How this build was installed and for which architecture. The updater needs it:
 an in-app update must not run against a Flatpak, Snap or rpm-ostree install
-(#343).
+(#343), and the standalone Windows exe must not run an installer.
+
+```rust
+async fn download_portable_update() -> Result<String, String>;
+fn apply_portable_update() -> Result<(), String>;
+```
+
+How the standalone `SQLPilot.exe` updates. The first downloads the release's
+`windows-x86_64-portable` entry through the updater plugin, which verifies its
+signature, and stages it beside the running exe, reporting
+`PortableUpdateProgress`. The second swaps the two files, starts the new exe
+and exits. A copy counts as standalone when no installer stamped its binary
+(`tauri::utils::platform::bundle_type`). The next launch removes the old file.
+Both refuse to run on any other copy.
 
 ```rust
 fn set_native_menu(menus: Vec<NativeMenu>) -> Result<(), String>;

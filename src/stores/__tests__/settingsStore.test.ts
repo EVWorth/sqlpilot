@@ -3,6 +3,24 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../../lib/tauri-api", () => ({
   api: {
     getPlatformInfo: vi.fn().mockResolvedValue({ package_format: "standard", arch: "x86_64" }),
+    downloadPortableUpdate: vi.fn().mockResolvedValue("1.0.0"),
+    applyPortableUpdate: vi.fn().mockResolvedValue(null),
+  },
+}));
+
+const portableProgress = vi.hoisted(() => ({
+  unlisten: vi.fn(),
+  send: null as null | ((e: { payload: { transferred: number | null; total: number | null } }) => void),
+}));
+
+vi.mock("../../lib/bindings", () => ({
+  events: {
+    portableUpdateProgress: {
+      listen: vi.fn(async (handler: NonNullable<typeof portableProgress.send>) => {
+        portableProgress.send = handler;
+        return portableProgress.unlisten;
+      }),
+    },
   },
 }));
 
@@ -460,6 +478,81 @@ describe("settingsStore", () => {
 
       await useSettingsStore.getState().restartToApply();
       expect(process.relaunch).toHaveBeenCalledOnce();
+    });
+
+    describe("on the standalone exe", () => {
+      async function portableStore(downloadAndInstall = vi.fn()) {
+        vi.resetModules();
+        const process = await import("@tauri-apps/plugin-process");
+        const { api } = await import("../../lib/tauri-api");
+        const { useSettingsStore } = await import("../settingsStore");
+        useSettingsStore.setState({
+          packageFormat: "portable",
+          pendingUpdate: { version: "1.0.0", downloadAndInstall } as any,
+          updateStatus: "available",
+          updateVersion: "1.0.0",
+          downloadProgress: { transferred: 0, total: null },
+        });
+        return { api, process, useSettingsStore, downloadAndInstall };
+      }
+
+      it("stages its own replacement and never runs an installer", async () => {
+        const { api, process, useSettingsStore, downloadAndInstall } = await portableStore();
+        await useSettingsStore.getState().installUpdate();
+        expect(api.downloadPortableUpdate).toHaveBeenCalledOnce();
+        expect(downloadAndInstall).not.toHaveBeenCalled();
+        expect(useSettingsStore.getState().updateStatus).toBe("downloaded");
+        // Restarting closes the app, so it still waits to be asked (#344).
+        expect(api.applyPortableUpdate).not.toHaveBeenCalled();
+        expect(process.relaunch).not.toHaveBeenCalled();
+      });
+
+      it("names the version that was actually downloaded", async () => {
+        const { api, useSettingsStore } = await portableStore();
+        vi.mocked(api.downloadPortableUpdate).mockResolvedValueOnce("1.0.1");
+        await useSettingsStore.getState().installUpdate();
+        expect(useSettingsStore.getState().updateVersion).toBe("1.0.1");
+      });
+
+      it("shows progress while downloading and stops listening afterwards", async () => {
+        const { api, useSettingsStore } = await portableStore();
+        vi.mocked(api.downloadPortableUpdate).mockImplementationOnce(async () => {
+          portableProgress.send?.({ payload: { transferred: 512, total: 1024 } });
+          expect(useSettingsStore.getState().downloadProgress).toEqual({ transferred: 512, total: 1024 });
+          return "1.0.0";
+        });
+        await useSettingsStore.getState().installUpdate();
+        expect(api.downloadPortableUpdate).toHaveBeenCalledOnce();
+        expect(portableProgress.unlisten).toHaveBeenCalledOnce();
+      });
+
+      it("reports a folder it cannot write to, without falling back to the installer", async () => {
+        const { api, useSettingsStore, downloadAndInstall } = await portableStore();
+        vi.mocked(api.downloadPortableUpdate).mockRejectedValueOnce(new Error("could not save the update"));
+        await useSettingsStore.getState().installUpdate();
+        const state = useSettingsStore.getState();
+        expect(state.updateStatus).toBe("error");
+        expect(state.updateError).toContain("could not save the update");
+        expect(downloadAndInstall).not.toHaveBeenCalled();
+        expect(portableProgress.unlisten).toHaveBeenCalledOnce();
+      });
+
+      it("swaps on restart rather than using the plugin's relaunch", async () => {
+        const { api, process, useSettingsStore } = await portableStore();
+        await useSettingsStore.getState().installUpdate();
+        await useSettingsStore.getState().restartToApply();
+        expect(api.applyPortableUpdate).toHaveBeenCalledOnce();
+        expect(process.relaunch).not.toHaveBeenCalled();
+      });
+
+      it("shows the command's own wording when the swap fails", async () => {
+        const { api, useSettingsStore } = await portableStore();
+        vi.mocked(api.applyPortableUpdate).mockRejectedValueOnce(new Error("could not replace its own file"));
+        await useSettingsStore.getState().restartToApply();
+        const state = useSettingsStore.getState();
+        expect(state.updateStatus).toBe("error");
+        expect(state.updateError).toBe("could not replace its own file");
+      });
     });
 
     it("says so when the pending update has gone, rather than spinning", async () => {

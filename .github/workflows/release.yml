@@ -301,6 +301,30 @@ jobs:
           if (-not (Test-Path $exe)) { throw "Expected binary not found: $exe" }
           Copy-Item $exe $dest -Force
 
+          # A copy that has no installer stamp is how the app knows it is
+          # standalone and may replace its own file. The bundler stamps this
+          # binary for each installer and restores it afterwards. If that ever
+          # stops being true, the exe would run an installer again, or an
+          # installed copy would be mistaken for it, so stop here.
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $dest))
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if (-not $text.Contains("__TAURI_BUNDLE_TYPE_VAR_UNK")) {
+            throw "$dest carries an installer stamp; the updater would not treat it as standalone."
+          }
+
+      # The installers' signatures come from the build. This file is not one
+      # of its bundles, so it is signed here, with the same key, for the
+      # updater to verify before the exe replaces itself.
+      - name: Sign portable exe for the updater (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          npx --no tauri signer sign SQLPilot.exe
+          if (-not (Test-Path SQLPilot.exe.sig)) { throw "Signing did not produce SQLPilot.exe.sig" }
+
       # Upload every artifact the upload job will need: the bundle tree
       # (containing .deb/.rpm/.AppImage/.msi/.exe/.dmg + .sig) and, on
       # Windows, the staged portable exe at the repo root.
@@ -316,6 +340,7 @@ jobs:
           path: |
             ${{ matrix.bundle_path }}
             SQLPilot.exe
+            SQLPilot.exe.sig
           if-no-files-found: error
 
   # Single source of release creation. All 4 build jobs race to complete,

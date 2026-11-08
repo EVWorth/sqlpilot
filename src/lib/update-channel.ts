@@ -25,7 +25,7 @@ export interface ManualUpdate {
 
 /** True when the app may download and apply an update itself. */
 export function canSelfUpdate(format: PackageFormat): boolean {
-  return format === "standard" || format === "app_image";
+  return format === "standard" || format === "app_image" || format === "portable";
 }
 
 /**
