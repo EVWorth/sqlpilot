@@ -58,7 +58,7 @@ test: test-rust test-frontend
 # Without the second line the main crate's 58 unit tests — every Tauri command
 # handler, and the startup messages — are tested by nothing at all.
 test-rust:
-    cd src-tauri && cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite --verbose
+    cd src-tauri && cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite -p mas-update --verbose
     cd src-tauri && cargo test -p sqlpilot --lib --verbose
 
 # These are #[ignore]d so the default run stays container-free, which means

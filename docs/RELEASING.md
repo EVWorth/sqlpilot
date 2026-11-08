@@ -131,7 +131,7 @@ Every job checks out the tag, not the commit that triggered the run: a called
 run starts on the commit before the bump.
 
 The four builds are Linux x86_64 (`.AppImage`, `.deb`, `.rpm`), Windows
-x86_64 (`.msi`, `-setup.exe`, portable `SQLPilot.exe`), macOS Apple Silicon
+x86_64 (`.msi`, `-setup.exe`, portable `SQLPilot.exe` and its `.sig`), macOS Apple Silicon
 and macOS Intel (`.dmg` and `.app.tar.gz` each), plus a `.sig` beside every
 updater artifact and `latest.json`.
 

@@ -4,6 +4,7 @@ import { canSelfUpdate, manualUpdateFor } from "../update-channel";
 describe("canSelfUpdate", () => {
   it("allows the formats that own their own files", () => {
     expect(canSelfUpdate("standard")).toBe(true);
+    expect(canSelfUpdate("portable")).toBe(true);
     expect(canSelfUpdate("app_image")).toBe(true);
   });
 

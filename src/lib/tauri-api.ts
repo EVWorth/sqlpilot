@@ -422,6 +422,11 @@ export const api = {
   // the app may update itself at all (#354, #571).
   getPlatformInfo: () => unwrap("get_platform_info", () => commands.getPlatformInfo()),
 
+  // The standalone exe's update: stage the new file beside it, then swap and
+  // restart. It has no installer for the updater plugin to run.
+  downloadPortableUpdate: () => unwrap("download_portable_update", () => commands.downloadPortableUpdate()),
+  applyPortableUpdate: () => unwrap("apply_portable_update", () => commands.applyPortableUpdate()),
+
   // Rebuild the macOS menu bar from the same list the in-app menu bar renders
   // (#863, #892). Validated everywhere, applied only on macOS.
   setNativeMenu: (menus: NativeMenu[]) => unwrap("set_native_menu", () => commands.setNativeMenu(menus)),
