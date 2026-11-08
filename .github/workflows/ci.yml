@@ -344,6 +344,31 @@ jobs:
           fi
         working-directory: src-tauri
 
+  # Everything else here runs on Linux, so without this the first Windows
+  # compile of a dependency bump is the release build, after the tag is pushed.
+  test-windows:
+    name: Test Windows
+    needs: detect-changes
+    if: needs.detect-changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        shell: bash
+        run: rustup toolchain install --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src-tauri
+      # A running exe really replaces itself and restarts: tests/self_swap.rs.
+      - name: Test the standalone exe's self-replacement
+        run: cargo test -p mas-update
+        working-directory: src-tauri
+      - name: Check the app compiles for Windows
+        run: cargo check -p sqlpilot
+        working-directory: src-tauri
+
   test-rust:
     name: Test Rust
     needs: detect-changes
@@ -371,7 +396,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Run Rust tests
-        run: cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite
+        run: cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite -p mas-update
         working-directory: src-tauri
       - name: Run Rust tests (main crate)
         # `--lib` only: the integration tests under `src-tauri/tests/` need a

@@ -12,6 +12,7 @@ Applies to everything under `src-tauri/`. Project-wide rules are in
 | `mas-admin`       | server administration: process list, variables, kill query/process                             |
 | `mas-export`      | stateless exporters (CSV, JSON, SQL, Markdown)                                                 |
 | `mas-sqlite`      | opening and querying the user's own SQLite database files                                      |
+| `mas-update`      | the standalone exe replacing its own file, with no Tauri so Windows CI can run it for real     |
 | `mas-mcp`         | the MCP server agents talk to: tools, grants, policy, the `Workspace` seam to the app          |
 | `mas-agent`       | launching and talking to the user's agent harness (Claude Code, Copilot)                       |
 

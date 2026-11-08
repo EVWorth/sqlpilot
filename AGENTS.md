@@ -10,7 +10,7 @@ SQLPilot is a Tauri 2 desktop MySQL/MariaDB GUI for Linux, Windows and macOS.
 
 - **Backend:** a Cargo workspace in `src-tauri/`. The root `sqlpilot` crate is
   the Tauri app shell; the libraries are `mas-core` (connections, queries,
-  schema, backup/restore, history), `mas-admin`, `mas-export`, `mas-sqlite`,
+  schema, backup/restore, history), `mas-admin`, `mas-export`, `mas-sqlite`, `mas-update`,
   `mas-mcp` (the MCP server agents use) and `mas-agent` (running the user's
   agent harness). Conventions: [`src-tauri/CLAUDE.md`](src-tauri/CLAUDE.md).
 - **Frontend:** React 19 and TypeScript in `src/`, built with Vite, Tailwind 4,

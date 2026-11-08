@@ -1,0 +1,95 @@
+name: Windows bundle check
+
+# The app decides it is the standalone exe, and may replace its own file, when
+# no installer stamped its binary (tauri::utils::platform::bundle_type). That
+# rests on how the bundler treats the file, so this builds the real installers
+# and looks. Run when something it depends on changes, because a full build
+# takes far longer than the rest of CI.
+#
+# Each installed copy must carry a stamp and the published exe must not. Tauri
+# replaces the `..._UNK` token with the installer's when stamping, and that
+# token is what bundle_type reads.
+on:
+  pull_request:
+    branches: [dev, main]
+    paths:
+      - ".github/workflows/windows-bundle-check.yml"
+      - "package-lock.json"
+      - "src-tauri/Cargo.lock"
+      - "src-tauri/tauri.conf.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle-check:
+    name: Installer stamps
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ".node-version"
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: rustup toolchain install --profile minimal --no-self-update
+
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src-tauri
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # No updater artifacts, so no signing key: this runs on PRs, and the
+      # stamps do not depend on them.
+      - name: Build the installers
+        shell: pwsh
+        run: |
+          $config = Join-Path $env:RUNNER_TEMP "no-updater.json"
+          Set-Content -Path $config -Value '{"bundle":{"createUpdaterArtifacts":false}}'
+          npx --no tauri build --bundles nsis,msi --config $config
+          if ($LASTEXITCODE -ne 0) { throw "tauri build failed" }
+
+      - name: Check the stamps
+        shell: pwsh
+        run: |
+          $unstamped = "__TAURI_BUNDLE_TYPE_VAR_UNK"
+          function Test-Unstamped($path) {
+            $bytes = [System.IO.File]::ReadAllBytes($path)
+            return [System.Text.Encoding]::ASCII.GetString($bytes).Contains($unstamped)
+          }
+
+          $bundle = "src-tauri/target/release/bundle"
+
+          # What release.yml publishes as SQLPilot.exe.
+          if (-not (Test-Unstamped "src-tauri/target/release/sqlpilot.exe")) {
+            throw "The exe published as SQLPilot.exe carries a stamp, so it would not treat itself as standalone."
+          }
+          Write-Host "Published exe: no stamp, as expected."
+
+          $setup = (Get-ChildItem "$bundle/nsis/*-setup.exe").FullName
+          $target = Join-Path $env:RUNNER_TEMP "nsis"
+          Start-Process -Wait -FilePath $setup -ArgumentList "/S", "/D=$target"
+          $exe = Get-ChildItem $target -Recurse -Filter "*.exe" | Where-Object { $_.Name -notmatch "^uninstall" } | Select-Object -First 1
+          if (-not $exe) { throw "The NSIS install left no exe in $target" }
+          if (Test-Unstamped $exe.FullName) { throw "The NSIS copy has no stamp, so it would replace its own file." }
+          Write-Host "NSIS copy: stamped, as expected."
+
+          $msi = (Get-ChildItem "$bundle/msi/*.msi").FullName
+          $target = Join-Path $env:RUNNER_TEMP "msi"
+          Start-Process -Wait -FilePath msiexec -ArgumentList "/a", "`"$msi`"", "/qn", "TARGETDIR=`"$target`""
+          $exe = Get-ChildItem $target -Recurse -Filter "*.exe" | Select-Object -First 1
+          if (-not $exe) { throw "The MSI left no exe in $target" }
+          if (Test-Unstamped $exe.FullName) { throw "The MSI copy has no stamp, so it would replace its own file." }
+          Write-Host "MSI copy: stamped, as expected."
