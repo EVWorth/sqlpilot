@@ -7,9 +7,11 @@ on:
   # code' run).
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: [main]
+    branches: [main, dev]
+  # dev too: the release PR is opened by Actions, which runs no pull_request
+  # workflows, so its checks come from this push run on the same commit.
   push:
-    branches: [main]
+    branches: [main, dev]
 
 # Cancel any in-flight or queued runs in this group when a new run
 # starts. Keyed by workflow + PR number (for PRs) or workflow + ref

@@ -1,0 +1,154 @@
+name: Auto release
+
+# Every push to main is a release decision. Work lands on `dev` through PRs;
+# merging the standing dev -> main PR (release-pr.yml) is how a release is cut.
+# Nobody bumps, tags or publishes by hand:
+#
+# 1. Commitizen reads the conventional commits since the last tag and picks
+#    the version (fix/perf/refactor -> patch, feat -> minor, `!` or
+#    BREAKING CHANGE -> major). It writes that version into the five files
+#    that record it (scripts/bump-version.sh), prepends the CHANGELOG section,
+#    commits `release: X.Y.Z` to main and tags it vX.Y.Z. If nothing since the
+#    last tag warrants a release (only docs, ci, chore, test...), the run
+#    stops there.
+# 2. release.yml builds, signs and uploads all four platforms plus
+#    latest.json, then publishes the release.
+# 3. main is merged back into dev, so dev carries the bump and the next
+#    release PR starts from it.
+#
+# Pushes made with GITHUB_TOKEN never trigger workflows, so neither the bump
+# commit, the tag nor the dev sync starts another run; release.yml is called
+# directly instead of through its tag trigger.
+on:
+  push:
+    branches: [main]
+
+# One release at a time, and never cancel one half-way: a cancelled run can
+# leave a pushed tag with no release behind it.
+concurrency:
+  group: auto-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bump:
+    name: Bump and tag
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push the bump commit and the tag
+    outputs:
+      released: ${{ steps.bump.outputs.released }}
+      tag: ${{ steps.bump.outputs.tag }}
+    steps:
+      # No credentials are left in .git/config: the write token is only handed
+      # to the final step, which runs nothing but git.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # commitizen reads the history since the last tag
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ".node-version"
+
+      # Cargo.lock records the app version, and only cargo should write it.
+      - name: Install Rust toolchain
+        run: rustup toolchain install --profile minimal --no-self-update
+
+      - name: Install commitizen
+        run: |
+          python3 -m venv "$RUNNER_TEMP/cz"
+          "$RUNNER_TEMP/cz/bin/pip" install --quiet --require-hashes -r .github/release/requirements.txt
+          echo "$RUNNER_TEMP/cz/bin" >> "$GITHUB_PATH"
+
+      - name: Bump if needed
+        id: bump
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # A squash merge of the release PR leaves one commit whose subject
+          # is the PR title: commitizen would find no fix:/feat: commits, and
+          # dev and main would no longer share history. Stop loudly instead.
+          if [ "$(git rev-list --parents -n 1 HEAD | wc -w)" -eq 2 ] &&
+            git log -1 --format=%s | grep -q '^Release'; then
+            echo "::error::The release PR was squash-merged. Revert it on main and merge the next release PR with \"Create a merge commit\"."
+            exit 1
+          fi
+
+          before=$(git rev-parse HEAD)
+          # Exit codes 3 and 21 mean "nothing to bump", which is not an error.
+          cz --no-raise 3,21 bump --yes
+          if [ "$(git rev-parse HEAD)" = "$before" ]; then
+            echo "Nothing to release since $(git describe --tags --abbrev=0)."
+            echo "released=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          tag=$(git describe --tags --exact-match HEAD)
+          bash scripts/check-release-readiness.sh "${tag#v}"
+          {
+            echo "released=true"
+            echo "tag=$tag"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Push the bump and the tag
+        if: steps.bump.outputs.released == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.bump.outputs.tag }}
+        run: |
+          # Atomic: either main moves and the tag exists, or neither. Hooks are
+          # disabled so nothing written into .git by earlier steps can run
+          # while the token is in reach.
+          git -c core.hooksPath=/dev/null push --atomic \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" \
+            HEAD:main "refs/tags/${TAG}"
+
+  release:
+    name: Build and publish
+    needs: bump
+    if: needs.bump.outputs.released == 'true'
+    permissions:
+      contents: write # create the release and upload its assets
+    uses: ./.github/workflows/release.yml
+    with:
+      tag: ${{ needs.bump.outputs.tag }}
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+
+  # Runs after a release and after a merge that released nothing alike, so dev
+  # never falls behind main.
+  sync-dev:
+    name: Merge main back into dev
+    needs: [bump, release]
+    if: ${{ !cancelled() && needs.bump.result == 'success' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # push dev
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: dev
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Merge main into dev
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git fetch --quiet origin main
+          # Fast-forward when dev has nothing new since the release PR merged,
+          # a merge commit otherwise. A conflict stops here for a person.
+          git merge --no-edit origin/main
+          git -c core.hooksPath=/dev/null push \
+            "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" HEAD:dev

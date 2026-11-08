@@ -103,7 +103,7 @@ is the source of truth. The ones not covered above:
 | `just db-seed`        | Re-apply `tests/fixtures/sql/seed.sql` to both       |
 | `just db-reset`       | Rebuild the seeded images, recreate the containers   |
 | `just ssl-certs`      | Generate certificates for the (unused) SSL container |
-| `just bump <level>`   | Bump the version in every manifest and lockfile      |
+| `just bump <level>`   | Fix version drift (releases are bumped by CI)        |
 | `just clean`          | Remove build output and test artifacts               |
 
 ## Environment variables
@@ -149,14 +149,17 @@ How the pieces connect: [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.m
 
 ## Making a change
 
-1. Fork the repository and branch from `main` (`<type>/<scope>`, for example
+1. Fork the repository and branch from `dev` (`<type>/<scope>`, for example
    `fix/grid-copy`).
 2. Make focused commits using conventional commit prefixes (`feat:`, `fix:`,
    `docs:`, `refactor:`, `test:`, `chore:`, `perf:`, `build:`, `ci:`).
 3. Run the relevant gates: the tests for what you touched, `just lint`,
    `npm run lint`, and `npx dprint check`.
-4. Open a pull request saying what changed and why. Keep it to one feature or
-   fix.
+4. Open a pull request against `dev` saying what changed and why. Keep it to
+   one feature or fix. Its title must be a conventional commit: PRs are
+   squash-merged, and the title decides whether the next release is a patch
+   (`fix:`), a minor (`feat:`), a major (`feat!:`) or nothing (`docs:`,
+   `chore:`, ...).
 
 Guidelines:
 
@@ -170,5 +173,6 @@ Guidelines:
 - Update the docs for user-facing changes.
 - Don't commit personal information: the repository is public.
 
-Releases are cut by the maintainer; the process is in
+Releases are cut by merging the standing release PR from `dev` into `main`;
+CI picks the version, tags and publishes. See
 [docs/RELEASING.md](docs/RELEASING.md).

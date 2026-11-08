@@ -1,0 +1,21 @@
+# Commitizen picks each release's version from the conventional commits merged
+# since the last tag: fix -> patch, feat -> minor, a `!` or BREAKING CHANGE
+# footer -> major; docs, ci, chore, test and friends release nothing.
+# CI runs it on every merge to main (.github/workflows/auto-release.yml).
+# Nobody bumps or tags by hand; see docs/RELEASING.md.
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_scheme = "semver2"
+# The current version is the latest tag. The five files that record it are
+# written by the pre-bump hook below, so they can never disagree with the tag.
+version_provider = "scm"
+major_version_zero = false
+update_changelog_on_bump = true
+changelog_incremental = true
+# The changelog starts after 1.4.0; earlier notes are on the GitHub releases.
+changelog_start_rev = "v1.4.0"
+bump_message = "release: $new_version"
+# Annotated, like every tag before automation.
+annotated_tag = true
+pre_bump_hooks = ["scripts/bump-version.sh $CZ_PRE_NEW_VERSION --stage"]
