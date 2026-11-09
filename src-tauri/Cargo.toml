@@ -18,7 +18,7 @@ chrono = { version = "0.4", features = ["serde"] }
 # so a bump is one edit. Pinned separately in each, a bump that moved one and
 # not the other could not resolve (#736). The exact pin is how the seven-day
 # publish-age rule is enforced until #225 lands.
-rmcp = { version = "=3.7.0", features = ["server", "transport-streamable-http-server"] }
+rmcp = { version = "=3.8.0", features = ["server", "transport-streamable-http-server"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -35,7 +35,7 @@ sqlx = { version = "=0.9.0", default-features = false, features = [
   "uuid",
 ] }
 # mas-core and mas-sqlite both stop a fetch on low free memory with it.
-sysinfo = "0.39.2"
+sysinfo = "0.40.1"
 tauri = { version = "2.12.0", features = [] }
 tauri-specta = { version = "=2.0.0-rc.25", features = ["derive", "typescript"] }
 thiserror = "2"
