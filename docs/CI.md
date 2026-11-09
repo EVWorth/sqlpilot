@@ -5,11 +5,15 @@ need. For cutting a release see [RELEASING.md](RELEASING.md).
 
 ## Workflows
 
-| Workflow                                                      | Trigger                      | What it does                                                                      |
-| ------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------- |
-| [`ci.yml`](../.github/workflows/ci.yml)                       | PR to `main`, push to `main` | Lint, typecheck, format, test. Jobs are gated by changed paths.                   |
-| [`release.yml`](../.github/workflows/release.yml)             | `v*` tag, manual dispatch    | Validates the tag against manifests, runs the database integration tests, builds. |
-| [`dprint-update.yml`](../.github/workflows/dprint-update.yml) | Mondays 09:00 UTC, manual    | Bumps dprint plugins and opens a PR if anything drifted.                          |
+| Workflow                                                                    | Trigger                                           | What it does                                                                                                     |
+| --------------------------------------------------------------------------- | ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| [`ci.yml`](../.github/workflows/ci.yml)                                     | PRs and pushes to `dev` and `main`                | Lint, typecheck, format, test. Jobs are gated by changed paths.                                                  |
+| [`pr-title.yml`](../.github/workflows/pr-title.yml)                         | PR to `dev` or `main`                             | Checks a PR title is a conventional commit; only `dev` may target `main`.                                        |
+| [`release-pr.yml`](../.github/workflows/release-pr.yml)                     | push to `dev`, manual                             | Opens or updates the `dev` → `main` release PR with the next version and changelog.                              |
+| [`auto-release.yml`](../.github/workflows/auto-release.yml)                 | push to `main`                                    | Commitizen bump and tag, then `release.yml`, then merges `main` back into `dev`.                                 |
+| [`release.yml`](../.github/workflows/release.yml)                           | called by `auto-release.yml`, `v*` tag, manual    | Validates the tag against manifests, runs the database integration tests, builds, publishes.                     |
+| [`dprint-update.yml`](../.github/workflows/dprint-update.yml)               | Mondays 09:00 UTC, manual                         | Bumps dprint plugins and opens a PR if anything drifted.                                                         |
+| [`windows-bundle-check.yml`](../.github/workflows/windows-bundle-check.yml) | PRs changing the bundler or its lockfiles, manual | Builds the real installers on Windows and checks that installed copies are stamped and the published exe is not. |
 
 ## Path filters
 

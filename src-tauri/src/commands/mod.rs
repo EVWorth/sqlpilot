@@ -1,6 +1,7 @@
 pub mod agents;
 pub mod backup;
 pub mod menu;
+pub mod portable_update;
 pub mod sqlite;
 
 use mas_admin::AdminService;
@@ -993,6 +994,9 @@ pub enum PackageFormat {
     /// An OSTree-booted system: /usr is immutable and layered packages are
     /// applied by rpm-ostree, taking effect on the next boot.
     RpmOstree,
+    /// The standalone Windows `SQLPilot.exe`, which nothing installed. It
+    /// replaces its own file rather than running an installer.
+    Portable,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
@@ -1008,6 +1012,8 @@ pub struct PlatformInfo {
 pub trait PlatformProbe {
     fn path_exists(&self, path: &str) -> bool;
     fn env(&self, key: &str) -> Option<String>;
+    /// Whether the bundler stamped this binary for an installer.
+    fn is_bundled(&self) -> bool;
 }
 
 struct RealProbe;
@@ -1018,6 +1024,15 @@ impl PlatformProbe for RealProbe {
     }
     fn env(&self, key: &str) -> Option<String> {
         std::env::var(key).ok()
+    }
+    /// The bundler stamps its type into the binary it packages, and puts the
+    /// unstamped one back afterwards. `release.yml` publishes that one as
+    /// `SQLPilot.exe`, and fails the release if it ever carries a stamp.
+    ///
+    /// A debug build has no stamp either, and is not a standalone copy: `tauri
+    /// dev` must never try to replace the exe under `target/`.
+    fn is_bundled(&self) -> bool {
+        cfg!(debug_assertions) || tauri::utils::platform::bundle_type().is_some()
     }
 }
 
@@ -1030,6 +1045,9 @@ impl PlatformProbe for RealProbe {
 /// OSTree-booted host, and is a better question than whether an rpm-ostree
 /// binary happens to be installed.
 pub fn detect_package_format(probe: &impl PlatformProbe) -> PackageFormat {
+    if cfg!(target_os = "windows") {
+        return windows_package_format(probe);
+    }
     if !cfg!(target_os = "linux") {
         return PackageFormat::Standard;
     }
@@ -1046,6 +1064,15 @@ pub fn detect_package_format(probe: &impl PlatformProbe) -> PackageFormat {
         return PackageFormat::RpmOstree;
     }
     PackageFormat::Standard
+}
+
+/// On Windows the only question is whether an installer put this copy there.
+fn windows_package_format(probe: &impl PlatformProbe) -> PackageFormat {
+    if probe.is_bundled() {
+        PackageFormat::Standard
+    } else {
+        PackageFormat::Portable
+    }
 }
 
 // File import commands
@@ -1210,13 +1237,17 @@ mod cancel_scope_tests {
 
 #[cfg(test)]
 mod platform_tests {
-    use super::{detect_package_format, get_platform_info, PackageFormat, PlatformProbe};
+    use super::{
+        detect_package_format, get_platform_info, windows_package_format, PackageFormat,
+        PlatformProbe,
+    };
 
     /// A probe answering from a fixed set of facts, so each packaging can be
     /// described without arranging the real thing.
     struct FakeProbe {
         paths: Vec<&'static str>,
         vars: Vec<(&'static str, &'static str)>,
+        bundled: bool,
     }
 
     impl FakeProbe {
@@ -1224,6 +1255,7 @@ mod platform_tests {
             Self {
                 paths: vec![],
                 vars: vec![],
+                bundled: true,
             }
         }
         fn with_path(mut self, p: &'static str) -> Self {
@@ -1246,6 +1278,36 @@ mod platform_tests {
                 .find(|(k, _)| *k == key)
                 .map(|(_, v)| v.to_string())
         }
+        fn is_bundled(&self) -> bool {
+            self.bundled
+        }
+    }
+
+    #[test]
+    fn a_windows_copy_from_an_installer_is_standard() {
+        assert_eq!(
+            windows_package_format(&FakeProbe::nothing()),
+            PackageFormat::Standard
+        );
+    }
+
+    #[test]
+    fn a_windows_copy_no_installer_stamped_is_portable() {
+        let probe = FakeProbe {
+            bundled: false,
+            ..FakeProbe::nothing()
+        };
+        assert_eq!(windows_package_format(&probe), PackageFormat::Portable);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_plain_linux_install_is_standard_whatever_its_stamp() {
+        let probe = FakeProbe {
+            bundled: false,
+            ..FakeProbe::nothing()
+        };
+        assert_eq!(detect_package_format(&probe), PackageFormat::Standard);
     }
 
     #[cfg(target_os = "linux")]

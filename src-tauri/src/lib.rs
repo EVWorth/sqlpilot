@@ -182,6 +182,8 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::backup::default_restore_options,
             commands::backup::read_file_head,
             commands::get_platform_info,
+            commands::portable_update::download_portable_update,
+            commands::portable_update::apply_portable_update,
             commands::menu::set_native_menu,
             commands::history_add,
             commands::history_list,
@@ -225,6 +227,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::backup::BackupProgressEvent,
             commands::backup::RestoreProgressEvent,
             commands::ConnectionHealthEvent,
+            commands::portable_update::PortableUpdateProgress,
             mcp::bridge::AgentRequest,
             mcp::sessions::AgentSessionEvent
         ]);
@@ -547,6 +550,8 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::default().build())
         .setup(move |app| {
+            commands::portable_update::clean_up_after_update();
+
             // One forwarder for the whole app: the connection manager
             // broadcasts health changes, this turns them into events the
             // frontend can listen for (#276).

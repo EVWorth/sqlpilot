@@ -58,7 +58,7 @@ test: test-rust test-frontend
 # Without the second line the main crate's 58 unit tests — every Tauri command
 # handler, and the startup messages — are tested by nothing at all.
 test-rust:
-    cd src-tauri && cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite --verbose
+    cd src-tauri && cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite -p mas-update --verbose
     cd src-tauri && cargo test -p sqlpilot --lib --verbose
 
 # These are #[ignore]d so the default run stays container-free, which means
@@ -206,26 +206,8 @@ bump LEVEL="patch":
     read -p "Proceed? [Y/n] " -r reply
     if [[ -n "$reply" && ! "$reply" =~ ^[Yy]$ ]]; then echo "Cancelled."; exit 0; fi
 
-    node -e "
-      const fs = require('fs');
-      for (const file of ['package.json', 'src-tauri/tauri.conf.json']) {
-        const doc = JSON.parse(fs.readFileSync(file, 'utf8'));
-        doc.version = '$new';
-        fs.writeFileSync(file, JSON.stringify(doc, null, 2) + '\n');
-      }
-      // The lockfile records the app's own version twice. Set just those
-      // two fields: an npm install would re-resolve, and an npm older than
-      // the one that wrote the lockfile drops fields it does not know (#777).
-      const lock = JSON.parse(fs.readFileSync('package-lock.json', 'utf8'));
-      lock.version = '$new';
-      lock.packages[''].version = '$new';
-      fs.writeFileSync('package-lock.json', JSON.stringify(lock, null, 2) + '\n');
-    "
-    sed -i "s/^version = \".*\"/version = \"$new\"/" src-tauri/Cargo.toml
-    # Moves only the app's own entry in Cargo.lock; no other crate changes.
-    (cd src-tauri && cargo update -p sqlpilot --offline --quiet)
-    echo "Version bumped to $new."
-    echo "Next: open a release PR with the bump; tag v$new on its merge commit (.claude/skills/release/SKILL.md)."
+    scripts/bump-version.sh "$new"
+    echo "Releases are cut by CI from conventional commits; this only fixes version drift (docs/RELEASING.md)."
 
 # ── Housekeeping ───────────────────────────────────────────────────────────
 

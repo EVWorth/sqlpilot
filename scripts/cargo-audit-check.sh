@@ -22,7 +22,7 @@
 # When upstream ships, dependabot will offer the bump; remove the IDs
 # from KNOWN_ACCEPTED below, commit, and the gate goes green naturally.
 #
-# Currently known-accepted (5 advisories):
+# Currently known-accepted (2 advisories):
 #
 #   RUSTSEC-2026-0194  Quadratic run time in quick-xml start tag check
 #   RUSTSEC-2026-0195  Unbounded namespace allocation DoS in quick-xml
@@ -31,16 +31,6 @@
 #   quick-xml = "0.39". Upstream fix: wayland-rs PR #938 merged
 #   2026-07-08 bumping to 0.41 on master. NOT YET RELEASED.
 # Tracked: https://github.com/EVWorth/sqlpilot/issues/206
-#
-#   RUSTSEC-2026-0367  zip extraction preserves SUID/SGID bits
-#   RUSTSEC-2026-0368  zip extract() creates symlinks outside the destination
-#   RUSTSEC-2026-0369  zip extract() applies permissions through symlinks
-#
-# Source: tauri-plugin-updater (2.13.3 is the latest) pins zip 4.x, and
-#   the fix is zip 9.0.0. The updater builds zip on Windows only and calls
-#   extract() only on a minisign-verified download that is a zip archive.
-#   Our releases ship raw .exe/.msi, so that path is not reached.
-# Tracked: https://github.com/EVWorth/sqlpilot/issues/760
 #
 # No silent failures. No blanket --ignore. Listed and reviewed.
 
@@ -67,9 +57,6 @@ cd "$WORKSPACE_DIR"
 KNOWN_ACCEPTED=(
   "RUSTSEC-2026-0194"  # quick-xml 0.39: quadratic start tag check (DoS)
   "RUSTSEC-2026-0195"  # quick-xml 0.39: unbounded namespace allocation (DoS)
-  "RUSTSEC-2026-0367"  # zip 4.x via tauri-plugin-updater: SUID/SGID preserved
-  "RUSTSEC-2026-0368"  # zip 4.x via tauri-plugin-updater: symlinks escape destination
-  "RUSTSEC-2026-0369"  # zip 4.x via tauri-plugin-updater: permissions through symlinks
 )
 
 # Build --ignore args from the list

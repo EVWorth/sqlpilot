@@ -1,7 +1,7 @@
 import { relaunch } from "@tauri-apps/plugin-process";
 import { check, type Update } from "@tauri-apps/plugin-updater";
 import { create } from "zustand";
-import type { PackageFormat } from "../lib/bindings";
+import { events, type PackageFormat } from "../lib/bindings";
 import { api } from "../lib/tauri-api";
 import { canSelfUpdate, manualUpdateFor } from "../lib/update-channel";
 import { describeUpdateBlockers } from "../lib/update-guard";
@@ -344,6 +344,29 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       updateError: null,
       downloadProgress: { transferred: 0, total: null },
     });
+    if (get().packageFormat === "portable") {
+      // Nothing installed this copy, so there is no installer to run. It swaps
+      // its own file on restart instead, and the download is what proves the
+      // folder can be written to.
+      const unlisten = await events.portableUpdateProgress.listen(({ payload }) => {
+        set({ downloadProgress: { transferred: payload.transferred ?? 0, total: payload.total } });
+      });
+      try {
+        const version = await api.downloadPortableUpdate();
+        set({ updateStatus: "downloaded", updateVersion: version });
+      } catch (e) {
+        console.error("Update download failed:", e);
+        set({
+          updateStatus: "error",
+          updateError: e instanceof Error ? e.message : String(e),
+          downloadProgress: { transferred: 0, total: null },
+        });
+      } finally {
+        unlisten();
+      }
+      return;
+    }
+
     try {
       await cached.downloadAndInstall((event) => {
         const data = (event as { data?: { contentLength?: number; chunkLength?: number } }).data;
@@ -383,6 +406,19 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
       set({ updateStatus: "error", updateError: blocked });
       return;
     }
+    if (get().packageFormat === "portable") {
+      // Exits on success. The command words its own failure, because a swap
+      // that failed and a restart that failed mean different things to the
+      // user: only one of them has the update on disk.
+      try {
+        await api.applyPortableUpdate();
+      } catch (e) {
+        console.error("Applying the update failed:", e);
+        set({ updateStatus: "error", updateError: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
+
     try {
       await relaunch();
     } catch (e) {

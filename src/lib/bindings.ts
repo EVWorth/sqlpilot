@@ -178,6 +178,22 @@ export const commands = {
 	readFileHead: (path: string, maxBytes: number) => typedError<FileHead, string>(__TAURI_INVOKE("read_file_head", { path, maxBytes })),
 	getPlatformInfo: () => typedError<PlatformInfo, string>(__TAURI_INVOKE("get_platform_info")),
 	/**
+	 *  Download the newest standalone exe and stage it beside this one. Returns
+	 *  the version, which may be newer than the one the user was offered if a
+	 *  release went out since the check.
+	 */
+	downloadPortableUpdate: () => typedError<string, string>(__TAURI_INVOKE("download_portable_update")),
+	/**
+	 *  Swap in the staged exe, start it, and exit.
+	 * 
+	 *  Started from the path read before the swap, rather than through
+	 *  `AppHandle::restart`, which asks the OS where the running exe is when it is
+	 *  called. By then that exe has been renamed. This way the answer cannot
+	 *  matter, and starting the `.old` file would look like an update that did
+	 *  nothing.
+	 */
+	applyPortableUpdate: () => typedError<null, string>(__TAURI_INVOKE("apply_portable_update")),
+	/**
 	 *  Rebuild the native menu bar from the frontend's description of it.
 	 * 
 	 *  The frontend calls this whenever what the menu shows changes: the saved
@@ -327,6 +343,7 @@ export const events = {
 	agentSessionEvent: makeEvent<AgentSessionEvent_Deserialize>("agent-session-event"),
 	backupProgressEvent: makeEvent<BackupProgressEvent>("backup-progress-event"),
 	connectionHealthEvent: makeEvent<ConnectionHealthEvent>("connection-health-event"),
+	portableUpdateProgress: makeEvent<PortableUpdateProgress>("portable-update-progress"),
 	restoreProgressEvent: makeEvent<RestoreProgressEvent>("restore-progress-event"),
 };
 
@@ -1115,7 +1132,12 @@ export type PackageFormat =
  *  An OSTree-booted system: /usr is immutable and layered packages are
  *  applied by rpm-ostree, taking effect on the next boot.
  */
-"rpm_ostree";
+"rpm_ostree" | 
+/**
+ *  The standalone Windows `SQLPilot.exe`, which nothing installed. It
+ *  replaces its own file rather than running an installer.
+ */
+"portable";
 
 /**  One partition of a partitioned table, or nothing for a table without any. */
 export type PartitionInfo = {
@@ -1155,6 +1177,15 @@ export type PlatformInfo = {
 	 *  update command (#571).
 	 */
 	arch: string,
+};
+
+/**
+ *  How much of the new exe has arrived. Floats because specta refuses to
+ *  describe a `u64` to TypeScript, and an exe is nowhere near 2^53 bytes.
+ */
+export type PortableUpdateProgress = {
+	transferred: number | null,
+	total: number | null,
 };
 
 /**

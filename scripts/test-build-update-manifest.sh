@@ -28,6 +28,7 @@ UPDATER_ARTIFACTS=(
   "SQLPilot-9.9.9-1.x86_64.rpm"
   "SQLPilot_9.9.9_x64_en-US.msi"
   "SQLPilot_9.9.9_x64-setup.exe"
+  "SQLPilot.exe"
   "SQLPilot_9.9.9_x64.app.tar.gz"
   "SQLPilot_9.9.9_aarch64.app.tar.gz"
 )
@@ -63,7 +64,7 @@ if "$builder" 9.9.9 v9.9.9 "$dir" "$dir/latest.json" >/dev/null 2>&1; then
   # the running copy came from, then `{os}-{arch}` as the fallback.
   expected="darwin-aarch64 darwin-aarch64-app darwin-x86_64 darwin-x86_64-app"
   expected="$expected linux-x86_64 linux-x86_64-appimage linux-x86_64-deb linux-x86_64-rpm"
-  expected="$expected windows-x86_64 windows-x86_64-msi windows-x86_64-nsis"
+  expected="$expected windows-x86_64 windows-x86_64-msi windows-x86_64-nsis windows-x86_64-portable"
   if [ "$keys" = "$expected" ]; then
     ok "emits every key the updater looks up"
   else
@@ -73,7 +74,7 @@ if "$builder" 9.9.9 v9.9.9 "$dir" "$dir/latest.json" >/dev/null 2>&1; then
   # The bug this table exists for: a .deb install looks up
   # `linux-x86_64-deb` before anything else, and finding nothing there sent
   # it to an AppImage it cannot apply.
-  for pair in "linux-x86_64-deb:.deb" "linux-x86_64-rpm:.rpm" "windows-x86_64-nsis:-setup.exe"; do
+  for pair in "linux-x86_64-deb:.deb" "linux-x86_64-rpm:.rpm" "windows-x86_64-nsis:-setup.exe" "windows-x86_64-portable:/SQLPilot.exe"; do
     key="${pair%%:*}"
     want="${pair#*:}"
     url="$(python3 -c "import json,sys;print(json.load(open(sys.argv[1]))['platforms'][sys.argv[2]]['url'])" "$dir/latest.json" "$key")"

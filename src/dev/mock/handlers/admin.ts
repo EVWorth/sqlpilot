@@ -382,6 +382,9 @@ export const adminHandlers: Handlers = {
   // An AppImage: the one Linux format the updater handles itself, so the
   // update chip behaves normally in screenshots.
   get_platform_info: (): PlatformInfo => ({ package_format: "app_image", arch: "x86_64" }),
+  // Only a standalone Windows copy calls these, and the mock is an AppImage.
+  download_portable_update: () => "1.5.0",
+  apply_portable_update: () => null,
   // The browser has no native menu bar; the in-app one renders the same list.
   set_native_menu: () => null,
 };

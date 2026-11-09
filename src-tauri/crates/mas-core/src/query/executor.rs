@@ -1206,7 +1206,9 @@ fn build_select_result(
 /// Checks every 1000 rows during query execution and triggers when
 /// available system memory drops below 512 MB.
 struct MemoryGuard {
-    sys: sysinfo::System,
+    /// None when the platform's memory information could not be opened. The
+    /// guard is a safety net, so losing it should not stop every query.
+    sys: Option<sysinfo::System>,
     triggered: bool,
     floor_mb: u64,
 }
@@ -1214,18 +1216,24 @@ struct MemoryGuard {
 impl MemoryGuard {
     /// Create a new guard. Reads initial memory state for diagnostics.
     fn new(floor_mb: u64) -> Self {
-        let mut sys = sysinfo::System::new();
-        sys.refresh_memory();
-
-        let available_mb = sys.available_memory() / 1024 / 1024;
-        let total_mb = sys.total_memory() / 1024 / 1024;
-
-        tracing::debug!(
-            available_mb,
-            total_mb,
-            floor_mb,
-            "Memory guard initialized, will stop the fetch if available memory drops below the floor"
-        );
+        let sys = match sysinfo::System::new() {
+            Ok(mut sys) => {
+                sys.refresh_memory();
+                let available_mb = sys.available_memory() / 1024 / 1024;
+                let total_mb = sys.total_memory() / 1024 / 1024;
+                tracing::debug!(
+                    available_mb,
+                    total_mb,
+                    floor_mb,
+                    "Memory guard initialized, will stop the fetch if available memory drops below the floor"
+                );
+                Some(sys)
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "Could not read system memory; large fetches are unguarded");
+                None
+            }
+        };
 
         Self {
             sys,
@@ -1243,8 +1251,11 @@ impl MemoryGuard {
             ));
         }
 
-        self.sys.refresh_memory();
-        let available_mb = self.sys.available_memory() / 1024 / 1024;
+        let Some(sys) = self.sys.as_mut() else {
+            return Ok(());
+        };
+        sys.refresh_memory();
+        let available_mb = sys.available_memory() / 1024 / 1024;
 
         if available_mb < self.floor_mb {
             self.triggered = true;

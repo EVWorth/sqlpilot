@@ -7,9 +7,11 @@ on:
   # code' run).
   pull_request:
     types: [opened, synchronize, reopened]
-    branches: [main]
+    branches: [main, dev]
+  # dev too: the release PR is opened by Actions, which runs no pull_request
+  # workflows, so its checks come from this push run on the same commit.
   push:
-    branches: [main]
+    branches: [main, dev]
 
 # Cancel any in-flight or queued runs in this group when a new run
 # starts. Keyed by workflow + PR number (for PRs) or workflow + ref
@@ -315,14 +317,17 @@ jobs:
       - name: Install Rust toolchain
         shell: bash
         run: rustup toolchain install --profile minimal --no-self-update
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
       - name: Install system dependencies
-        uses: awalsh128/cache-apt-pkgs-action@553a35bb8ebd9fcabcb1c9451aa4c98e1b4ca8a9 # v1.6.3
-        with:
-          packages: libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-          version: 1.0
+        # Not cache-apt-pkgs-action. When its install fails it still reports
+        # success and saves an empty cache under the real key, so every later
+        # run "hits" the cache, installs nothing and fails in clippy on a
+        # missing glib-2.0, far from the cause.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Rust format check
         run: cargo fmt --all -- --check
         working-directory: src-tauri
@@ -337,6 +342,31 @@ jobs:
             git diff -- ../src/lib/bindings.ts
             exit 1
           fi
+        working-directory: src-tauri
+
+  # Everything else here runs on Linux, so without this the first Windows
+  # compile of a dependency bump is the release build, after the tag is pushed.
+  test-windows:
+    name: Test Windows
+    needs: detect-changes
+    if: needs.detect-changes.outputs.rust == 'true'
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust toolchain
+        shell: bash
+        run: rustup toolchain install --profile minimal --no-self-update
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          workspaces: src-tauri
+      # A running exe really replaces itself and restarts: tests/self_swap.rs.
+      - name: Test the standalone exe's self-replacement
+        run: cargo test -p mas-update
+        working-directory: src-tauri
+      - name: Check the app compiles for Windows
+        run: cargo check -p sqlpilot
         working-directory: src-tauri
 
   test-rust:
@@ -355,7 +385,7 @@ jobs:
       - name: Install Rust toolchain
         shell: bash
         run: rustup toolchain install --profile minimal --no-self-update
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
       - name: Install Tauri system dependencies
@@ -366,7 +396,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
       - name: Run Rust tests
-        run: cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite
+        run: cargo test -p mas-agent -p mas-core -p mas-export -p mas-admin -p mas-mcp -p mas-sqlite -p mas-update
         working-directory: src-tauri
       - name: Run Rust tests (main crate)
         # `--lib` only: the integration tests under `src-tauri/tests/` need a

@@ -27,8 +27,14 @@
 #   linux-x86_64-rpm       .rpm
 #   windows-x86_64-msi     .msi           windows-x86_64  .msi
 #   windows-x86_64-nsis    -setup.exe
+#   windows-x86_64-portable SQLPilot.exe
 #   darwin-x86_64-app      .app.tar.gz    darwin-x86_64   .app.tar.gz
 #   darwin-aarch64-app     .app.tar.gz    darwin-aarch64  .app.tar.gz
+#
+# The plugin never looks up `windows-x86_64-portable` by itself. Only the
+# standalone exe asks for it, by name, and it replaces its own file with what
+# it downloads rather than running it (`commands/portable_update.rs`). Copies
+# from before that code ignore the key and update through the MSI.
 #
 # A package install on an image-based system (rpm-ostree, and anything else
 # with a read-only /usr) cannot apply any of these, whatever the manifest
@@ -59,6 +65,7 @@ platforms=(
   "windows-x86_64:*_x64_en-US.msi"
   "windows-x86_64-msi:*_x64_en-US.msi"
   "windows-x86_64-nsis:*_x64-setup.exe"
+  "windows-x86_64-portable:SQLPilot.exe"
   "darwin-x86_64:*_x64.app.tar.gz"
   "darwin-x86_64-app:*_x64.app.tar.gz"
   "darwin-aarch64:*_aarch64.app.tar.gz"
@@ -171,6 +178,7 @@ expected = {
     "windows-x86_64",
     "windows-x86_64-msi",
     "windows-x86_64-nsis",
+    "windows-x86_64-portable",
     "darwin-x86_64",
     "darwin-x86_64-app",
     "darwin-aarch64",

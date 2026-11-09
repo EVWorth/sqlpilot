@@ -10,7 +10,7 @@ SQLPilot is a Tauri 2 desktop MySQL/MariaDB GUI for Linux, Windows and macOS.
 
 - **Backend:** a Cargo workspace in `src-tauri/`. The root `sqlpilot` crate is
   the Tauri app shell; the libraries are `mas-core` (connections, queries,
-  schema, backup/restore, history), `mas-admin`, `mas-export`, `mas-sqlite`,
+  schema, backup/restore, history), `mas-admin`, `mas-export`, `mas-sqlite`, `mas-update`,
   `mas-mcp` (the MCP server agents use) and `mas-agent` (running the user's
   agent harness). Conventions: [`src-tauri/CLAUDE.md`](src-tauri/CLAUDE.md).
 - **Frontend:** React 19 and TypeScript in `src/`, built with Vite, Tailwind 4,
@@ -32,7 +32,7 @@ Every task is a `just` recipe; `just` lists them.
 | Integration tests (database)  | `just db-up`, then `just test-integration`                |
 | Regenerate TS bindings        | `just bindings`                                           |
 | Lint and format               | `just lint`, `npx dprint fmt`                             |
-| Bump the version              | `just bump [patch\|minor\|major]` (asks for confirmation) |
+| Fix version drift             | `just bump [patch\|minor\|major]` (asks for confirmation) |
 
 ## Gates — run before calling anything done
 
@@ -51,7 +51,8 @@ and don't report one as passing that you didn't run.
 - **Everything:** `npx dprint check --list-different`.
 - **Versions:** `package.json`, `src-tauri/Cargo.toml` and
   `src-tauri/tauri.conf.json` must agree. Lefthook checks on commit; fix drift
-  with `just bump`.
+  with `just bump`. Never bump to release: CI picks the version from the
+  commits ([`docs/RELEASING.md`](docs/RELEASING.md)).
 
 ## Conventions that bite
 
@@ -89,8 +90,9 @@ and don't report one as passing that you didn't run.
 
 These come from the maintainer.
 
-- **Everything lands through a pull request.** Never push to `main`, never
-  force-push `main`.
+- **Everything lands through a pull request into `dev`.** Never push to
+  `main` or `dev`, never force-push either. `main` only takes the standing
+  release PR from `dev`; merging it cuts a release.
 - **Anything wrong gets an issue.** A failing check, a broken test setup, a
   regression, a stale comment, a CI gap: file a GitHub issue as soon as you
   find it, even outside the task at hand. Include the command that shows it,
@@ -109,7 +111,11 @@ These come from the maintainer.
 
 Conventional commits (`feat:`, `fix:`, `chore:`, `docs:`, `refactor:`,
 `test:`, `perf:`, `build:`, `ci:`), subject of 50 characters or fewer, body
-only when the why isn't obvious. Code, commits, PRs and issues are written in
+only when the why isn't obvious. PRs into `dev` are squash-merged, so **the PR
+title is the commit that decides the next release**: `fix:`, `perf:` and
+`refactor:` release a patch, `feat:` a minor, `feat!:` or a
+`BREAKING CHANGE:` footer a major; the other types release nothing. CI checks
+the title. Code, commits, PRs and issues are written in
 plain English for people who weren't in the conversation.
 
 Close issues with one keyword per issue: `Closes #1, closes #2`. GitHub reads

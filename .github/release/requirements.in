@@ -1,0 +1,4 @@
+# Commitizen for .github/workflows/auto-release.yml and pr-title.yml.
+# Regenerate requirements.txt after changing this file:
+#   uv pip compile --universal --generate-hashes .github/release/requirements.in -o .github/release/requirements.txt
+commitizen==4.18.0

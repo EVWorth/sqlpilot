@@ -1,23 +1,39 @@
 name: Release
 
+# Normally called by auto-release.yml after it bumps and tags main (a tag
+# pushed with GITHUB_TOKEN does not trigger the tag rule below). The tag rule
+# stays for re-tagging after a failed build ("When a release fails" in
+# docs/RELEASING.md).
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: "The tag to build and publish, e.g. v1.6.0"
+        required: true
+        type: string
+    secrets:
+      TAURI_SIGNING_PRIVATE_KEY:
+        required: true
+      WINDOWS_CERTIFICATE:
+        required: false
+      WINDOWS_CERTIFICATE_PASSWORD:
+        required: false
   push:
     tags:
       - "v*"
   workflow_dispatch:
 
-# Cancel in-flight runs when a new release dispatch arrives (e.g.
-# tag re-pushed, manual re-run). Keyed by workflow + ref: for a tag push
-# that is the tag, for a manual dispatch the branch it was run from, so
-# concurrent releases don't collide.
-#
-# The fallbacks this used to carry were dead. `workflow_dispatch` declares
-# no inputs, so `github.event.inputs.tag` never held anything, and
-# `github.ref` is always set, so nothing after the first `||` could ever
-# be reached.
+# Cancel an in-flight run of the same release when a new one arrives (a
+# re-pushed tag, a manual re-run). Keyed by the tag being released: the
+# caller's input, else the pushed ref. Not by github.workflow, which in a
+# called run is the caller's name.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: release-${{ inputs.tag || github.ref }}
   cancel-in-progress: true
+
+# The tag being released: the caller's input, else the pushed tag.
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -31,11 +47,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A called run starts on the commit that was pushed to main, which
+          # is the one before the bump; build the tagged commit instead.
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
       - name: Run release readiness check
         run: |
           set -euo pipefail
-          TAG="${GITHUB_REF_NAME#v}"
+          TAG="${RELEASE_TAG#v}"
           echo "Validating tag v${TAG} against working tree manifests..."
           bash scripts/check-release-readiness.sh "${TAG}"
 
@@ -83,13 +104,18 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A called run starts on the commit that was pushed to main, which
+          # is the one before the bump; build the tagged commit instead.
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
       # rustup ships on GitHub-hosted runners and reads rust-toolchain.toml
       # itself, so the version and components live in that one file and no
       # third-party action sits between it and the build.
       - name: Install Rust toolchain
         shell: bash
         run: rustup toolchain install --profile minimal --no-self-update
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
       - name: Seed test databases
@@ -163,6 +189,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A called run starts on the commit that was pushed to main, which
+          # is the one before the bump; build the tagged commit instead.
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
 
       - name: Install Linux dependencies
         if: matrix.platform == 'ubuntu-22.04'
@@ -188,7 +219,7 @@ jobs:
           rustup target add "$RUST_TARGET"
 
       - name: Rust cache
-        uses: swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           workspaces: src-tauri
 
@@ -270,6 +301,30 @@ jobs:
           if (-not (Test-Path $exe)) { throw "Expected binary not found: $exe" }
           Copy-Item $exe $dest -Force
 
+          # A copy that has no installer stamp is how the app knows it is
+          # standalone and may replace its own file. The bundler stamps this
+          # binary for each installer and restores it afterwards. If that ever
+          # stops being true, the exe would run an installer again, or an
+          # installed copy would be mistaken for it, so stop here.
+          $bytes = [System.IO.File]::ReadAllBytes((Resolve-Path $dest))
+          $text = [System.Text.Encoding]::ASCII.GetString($bytes)
+          if (-not $text.Contains("__TAURI_BUNDLE_TYPE_VAR_UNK")) {
+            throw "$dest carries an installer stamp; the updater would not treat it as standalone."
+          }
+
+      # The installers' signatures come from the build. This file is not one
+      # of its bundles, so it is signed here, with the same key, for the
+      # updater to verify before the exe replaces itself.
+      - name: Sign portable exe for the updater (Windows)
+        if: matrix.platform == 'windows-latest'
+        shell: pwsh
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ""
+        run: |
+          npx --no tauri signer sign SQLPilot.exe
+          if (-not (Test-Path SQLPilot.exe.sig)) { throw "Signing did not produce SQLPilot.exe.sig" }
+
       # Upload every artifact the upload job will need: the bundle tree
       # (containing .deb/.rpm/.AppImage/.msi/.exe/.dmg + .sig) and, on
       # Windows, the staged portable exe at the repo root.
@@ -285,6 +340,7 @@ jobs:
           path: |
             ${{ matrix.bundle_path }}
             SQLPilot.exe
+            SQLPilot.exe.sig
           if-no-files-found: error
 
   # Single source of release creation. All 4 build jobs race to complete,
@@ -294,6 +350,32 @@ jobs:
     needs: [build]
     runs-on: ubuntu-22.04
     steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
+
+      # This version's CHANGELOG section (written by commitizen), then the
+      # downloads table.
+      - name: Write the release notes
+        run: |
+          set -euo pipefail
+          awk -v v="$RELEASE_TAG" '$0 ~ "^## " v " " {found=1; next} found && /^## / {exit} found' \
+            CHANGELOG.md > "$RUNNER_TEMP/notes.md" || true
+          cat >> "$RUNNER_TEMP/notes.md" <<'NOTES'
+
+          ## Downloads
+
+          | Platform              | File                   |
+          | --------------------- | ---------------------- |
+          | Windows (portable)    | `SQLPilot.exe`         |
+          | Windows (installer)   | `.msi` or `-setup.exe` |
+          | macOS (Apple Silicon) | `aarch64.dmg`          |
+          | macOS (Intel)         | `x64.dmg`              |
+          | Linux                 | `.deb` or `.AppImage`  |
+          NOTES
+
       - name: Download all build artifacts
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -303,17 +385,11 @@ jobs:
       - name: Create draft release and upload assets
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
         with:
-          tag_name: ${{ github.ref_name }}
-          name: "SQLPilot ${{ github.ref_name }}"
-          body: |
-            ## Downloads
-            | Platform | File |
-            |----------|------|
-            | Windows (portable) | `SQLPilot.exe` |
-            | Windows (installer) | `.msi` or `-setup.exe` |
-            | macOS (Apple Silicon) | `aarch64.dmg` |
-            | macOS (Intel) | `x64.dmg` |
-            | Linux | `.deb` or `.AppImage` |
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: "SQLPilot ${{ env.RELEASE_TAG }}"
+          body_path: ${{ runner.temp }}/notes.md
+          # Draft until latest.json is attached, so the updater never sees a
+          # release without its manifest. The last job publishes it.
           draft: true
           prerelease: false
           fail_on_unmatched_files: true
@@ -341,6 +417,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A called run starts on the commit that was pushed to main, which
+          # is the one before the bump; build the tagged commit instead.
+          ref: ${{ inputs.tag || github.ref }}
+          persist-credentials: false
       # No Node and no signing key here. The bundles were signed during the
       # build, so this job only reads the .sig files already beside them —
       # which keeps the signing key out of a job that talks to the releases
@@ -348,13 +429,19 @@ jobs:
       - name: Download release artifacts
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release download ${{ github.ref_name }}
+        run: gh release download "$RELEASE_TAG"
       - name: Build the update manifest
-        run: |
-          TAG="${{ github.ref_name }}"
-          scripts/build-update-manifest.sh "${TAG#v}" "$TAG" . latest.json
+        run: scripts/build-update-manifest.sh "${RELEASE_TAG#v}" "$RELEASE_TAG" . latest.json
 
       - name: Upload update manifest
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload ${{ github.ref_name }} latest.json --clobber
+        run: gh release upload "$RELEASE_TAG" latest.json --clobber
+
+      # Every platform's assets and latest.json are attached by now (the
+      # upload fails on a missing file), so the release goes out. This is
+      # what the auto-updater sees.
+      - name: Publish the release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$RELEASE_TAG" --draft=false --latest

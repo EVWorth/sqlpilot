@@ -1,70 +1,149 @@
 # Releasing SQLPilot
 
-End-to-end checklist and hard-won lessons for cutting a release. Updated
-whenever a new gotcha surfaces. The short form is also in `CLAUDE.md` (Release
-Flow).
+Releases are automatic: merging the release PR from `dev` into `main` cuts
+one. Nobody bumps, tags or publishes by hand. This page covers how that works,
+what to do when it fails, and the pipeline gotchas worth remembering.
 
 ---
 
-## TL;DR
+## How a release happens
 
-```bash
-# 1. From a clean, up-to-date main
-git checkout main && git pull
-bash scripts/check-release-readiness.sh --strict
-
-# 2. Bump: minor if features landed, patch if only fixes
-git checkout -b release/<NEW_VERSION>
-just bump minor        # package.json, tauri.conf.json, Cargo.toml and both lockfiles
-git commit -am "release: <NEW_VERSION>"
-git push -u origin release/<NEW_VERSION>
-# Open the release PR and get CI green. Fix any new advisories in this PR.
-
-# 3. Merge the PR, then on the merge commit
-git checkout main && git pull
-bash scripts/check-release-readiness.sh <NEW_VERSION>
-
-# 4. Tag the merge commit and push the tag (triggers release.yml)
-git tag -a v<NEW_VERSION> -m "v<NEW_VERSION>"
-git push origin v<NEW_VERSION>
-
-# 5. Watch https://github.com/EVWorth/sqlpilot/actions/workflows/release.yml
-#    validate → integration-db → build (4 platforms) → upload → generate-update-manifest
-
-# 6. The workflow leaves a DRAFT release. Publish it once every platform's
-#    build is attached and latest.json is there:
-gh release view v<NEW_VERSION> --json assets -q '.assets[].name'
-gh release edit v<NEW_VERSION> --draft=false
+```
+feature PR ──squash──▶ dev ──release PR, merge commit──▶ main ──▶ auto-release.yml
+dependabot PR ─────────▶ dev                                      bump, tag, build, publish
+                          ▲                                               │
+                          └──────────────── main merged back ─────────────┘
 ```
 
-The four builds are Linux x86_64 (`.AppImage`, `.deb`, `.rpm`), Windows
-x86_64 (`.msi`, `-setup.exe`, portable `SQLPilot.exe`), macOS Apple Silicon
-and macOS Intel (`.dmg` and `.app.tar.gz` each), plus a `.sig` beside every
-updater artifact and `latest.json`.
+1. **Every PR targets `dev`**, Dependabot and the dprint bump included. PRs
+   into `dev` are squash-merged, so the PR title becomes the commit, and
+   `pr-title.yml` checks it is a conventional commit.
+2. **`release-pr.yml` keeps one PR open from `dev` to `main`.** On every push
+   to `dev` it retitles the PR with the version merging it would release
+   (`Release v1.6.0`) and puts that release's changelog in the body.
+3. **Merge the release PR with "Create a merge commit", never squash.** That
+   is the release decision; batch as much onto `dev` as you like first.
+   `pr-title.yml` fails any PR into `main` that is not this one.
+4. **`auto-release.yml` runs on the push to `main`.** Commitizen reads the
+   conventional commits since the last tag and picks the version:
 
-If a build fails (lost runner, flaky test), see gotcha 4 for the re-tag
-protocol.
+   | Commits since the last tag                  | Release          |
+   | ------------------------------------------- | ---------------- |
+   | `feat!:` or a `BREAKING CHANGE:` footer     | major            |
+   | `feat:`                                     | minor            |
+   | `fix:`, `perf:`, `refactor:`                | patch            |
+   | only `docs:`, `ci:`, `chore:`, `test:`, ... | nothing released |
+
+   It writes the version into the five files that record it
+   ([`scripts/bump-version.sh`](../scripts/bump-version.sh)), prepends the
+   section to [`CHANGELOG.md`](../CHANGELOG.md), commits `release: X.Y.Z` to
+   `main` and pushes the `vX.Y.Z` tag with it, atomically.
+5. **`release.yml` builds and publishes**, called directly by
+   `auto-release.yml`: the tag check, the database integration tests, four
+   platform builds, one release with every asset, `latest.json`, then
+   publish. The release stays a draft until `latest.json` is attached, so the
+   updater never sees a release without its manifest. The notes are the
+   CHANGELOG section plus the downloads table.
+6. **`main` is merged back into `dev`**, so `dev` carries the bump commit and
+   the next release PR starts from it.
+
+The configuration is [`.cz.toml`](../.cz.toml). The version source is the
+latest tag (`version_provider = "scm"`); the files follow it. Commitizen is
+pinned with hashes in
+[`.github/release/requirements.txt`](../.github/release/requirements.txt).
+
+To preview locally what the release PR would release:
+
+```bash
+pip install --require-hashes -r .github/release/requirements.txt
+cz bump --get-next                         # next version, or exit 3/21: nothing to release
+cz changelog --dry-run --incremental --unreleased-version "v$(cz bump --get-next)"
+```
+
+### One-time repository settings
+
+These are settings, not files, so a PR cannot make them:
+
+- **Default branch: `dev`.** New PRs then target it without anyone choosing,
+  Dependabot reads its configuration from it, and Dependabot security updates,
+  which ignore `target-branch`, land on it.
+- **Merge methods:** allow merge commits (for the release PR) and squash
+  merges (for everything into `dev`).
+- **Actions may create pull requests** (Settings → Actions → General). The
+  dprint bump already needs this.
+- **If `main` has a branch ruleset, let GitHub Actions bypass it.** The bump
+  commit and the tag are pushed to `main` with `GITHUB_TOKEN`.
+
+### Pushes made with `GITHUB_TOKEN` start no workflows
+
+That is why `auto-release.yml` calls `release.yml` instead of relying on its
+tag trigger, and why the bump commit and the `dev` sync start no further runs.
+It also means the release PR, opened by Actions, gets no `pull_request` runs:
+its checks come from CI's push run on the same `dev` commit.
+
+---
+
+## When a release fails
+
+Read the failing job first (the `ci-doctor` agent helps). Then:
+
+- **Bump failed before pushing.** Nothing was tagged. Fix the cause through a
+  PR into `dev` and merge the release PR again.
+- **Build failed after the tag was pushed.** The tag and the bump commit are
+  on `main`, and the release is at most a draft. If the cause was transient (a
+  lost runner), re-run the failed jobs of the `Auto release` run. If it needs
+  a code fix, delete the draft and the tag, land the fix through `dev`, then
+  push the tag again on the fixed `main` commit; the tag trigger on
+  `release.yml` builds it:
+
+  ```bash
+  gh release delete v<X.Y.Z> --yes      # the draft, if one was created
+  git push origin --delete v<X.Y.Z>
+  git fetch origin main && git tag -a v<X.Y.Z> origin/main -m "SQLPilot <X.Y.Z>"
+  git push origin v<X.Y.Z>
+  ```
+
+  Pushing an existing tag again does nothing: GitHub does not re-trigger for
+  a tag that already exists, which is why it is deleted first.
+- **The release PR was squash-merged.** `auto-release.yml` stops with an
+  error: commitizen would find no `fix:`/`feat:` commits, and `dev` and `main`
+  no longer share history. Revert the squash commit on `main` through a PR
+  from `dev`, then merge the release PR with a merge commit.
+- **`dev` sync conflicted.** Merge `main` into `dev` by hand through a PR.
+
+Never delete a published release or a tag of one: installed copies may
+already have updated to it.
 
 ---
 
 ## Release workflow architecture
 
-The release pipeline splits build from release-creation to keep creation single-sourced:
+`release.yml` splits build from release creation to keep creation
+single-sourced:
 
 - `validate` job — `scripts/check-release-readiness.sh <tag version>` fails fast if the tag does not match the manifests.
 - `integration-db` job — the `#[ignore]`d database tests against MySQL 8 and MariaDB 11, plus coverage. `build` depends on it, so a database regression blocks the release.
 - `build` job (matrix of 4) — runs `tauri build` only, no release. Uploads bundles + `.sig` to the artifact store via `actions/upload-artifact`.
-- `upload` job (single ubuntu-22.04) — downloads all build artifacts, then `softprops/action-gh-release` creates the draft release ONCE and uploads all assets.
-- `generate-update-manifest` job runs after `upload` so `gh release download` sees the release. It runs [`scripts/build-update-manifest.sh`](../scripts/build-update-manifest.sh) and uploads `latest.json`. It has no signing key: it reads the `.sig` files the build produced.
+- `upload` job (single ubuntu-22.04) — writes the notes from `CHANGELOG.md`, downloads all build artifacts, then `softprops/action-gh-release` creates the draft release ONCE and uploads all assets.
+- `generate-update-manifest` job runs after `upload` so `gh release download` sees the release. It runs [`scripts/build-update-manifest.sh`](../scripts/build-update-manifest.sh), uploads `latest.json`, then publishes the release. It has no signing key: it reads the `.sig` files the build produced.
+
+Every job checks out the tag, not the commit that triggered the run: a called
+run starts on the commit before the bump.
+
+The four builds are Linux x86_64 (`.AppImage`, `.deb`, `.rpm`), Windows
+x86_64 (`.msi`, `-setup.exe`, portable `SQLPilot.exe` and its `.sig`), macOS Apple Silicon
+and macOS Intel (`.dmg` and `.app.tar.gz` each), plus a `.sig` beside every
+updater artifact and `latest.json`.
 
 tauri-action's "build only" mode is achieved by omitting `tagName`, `releaseName`, and `releaseId` (per the action's README). The signing key is still passed to the build step because tauri itself signs during `tauri build` when `bundle.createUpdaterArtifacts: true`.
 
-**Verify after each release.** Confirm exactly one release exists for the tag:
+**Verify after each release.** Confirm exactly one release exists for the tag
+and it has every asset:
 
 ```bash
+gh release view v<X.Y.Z> --json isDraft,assets -q '{draft: .isDraft, assets: [.assets[].name]}'
 gh api repos/EVWorth/sqlpilot/releases | \
-  jq '.[] | select(.tag_name == "v<X.Y.Z>") | {id, name, draft, assets: (.assets | length)}'
-# Expect: exactly one entry, draft=true until you publish it.
+  jq '[.[] | select(.tag_name == "v<X.Y.Z>")] | length'   # expect 1
 ```
 
 ---
@@ -137,43 +216,6 @@ test is `scripts/test-build-update-manifest.sh`, run by CI's
 Note: these match what tauri-action's own CI matrix uses, so they're verified.
 
 ---
-
-### 4. Re-tag protocol
-
-If a tag push produced a partial or broken release, pushing the same tag again
-does nothing: GitHub does not re-trigger the workflow for a tag that already
-exists. Delete the draft release, delete the tag, then re-tag.
-
-```bash
-gh release delete v<X.Y.Z> --yes          # the draft, if one was created
-git tag -d v<X.Y.Z>
-git push origin --delete v<X.Y.Z>
-# If a fix is needed, land it through a PR first and tag the new merge commit.
-git tag -a v<X.Y.Z> -m "v<X.Y.Z>"
-git push origin v<X.Y.Z>
-```
-
----
-
-## Release cut checklist
-
-```
-[ ] All PRs queued for this release are merged to main
-[ ] bash scripts/check-release-readiness.sh --strict      (clean main)
-[ ] just bump <minor|patch>; release PR opened; CI green; merged
-[ ] bash scripts/check-release-readiness.sh <X.Y.Z>       (on the merge commit)
-[ ] git tag -a v<X.Y.Z> on the merge commit; tag pushed
-[ ] validate, integration-db: SUCCESS
-[ ] All 4 build jobs: SUCCESS
-[ ] upload job: SUCCESS (one draft release created)
-[ ] generate-update-manifest job: SUCCESS (latest.json attached)
-[ ] gh release view v<X.Y.Z> --json assets -q '.assets[].name'
-    → AppImage, deb, rpm, msi, setup.exe, SQLPilot.exe, two dmg, two app.tar.gz, .sig files, latest.json
-[ ] gh api repos/EVWorth/sqlpilot/releases | jq '.[] | select(.tag_name == "v<X.Y.Z>") | .draft'
-    → exactly ONE release for the tag
-[ ] Draft published
-[ ] (Optional but recommended) Manual smoke test of update from previous version
-```
 
 ## What the v1.0.0 cut ran into
 
