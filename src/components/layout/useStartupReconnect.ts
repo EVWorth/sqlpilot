@@ -17,7 +17,7 @@ export function useStartupReconnect() {
       const { tabs, setTabConnection: setTabConn } = useEditorStore.getState();
       const profileIds = [
         ...new Set(
-          tabs.filter((t) => t.profileId).map((t) => t.profileId!),
+          tabs.flatMap((t) => (t.profileId ? [t.profileId] : [])),
         ),
       ];
 

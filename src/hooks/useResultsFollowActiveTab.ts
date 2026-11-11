@@ -3,7 +3,7 @@ import { runConnectionId } from "../lib/run-connection";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useEditorStore } from "../stores/editorStore";
 import { useResultStore } from "../stores/resultStore";
-import { useSqliteStore } from "../stores/sqliteStore";
+import { useLiveConnectionIds } from "./useLiveConnectionIds";
 
 /**
  * Keep a grid read on one server from being shown under another (#842).
@@ -19,16 +19,12 @@ export function useResultsFollowActiveTab() {
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
   const selectedConnectionId = useConnectionStore((s) => s.selectedConnectionId);
-  const activeConnections = useConnectionStore((s) => s.activeConnections);
-  const sqliteSessions = useSqliteStore((s) => s.sessions);
+  const liveConnectionIds = useLiveConnectionIds();
   const dropForeignResults = useResultStore((s) => s.dropForeignResults);
 
   const activeTab = tabs.find((t) => t.id === activeTabId);
   // The tab's own server, as Run would pick it (#788).
-  const tabConnectionId = runConnectionId(activeTab, selectedConnectionId, [
-    ...activeConnections.map((c) => c.id),
-    ...sqliteSessions.map((s) => s.id),
-  ]);
+  const tabConnectionId = runConnectionId(activeTab, selectedConnectionId, liveConnectionIds);
 
   useEffect(() => {
     dropForeignResults(tabConnectionId);
