@@ -155,7 +155,7 @@ interface EditorState {
    * server where its transaction is open (#843). `setTabConnection` sets it
    * unconditionally.
    */
-  requestTabConnection: (id: string, connectionId: string, database?: string, profileId?: string) => void;
+  requestTabConnection: (id: string, connectionId: string, database?: string, profileId?: string | null) => void;
   setActiveTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
   /**
