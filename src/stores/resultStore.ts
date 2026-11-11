@@ -3,6 +3,7 @@ import type { ExplainFormat, TransactionState } from "../lib/bindings";
 import { connectionKind, dataSourceFor } from "../lib/datasource";
 import { forgetGridMemory } from "../lib/grid-memory";
 import { firstGridIndex } from "../lib/result-label";
+import { liveConnectionIds } from "../lib/run-connection";
 import { noteSession } from "../lib/server-sessions";
 import { splitSqlStatements } from "../lib/sql-import";
 import { isDestructiveStatement } from "../lib/sql-safety";
@@ -901,7 +902,7 @@ async function doExplain(
     // Statement normalization (trailing `;`, multi-statement) and the
     // ANALYZE-safety decision both happen backend-side (#412, #418).
     if (session) {
-      bindUnboundTab(session, connectionId, connectionProfileId(connectionId));
+      bindTabToRun(session, connectionId, connectionProfileId(connectionId));
       noteSession(session, connectionId);
     }
     const response = await api.explainQuery(connectionId, sql, analyze, database, format, session);
@@ -987,7 +988,7 @@ async function doExecuteQuery(
     // Noted before the call: the backend opens the session as the statement
     // starts, and a tab closed while it runs should still end it.
     const source = dataSourceFor(connectionId);
-    if (session) bindUnboundTab(session, connectionId, conn?.profile_id);
+    if (session) bindTabToRun(session, connectionId, conn?.profile_id);
     if (session && source.kind === "mysql") noteSession(session, connectionId);
     const results = await source.execute(
       connectionId,
@@ -1134,34 +1135,47 @@ function connectionProfileId(connectionId: string): string | undefined {
 }
 
 /**
- * Bind a tab that has no connection to the one its first run goes to (#942).
+ * Bind a tab with no live connection of its own to the one its run goes to
+ * (#942, #944).
  *
- * A tab opened with "+" has none, and runs on the selected connection
- * (`runConnectionId`). Once it has run there, it has state there — a MySQL
- * session, or a SQLite file's open transaction — and everything that guards
- * that state reads the tab's connection: the TX badge on a file's tabs, the
- * prompt and rollback when the last tab on a file goes, the prompt before a
- * tab is pointed at another server. An unbound tab slipped past all of them,
- * and followed the selection to another server while its transaction stayed
- * open on the first. Bound, it behaves as every tab opened on a connection
- * does, and is marked with that connection's colour as Run already treats it.
+ * A tab opened with "+" has no connection, and one whose SQLite file was
+ * closed or whose server was disconnected still names a connection that is
+ * gone. Both run on the selected connection (`runConnectionId`). Once a tab
+ * has run there, it has state there — a MySQL session, or a SQLite file's
+ * open transaction — and everything that guards that state reads the tab's
+ * connection: the TX badge on a file's tabs, the prompt and rollback when the
+ * last tab on a file goes, the prompt before a tab is pointed at another
+ * server. A tab not bound to where it ran slipped past all of them, and
+ * followed the selection to another server while its transaction stayed open
+ * on the first. Bound, it behaves as every tab opened on a connection does,
+ * and is marked with that connection's colour as Run already treats it.
+ *
+ * Without asking, unlike `requestTabConnection`: the connection the tab is
+ * taken from is gone, and took with it anything there was to roll back. A tab
+ * on another connection that is still live is left where it is.
  */
-function bindUnboundTab(tabId: string, connectionId: string, profileId: string | undefined) {
+function bindTabToRun(tabId: string, connectionId: string, profileId: string | undefined) {
   // A test that replaces the editor store with a bare mock has no tabs to bind.
   if (typeof useEditorStore.getState !== "function") return;
   const { tabs, setTabConnection } = useEditorStore.getState();
   const tab = tabs?.find((t) => t.id === tabId);
-  if (!tab || tab.connectionId !== undefined || typeof setTabConnection !== "function") return;
-  setTabConnection(tabId, connectionId, tab.database, profileId);
+  if (!tab || tab.connectionId === connectionId || typeof setTabConnection !== "function") return;
+  if (tab.connectionId !== undefined && liveConnectionIds().includes(tab.connectionId)) return;
+  // The profile is replaced rather than kept: the old server's would send the
+  // tab back there at the next start (`useStartupReconnect`). A SQLite file
+  // has none, so there it is cleared.
+  setTabConnection(tabId, connectionId, tab.database, profileId ?? null);
 }
 
 /**
  * Record whether the tab's session is inside a transaction after a run (#843).
  *
  * The backend's answer wins: it asks the server after the run and reports it
- * on the last result, or on the error of a run that failed (#917). It has
- * none on MySQL (no `@@in_transaction`) or when the server could not say, so
- * then the statements that ran are read instead (lib/transaction-tracking).
+ * on the last result, or on the error of a run that failed (#917). MySQL and
+ * MariaDB are both asked, by a probe that needs no `@@in_transaction`. It has
+ * no answer only when that probe could not get one — the session could not be
+ * reached, the probe failed or timed out — so then the statements that ran
+ * are read instead (lib/transaction-tracking).
  */
 function noteTransaction(session: string, reported: TransactionState | null | undefined, ran: readonly string[]) {
   const open = reported ? reported === "open" : transactionAfter(ran, hasOpenTransaction(session));
