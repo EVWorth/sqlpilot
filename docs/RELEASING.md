@@ -71,8 +71,11 @@ These are settings, not files, so a PR cannot make them:
   merges (for everything into `dev`).
 - **Actions may create pull requests** (Settings → Actions → General). The
   dprint bump already needs this.
-- **If `main` has a branch ruleset, let GitHub Actions bypass it.** The bump
-  commit and the tag are pushed to `main` with `GITHUB_TOKEN`.
+- **Let GitHub Actions bypass any ruleset or branch protection on `main` and
+  `dev`, and any tag protection matching `v*`.** `auto-release.yml` pushes
+  with `GITHUB_TOKEN`: the `bump` job pushes the bump commit and the `vX.Y.Z`
+  tag to `main`, and the `sync-dev` job pushes the merge of `main` back into
+  `dev`. Without a bypass, that job fails at its push.
 
 ### Pushes made with `GITHUB_TOKEN` start no workflows
 
