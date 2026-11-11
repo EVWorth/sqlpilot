@@ -129,7 +129,9 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
   const selectDatabase = (dbName: string) => {
     if (!activeTabId) return;
     const conn = activeConnections.find((c) => c.id === connectionId);
-    requestTabConnection(activeTabId, connectionId, dbName, conn?.profile_id);
+    // `null` for a tree with no profile (a SQLite file), so the tab does not
+    // keep the profile of the server it is moved from (#962).
+    requestTabConnection(activeTabId, connectionId, dbName, conn?.profile_id ?? null);
   };
 
   // Tracks pending single-click timers keyed by "db.name"

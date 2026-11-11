@@ -75,7 +75,10 @@ export function useConnectionSwitching() {
     if (active && !activeHasServer) {
       // Only a tab with no live server is taken over, so this does not
       // normally move a session; through the guard all the same (#843).
-      requestTabConnection(active.id, connectionId, conn?.database ?? undefined, conn?.profile_id);
+      // A SQLite file has no profile. `null` drops the one the tab still has
+      // from the server it was on, which would otherwise send it back there
+      // at the next start (#962).
+      requestTabConnection(active.id, connectionId, conn?.database ?? undefined, conn?.profile_id ?? null);
       return;
     }
     openTabFor(connectionId, conn);

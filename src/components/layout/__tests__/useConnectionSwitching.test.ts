@@ -110,4 +110,29 @@ describe("editor tab and selected connection agree (#788)", () => {
     expect(activeTab()?.connectionId).toBe("sqlite-1");
     expect(useEditorStore.getState().tabs.find((t) => t.id === "tab-0")?.connectionId).toBe("dev");
   });
+
+  it("drops the old server's profile from a tab a SQLite file takes over (#962)", () => {
+    // The tab's server is gone, so the file takes the tab rather than a new one.
+    setConnections([], null);
+    const { result } = renderHook(() => useConnectionSwitching());
+    useSqliteStore.setState({ sessions: [{ id: "sqlite-1", path: "data.db" } as unknown as SqliteSession] });
+
+    act(() => result.current.attachSqliteSession("sqlite-1"));
+
+    expect(activeTab()?.id).toBe("tab-0");
+    expect(activeTab()?.connectionId).toBe("sqlite-1");
+    // Kept, it would reconnect p-dev and bind the tab back to it at the next start.
+    expect(activeTab()?.profileId).toBeUndefined();
+  });
+
+  it("replaces the old server's profile on a tab a new server takes over", () => {
+    setConnections([], null);
+    const { result } = renderHook(() => useConnectionSwitching());
+    setConnections([prod], "prod");
+
+    act(() => result.current.attachNewConnection(prod));
+
+    expect(activeTab()?.id).toBe("tab-0");
+    expect(activeTab()?.profileId).toBe("p-prod");
+  });
 });
