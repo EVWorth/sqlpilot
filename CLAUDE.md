@@ -14,6 +14,10 @@ without asking again.
 
 - **"Release" means ship it, end to end.** Use the `release` skill. Don't stop
   to ask which version or whether to go ahead.
+- **Merge your own PRs into `dev`.** Once a PR you opened is green and
+  mergeable, squash-merge it without asking. The release PR from `dev` into
+  `main` is different: you merge it too, but only after the maintainer has
+  approved that release. Approval covers one release, not the next.
 - **Write lasting instructions down.** When the maintainer sets a rule for how
   to work, add it to `AGENTS.md` (any agent) or this file (Claude only) in the
   same session. Put a procedure in a skill instead.

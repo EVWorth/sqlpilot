@@ -1,17 +1,9 @@
 import { useEffect } from "react";
-import { runConnectionId } from "../../lib/run-connection";
+import { liveConnectionIds, runConnectionId } from "../../lib/run-connection";
 import { useConnectionStore } from "../../stores/connectionStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { useSqliteStore } from "../../stores/sqliteStore";
 import type { ConnectionInfo } from "../../types";
-
-/** Every connection that can run a statement right now. */
-function liveConnectionIds(): string[] {
-  return [
-    ...useConnectionStore.getState().activeConnections.map((c) => c.id),
-    ...useSqliteStore.getState().sessions.map((s) => s.id),
-  ];
-}
 
 /**
  * Keep the selected connection and the active editor tab pointing at the
@@ -83,7 +75,10 @@ export function useConnectionSwitching() {
     if (active && !activeHasServer) {
       // Only a tab with no live server is taken over, so this does not
       // normally move a session; through the guard all the same (#843).
-      requestTabConnection(active.id, connectionId, conn?.database ?? undefined, conn?.profile_id);
+      // A SQLite file has no profile. `null` drops the one the tab still has
+      // from the server it was on, which would otherwise send it back there
+      // at the next start (#962).
+      requestTabConnection(active.id, connectionId, conn?.database ?? undefined, conn?.profile_id ?? null);
       return;
     }
     openTabFor(connectionId, conn);

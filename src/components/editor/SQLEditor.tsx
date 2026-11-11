@@ -4,7 +4,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { useSchemaCompletion } from "../../hooks/useSchemaCompletion";
 import { statementRange } from "../../lib/error-marker";
 import { monacoThemeData, monacoThemeName } from "../../lib/monaco-theme";
-import { runConnectionId } from "../../lib/run-connection";
+import { liveConnectionIds, runConnectionId } from "../../lib/run-connection";
 import { createCompletionProvider } from "../../lib/schema-completion-provider";
 import { formatSql } from "../../lib/sql-format";
 import { sqlAtCursor } from "../../lib/statement-at-cursor";
@@ -13,7 +13,6 @@ import { setPendingContentFlush, useEditorStore } from "../../stores/editorStore
 import { useResultStore } from "../../stores/resultStore";
 import { useSchemaStore } from "../../stores/schemaStore";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useSqliteStore } from "../../stores/sqliteStore";
 import { useThemeStore } from "../../stores/themeStore";
 
 /**
@@ -27,14 +26,10 @@ import { useThemeStore } from "../../stores/themeStore";
 function activeTabContext(): { connectionId?: string; database?: string; session?: string } {
   const { tabs, activeTabId } = useEditorStore.getState();
   const tab = tabs.find((t) => t.id === activeTabId);
-  const { selectedConnectionId, activeConnections } = useConnectionStore.getState();
-  const live = [
-    ...activeConnections.map((c) => c.id),
-    ...useSqliteStore.getState().sessions.map((s) => s.id),
-  ];
+  const { selectedConnectionId } = useConnectionStore.getState();
   return {
     // The server the tab is marked with, not whichever is selected (#788).
-    connectionId: runConnectionId(tab, selectedConnectionId, live),
+    connectionId: runConnectionId(tab, selectedConnectionId, liveConnectionIds()),
     database: tab?.database,
     session: tab?.type === "query" ? tab.id : undefined,
   };

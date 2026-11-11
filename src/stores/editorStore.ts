@@ -155,14 +155,19 @@ interface EditorState {
    * server where its transaction is open (#843). `setTabConnection` sets it
    * unconditionally.
    */
-  requestTabConnection: (id: string, connectionId: string, database?: string, profileId?: string) => void;
+  requestTabConnection: (id: string, connectionId: string, database?: string, profileId?: string | null) => void;
   setActiveTab: (id: string) => void;
   updateTabContent: (id: string, content: string) => void;
+  /**
+   * Point a tab at a connection. `profileId` is the saved profile to
+   * reconnect the tab by: omitted keeps the one it has, `null` clears it, for
+   * a connection that has none (a SQLite file).
+   */
   setTabConnection: (
     id: string,
     connectionId: string,
     database?: string,
-    profileId?: string,
+    profileId?: string | null,
   ) => void;
   setEditorInstance: (instance: editor.IStandaloneCodeEditor | null) => void;
   setTabDirty: (tabId: string, dirty: boolean) => void;
@@ -372,7 +377,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     set((state) => ({
       tabs: state.tabs.map((t) => {
         if (t.id !== id) return t;
-        const profile = profileId !== undefined ? { profileId } : {};
+        const profile = profileId !== undefined ? { profileId: profileId ?? undefined } : {};
         // A structure, designer or routine tab is *about* a database, so an
         // undefined one would leave it pointing at nothing. The flat interface
         // let that through; keep what the tab already has instead. Only a

@@ -4,9 +4,10 @@
  *
  * The backend reports the session's state on a run's last result (#916), or
  * on the error of a run that failed (#917), and the editor takes that when it
- * is there. It is not always: MySQL has no `@@in_transaction` to read, and the
- * server may not say. Then the state is read off the statements themselves. That
- * is a best guess, and errs towards "open": the indicator and the prompts it
+ * is there. It asks MySQL and MariaDB alike, so it is missing only when the
+ * probe could not get an answer: the session could not be reached, or the
+ * probe failed or timed out. Then the state is read off the statements
+ * themselves. That is a best guess, and errs towards "open": the indicator and the prompts it
  * drives cost a click when wrong, while missing a transaction rolls back the
  * user's work without a word.
  */
