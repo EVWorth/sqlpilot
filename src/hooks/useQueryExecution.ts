@@ -3,7 +3,7 @@ import { runConnectionId } from "../lib/run-connection";
 import { useConnectionStore } from "../stores/connectionStore";
 import { useEditorStore } from "../stores/editorStore";
 import { useResultStore } from "../stores/resultStore";
-import { useSqliteStore } from "../stores/sqliteStore";
+import { useLiveConnectionIds } from "./useLiveConnectionIds";
 
 /**
  * The editor toolbar's execution context, pre-bound.
@@ -27,8 +27,7 @@ export function useQueryExecution() {
   const selectedConnectionId = useConnectionStore(
     (s) => s.selectedConnectionId,
   );
-  const activeConnections = useConnectionStore((s) => s.activeConnections);
-  const sqliteSessions = useSqliteStore((s) => s.sessions);
+  const liveConnectionIds = useLiveConnectionIds();
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const tabs = useEditorStore((s) => s.tabs);
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -41,10 +40,7 @@ export function useQueryExecution() {
   const isExecuting = useResultStore((s) => s.isExecuting);
 
   // The server the tab is marked with, not whichever is selected (#788).
-  const connectionId = runConnectionId(activeTab, selectedConnectionId, [
-    ...activeConnections.map((c) => c.id),
-    ...sqliteSessions.map((s) => s.id),
-  ]);
+  const connectionId = runConnectionId(activeTab, selectedConnectionId, liveConnectionIds);
   const database = activeTab?.database;
   // The tab's own server session, so what one run sets up is there for the
   // next (#731). Only a query tab has one; the others are views of an object.
