@@ -1,3 +1,14 @@
+## v1.5.1 (2026-11-11)
+
+### Fix
+
+- drop stale profile when a tab moves to SQLite (#964)
+- rebind orphaned tabs to the run connection (#961)
+
+### Refactor
+
+- share one live connection list (#965)
+
 ## v1.5.0 (2026-11-09)
 
 ### Feat

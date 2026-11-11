@@ -5049,7 +5049,7 @@ dependencies = [
 
 [[package]]
 name = "sqlpilot"
-version = "1.5.0"
+version = "1.5.1"
 dependencies = [
  "apple-native-keyring-store",
  "async-trait",
