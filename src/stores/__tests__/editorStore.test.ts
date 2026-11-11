@@ -522,6 +522,22 @@ describe("editorStore", () => {
       expect(tab?.profileId).toBeUndefined();
     });
 
+    it("keeps the profile it has when none is passed", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().setTabConnection(id, "conn-1", undefined, "profile-1");
+      useEditorStore.getState().setTabConnection(id, "conn-1", "other_db");
+      expect(useEditorStore.getState().tabs.find((t) => t.id === id)?.profileId).toBe("profile-1");
+    });
+
+    it("clears the profile when passed null, for a connection that has none (#944)", () => {
+      const id = useEditorStore.getState().addTab();
+      useEditorStore.getState().setTabConnection(id, "conn-1", undefined, "profile-1");
+      useEditorStore.getState().setTabConnection(id, "lite-1", undefined, null);
+      const tab = useEditorStore.getState().tabs.find((t) => t.id === id);
+      expect(tab?.connectionId).toBe("lite-1");
+      expect(tab?.profileId).toBeUndefined();
+    });
+
     it("should not affect other tabs", () => {
       const id1 = useEditorStore.getState().addTab();
       const id2 = useEditorStore.getState().addTab();

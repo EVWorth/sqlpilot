@@ -82,6 +82,7 @@ import type { EditorTab, QueryResult } from "../../types";
 import { useEditorStore } from "../editorStore";
 import { useProductionGuardStore } from "../productionGuardStore";
 import { anyTabExecuting, followEditorStore, resetRunBookkeeping, useResultStore } from "../resultStore";
+import { useSqliteStore } from "../sqliteStore";
 import { hasOpenTransactionForTab, useTransactionStore } from "../transactionStore";
 
 // Module state outside the store: the grid's unsaved-edit counts (#865) and
@@ -1378,7 +1379,8 @@ describe("resultStore", () => {
       expect(bound("tab-1")).toMatchObject({ connectionId: "conn-1", profileId: "p1" });
     });
 
-    it("leaves a tab that already has a connection where it is", async () => {
+    it("leaves a tab that already has a live connection where it is", async () => {
+      connectionStoreState.activeConnections.push({ id: "conn-2", profile_id: "p2", name: "Other DB" });
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "shop", "tab-2");
 
       expect(bound("tab-2")).toMatchObject({ connectionId: "conn-2", database: "shop" });
@@ -1396,6 +1398,111 @@ describe("resultStore", () => {
 
       expect(useResultStore.getState().confirmDialog).not.toBeNull();
       expect(bound("tab-1")?.connectionId).toBeUndefined();
+    });
+  });
+
+  describe("a tab whose connection is gone, on its next run (#944)", () => {
+    const tab = (id: string, connectionId?: string, profileId?: string): EditorTab => ({
+      id,
+      title: id,
+      content: "",
+      type: "query",
+      isDirty: false,
+      connectionId,
+      profileId,
+    });
+    const bound = (id: string) => useEditorStore.getState().tabs.find((t) => t.id === id);
+    const sqliteSession = (id: string) => ({ id, path: `/data/${id}.db`, name: `${id}.db`, openedAt: "" });
+    const begin = () =>
+      sqliteExecuteMock.mockResolvedValueOnce([
+        { ...makeQueryResult({ sql: "BEGIN" }), in_transaction: true, truncation_reason: null },
+      ]);
+
+    beforeEach(() => {
+      registerConnectionKind("lite-1", "sqlite");
+      useSqliteStore.setState({ sessions: [sqliteSession("lite-1")] });
+      useTransactionStore.setState({ open: {}, openConnections: {} });
+      // "gone-1" is in neither store: a server disconnected, or a file closed.
+      // A second query tab, so closing the first does not leave a fresh tab
+      // on its connection in its place.
+      useEditorStore.setState({
+        tabs: [tab("tab-1", "gone-1", "p-gone"), tab("tab-2", "conn-1", "p1")],
+        activeTabId: "tab-1",
+      });
+    });
+    afterEach(() => {
+      forgetConnectionKind("lite-1");
+      useSqliteStore.setState({ sessions: [] });
+    });
+
+    it("is rebound to the server it ran on, with that server's profile", async () => {
+      await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
+
+      expect(bound("tab-1")).toMatchObject({ connectionId: "conn-1", profileId: "p1" });
+    });
+
+    it("is rebound to the SQLite file it ran on, and loses the old server's profile", async () => {
+      await useResultStore.getState().executeQuery("lite-1", "SELECT 1", undefined, "tab-1");
+
+      expect(bound("tab-1")?.connectionId).toBe("lite-1");
+      // Kept, it would reconnect the tab to the old server at the next start.
+      expect(bound("tab-1")?.profileId).toBeUndefined();
+    });
+
+    it("is rebound by a query plan too", async () => {
+      await useResultStore.getState().executeExplain("conn-1", "SELECT 1", undefined, undefined, "tab-1");
+
+      expect(bound("tab-1")).toMatchObject({ connectionId: "conn-1", profileId: "p1" });
+    });
+
+    it("shows the transaction it opens on the file", async () => {
+      begin();
+      await useResultStore.getState().executeQuery("lite-1", "BEGIN", undefined, "tab-1");
+
+      const t = bound("tab-1");
+      expect(t && hasOpenTransactionForTab(t)).toBe(true);
+    });
+
+    it("has that transaction rolled back when it was the last tab on the file", async () => {
+      begin();
+      await useResultStore.getState().executeQuery("lite-1", "BEGIN", undefined, "tab-1");
+      sqliteExecuteMock.mockClear();
+      sqliteExecuteMock.mockResolvedValueOnce([
+        { ...makeQueryResult({ sql: "ROLLBACK" }), in_transaction: false, truncation_reason: null },
+      ]);
+
+      useEditorStore.getState().closeTab("tab-1");
+
+      expect(sqliteExecuteMock).toHaveBeenCalledWith("lite-1", "ROLLBACK");
+      await vi.waitFor(() => expect(useTransactionStore.getState().openConnections).toEqual({}));
+    });
+
+    it("is asked about before it closes with that transaction open", async () => {
+      begin();
+      await useResultStore.getState().executeQuery("lite-1", "BEGIN", undefined, "tab-1");
+
+      useEditorStore.getState().requestClose("close", "tab-1");
+
+      expect(useEditorStore.getState().pendingClose?.inTransaction.map((t) => t.id)).toEqual(["tab-1"]);
+      useEditorStore.getState().cancelPendingClose();
+    });
+
+    it("stays where it is when its own connection is another live SQLite file", async () => {
+      useSqliteStore.setState({ sessions: [sqliteSession("lite-1"), sqliteSession("lite-2")] });
+      useEditorStore.setState({ tabs: [tab("tab-1", "lite-2")] });
+
+      await useResultStore.getState().executeQuery("lite-1", "SELECT 1", undefined, "tab-1");
+
+      expect(bound("tab-1")?.connectionId).toBe("lite-2");
+    });
+
+    it("stays where it is when its own connection is another live server", async () => {
+      connectionStoreState.activeConnections.push({ id: "conn-2", profile_id: "p2", name: "Other DB" });
+      useEditorStore.setState({ tabs: [tab("tab-1", "conn-2", "p2")] });
+
+      await useResultStore.getState().executeQuery("lite-1", "SELECT 1", undefined, "tab-1");
+
+      expect(bound("tab-1")).toMatchObject({ connectionId: "conn-2", profileId: "p2" });
     });
   });
 
