@@ -933,7 +933,7 @@ fn register_functions(conn: &Connection) -> rusqlite::Result<()> {
         Ok(match ctx.get_raw(0) {
             ValueRef::Integer(value) => Value::Text(value.to_string()),
             ValueRef::Real(value) => Value::Text(order::float_text(value)),
-            other => Value::from(other),
+            other => other.try_into()?,
         })
     })
 }
