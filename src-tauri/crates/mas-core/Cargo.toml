@@ -9,6 +9,7 @@ chrono = { workspace = true }
 dashmap = "6"
 futures = "0.3"
 keyring-core = "1"
+regex = { workspace = true }
 rusqlite = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

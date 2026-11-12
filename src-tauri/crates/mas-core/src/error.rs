@@ -43,6 +43,12 @@ pub enum CoreError {
     #[error("Out of memory: {0}")]
     OutOfMemory(String),
 
+    /// The result store reached its size budget, so a batch of rows was not
+    /// written. Its own variant because the caller does not fail on it: it
+    /// stops reading rows and reports the result as truncated.
+    #[error("Result store is full: {0}")]
+    ResultStoreFull(String),
+
     /// Another error, tagged with which statement of a batch raised it.
     ///
     /// A wrapper rather than a field on every variant: only the multi-statement

@@ -1,6 +1,6 @@
 # Backend-owned results
 
-Status: design, not built. Tracking issue: #967.
+Status: in progress. The store exists in `mas-core` (`src/results/`); nothing uses it yet. Tracking issue: #967.
 
 ## Why
 
@@ -59,15 +59,20 @@ it, and it does not change when the view is sorted or filtered.
 Values are stored in SQLite's own types. The result's column metadata keeps
 the server's type, which decides how a column is read back and compared:
 
-| Server value              | Stored as | Notes                                       |
-| ------------------------- | --------- | ------------------------------------------- |
-| NULL                      | NULL      |                                             |
-| signed integers, BOOL     | INTEGER   |                                             |
-| unsigned above `i64::MAX` | TEXT      | sorted and compared as a number             |
-| FLOAT, DOUBLE             | REAL      |                                             |
-| DECIMAL                   | TEXT      | kept exact; sorted and compared as a number |
-| text, dates, JSON         | TEXT      |                                             |
-| binary                    | BLOB      |                                             |
+| Server value                 | Stored as | Notes                                       |
+| ---------------------------- | --------- | ------------------------------------------- |
+| NULL                         | NULL      |                                             |
+| integers up to 32 bits, BOOL | INTEGER   |                                             |
+| unsigned above `i64::MAX`    | TEXT      | sorted and compared as a number             |
+| FLOAT, DOUBLE                | REAL      |                                             |
+| DECIMAL                      | TEXT      | kept exact; sorted and compared as a number |
+| text, dates, JSON            | TEXT      |                                             |
+| binary                       | BLOB      |                                             |
+
+A cell comes back as exactly the value that went in. `BIGINT` already travels
+as text, so JSON cannot round it, and is stored as text like `DECIMAL`. The
+store records, per column, which kind its integer cells and its text cells
+are; the rare cell that differs is noted in a side table.
 
 ## Writing
 
@@ -97,7 +102,7 @@ Results of the user's SQLite files (`mas-sqlite`) go through the same store.
 ```rust
 result_window(result_id, offset, count, sort: Vec<SortKey>, filters: Vec<ColumnFilter>)
     -> ResultWindow { rows: Vec<Vec<Cell>>, row_ids: Vec<u64>, matching_rows: u64 }
-result_cell(result_id, row_id, column) -> Cell          // the full value
+result_cell(result_id, row_id, column) -> SqlValue      // the full value
 result_export(result_id, format, path, sort, filters, row_ids?) -> ExportSummary
 result_release(result_ids)
 ```
@@ -144,6 +149,18 @@ synced or backed up by the app, and is removed on exit and at start. Read
 `docs/SECURITY.md` before changing where it lives. An in-memory store with the
 same interface is possible if on-disk results are unacceptable for a user; it
 would bring back a memory ceiling.
+
+## Open points
+
+- **Very wide results.** SQLite allows 2,000 columns in a table by default;
+  MySQL allows 4,096. Decide before the executor writes to the store: raise
+  SQLite's limit at build time, or split wide results across tables.
+- **Sorting a large result** spills to SQLite's own temporary files, which go
+  to the system temporary directory rather than the cache directory. They are
+  unlinked as soon as they are opened on Unix.
+- **Sorted windows deep into a large result** sort every row each time (about
+  180 ms at row 90,000 of 100,000). Keeping the sorted row order per
+  (result, sort, filter) turns them into seeks.
 
 ## Stages
 

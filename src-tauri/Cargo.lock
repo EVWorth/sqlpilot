@@ -2890,6 +2890,7 @@ dependencies = [
  "keyring-core",
  "mas-admin",
  "mas-export",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
