@@ -18,6 +18,11 @@ without asking again.
   mergeable, squash-merge it without asking. The release PR from `dev` into
   `main` is different: you merge it too, but only after the maintainer has
   approved that release. Approval covers one release, not the next.
+- **Do the work, then report what to look at.** Make the choices you can
+  make and finish, rather than stopping to ask or pointing at a document.
+  End the report with a table of the specific points worth the maintainer's
+  attention: what was decided, why, and what changing it would cost. Say
+  each point in plain words; never refer to one by a label alone.
 - **Write lasting instructions down.** When the maintainer sets a rule for how
   to work, add it to `AGENTS.md` (any agent) or this file (Claude only) in the
   same session. Put a procedure in a skill instead.
