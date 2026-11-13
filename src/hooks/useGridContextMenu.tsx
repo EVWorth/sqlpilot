@@ -3,7 +3,8 @@ import { useCallback } from "react";
 import type { MenuItem } from "../components/common/ContextMenu";
 import { COPY_FORMAT_LABEL, type CopyFormat } from "../lib/copy-formats";
 import { describeSelection, type Selection } from "../lib/grid-selection";
-import type { ColumnMeta, QueryResult } from "../types";
+import type { ResultMeta, RowSource } from "../lib/row-source";
+import type { ColumnMeta } from "../types";
 import { SqlValueGuard } from "../types";
 import type { useGridEditing } from "./useGridEditing";
 
@@ -18,7 +19,9 @@ import type { useGridEditing } from "./useGridEditing";
 const COPY_FORMATS: CopyFormat[] = ["tsv", "csv", "json", "markdown", "insert", "update"];
 
 export interface UseGridContextMenuOptions {
-  result: QueryResult | undefined;
+  result: ResultMeta | undefined;
+  /** Where the clicked row's values are read from, when an item needs them. */
+  source: RowSource;
   /** Columns in display order, which is how the clicked cell is identified. */
   orderedColumns: ColumnMeta[];
   selection: Selection;
@@ -30,6 +33,7 @@ export interface UseGridContextMenuOptions {
 
 export function useGridContextMenu({
   result,
+  source,
   orderedColumns,
   selection,
   editing,
@@ -40,7 +44,6 @@ export function useGridContextMenu({
   return useCallback(
     (e: React.MouseEvent<HTMLElement>, rowIdx: number) => {
       if (!result) return;
-      const row = result.rows[rowIdx];
       const colNames = result.columns.map((c) => c.name);
 
       // Each cell names its column, in both layouts. Counting the cell's
@@ -51,10 +54,13 @@ export function useGridContextMenu({
       const clickedName = cellEl?.dataset.col;
       const clickedIdx = clickedName === undefined ? -1 : colNames.indexOf(clickedName);
       const cellColIdx = Math.max(0, clickedIdx >= 0 ? clickedIdx : colNames.indexOf(orderedColumns[0]?.name ?? ""));
-      const cellValue = row[cellColIdx];
       const cellColumn = colNames[cellColIdx];
-      const rowTsv = row.map((v) => SqlValueGuard.toString(v)).join("\t");
-      const selectionLabel = describeSelection(selection, result.rows.length);
+      const selectionLabel = describeSelection(selection, source.rowCount);
+      // The menu opens at once; the values are read when an item is chosen,
+      // whole, since the source may hold a long one cut short or not at all.
+      const copy = (text: Promise<string>) => {
+        void text.then((t) => navigator.clipboard.writeText(t));
+      };
 
       // Annotated: without it the separators widen to `separator: boolean`
       // and stop matching the union.
@@ -63,14 +69,14 @@ export function useGridContextMenu({
           label: "Copy Cell",
           icon: <Copy className="h-3.5 w-3.5" />,
           onClick: () => {
-            void navigator.clipboard.writeText(SqlValueGuard.toString(cellValue));
+            copy(source.cell(rowIdx, cellColIdx).then((v) => SqlValueGuard.toString(v)));
           },
         },
         {
           label: "Copy Row (Tab-separated)",
           icon: <ClipboardList className="h-3.5 w-3.5" />,
           onClick: () => {
-            void navigator.clipboard.writeText(rowTsv);
+            copy(source.rows([rowIdx]).then(([row]) => row.map((v) => SqlValueGuard.toString(v)).join("\t")));
           },
         },
         { separator: true },
@@ -106,6 +112,6 @@ export function useGridContextMenu({
 
       showContextMenu(e, menuItems);
     },
-    [result, orderedColumns, selection, editing, showContextMenu, onCopyAs, onSetNull],
+    [result, source, orderedColumns, selection, editing, showContextMenu, onCopyAs, onSetNull],
   );
 }

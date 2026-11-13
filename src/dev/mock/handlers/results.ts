@@ -19,7 +19,7 @@ import type {
   WireValue,
 } from "../../../lib/bindings";
 import { type ColumnFilter, isActiveFilter, matchesFilter } from "../../../lib/grid-filter";
-import { isNumericSqlType } from "../../../lib/sql-types";
+import { isNullValue, rowComparator } from "../../../lib/result-compare";
 import { fail, type Handlers } from "../router";
 import { newId } from "../state";
 
@@ -77,7 +77,7 @@ function checkColumn(result: StoredResult, column: number): ColumnMeta {
 
 // ---------------------------------------------------------------- values
 
-const isNull = (v: SqlValue): v is null | "Null" => v === null || v === "Null";
+const isNull = isNullValue;
 
 function base64(bytes: readonly number[]): string {
   let binary = "";
@@ -144,55 +144,6 @@ function activeFilters(result: StoredResult, filters: WireFilter[]): ActiveFilte
   return active;
 }
 
-// ---------------------------------------------------------------- sort
-
-const sign = (n: number) => (n < 0 ? -1 : n > 0 ? 1 : 0);
-const order = <T>(a: T, b: T) => (a < b ? -1 : a > b ? 1 : 0);
-
-/** Text regardless of case, then by code unit so the order is fixed. */
-const compareText = (a: string, b: string) => order(a.toLowerCase(), b.toLowerCase()) || order(a, b);
-
-const INTEGER = /^-?\d+$/;
-
-/** By value. BIGINT travels as text and is compared exactly, not as a double. */
-function compareNumbers(a: number | string | boolean, b: number | string | boolean): number {
-  if (typeof a === "string" && typeof b === "string" && INTEGER.test(a) && INTEGER.test(b)) {
-    return order(BigInt(a), BigInt(b));
-  }
-  return sign(Number(a) - Number(b));
-}
-
-const isNumber = (v: number | string | boolean) =>
-  typeof v !== "string" || (v.trim() !== "" && Number.isFinite(Number(v)));
-
-function compareBytes(a: number[], b: number[]): number {
-  const n = Math.min(a.length, b.length);
-  for (let i = 0; i < n; i++) if (a[i] !== b[i]) return a[i] - b[i];
-  return a.length - b.length;
-}
-
-/**
- * Two cells of one column, ascending. NULL first; then, in a numeric column,
- * numbers by value before anything that is not one; in any other column
- * numbers, then text, then binary, as SQLite orders its storage classes.
- */
-function compareCells(a: SqlValue, b: SqlValue, numeric: boolean): number {
-  if (isNull(a) || isNull(b)) return Number(isNull(b)) - Number(isNull(a));
-  if (Array.isArray(a) || Array.isArray(b)) {
-    return Array.isArray(a) && Array.isArray(b) ? compareBytes(a, b) : Array.isArray(a) ? 1 : -1;
-  }
-  if (numeric) {
-    const [na, nb] = [isNumber(a), isNumber(b)];
-    if (na && nb) return compareNumbers(a, b) || order(String(a), String(b));
-    if (na !== nb) return na ? -1 : 1;
-    return compareText(String(a), String(b));
-  }
-  const [ta, tb] = [typeof a === "string", typeof b === "string"];
-  if (ta && tb) return compareText(String(a), String(b));
-  if (ta !== tb) return ta ? 1 : -1;
-  return compareNumbers(a, b);
-}
-
 // ---------------------------------------------------------------- handlers
 
 const wholeNumber = (v: unknown) => (typeof v === "number" && v > 0 ? Math.floor(v) : 0);
@@ -201,27 +152,16 @@ export const resultHandlers: Handlers = {
   result_window: (args): ResultWindow_Serialize => {
     const result = lookup(args.resultId);
     const filters = activeFilters(result, (args.filters as WireFilter[] | undefined) ?? []);
-    const sort = ((args.sort as SortKey[] | undefined) ?? []).map((key) => ({
-      column: key.column,
-      descending: key.descending,
-      numeric: isNumericSqlType(checkColumn(result, key.column).data_type),
-    }));
+    const sort = (args.sort as SortKey[] | undefined) ?? [];
+    for (const key of sort) checkColumn(result, key.column);
 
     // Positions in arrival order; a row's id is its position plus one.
     let positions = result.rows.map((_, i) => i);
     if (filters.length > 0) {
       positions = positions.filter((i) => filters.every((f) => passes(result.rows[i][f.column], f.filter)));
     }
-    if (sort.length > 0) {
-      positions.sort((x, y) => {
-        for (const key of sort) {
-          const c = compareCells(result.rows[x][key.column], result.rows[y][key.column], key.numeric);
-          if (c !== 0) return key.descending ? -c : c;
-        }
-        // Arrival order settles ties, whichever way the keys run.
-        return x - y;
-      });
-    }
+    // The grid's in-memory rows sort by the same rules (`result-compare.ts`).
+    if (sort.length > 0) positions.sort(rowComparator(result.rows, result.columns, sort));
 
     const offset = wholeNumber(args.offset);
     const count = Math.min(wholeNumber(args.count), WINDOW_MAX_ROWS);

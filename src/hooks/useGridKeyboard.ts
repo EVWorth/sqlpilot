@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { stepColumn } from "../lib/grid-navigation";
 import type { Selection } from "../lib/grid-selection";
-import type { ColumnMeta, QueryResult, SqlValue } from "../types";
+import type { ResultMeta, RowSource } from "../lib/row-source";
+import type { ColumnMeta, SqlValue } from "../types";
 import { SqlValueGuard } from "../types";
 import type { useGridEditing } from "./useGridEditing";
 
@@ -26,15 +27,15 @@ export interface FocusedCell {
 }
 
 interface GridKeyboardOptions {
-  result: QueryResult | undefined;
+  result: ResultMeta | undefined;
+  /** The rows: where one is on screen, and a cell's value for Ctrl+C. */
+  source: RowSource;
   /** The result's columns in display order. */
   orderedColumns: readonly ColumnMeta[];
   selection: Selection;
-  /** Move or extend the row selection; returns the row moved to. */
-  step: (delta: number, extend: boolean, order: readonly number[]) => number | undefined;
+  /** Move or extend the row selection; resolves to the row moved to. */
+  step: (delta: number, extend: boolean) => Promise<number | undefined>;
   clearSelection: () => void;
-  /** Result row indices in on-screen order. */
-  getScreenOrder: () => readonly number[];
   editing: ReturnType<typeof useGridEditing>;
   editingCell: FocusedCell | null;
   onEditCellAt: (rowIndex: number, colIndex: number) => void;
@@ -83,11 +84,11 @@ const escapeAttr = (value: string) => (typeof CSS !== "undefined" && CSS.escape 
 
 export function useGridKeyboard({
   result,
+  source,
   orderedColumns,
   selection,
   step,
   clearSelection,
-  getScreenOrder,
   editing,
   editingCell,
   onEditCellAt,
@@ -98,17 +99,28 @@ export function useGridKeyboard({
   virtualRowHeight,
   resetKey,
 }: GridKeyboardOptions): GridKeyboard {
-  const [focusedCell, setFocusedCell] = useState<FocusedCell | null>(null);
+  const [focusedCell, setFocusedState] = useState<FocusedCell | null>(null);
+  // The focused cell as of the last change, readable between renders: a row
+  // step waits for the source, and the key after it must carry on from where
+  // that step landed rather than from the last render.
+  const focused = useRef<FocusedCell | null>(null);
+  const setFocusedCell = useCallback(
+    (next: FocusedCell | null | ((prev: FocusedCell | null) => FocusedCell | null)) => {
+      focused.current = typeof next === "function" ? next(focused.current) : next;
+      setFocusedState(focused.current);
+    },
+    [],
+  );
   /** Set by a keyboard move, so the next render scrolls the cell into view. */
   const revealPending = useRef(false);
 
-  useEffect(() => setFocusedCell(null), [resetKey]);
+  useEffect(() => setFocusedCell(null), [resetKey, setFocusedCell]);
 
   // An edit started any way (double-click, Tab, Enter) moves the focus there,
   // so the arrows carry on from the cell that was just edited.
   useEffect(() => {
     if (editingCell && editingCell.rowIndex >= 0) setFocusedCell(editingCell);
-  }, [editingCell]);
+  }, [editingCell, setFocusedCell]);
 
   // When an edit ends with Enter or Escape its input goes, and focus would
   // drop to the page. Back to the grid, so the arrows keep working. Not when
@@ -138,28 +150,31 @@ export function useGridKeyboard({
       return { top, bottom: top + r.height, left, right: left + r.width };
     };
 
-    // Vertically, below the sticky header rather than behind it. A
-    // virtualized row may not be rendered yet; rows there are a fixed height,
-    // one row below the header's slot (GridRows, #847).
-    let rowTop: number | undefined;
-    let rowBottom: number | undefined;
-    if (virtualRowHeight !== null) {
-      const position = getScreenOrder().indexOf(focusedCell.rowIndex);
-      if (position >= 0) {
-        rowTop = virtualRowHeight * (position + 1);
-        rowBottom = rowTop + virtualRowHeight;
-      }
-    } else {
-      const cell = container.querySelector(`[data-row-index="${focusedCell.rowIndex}"]`);
-      if (cell) ({ top: rowTop, bottom: rowBottom } = extent(cell));
-    }
-    if (rowTop !== undefined && rowBottom !== undefined) {
+    // Vertically, below the sticky header rather than behind it.
+    const revealRow = (rowTop: number, rowBottom: number) => {
       const header = container.querySelector<HTMLElement>("[data-grid-header]");
       const headerHeight = header?.offsetHeight ?? 0;
       if (rowTop < container.scrollTop + headerHeight) {
         container.scrollTop = rowTop - headerHeight;
       } else if (rowBottom > container.scrollTop + container.clientHeight) {
         container.scrollTop = rowBottom - container.clientHeight;
+      }
+    };
+    let cancelled = false;
+    if (virtualRowHeight !== null) {
+      // A virtualized row may not be rendered yet; rows there are a fixed
+      // height, one row below the header's slot (GridRows, #847), so where
+      // it is follows from its position in the view, which the source knows.
+      const rowHeight = virtualRowHeight;
+      void source.positionOf(focusedCell.rowIndex).then((position) => {
+        if (cancelled || position === null) return;
+        revealRow(rowHeight * (position + 1), rowHeight * (position + 2));
+      }, () => {});
+    } else {
+      const cell = container.querySelector(`[data-row-index="${focusedCell.rowIndex}"]`);
+      if (cell) {
+        const { top, bottom } = extent(cell);
+        revealRow(top, bottom);
       }
     }
 
@@ -173,20 +188,32 @@ export function useGridKeyboard({
         container.scrollLeft = right - container.clientWidth;
       }
     }
-  }, [focusedCell, columnName, scrollRef, virtualRowHeight, getScreenOrder]);
+    return () => {
+      cancelled = true;
+    };
+  }, [focusedCell, columnName, scrollRef, virtualRowHeight, source]);
 
   const moveTo = useCallback((cell: FocusedCell) => {
     revealPending.current = true;
     setFocusedCell(cell);
-  }, []);
+  }, [setFocusedCell]);
+
+  /** Step the row selection, then put the focused cell on the row it reached. */
+  const moveRow = useCallback((delta: number, extend: boolean, column: () => number | undefined) => {
+    void step(delta, extend).then((row) => {
+      const col = column();
+      if (row !== undefined && col !== undefined) moveTo({ rowIndex: row, colIndex: col });
+    }, () => {});
+  }, [step, moveTo]);
 
   /** Where the focused cell's column sits on screen, or null. */
   const columnPosition = useCallback((): number | null => {
-    if (!result || !focusedCell) return null;
-    const name = result.columns[focusedCell.colIndex]?.name;
+    const cell = focused.current;
+    if (!result || !cell) return null;
+    const name = result.columns[cell.colIndex]?.name;
     const position = orderedColumns.findIndex((c) => c.name === name);
     return position < 0 ? null : position;
-  }, [result, focusedCell, orderedColumns]);
+  }, [result, orderedColumns]);
 
   /** The result index of the column at a screen position. */
   const resultColumn = useCallback(
@@ -202,16 +229,18 @@ export function useGridKeyboard({
   const copyCell = useCallback((cell: FocusedCell) => {
     if (!result) return;
     const column = result.columns[cell.colIndex];
-    const original = result.rows[cell.rowIndex]?.[cell.colIndex];
-    if (!column || original === undefined) return;
-    const value: SqlValue = editing.editMode
-      ? editing.getCellValue(cell.rowIndex, column.name, original)
-      : original;
-    void navigator.clipboard.writeText(SqlValueGuard.toString(value)).then(
+    if (!column || cell.rowIndex < 0 || cell.rowIndex >= source.rowCount) return;
+    // The whole value: what the grid painted may be cut short.
+    void source.cell(cell.rowIndex, cell.colIndex).then((original) => {
+      const value: SqlValue = editing.editMode
+        ? editing.getCellValue(cell.rowIndex, column.name, original)
+        : original;
+      return navigator.clipboard.writeText(SqlValueGuard.toString(value));
+    }).then(
       () => onMessage(`Copied ${column.name}`),
       (e: unknown) => onMessage(`Copy failed: ${String(e)}`),
     );
-  }, [result, editing, onMessage]);
+  }, [result, source, editing, onMessage]);
 
   const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLElement>) => {
     const target = e.target as HTMLElement;
@@ -219,15 +248,16 @@ export function useGridKeyboard({
     if (owner && owner !== e.currentTarget) return;
     if (!result) return;
     const ctrl = e.ctrlKey || e.metaKey;
+    const at = focused.current;
 
     if (ctrl && e.key.toLowerCase() === "c") {
       if (window.getSelection()?.toString()) return;
       if (selection.rows.size > 0) {
         e.preventDefault();
         onCopyRows();
-      } else if (focusedCell) {
+      } else if (at) {
         e.preventDefault();
-        copyCell(focusedCell);
+        copyCell(at);
       }
       return;
     }
@@ -236,10 +266,8 @@ export function useGridKeyboard({
     if (ctrl && (e.key === "Home" || e.key === "End")) {
       e.preventDefault();
       const toEnd = e.key === "End";
-      const order = getScreenOrder();
-      const row = step(toEnd ? Infinity : -Infinity, e.shiftKey, order);
       const col = resultColumn(stepColumn(null, toEnd ? Infinity : -Infinity, orderedColumns.length));
-      if (row !== undefined && col !== undefined) moveTo({ rowIndex: row, colIndex: col });
+      moveRow(toEnd ? Infinity : -Infinity, e.shiftKey, () => col);
       return;
     }
     if (ctrl) return;
@@ -247,24 +275,36 @@ export function useGridKeyboard({
     const rowDelta = ROW_STEPS[e.key];
     if (rowDelta !== undefined) {
       e.preventDefault();
-      const row = step(rowDelta, e.shiftKey, getScreenOrder());
-      const col = focusedCell?.colIndex ?? resultColumn(stepColumn(null, 1, orderedColumns.length));
-      if (row !== undefined && col !== undefined) moveTo({ rowIndex: row, colIndex: col });
+      // The column is read when the step lands: Left or Right pressed while
+      // it waited has already moved it.
+      moveRow(
+        rowDelta,
+        e.shiftKey,
+        () => focused.current?.colIndex ?? resultColumn(stepColumn(null, 1, orderedColumns.length)),
+      );
       return;
     }
 
     const colDelta = COLUMN_STEPS[e.key];
     if (colDelta !== undefined) {
       e.preventDefault();
-      const row = focusedCell?.rowIndex ?? selection.cursor ?? selection.anchor ?? getScreenOrder()[0];
       const col = resultColumn(stepColumn(columnPosition(), colDelta, orderedColumns.length));
-      if (row !== undefined && row !== null && col !== undefined) moveTo({ rowIndex: row, colIndex: col });
+      if (col === undefined) return;
+      const row = at?.rowIndex ?? selection.cursor ?? selection.anchor;
+      if (row !== undefined && row !== null) {
+        moveTo({ rowIndex: row, colIndex: col });
+        return;
+      }
+      // Nothing focused or selected yet: the row at the top of the view.
+      void source.indicesAt(0, 1).then(([top]) => {
+        if (top !== undefined && focused.current === null) moveTo({ rowIndex: top, colIndex: col });
+      }, () => {});
       return;
     }
 
-    if ((e.key === "Enter" || e.key === "F2") && focusedCell && editing.editMode) {
+    if ((e.key === "Enter" || e.key === "F2") && at && editing.editMode) {
       e.preventDefault();
-      onEditCellAt(focusedCell.rowIndex, focusedCell.colIndex);
+      onEditCellAt(at.rowIndex, at.colIndex);
       return;
     }
 
@@ -272,19 +312,18 @@ export function useGridKeyboard({
       if (selection.rows.size > 0) {
         e.preventDefault();
         clearSelection();
-      } else if (focusedCell) {
+      } else if (at) {
         e.preventDefault();
         setFocusedCell(null);
       }
     }
   }, [
     result,
+    source,
     selection,
-    focusedCell,
     onCopyRows,
     copyCell,
-    getScreenOrder,
-    step,
+    moveRow,
     resultColumn,
     orderedColumns.length,
     moveTo,
@@ -292,6 +331,7 @@ export function useGridKeyboard({
     editing.editMode,
     onEditCellAt,
     clearSelection,
+    setFocusedCell,
   ]);
 
   const focusFromClick = useCallback((e: React.MouseEvent, rowIndex: number) => {
@@ -302,7 +342,7 @@ export function useGridKeyboard({
       const colIndex = clicked >= 0 ? clicked : prev?.colIndex ?? resultColumn(0);
       return colIndex === undefined ? prev : { rowIndex, colIndex };
     });
-  }, [result, resultColumn]);
+  }, [result, resultColumn, setFocusedCell]);
 
   return { focusedCell, onKeyDown, focusFromClick };
 }

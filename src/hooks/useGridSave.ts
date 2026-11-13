@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { describeGridChanges } from "../lib/grid-navigation";
+import type { ResultMeta, RowSource } from "../lib/row-source";
 import { runGridEdits, runStatement } from "../lib/run-statement";
 import {
   type ColumnTypes,
@@ -11,7 +12,7 @@ import {
 import { confirmDestructive } from "../stores/productionGuardStore";
 import { useResultStore } from "../stores/resultStore";
 import { useTransactionStore } from "../stores/transactionStore";
-import type { QueryResult, SqlValue } from "../types";
+import type { SqlValue } from "../types";
 import type { useGridEditing } from "./useGridEditing";
 import type { RowKey } from "./useRowKey";
 
@@ -24,7 +25,9 @@ import type { RowKey } from "./useRowKey";
  */
 
 export interface UseGridSaveOptions {
-  result: QueryResult | undefined;
+  result: ResultMeta | undefined;
+  /** Where the rows as fetched are read from, for the WHERE of each statement. */
+  source: RowSource;
   editing: ReturnType<typeof useGridEditing>;
   rowKey: RowKey;
   /** Why rows cannot be identified, when they cannot (#387). */
@@ -35,6 +38,7 @@ export interface UseGridSaveOptions {
 
 export function useGridSave({
   result,
+  source,
   editing,
   rowKey,
   keyWarning,
@@ -43,16 +47,23 @@ export function useGridSave({
 }: UseGridSaveOptions) {
   const [isSaving, setIsSaving] = useState(false);
 
-  /** The row as it was fetched, which is what an UPDATE or DELETE matches on. */
-  const originalRow = useCallback((rowIdx: number): Record<string, SqlValue> => {
-    if (!result) return {};
-    const row = result.rows[rowIdx];
-    const obj: Record<string, SqlValue> = {};
-    result.columns.forEach((col, idx) => {
-      obj[col.name] = row[idx];
+  /**
+   * The rows as they were fetched, which is what an UPDATE or DELETE matches
+   * on: every value whole, since a WHERE on a value cut short matches nothing.
+   */
+  const originalRows = useCallback(async (indices: number[]): Promise<Map<number, Record<string, SqlValue>>> => {
+    const byIndex = new Map<number, Record<string, SqlValue>>();
+    if (!result || indices.length === 0) return byIndex;
+    const fetched = await source.rows(indices);
+    indices.forEach((rowIdx, i) => {
+      const obj: Record<string, SqlValue> = {};
+      result.columns.forEach((col, idx) => {
+        obj[col.name] = fetched[i][idx];
+      });
+      byIndex.set(rowIdx, obj);
     });
-    return obj;
-  }, [result]);
+    return byIndex;
+  }, [result, source]);
 
   const save = useCallback(async () => {
     if (!result) return;
@@ -102,6 +113,8 @@ export function useGridSave({
       const keyColumns = rowKey.columns;
 
       const statements: string[] = [];
+      const originals = await originalRows([...new Set([...editing.updates.keys(), ...editing.deletes])]);
+      const originalRow = (rowIdx: number) => originals.get(rowIdx) ?? {};
 
       for (const [rowIdx, changes] of editing.updates) {
         statements.push(
@@ -192,7 +205,7 @@ export function useGridSave({
     } finally {
       setIsSaving(false);
     }
-  }, [result, editing, originalRow, rowKey, keyWarning, onMessage, columnTypes]);
+  }, [result, editing, originalRows, rowKey, keyWarning, onMessage, columnTypes]);
 
   return { isSaving, save };
 }
