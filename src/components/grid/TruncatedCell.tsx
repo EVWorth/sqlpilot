@@ -1,6 +1,6 @@
 import { Check, Copy, Maximize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { describeBlob, isBytes, toHex } from "../../lib/blob";
+import { describeBlob, detectMime, formatBytes, isBytes, toHex } from "../../lib/blob";
 import { isLongTextSqlType } from "../../lib/sql-types";
 
 interface Props {
@@ -9,6 +9,14 @@ interface Props {
   dataType?: string;
   /** `bytes` is set only for a binary column, whose value is not text (#401). */
   onViewFull: (content: string | null, columnName: string, bytes?: number[]) => void;
+  /**
+   * Set when `value` is only the start of what is stored: the full length in
+   * bytes. The cell says so, and the viewer and Copy take the whole value
+   * from `loadFull` rather than the part painted here.
+   */
+  fullLen?: number | null;
+  /** The whole value, for a cell that was cut short. */
+  loadFull?: () => Promise<unknown>;
 }
 
 const TEXT_TYPE_MIN_LENGTH = 20;
@@ -36,13 +44,22 @@ function formatValue(val: unknown): string {
   return String(val);
 }
 
+/** A value that was cut short: its start, marked as such, or the real size of a BLOB. */
+function formatCut(val: unknown, fullLen: number): string {
+  if (isBytes(val)) return `[${detectMime(val) ?? "BLOB"}, ${formatBytes(fullLen)}]`;
+  return `${formatValue(val)}…`;
+}
+
 export function TruncatedCell({
   value,
   columnName,
   dataType,
   onViewFull,
+  fullLen = null,
+  loadFull,
 }: Props) {
-  const formatted = formatValue(value);
+  const whole = fullLen === null ? undefined : loadFull;
+  const formatted = whole && fullLen !== null ? formatCut(value, fullLen) : formatValue(value);
   const isNull = isNullish(value);
   const binary = isBytes(value) ? value : null;
   const isTextType = isLongTextSqlType(dataType);
@@ -92,8 +109,19 @@ export function TruncatedCell({
 
   // Always offered for bytes: there is nothing useful in the cell itself, so
   // the viewer is the only way to see what is stored.
-  const showIcon = showForTextType || isOverflowing || binary !== null;
+  // And for a cut value, which is longer than the cell whatever its width.
+  const showIcon = showForTextType || isOverflowing || binary !== null || whole !== undefined;
+  const showValue = (full: unknown) => {
+    if (isBytes(full)) onViewFull(null, columnName, full);
+    else onViewFull(isNullish(full) ? null : formatValue(full), columnName);
+  };
   const openViewer = () => {
+    if (whole) {
+      // The viewer opens on the whole value or not at all; whoever supplied
+      // `loadFull` reports a failure.
+      void whole().then(showValue, () => {});
+      return;
+    }
     if (binary) {
       onViewFull(null, columnName, binary);
       return;
@@ -111,12 +139,17 @@ export function TruncatedCell({
     if (copyTimer.current) clearTimeout(copyTimer.current);
   }, []);
   const copyValue = () => {
-    const text = binary ? toHex(binary) : formatted;
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(true);
-      if (copyTimer.current) clearTimeout(copyTimer.current);
-      copyTimer.current = setTimeout(() => setCopied(false), 1500);
-    }, () => {});
+    const write = (text: string) =>
+      navigator.clipboard.writeText(text).then(() => {
+        setCopied(true);
+        if (copyTimer.current) clearTimeout(copyTimer.current);
+        copyTimer.current = setTimeout(() => setCopied(false), 1500);
+      });
+    if (whole) {
+      void whole().then((full) => write(isBytes(full) ? toHex(full) : formatValue(full))).catch(() => {});
+      return;
+    }
+    void write(binary ? toHex(binary) : formatted).catch(() => {});
   };
 
   const iconButton =

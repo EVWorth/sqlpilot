@@ -1,10 +1,10 @@
-import { flexRender, type Table } from "@tanstack/react-table";
 import type { Virtualizer } from "@tanstack/react-virtual";
 import type { useGridEditing } from "../../hooks/useGridEditing";
-import type { GridFeatures } from "../../lib/grid-features";
 import type { Selection } from "../../lib/grid-selection";
-import type { ColumnMeta, SqlValue } from "../../types";
+import type { RowSource } from "../../lib/row-source";
+import type { ColumnMeta } from "../../types";
 import { EditableCell } from "./EditableCell";
+import { GridCell } from "./GridCell";
 
 /**
  * The rows themselves, in the grid's two layouts.
@@ -14,18 +14,24 @@ import { EditableCell } from "./EditableCell";
  * virtualizing a `<table>` means fighting its layout; everything that decides
  * *what* a row looks like — selection, pending edits, pending deletes — is
  * shared here rather than written twice (#406).
+ *
+ * Rows are painted from the row source, by position in its view. A position
+ * whose row has not arrived paints as a placeholder of the same height, with
+ * its row number and nothing to click, until the source says it has it.
  */
 
 export interface GridRowsProps {
-  table: Table<GridFeatures, Record<string, unknown>>;
-  /** The rows as objects, which is also how the insert-row count is derived. */
-  data: Record<string, SqlValue>[];
+  source: RowSource;
+  /** Rows in the source's view: the positions to paint, before any insert rows. */
+  viewCount: number;
+  /** Each column's width by name, as the header has it. */
+  columnSizes: Record<string, number>;
   editing: ReturnType<typeof useGridEditing>;
   editingCell: { rowIndex: number; colIndex: number } | null;
   selection: Selection;
   /** The cell the arrow keys move, by result row and column name (#852). */
   focusedCell: { rowIndex: number; columnName: string } | null;
-  /** Columns in display order, for the insert rows laid out by hand (#392). */
+  /** Columns in display order (#392). */
   orderedColumns: ColumnMeta[];
   maxContentLen: Record<string, number>;
   numericColumns: ReadonlySet<string>;
@@ -41,6 +47,10 @@ export interface GridRowsProps {
 /** The focused cell's outline, inside its borders so it does not shift the layout. */
 const FOCUSED_CELL = "outline outline-2 -outline-offset-2 outline-brand-500";
 
+/** Where each display column is in the result, which is how a row's values are laid out. */
+const resultPositions = (source: RowSource, orderedColumns: ColumnMeta[]) =>
+  orderedColumns.map((col) => ({ col, colIdx: source.columns.findIndex((c) => c.name === col.name) }));
+
 const isFocused = (
   focusedCell: GridRowsProps["focusedCell"],
   rowIndex: number,
@@ -54,8 +64,9 @@ export interface VirtualGridRowsProps extends GridRowsProps {
 }
 
 export function VirtualGridRows({
-  table,
-  data,
+  source,
+  viewCount,
+  columnSizes,
   editing,
   editingCell,
   selection,
@@ -71,17 +82,20 @@ export function VirtualGridRows({
   rowVirtualizer,
   rowHeight,
 }: VirtualGridRowsProps) {
+  const cells = resultPositions(source, orderedColumns);
+  const minWidth = (name: string) => Math.max(50, Math.min(maxContentLen[name] ?? 5, 20) * 7 + 30);
   return (
     <>
       {/* Virtual rows */}
       {rowVirtualizer.getVirtualItems().map((virtualRow) => {
         const rowIdx = virtualRow.index;
-        const isInsert = rowIdx >= data.length;
-        const insertIdx = rowIdx - data.length;
-        const tableRow = !isInsert ? table.getRowModel().rows[rowIdx] : null;
+        const isInsert = rowIdx >= viewCount;
+        const insertIdx = rowIdx - viewCount;
+        const row = !isInsert ? source.rowAt(rowIdx) : undefined;
 
         if (isInsert && editing.editMode) {
           const insertRow = editing.inserts[insertIdx];
+          if (!insertRow) return null;
           return (
             <div
               key={`insert-${insertIdx}`}
@@ -102,13 +116,8 @@ export function VirtualGridRows({
                 +
               </div>
               {orderedColumns.map((col, colIdx) => {
-                // Not colIdx + 1: the row-number column is markup
-                // beside the table, not one of its columns, so the
-                // offset read every insert cell's width from its
-                // neighbour.
-                const header = table.getFlatHeaders()[colIdx];
-                const colSize = header ? header.getSize() : 150;
-                const minW = Math.max(50, Math.min(maxContentLen[col.name] ?? 5, 20) * 7 + 30);
+                const colSize = columnSizes[col.name] ?? 150;
+                const minW = minWidth(col.name);
                 return (
                   <div
                     key={col.name}
@@ -133,11 +142,43 @@ export function VirtualGridRows({
           );
         }
 
-        if (!tableRow) return null;
+        if (isInsert) return null;
+        if (!row) {
+          return (
+            <div
+              key={`placeholder-${rowIdx}`}
+              data-row-placeholder
+              aria-busy="true"
+              style={{
+                display: "flex",
+                position: "absolute",
+                top: rowHeight,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${virtualRow.start}px)`,
+                height: `${virtualRow.size}px`,
+              }}
+            >
+              <div
+                className="flex items-center justify-center border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-xs text-[var(--color-text-muted)]"
+                style={{ flex: "0 0 48px" }}
+              >
+                {rowIdx + 1}
+              </div>
+              {cells.map(({ col }) => (
+                <div
+                  key={col.name}
+                  className="border-b border-r border-[var(--color-border)] px-2 py-1"
+                  style={{ flex: `1 1 ${columnSizes[col.name] ?? 150}px`, minWidth: minWidth(col.name) }}
+                />
+              ))}
+            </div>
+          );
+        }
         // The row's index in the result, not its place on screen: once the
         // grid is sorted or filtered the two differ, and every pending edit,
         // delete and selection is keyed by the former (#839).
-        const dataIdx = tableRow.index;
+        const dataIdx = row.index;
         const isDeleted = editing.isRowDeleted(dataIdx);
         const isEdited = editing.isRowEdited(dataIdx);
         const isSelected = selection.rows.has(dataIdx);
@@ -149,7 +190,7 @@ export function VirtualGridRows({
 
         return (
           <div
-            key={tableRow.id}
+            key={dataIdx}
             data-row-index={dataIdx}
             aria-selected={isSelected}
             onClick={(e) => clickRow(e, dataIdx)}
@@ -172,23 +213,19 @@ export function VirtualGridRows({
             >
               {rowIdx + 1}
             </div>
-            {tableRow.getVisibleCells().map((cell) => {
-              const minW = Math.max(50, Math.min(maxContentLen[cell.column.id] ?? 5, 20) * 7 + 30);
-              const focused = isFocused(focusedCell, dataIdx, cell.column.id);
+            {cells.map(({ col, colIdx }) => {
+              const focused = isFocused(focusedCell, dataIdx, col.name);
               return (
                 <div
-                  key={cell.id}
-                  data-col={cell.column.id}
+                  key={col.name}
+                  data-col={col.name}
                   data-focused-cell={focused || undefined}
                   className={`select-none border-b border-r border-[var(--color-border)] px-2 py-1 text-xs text-[var(--color-text-primary)] ${rowBg} ${
-                    numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
+                    numericColumns.has(col.name) ? "text-right tabular-nums" : ""
                   } ${focused ? FOCUSED_CELL : ""}`}
-                  style={{ flex: `1 1 ${cell.column.getSize()}px`, minWidth: minW }}
+                  style={{ flex: `1 1 ${columnSizes[col.name] ?? 150}px`, minWidth: minWidth(col.name) }}
                 >
-                  {flexRender(
-                    cell.column.columnDef.cell,
-                    cell.getContext(),
-                  )}
+                  <GridCell row={row} colIdx={colIdx} />
                 </div>
               );
             })}
@@ -200,7 +237,8 @@ export function VirtualGridRows({
 }
 
 export function TableGridRows({
-  table,
+  source,
+  viewCount,
   editing,
   editingCell,
   selection,
@@ -213,9 +251,26 @@ export function TableGridRows({
   onClickRow: clickRow,
   onRowContextMenu: handleRowContextMenu,
 }: GridRowsProps) {
+  const cells = resultPositions(source, orderedColumns);
   return (
     <>
-      {table.getRowModel().rows.map((row, rowIdx) => {
+      {Array.from({ length: viewCount }, (_, rowIdx) => {
+        const row = source.rowAt(rowIdx);
+        if (!row) {
+          return (
+            <tr key={`placeholder-${rowIdx}`} data-row-placeholder aria-busy="true">
+              <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
+                {rowIdx + 1}
+              </td>
+              {cells.map(({ col }) => (
+                // A space, so the row is as tall as one with values in it.
+                <td key={col.name} className="border-b border-r border-[var(--color-border)] px-2 py-1">
+                  {"\u00a0"}
+                </td>
+              ))}
+            </tr>
+          );
+        }
         // Keyed by the row's index in the result, not its place on screen,
         // which differ once the grid is sorted or filtered (#839).
         const dataIdx = row.index;
@@ -229,7 +284,7 @@ export function TableGridRows({
 
         return (
           <tr
-            key={row.id}
+            key={dataIdx}
             data-row-index={dataIdx}
             // No text selection: Shift+click picks rows, and a highlight
             // across their cells as well read as a second, different
@@ -242,21 +297,18 @@ export function TableGridRows({
             <td className="border-b border-r border-[var(--color-border)] px-2 py-1 text-center text-[var(--color-text-muted)]">
               {rowIdx + 1}
             </td>
-            {row.getVisibleCells().map((cell) => {
-              const focused = isFocused(focusedCell, dataIdx, cell.column.id);
+            {cells.map(({ col, colIdx }) => {
+              const focused = isFocused(focusedCell, dataIdx, col.name);
               return (
                 <td
-                  key={cell.id}
-                  data-col={cell.column.id}
+                  key={col.name}
+                  data-col={col.name}
                   data-focused-cell={focused || undefined}
                   className={`border-b border-r border-[var(--color-border)] px-2 py-1 text-[var(--color-text-primary)] ${
-                    numericColumns.has(cell.column.id) ? "text-right tabular-nums" : ""
+                    numericColumns.has(col.name) ? "text-right tabular-nums" : ""
                   } ${focused ? FOCUSED_CELL : ""}`}
                 >
-                  {flexRender(
-                    cell.column.columnDef.cell,
-                    cell.getContext(),
-                  )}
+                  <GridCell row={row} colIdx={colIdx} />
                 </td>
               );
             })}
