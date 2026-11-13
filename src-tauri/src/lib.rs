@@ -144,6 +144,10 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
             commands::disconnect,
             commands::list_connections,
             commands::execute_query,
+            commands::run_query,
+            commands::result_window,
+            commands::result_cell,
+            commands::result_release,
             commands::explain_query,
             commands::cancel_query,
             commands::close_session,
@@ -243,7 +247,7 @@ pub fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
 #[serde(rename_all = "camelCase")]
 pub struct StartupProblem {
     /// Which part of startup: `data-directory`, `connection-store`,
-    /// `history-store`.
+    /// `history-store`, `result-store`.
     pub kind: String,
     /// What the user loses by it, in their terms.
     pub summary: String,
@@ -364,6 +368,75 @@ fn open_history_store(
             )
         }
     }
+}
+
+/// How much the result store may hold on disk before a run is cut short and
+/// reported as truncated. A constant until it becomes a setting
+/// (docs/design/RESULT_STORE.md).
+pub const RESULT_STORE_BUDGET_BYTES: u64 = 8 * 1024 * 1024 * 1024;
+
+/// The budget of a result store that had to live in memory, where every
+/// byte of it is RAM.
+const RESULT_STORE_MEMORY_BUDGET_BYTES: u64 = 512 * 1024 * 1024;
+
+/// Where this run's query results are kept: the user's cache directory,
+/// named as the data directory is.
+fn result_store_dir() -> Option<std::path::PathBuf> {
+    dirs::cache_dir().map(|dir| dir.join("sqlpilot").join("results"))
+}
+
+/// Where they go when the cache directory cannot be used.
+fn result_store_fallback_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("sqlpilot").join("results")
+}
+
+/// Open the store query results are written to.
+///
+/// The cache directory first, then the system temp directory, which is a
+/// full store in another place and so is logged rather than reported. If
+/// neither can hold a file the store lives in memory with a smaller budget,
+/// and the user is told.
+fn open_result_store(
+    preferred: Option<&std::path::Path>,
+    fallback: &std::path::Path,
+) -> (mas_core::results::ResultStore, Option<StartupProblem>) {
+    use mas_core::results::ResultStore;
+
+    let mut failures = Vec::new();
+    for dir in preferred.into_iter().chain([fallback]) {
+        match ResultStore::open(dir, RESULT_STORE_BUDGET_BYTES) {
+            Ok(store) => {
+                if !failures.is_empty() {
+                    tracing::warn!(
+                        dir = %dir.display(),
+                        "Query results are kept in the temp directory for this session"
+                    );
+                }
+                return (store, None);
+            }
+            Err(e) => {
+                tracing::error!(error = %e, dir = %dir.display(), "Could not open the result store");
+                failures.push(format!("{}: {e}", dir.display()));
+            }
+        }
+    }
+
+    let store = ResultStore::in_memory(RESULT_STORE_MEMORY_BUDGET_BYTES)
+        .expect("an in-memory SQLite database cannot fail to open");
+    (
+        store,
+        Some(StartupProblem {
+            kind: "result-store".to_string(),
+            summary: "Query results are kept in memory — large ones are cut short.".to_string(),
+            detail: format!(
+                "Queries run normally. Results are usually kept in a file so that large ones \
+                 do not use memory. No folder could hold that file, so what the open results \
+                 can hold together is limited to {} MB of memory.\n\nWhat went wrong:\n{}",
+                RESULT_STORE_MEMORY_BUDGET_BYTES / (1024 * 1024),
+                failures.join("\n")
+            ),
+        }),
+    )
 }
 
 /// WebKitGTK settings to apply before the webview starts, given a way to read
@@ -524,6 +597,14 @@ pub fn run() {
         startup_problems.push(problem);
     }
 
+    // Opened after the stores above so that its sweep of files left by a
+    // crash is logged, and before the window so a failure can be reported.
+    let (result_store, result_store_problem) =
+        open_result_store(result_store_dir().as_deref(), &result_store_fallback_dir());
+    if let Some(problem) = result_store_problem {
+        startup_problems.push(problem);
+    }
+
     let manager = Arc::new(ConnectionManager::new());
     let executor = Arc::new(QueryExecutor::new(manager.clone()));
     let inspector = Arc::new(SchemaInspector::new(manager.clone()));
@@ -607,6 +688,7 @@ pub fn run() {
             sqlite_manager,
             sqlite_executor,
             sqlite_inspector,
+            result_store: Arc::new(result_store),
         })
         .invoke_handler(specta_builder.invoke_handler())
         .run(tauri::generate_context!())
@@ -804,6 +886,80 @@ mod startup_tests {
             "{}",
             problem.detail
         );
+    }
+
+    #[test]
+    fn the_result_store_opens_in_the_preferred_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let preferred = dir.path().join("cache").join("results");
+        let fallback = dir.path().join("tmp").join("results");
+
+        let (store, problem) = open_result_store(Some(&preferred), &fallback);
+        assert!(problem.is_none(), "{problem:?}");
+        assert_eq!(std::fs::read_dir(&preferred).unwrap().count(), 1);
+        assert!(!fallback.exists(), "the fallback is not touched");
+
+        // Dropping it removes its file: results do not outlive the run.
+        drop(store);
+        assert_eq!(std::fs::read_dir(&preferred).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn the_result_store_falls_back_to_the_temp_directory_without_a_problem() {
+        let (_guard, blocked) = blocked_path();
+        let dir = tempfile::tempdir().unwrap();
+        let fallback = dir.path().join("results");
+
+        let (_store, problem) = open_result_store(Some(&blocked), &fallback);
+        assert!(
+            problem.is_none(),
+            "a store on disk elsewhere is a full store"
+        );
+        assert_eq!(std::fs::read_dir(&fallback).unwrap().count(), 1);
+
+        // With no cache directory at all, the same.
+        let (_second, problem) = open_result_store(None, &fallback);
+        assert!(problem.is_none(), "{problem:?}");
+    }
+
+    #[test]
+    fn a_result_store_with_nowhere_to_live_runs_in_memory_and_says_so() {
+        let (_guard, blocked) = blocked_path();
+        let (_guard2, blocked_too) = blocked_path();
+
+        let (store, problem) = open_result_store(Some(&blocked), &blocked_too);
+        let problem = problem.expect("the user has to be told results are limited");
+        assert_eq!(problem.kind, "result-store");
+        assert!(
+            problem.summary.len() <= 70,
+            "too long to read: {}",
+            problem.summary
+        );
+        assert!(!problem.summary.contains("  ") && !problem.detail.contains("  "));
+        assert!(
+            problem.detail.contains("Queries run normally"),
+            "{}",
+            problem.detail
+        );
+        assert!(
+            problem.detail.contains(&blocked.display().to_string()),
+            "the detail carries the real error: {}",
+            problem.detail
+        );
+
+        // And it works.
+        let writer = store.begin(&[]).expect("begin");
+        assert!(writer.finish().is_ok());
+    }
+
+    #[test]
+    fn the_result_store_lives_under_the_cache_directory() {
+        let Some(dir) = result_store_dir() else {
+            return;
+        };
+        assert!(dir.ends_with("sqlpilot/results"), "{}", dir.display());
+        assert!(result_store_fallback_dir().starts_with(std::env::temp_dir()));
+        const { assert!(RESULT_STORE_BUDGET_BYTES == 8 << 30) };
     }
 
     #[test]

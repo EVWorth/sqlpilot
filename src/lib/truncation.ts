@@ -23,9 +23,20 @@ export function truncationMessage(
       // fewer rows" was no help to someone who wanted more (#853).
       return `Results truncated to ${shown} rows by the row limit. `
         + `Raise the LIMIT in the toolbar, or page with ‹ ›.`;
-    default:
+    case "store_full":
+      // Only a run that keeps its rows in the backend's result store reports
+      // this. Like memory, it is not something a larger LIMIT can buy.
+      return `Results stopped at ${shown} rows — the space SQLPilot keeps results in is full. `
+        + `A larger LIMIT will not help; close other result tabs, or narrow the query with a WHERE clause.`;
+    case null:
+    case undefined:
       // A result from a backend that predates truncation_reason, or one
       // built by hand. Say what is known and claim nothing about why.
+      return `Results truncated to ${shown} rows.`;
+    default:
+      // A reason added in Rust fails to compile here until it has its own
+      // message; one that arrives anyway still gets the plain one.
+      reason satisfies never;
       return `Results truncated to ${shown} rows.`;
   }
 }

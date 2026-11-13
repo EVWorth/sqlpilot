@@ -17,6 +17,29 @@ export const commands = {
 	listConnections: () => typedError<ConnectionInfo[], string>(__TAURI_INVOKE("list_connections")),
 	executeQuery: (connectionId: string, sql: string, database: string | null, limit: number | null, offset: number | null, session: string | null) => typedError<QueryResult_Serialize[], QueryError_Serialize>(__TAURI_INVOKE("execute_query", { connectionId, sql, database, limit, offset, session })),
 	/**
+	 *  [`execute_query`], with the rows kept in the backend.
+	 * 
+	 *  Same arguments, same semantics: the limit and offset, the tab's session,
+	 *  what a failing script reports. What differs is what comes back. Each
+	 *  statement yields a handle, its rows go to the result store, and the grid
+	 *  reads them a window at a time with [`result_window`]. The caller owns the
+	 *  results and frees them with [`result_release`]; on a failure that
+	 *  includes the ones in the error's `completedHandles`.
+	 */
+	runQuery: (connectionId: string, sql: string, database: string | null, limit: number | null, offset: number | null, session: string | null) => typedError<ResultHandle_Serialize[], QueryError_Serialize>(__TAURI_INVOKE("run_query", { connectionId, sql, database, limit, offset, session })),
+	/**  Rows of a stored result: filtered, sorted, then cut to `offset`/`count`. */
+	resultWindow: (resultId: string, offset: number, count: number, sort: SortKey[], filters: ResultFilter[]) => typedError<ResultWindow_Serialize, string>(__TAURI_INVOKE("result_window", { resultId, offset, count, sort, filters })),
+	/**
+	 *  One whole cell of a stored result, however long. `row_id` is the row's
+	 *  identity as a window's `row_ids` reports it; `column` is zero-based.
+	 */
+	resultCell: (resultId: string, rowId: number, column: number) => typedError<WireValue, string>(__TAURI_INVOKE("result_cell", { resultId, rowId, column })),
+	/**
+	 *  Free stored results. Ids the store does not know (already released, or
+	 *  a handle with no rows) are ignored.
+	 */
+	resultRelease: (resultIds: string[]) => typedError<null, string>(__TAURI_INVOKE("result_release", { resultIds })),
+	/**
 	 *  Plan a single statement.
 	 * 
 	 *  Separate from `execute_query` because `EXPLAIN ANALYZE` executes what it
@@ -605,6 +628,39 @@ export type BackupSummary = {
 	warnings: string[],
 };
 
+/**  One cell of a window. */
+export type Cell = Cell_Serialize | Cell_Deserialize;
+
+/**  One cell of a window. */
+export type Cell_Deserialize = {
+	/**
+	 *  On the wire a [`WireValue`]: binary travels as base64, not as an
+	 *  array of numbers.
+	 */
+	value: WireValue,
+	/**
+	 *  Set when `value` is only the start of a longer text or binary value:
+	 *  the real length in bytes. The whole value comes from
+	 *  [`ResultStore::cell`].
+	 */
+	full_len: number | null,
+};
+
+/**  One cell of a window. */
+export type Cell_Serialize = {
+	/**
+	 *  On the wire a [`WireValue`]: binary travels as base64, not as an
+	 *  array of numbers.
+	 */
+	value: WireValue,
+	/**
+	 *  Set when `value` is only the start of a longer text or binary value:
+	 *  the real length in bytes. The whole value comes from
+	 *  [`ResultStore::cell`].
+	 */
+	full_len: number | null,
+};
+
 export type ColumnInfo = {
 	name: string,
 	data_type: string,
@@ -921,6 +977,9 @@ export type FileHead = {
 	/**  True when the file is longer than what was read. */
 	truncated: boolean,
 };
+
+/**  The operators of `src/lib/grid-filter.ts`, serialised to the same strings. */
+export type FilterOperator = "contains" | "notContains" | "equals" | "notEquals" | "startsWith" | "endsWith" | "regex" | "isNull" | "isNotNull" | "gt" | "gte" | "lt" | "lte" | "between";
 
 export type ForeignKeyInfo = {
 	name: string,
@@ -1268,6 +1327,18 @@ export type QueryError_Deserialize = {
 	 */
 	completedResults?: QueryResult_Deserialize[] | null,
 	/**
+	 *  The same for a run that writes to the result store (`run_query`): the
+	 *  handles of the results that completed before the failure. Their rows
+	 *  are in the store, and the caller releases them like any other.
+	 * 
+	 *  Present whenever any result completed, including the rare failure at
+	 *  the first statement after it had already produced one (a procedure
+	 *  that returns a result set and then fails): a handle left out would be
+	 *  rows nobody could release. `None` otherwise, and from `execute_query`,
+	 *  and then left out of the payload.
+	 */
+	completedHandles?: ResultHandle_Deserialize[] | null,
+	/**
 	 *  Whether the editor session the run failed on is still inside a
 	 *  transaction, read from the server after the failure (#917).
 	 * 
@@ -1321,6 +1392,18 @@ export type QueryError_Serialize = {
 	 *  left out of the payload.
 	 */
 	completedResults?: QueryResult_Serialize[] | null,
+	/**
+	 *  The same for a run that writes to the result store (`run_query`): the
+	 *  handles of the results that completed before the failure. Their rows
+	 *  are in the store, and the caller releases them like any other.
+	 * 
+	 *  Present whenever any result completed, including the rare failure at
+	 *  the first statement after it had already produced one (a procedure
+	 *  that returns a result set and then fails): a handle left out would be
+	 *  rows nobody could release. `None` otherwise, and from `execute_query`,
+	 *  and then left out of the payload.
+	 */
+	completedHandles?: ResultHandle_Serialize[] | null,
 	/**
 	 *  Whether the editor session the run failed on is still inside a
 	 *  transaction, read from the server after the failure (#917).
@@ -1484,6 +1567,139 @@ export type RestoreSummary = {
 	 *  file whose every statement fails should not produce a million of them.
 	 */
 	errors: string[],
+};
+
+/**  One filter on one column of a result. */
+export type ResultFilter = {
+	/**  Zero-based position of the column in the result. */
+	column: number,
+	operator: FilterOperator,
+	/**  Empty for the operators that take no operand. */
+	value: string,
+	/**  The upper bound, for `between`. */
+	value2?: string | null,
+};
+
+/**
+ *  What a run that writes to the result store returns for one statement, in
+ *  place of a [`QueryResult`]: everything but the rows, which stay in the
+ *  store and are read a window at a time (`docs/design/RESULT_STORE.md`).
+ */
+export type ResultHandle = ResultHandle_Serialize | ResultHandle_Deserialize;
+
+/**
+ *  What a run that writes to the result store returns for one statement, in
+ *  place of a [`QueryResult`]: everything but the rows, which stay in the
+ *  store and are read a window at a time (`docs/design/RESULT_STORE.md`).
+ */
+export type ResultHandle_Deserialize = {
+	/**
+	 *  What `result_window`, `result_cell` and `result_release` take.
+	 * 
+	 *  Always set and always unique, so it also names the result in the UI.
+	 *  The store holds rows under it only when `row_count` is above zero: a
+	 *  statement that reported a count, and a result set with no rows, write
+	 *  nothing, and the store does not know their id.
+	 */
+	result_id: string,
+	statement_index: number,
+	/**  The statement this result came from, as on [`QueryResult`]. */
+	sql: string,
+	/**
+	 *  Empty for a statement that reported a count, and for a result set
+	 *  with no rows at all (the columns are read from the first row).
+	 */
+	columns: ColumnMeta[],
+	/**  Rows in the store for this result. */
+	row_count: number,
+	/**
+	 *  What the server reported for a statement that changed rows. For a
+	 *  result set, the same as `row_count`, as on [`QueryResult`].
+	 */
+	rows_affected: number,
+	execution_time_ms: number,
+	warnings: string[],
+	/**
+	 *  Why rows were withheld, when they were. A result is truncated exactly
+	 *  when this is set, so there is no separate flag to disagree with it.
+	 */
+	truncation_reason?: TruncationReason | null,
+	/**
+	 *  As on [`QueryResult`]: the session's transaction state after the run,
+	 *  on the last handle of a run on an editor tab's session only.
+	 */
+	transaction?: TransactionState | null,
+};
+
+/**
+ *  What a run that writes to the result store returns for one statement, in
+ *  place of a [`QueryResult`]: everything but the rows, which stay in the
+ *  store and are read a window at a time (`docs/design/RESULT_STORE.md`).
+ */
+export type ResultHandle_Serialize = {
+	/**
+	 *  What `result_window`, `result_cell` and `result_release` take.
+	 * 
+	 *  Always set and always unique, so it also names the result in the UI.
+	 *  The store holds rows under it only when `row_count` is above zero: a
+	 *  statement that reported a count, and a result set with no rows, write
+	 *  nothing, and the store does not know their id.
+	 */
+	result_id: string,
+	statement_index: number,
+	/**  The statement this result came from, as on [`QueryResult`]. */
+	sql: string,
+	/**
+	 *  Empty for a statement that reported a count, and for a result set
+	 *  with no rows at all (the columns are read from the first row).
+	 */
+	columns: ColumnMeta[],
+	/**  Rows in the store for this result. */
+	row_count: number,
+	/**
+	 *  What the server reported for a statement that changed rows. For a
+	 *  result set, the same as `row_count`, as on [`QueryResult`].
+	 */
+	rows_affected: number,
+	execution_time_ms: number,
+	warnings: string[],
+	/**
+	 *  Why rows were withheld, when they were. A result is truncated exactly
+	 *  when this is set, so there is no separate flag to disagree with it.
+	 */
+	truncation_reason?: TruncationReason | null,
+	/**
+	 *  As on [`QueryResult`]: the session's transaction state after the run,
+	 *  on the last handle of a run on an editor tab's session only.
+	 */
+	transaction?: TransactionState | null,
+};
+
+/**  A window of a result. */
+export type ResultWindow = ResultWindow_Serialize | ResultWindow_Deserialize;
+
+/**  A window of a result. */
+export type ResultWindow_Deserialize = {
+	/**
+	 *  The identity of each returned row: its 1-based position in the result
+	 *  as the server returned it. Sorting and filtering do not change it.
+	 */
+	row_ids: number[],
+	rows: Cell_Deserialize[][],
+	/**  Rows that pass the filters, before `offset` and `count` are applied. */
+	matching_rows: number,
+};
+
+/**  A window of a result. */
+export type ResultWindow_Serialize = {
+	/**
+	 *  The identity of each returned row: its 1-based position in the result
+	 *  as the server returned it. Sorting and filtering do not change it.
+	 */
+	row_ids: number[],
+	rows: Cell_Serialize[][],
+	/**  Rows that pass the filters, before `offset` and `count` are applied. */
+	matching_rows: number,
 };
 
 export type RoutineInfo = {
@@ -1676,6 +1892,13 @@ export type SetupTarget = "claude-code" | "copilot" |
  */
 "other";
 
+/**  One key of a sort: a column and a direction. */
+export type SortKey = {
+	/**  Zero-based position of the column in the result. */
+	column: number,
+	descending: boolean,
+};
+
 export type SqlValue = "Null" | boolean | number | number | null | string | number[];
 
 export type SqliteColumnInfo = {
@@ -1775,7 +1998,7 @@ export type StartedSession = {
 export type StartupProblem = {
 	/**
 	 *  Which part of startup: `data-directory`, `connection-store`,
-	 *  `history-store`.
+	 *  `history-store`, `result-store`.
 	 */
 	kind: string,
 	/**  What the user loses by it, in their terms. */
@@ -1834,12 +2057,24 @@ export type TruncationReason =
  *  fetch stopped early. A larger LIMIT cannot help; a narrower projection
  *  or a WHERE clause can.
  */
-"memory_guard";
+"memory_guard" | 
+/**
+ *  The result store reached its size budget, so the rest of the result
+ *  was not kept. Only a run that writes to the store reports it.
+ *  Releasing other results, or a narrower query, makes room; a larger
+ *  LIMIT cannot.
+ */
+"store_full";
 
 export type ViewInfo = {
 	name: string,
 	is_updatable: boolean,
 };
+
+/**  A value read from the result store, in the shape it has on the wire. */
+export type WireValue = null | boolean | number | string | 
+/**  Binary, base64-encoded (standard alphabet, padded). */
+{ bytes: string };
 
 /* Tauri Specta runtime */
 async function typedError<T, E>(result: Promise<T>): Promise<{ status: "ok"; data: T } | { status: "error"; error: E }> {

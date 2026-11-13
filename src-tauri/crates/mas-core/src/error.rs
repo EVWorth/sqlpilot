@@ -1,4 +1,4 @@
-use crate::models::query::QueryResult;
+use crate::models::query::{QueryResult, ResultHandle};
 use crate::query::TransactionState;
 use thiserror::Error;
 
@@ -43,6 +43,12 @@ pub enum CoreError {
     #[error("Out of memory: {0}")]
     OutOfMemory(String),
 
+    /// The result store reached its size budget, so a batch of rows was not
+    /// written. Its own variant because the caller does not fail on it: it
+    /// stops reading rows and reports the result as truncated.
+    #[error("Result store is full: {0}")]
+    ResultStoreFull(String),
+
     /// Another error, tagged with which statement of a batch raised it.
     ///
     /// A wrapper rather than a field on every variant: only the multi-statement
@@ -56,8 +62,9 @@ pub enum CoreError {
         /// What the statements before this one returned, in order, so a
         /// script's earlier results are not lost with its error (#845).
         /// Empty when the first statement failed, and from callers that do
-        /// not collect results.
-        completed: Vec<QueryResult>,
+        /// not collect results. Whole results from a run that returns them,
+        /// handles from a run that writes to the result store.
+        completed: Completed,
         /// Whether the editor session the run failed on is still inside a
         /// transaction, asked of the server after the failure (#917). `None`
         /// off a session, and when the server could not say.
@@ -75,6 +82,32 @@ pub enum CoreError {
 
     #[error(transparent)]
     Other(#[from] anyhow::Error),
+}
+
+/// What the statements before a failing one returned.
+///
+/// One or the other, never both: a run either returns its rows or writes
+/// them to the result store.
+#[derive(Debug)]
+pub enum Completed {
+    Results(Vec<QueryResult>),
+    /// The rows of these are still in the store. Whoever receives the error
+    /// owns them, as it would the handles of a run that succeeded.
+    Handles(Vec<ResultHandle>),
+}
+
+impl Completed {
+    /// Nothing completed, for callers that do not collect results.
+    pub fn none() -> Self {
+        Completed::Results(Vec::new())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        match self {
+            Completed::Results(results) => results.is_empty(),
+            Completed::Handles(handles) => handles.is_empty(),
+        }
+    }
 }
 
 impl CoreError {
@@ -134,6 +167,17 @@ pub struct QueryError {
     /// left out of the payload.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_results: Option<Vec<QueryResult>>,
+    /// The same for a run that writes to the result store (`run_query`): the
+    /// handles of the results that completed before the failure. Their rows
+    /// are in the store, and the caller releases them like any other.
+    ///
+    /// Present whenever any result completed, including the rare failure at
+    /// the first statement after it had already produced one (a procedure
+    /// that returns a result set and then fails): a handle left out would be
+    /// rows nobody could release. `None` otherwise, and from `execute_query`,
+    /// and then left out of the payload.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_handles: Option<Vec<ResultHandle>>,
     /// Whether the editor session the run failed on is still inside a
     /// transaction, read from the server after the failure (#917).
     ///
@@ -162,8 +206,14 @@ impl QueryError {
         } = err
         {
             let mut reported = Self::from_core(source).at_statement(*index);
-            if *index > 0 && !completed.is_empty() {
-                reported.completed_results = Some(completed.clone());
+            match completed {
+                Completed::Results(results) if *index > 0 && !results.is_empty() => {
+                    reported.completed_results = Some(results.clone());
+                }
+                Completed::Handles(handles) if !handles.is_empty() => {
+                    reported.completed_handles = Some(handles.clone());
+                }
+                _ => {}
             }
             reported.transaction = *transaction;
             return reported;
@@ -185,6 +235,7 @@ impl QueryError {
                     sql_state,
                     statement_index: None,
                     completed_results: None,
+                    completed_handles: None,
                     transaction: None,
                 }
             }
@@ -195,6 +246,7 @@ impl QueryError {
                 sql_state: None,
                 statement_index: None,
                 completed_results: None,
+                completed_handles: None,
                 transaction: None,
             },
         }
@@ -213,6 +265,7 @@ impl QueryError {
                 code: Some(e.extended_code.unsigned_abs()),
                 sql_state: None,
                 completed_results: None,
+                completed_handles: None,
                 transaction: None,
             },
             _ => Self {
@@ -221,6 +274,7 @@ impl QueryError {
                 sql_state: None,
                 statement_index: None,
                 completed_results: None,
+                completed_handles: None,
                 transaction: None,
             },
         }
@@ -294,7 +348,7 @@ mod tests {
         CoreError::AtStatement {
             index,
             source: Box::new(CoreError::Query("boom".into())),
-            completed,
+            completed: Completed::Results(completed),
             transaction: None,
         }
     }
@@ -341,12 +395,78 @@ mod tests {
         );
     }
 
+    fn handle(index: usize, sql: &str) -> ResultHandle {
+        ResultHandle {
+            result_id: format!("r{index}"),
+            statement_index: index,
+            sql: sql.to_string(),
+            columns: vec![],
+            row_count: 3,
+            rows_affected: 3,
+            execution_time_ms: 0,
+            warnings: vec![],
+            truncation_reason: None,
+            transaction: None,
+        }
+    }
+
+    fn failed_with_handles(index: usize, handles: Vec<ResultHandle>) -> CoreError {
+        CoreError::AtStatement {
+            index,
+            source: Box::new(CoreError::Query("boom".into())),
+            completed: Completed::Handles(handles),
+            transaction: None,
+        }
+    }
+
+    #[test]
+    fn a_failed_store_run_carries_handles_and_no_results() {
+        let reported = QueryError::from_core(&failed_with_handles(2, vec![handle(0, "SELECT 1")]));
+        assert!(reported.completed_results.is_none());
+        let json = serde_json::to_value(&reported).expect("serialises");
+        assert_eq!(json["statementIndex"], 2);
+        assert_eq!(json["completedHandles"][0]["result_id"], "r0");
+        assert_eq!(json["completedHandles"][0]["row_count"], 3);
+        assert!(json.get("completedResults").is_none(), "{json}");
+    }
+
+    #[test]
+    fn handles_are_reported_even_when_the_first_statement_failed() {
+        // A procedure that returned a result set and then failed: statement
+        // 0 failed with a result already in the store. Leaving its handle
+        // out would leave rows nobody could release.
+        let reported = QueryError::from_core(&failed_with_handles(0, vec![handle(0, "CALL p()")]));
+        assert_eq!(reported.completed_handles.map(|h| h.len()), Some(1));
+    }
+
+    #[test]
+    fn completed_handles_are_omitted_when_there_are_none() {
+        for err in [
+            failed_with_handles(1, vec![]),
+            failed_at(1, vec![count_result(0, "SELECT 1")]),
+            CoreError::Query("boom".into()),
+        ] {
+            let json = serde_json::to_value(QueryError::from_core(&err)).expect("serialises");
+            assert!(json.get("completedHandles").is_none(), "{json}");
+        }
+    }
+
+    #[test]
+    fn store_full_serialises_as_the_frontend_reads_it() {
+        let mut handle = handle(0, "SELECT 1");
+        let json = serde_json::to_value(&handle).expect("serialises");
+        assert!(json.get("truncation_reason").is_none(), "{json}");
+        handle.truncation_reason = Some(crate::models::TruncationReason::StoreFull);
+        let json = serde_json::to_value(&handle).expect("serialises");
+        assert_eq!(json["truncation_reason"], "store_full");
+    }
+
     #[test]
     fn a_failure_on_a_session_carries_its_transaction_state() {
         let err = CoreError::AtStatement {
             index: 1,
             source: Box::new(CoreError::Query("boom".into())),
-            completed: vec![count_result(0, "BEGIN")],
+            completed: Completed::Results(vec![count_result(0, "BEGIN")]),
             transaction: Some(TransactionState::Open),
         };
         let reported = QueryError::from_core(&err);
@@ -369,7 +489,7 @@ mod tests {
         let err = CoreError::AtStatement {
             index: 2,
             source: Box::new(CoreError::Timeout("took too long".into())),
-            completed: vec![],
+            completed: Completed::none(),
             transaction: None,
         };
         assert!(matches!(err.root(), CoreError::Timeout(_)));

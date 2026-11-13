@@ -52,6 +52,18 @@ describe("?fail= error injection", () => {
     });
   });
 
+  it("fails run_query as it fails execute_query, and the result store's reads with a string", async () => {
+    const id = await connected("?mock=connected&fail=run_query,result_*");
+    expect(await rejection("run_query", { connectionId: id, sql: "SELECT 1" })).toEqual({
+      message: "Lost connection to MySQL server during query",
+      code: 2013,
+      sqlState: "HY000",
+      statementIndex: 0,
+    });
+    expect(await rejection("result_window", { resultId: "result-1", offset: 0, count: 10, sort: [], filters: [] }))
+      .toBe("Storage error: database is locked");
+  });
+
   it("matches by prefix with a trailing *", async () => {
     const id = await connected("?mock=connected&fail=get_*");
     expect(await rejection("get_columns", tableArgs(id))).toMatch(/^Schema error: /);

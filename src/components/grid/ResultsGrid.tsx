@@ -1,4 +1,4 @@
-import { type SortingState, useTable } from "@tanstack/react-table";
+import { useTable } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useColumnFilters } from "../../hooks/useColumnFilters";
@@ -14,12 +14,14 @@ import { useGridShortcuts } from "../../hooks/useGridShortcuts";
 import { useRowCount } from "../../hooks/useRowCount";
 import { useRowKey } from "../../hooks/useRowKey";
 import { useRowSelection } from "../../hooks/useRowSelection";
+import { measureContent, useContentWidths, useRowSource } from "../../hooks/useRowSource";
+import { useWholeCells } from "../../hooks/useWholeCells";
 import { gridFeatures } from "../../lib/grid-features";
 import { recallGrid, useKeepGridOnUnmount } from "../../lib/grid-memory";
+import { type GridSort, toggleSort } from "../../lib/grid-sort";
 import { columnTypesOf } from "../../lib/sql-generator";
 import { isNumericSqlType } from "../../lib/sql-types";
 import { useResultStore } from "../../stores/resultStore";
-import type { SqlValue } from "../../types";
 import { CellViewerModal } from "./CellViewerModal";
 import { EditToolbar } from "./EditToolbar";
 import { GridBanners } from "./GridBanners";
@@ -29,6 +31,9 @@ import { GridHeaderRow } from "./GridHeaderRow";
 import { GridPlaceholder, QueryErrorBox } from "./GridPlaceholder";
 import { TableGridRows, VirtualGridRows } from "./GridRows";
 import { ResultTabs } from "./ResultTabs";
+
+/** TanStack is given the columns only; this is its (stable) row list. */
+const NO_ROWS: Record<string, unknown>[] = [];
 
 function ExportToast({ message }: { message: string }) {
   return (
@@ -58,7 +63,7 @@ export function ResultsGrid() {
   // must not carry them over to its rows, or its table (#869).
   const editOwner = results[activeResultIndex] ?? results;
   const memory = useMemo(() => (memoryTab ? { tab: memoryTab, owner: editOwner } : null), [memoryTab, editOwner]);
-  const [sorting, setSorting] = useState<SortingState>(() => recallGrid(memory, "sorting") ?? []);
+  const [sorting, setSorting] = useState<GridSort>(() => recallGrid(memory, "sorting") ?? []);
   const [columnSizing, setColumnSizing] = useState<Record<string, number>>(
     () => recallGrid(memory, "columnSizing") ?? {},
   );
@@ -127,11 +132,12 @@ export function ResultsGrid() {
   const filters = useColumnFilters(layoutId);
   const columnFilters = filters.active;
 
-  const { selection, clickRow, step, clear: clearSelection } = useRowSelection(
-    activeResult?.rows.length ?? 0,
-    layoutId,
-    gridRef,
-  );
+  // The rows. Everything below reads them through the source, which sorts and
+  // filters them and may not hold them all (docs/design/RESULT_STORE.md).
+  const { source, view } = useRowSource(activeResult, sorting, columnFilters);
+  const { viewCount } = view;
+
+  const { selection, clickRow, step, clear: clearSelection } = useRowSelection(source, layoutId, gridRef);
 
   const rowCount = useRowCount(
     gridConnectionId,
@@ -203,82 +209,55 @@ export function ResultsGrid() {
     if (droppedEdits) showToast(`Discarded ${droppedEdits.count} unsaved change(s): the results changed`);
   }, [droppedEdits, showToast]);
 
-  const maxContentLen = useMemo<Record<string, number>>(() => {
-    if (!activeResult) return {};
-    const lens: Record<string, number> = {};
-    activeResult.columns.forEach((col) => {
-      lens[col.name] = col.name.length;
-    });
-    activeResult.rows.forEach((row) => {
-      row.forEach((val, idx) => {
-        const colName = activeResult.columns[idx]?.name;
-        if (!colName) return;
-        const len = String(val ?? "").length;
-        if (len > lens[colName]) lens[colName] = len;
-      });
-    });
-    return lens;
-  }, [activeResult]);
+  // From a sample of the rows the source has, so sizing the columns can
+  // never make it load the whole result.
+  const maxContentLen = useContentWidths(source, view.revision);
 
   const columns = useGridColumns({ result: activeResult, maxContentLen });
 
-  const data = useMemo(() => {
-    if (!activeResult) return [];
-    return activeResult.rows.map((row) => {
-      const obj: Record<string, SqlValue> = {};
-      activeResult.columns.forEach((col, idx) => {
-        obj[col.name] = row[idx];
-      });
-      return obj;
-    });
-  }, [activeResult]);
-
+  // TanStack keeps the columns: widths, resizing and order. It is given no
+  // rows; those are the source's.
   const table = useTable({
     features: gridFeatures,
-    data,
+    data: NO_ROWS,
     columns,
-    state: { sorting, columnSizing, columnOrder, columnFilters },
-    onSortingChange: setSorting,
+    state: { columnSizing, columnOrder },
     onColumnSizingChange: setColumnSizing,
     onColumnOrderChange: layout.setColumnOrder,
-    // The grid owns the filter state so the menus can edit it directly; this
-    // feeds TanStack the derived form it filters with.
-    // The menus own the filter state so they can edit operator and operand
-    // together; this hands TanStack the derived list it filters with.
-    onColumnFiltersChange: () => {},
     enableColumnResizing: true,
     columnResizeMode: "onChange",
-    // FR-3.1.2. Shift adds a sort key rather than replacing one, so
-    // "department, then hire_date" is expressible; without it only the last
-    // click counted (#392).
-    enableMultiSort: true,
-    isMultiSortEvent: (e) => Boolean((e as MouseEvent).shiftKey),
-    // FR-3.1.2 says ASC then DESC. TanStack infers descending-first for
-    // numeric columns, so clicking `id` and clicking `name` sorted opposite
-    // ways for no reason the user could see.
-    sortDescFirst: false,
   });
+  const headers = table.getFlatHeaders();
+  const columnSizes: Record<string, number> = {};
+  for (const header of headers) columnSizes[header.column.id] = header.getSize();
 
-  /**
-   * Result indices in the order the rows are on screen, read when needed:
-   * Tab, a copy and a Shift range all follow what the user sees, which after
-   * a sort or filter is not the result's order (#839, #858).
-   */
-  const getScreenOrder = useCallback(() => table.getRowModel().rows.map((r) => r.index), [table]);
+  // FR-3.1.2: ASC then DESC, for every column type, and Shift adds a sort key
+  // rather than replacing one, so "department, then hire_date" is expressible
+  // (#392).
+  const sortColumn = useCallback((columnId: string, multi: boolean) => {
+    setSorting((prev) => toggleSort(prev, columnId, multi));
+  }, []);
 
-  const { setCellNull } = useGridShortcuts({ result: activeResult, editing, editingCell });
+  const { setCellNull } = useGridShortcuts({
+    result: activeResult,
+    source,
+    editing,
+    editingCell,
+    onMessage: showToast,
+  });
 
   const { copyAll, copyAs, exportAs } = useGridExport({
     result: activeResult,
+    source,
     orderedColumns,
     selection,
     rowKey,
-    getScreenOrder,
     onMessage: showToast,
   });
 
   const handleRowContextMenu = useGridContextMenu({
     result: activeResult,
+    source,
     orderedColumns,
     selection,
     editing,
@@ -289,12 +268,21 @@ export function ResultsGrid() {
 
   const { isSaving, save } = useGridSave({
     result: activeResult,
+    source,
     editing,
     rowKey,
     keyWarning,
     columnTypes,
     onMessage: showToast,
   });
+
+  // A cell cut short is edited from its whole value, fetched when the edit
+  // starts. If it cannot be had, neither can the edit.
+  const wholeCellFailed = useCallback((_row: number, colIndex: number, e: unknown) => {
+    showToast(`Could not load ${source.columns[colIndex]?.name ?? "the value"}: ${String(e)}`);
+    stopEditing();
+  }, [source, showToast, stopEditing]);
+  const wholeCells = useWholeCells(source, wholeCellFailed);
 
   // What the cells need that changes from render to render. Handed down by
   // context rather than captured in the column definitions, so the cells keep
@@ -304,37 +292,42 @@ export function ResultsGrid() {
       activeResult
         ? {
           result: activeResult,
+          source,
           editing,
           editingCell,
           onEditCellAt: editCellAt,
           onStopEditing: stopEditing,
           onViewCell: setCellViewer,
-          getScreenOrder,
           columnOrder: orderedColumns,
+          wholeCell: wholeCells.get,
+          onLoadWholeCell: wholeCells.load,
+          onMessage: showToast,
         }
         : null,
-    [activeResult, editing, editingCell, editCellAt, stopEditing, getScreenOrder, orderedColumns],
+    [activeResult, source, editing, editingCell, editCellAt, stopEditing, orderedColumns, wholeCells, showToast],
   );
 
-  /** Widen a column to fit its widest value, capped so one JSON blob cannot own the grid. */
+  /**
+   * Widen a column to fit its widest value, capped so one JSON blob cannot own
+   * the grid. Judged from the rows the source has at the top of the view, as
+   * the initial widths are, rather than from every row.
+   */
   const autoSizeColumn = useCallback((colName: string) => {
-    let maxLen = colName.length;
-    for (const row of data) {
-      const len = String(row[colName] ?? "").length;
-      if (len > maxLen) maxLen = len;
-    }
+    const maxLen = measureContent(source)[colName] ?? colName.length;
     table.setColumnSizing((prev) => ({
       ...prev,
       [colName]: Math.max(80, Math.min(600, Math.min(maxLen, 50) * 9 + 40)),
     }));
-  }, [data, table]);
-
-  const sortedColumnCount = sorting.length;
+  }, [source, table]);
 
   // Row virtualization: only render visible rows to avoid DOM bloat
   const ROW_HEIGHT = 32; // px per row
-  const totalRows = data.length + (editing.editMode ? editing.inserts.length : 0);
-  const shouldVirtualize = totalRows > 5000;
+  const insertCount = editing.editMode ? editing.inserts.length : 0;
+  const totalRows = viewCount + insertCount;
+  // By the result's size, not the view's: a filter that narrows a large
+  // result must not swap the layout, and the header with the open filter
+  // menu in it, from under the user.
+  const shouldVirtualize = source.rowCount + insertCount > 5000;
 
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 
@@ -346,13 +339,24 @@ export function ResultsGrid() {
     overscan: 5,
   });
 
+  // Tell the source which rows are on screen, so one that loads on demand
+  // loads those. The table layout draws every row of the view.
+  const virtualItems = shouldVirtualize ? rowVirtualizer.getVirtualItems() : null;
+  const visibleStart = virtualItems ? virtualItems[0]?.index ?? 0 : 0;
+  const visibleEnd = virtualItems
+    ? Math.min(viewCount, (virtualItems[virtualItems.length - 1]?.index ?? -1) + 1)
+    : viewCount;
+  useEffect(() => {
+    source.setVisibleRange(visibleStart, Math.max(visibleStart, visibleEnd));
+  }, [source, visibleStart, visibleEnd, view.revision]);
+
   const keyboard = useGridKeyboard({
     result: activeResult,
+    source,
     orderedColumns,
     selection,
     step,
     clearSelection,
-    getScreenOrder,
     editing,
     editingCell,
     onEditCellAt: editCellAt,
@@ -372,13 +376,13 @@ export function ResultsGrid() {
     : null;
 
   /**
-   * A row click, with the on-screen order so Shift ranges follow the sort
-   * (#839). It also focuses the cell clicked, for the arrow keys (#852).
+   * A row click. A Shift range follows the rows as they are on screen (#839).
+   * It also focuses the cell clicked, for the arrow keys (#852).
    */
   const clickGridRow = useCallback((e: React.MouseEvent, dataIdx: number) => {
-    clickRow(e, dataIdx, getScreenOrder());
+    clickRow(e, dataIdx);
     focusFromClick(e, dataIdx);
-  }, [clickRow, getScreenOrder, focusFromClick]);
+  }, [clickRow, focusFromClick]);
 
   // Every result of a script stays reachable, whether or not the one shown
   // has a grid (#844). Not while running: the results are the last run's.
@@ -450,7 +454,7 @@ export function ResultsGrid() {
       />
 
       <GridBanners
-        rowsShown={activeResult.rows.length}
+        rowsShown={source.rowCount}
         truncated={Boolean(activeResult.rows_truncated)}
         truncationReason={activeResult.truncation_reason}
         warnings={activeResult.warnings}
@@ -477,9 +481,10 @@ export function ResultsGrid() {
                     #
                   </div>
                   <GridHeaderRow
-                    headers={table.getFlatHeaders()}
+                    headers={headers}
                     as="div"
-                    sortedColumnCount={sortedColumnCount}
+                    sort={sorting}
+                    onSort={sortColumn}
                     columnTypes={columnTypes}
                     numericColumns={numericColumns}
                     maxContentLen={maxContentLen}
@@ -491,8 +496,9 @@ export function ResultsGrid() {
                   />
                 </div>
                 <VirtualGridRows
-                  table={table}
-                  data={data}
+                  source={source}
+                  viewCount={viewCount}
+                  columnSizes={columnSizes}
                   editing={editing}
                   editingCell={editingCell}
                   selection={selection}
@@ -521,9 +527,10 @@ export function ResultsGrid() {
                       #
                     </th>
                     <GridHeaderRow
-                      headers={table.getFlatHeaders()}
+                      headers={headers}
                       as="th"
-                      sortedColumnCount={sortedColumnCount}
+                      sort={sorting}
+                      onSort={sortColumn}
                       columnTypes={columnTypes}
                       numericColumns={numericColumns}
                       maxContentLen={maxContentLen}
@@ -537,8 +544,9 @@ export function ResultsGrid() {
                 </thead>
                 <tbody>
                   <TableGridRows
-                    table={table}
-                    data={data}
+                    source={source}
+                    viewCount={viewCount}
+                    columnSizes={columnSizes}
                     editing={editing}
                     editingCell={editingCell}
                     selection={selection}
@@ -559,8 +567,8 @@ export function ResultsGrid() {
       </GridCellContext.Provider>
 
       <GridFooter
-        rowsShown={activeResult.rows.length}
-        rowsAfterFilter={table.getRowModel().rows.length}
+        rowsShown={source.rowCount}
+        rowsAfterFilter={viewCount}
         executionTimeMs={activeResult.execution_time_ms}
         page={page}
         isExecuting={isExecuting}

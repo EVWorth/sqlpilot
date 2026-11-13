@@ -112,8 +112,8 @@ const result = {
 } as unknown as QueryResult;
 
 describe("resultAnswer", () => {
-  it("reports what ran, its shape and its timing", () => {
-    const answer = resultAnswer([result], 0, "live-1", connections);
+  it("reports what ran, its shape and its timing", async () => {
+    const answer = await resultAnswer([result], 0, "live-1", connections);
     expect(answer?.sql).toBe("SELECT id, blob FROM orders");
     expect(answer?.columns).toEqual(["id", "blob"]);
     expect(answer?.rowCount).toBe(2);
@@ -121,34 +121,34 @@ describe("resultAnswer", () => {
     expect(answer?.truncated).toBe(true);
   });
 
-  it("carries the connection, so a posture can be applied to the rows", () => {
+  it("carries the connection, so a posture can be applied to the rows", async () => {
     // Without it the policy has nothing to look up, and the rows would either
     // leak or be withheld from every connection alike.
-    expect(resultAnswer([result], 0, "live-1", connections)?.connection).toBe("p1");
+    expect((await resultAnswer([result], 0, "live-1", connections))?.connection).toBe("p1");
   });
 
-  it("sends rows and leaves the policy to decide about them", () => {
+  it("sends rows and leaves the policy to decide about them", async () => {
     // Deliberately not filtered here: one rule, in one place.
-    expect(resultAnswer([result], 0, "live-1", connections)?.rows[0][0]).toBe(1);
+    expect((await resultAnswer([result], 0, "live-1", connections))?.rows[0][0]).toBe(1);
   });
 
-  it("reports binary as its size rather than as a list of bytes", () => {
+  it("reports binary as its size rather than as a list of bytes", async () => {
     // A 2 MB BLOB as a JSON array of numbers is unreadable and enormous.
-    expect(resultAnswer([result], 0, "live-1", connections)?.rows[0][1]).toBe("<3 bytes>");
+    expect((await resultAnswer([result], 0, "live-1", connections))?.rows[0][1]).toBe("<3 bytes>");
   });
 
-  it("keeps null as null", () => {
+  it("keeps null as null", async () => {
     // `WHERE x = 'NULL'` is the bug this prevents.
-    expect(resultAnswer([result], 0, "live-1", connections)?.rows[1][1]).toBeNull();
+    expect((await resultAnswer([result], 0, "live-1", connections))?.rows[1][1]).toBeNull();
   });
 
-  it("has no answer when nothing has been run", () => {
-    expect(resultAnswer([], 0, "live-1", connections)).toBeNull();
+  it("has no answer when nothing has been run", async () => {
+    expect(await resultAnswer([], 0, "live-1", connections)).toBeNull();
   });
 
-  it("answers about the result the user is looking at", () => {
+  it("answers about the result the user is looking at", async () => {
     const second = { ...result, sql: "SELECT 2" } as QueryResult;
-    expect(resultAnswer([result, second], 1, "live-1", connections)?.sql).toBe("SELECT 2");
+    expect((await resultAnswer([result, second], 1, "live-1", connections))?.sql).toBe("SELECT 2");
   });
 });
 

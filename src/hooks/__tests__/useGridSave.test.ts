@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createArraySource } from "../../lib/row-source";
 import { runGridEdits, runStatement } from "../../lib/run-statement";
 import type { ResultSource } from "../../stores/resultStore";
 import type { QueryResult } from "../../types";
@@ -56,6 +57,7 @@ function renderSave(onMessage = vi.fn()) {
   const { result: hook } = renderHook(() =>
     useGridSave({
       result,
+      source: createArraySource(result),
       editing: editing as never,
       rowKey: {
         state: { status: "ready", table: "users", columns: ["id"], source: "primary" },

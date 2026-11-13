@@ -56,9 +56,10 @@ The update chip appears after the automatic check; click it to download.
 
 `fail=` takes the Rust command names from `src/lib/bindings.ts`
 (`get_foreign_keys`, `save_connection_profile`) or a plugin command
-(`plugin:updater|check`). `execute_query`, `apply_grid_edits` and
-`sqlite_execute` reject with a `QueryError`; every other command rejects with
-the string its `CoreError` renders as. The console names each injected failure.
+(`plugin:updater|check`). `execute_query`, `run_query`, `apply_grid_edits`
+and `sqlite_execute` reject with a `QueryError`; every other command rejects
+with the string its `CoreError` renders as. The console names each injected
+failure.
 
 ## Built-in behaviour
 

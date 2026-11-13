@@ -144,7 +144,8 @@ describe("after a sort, the row acted on is the row clicked (#839)", () => {
     rightClick(bodyRows()[1], 2);
     fireEvent.click(menuItem(/^Copy Cell$/));
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("bob");
+    // The value is read from the row source, which answers with a promise.
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("bob"));
   });
 
   it("deletes the clicked row, not the one at its old position", async () => {
@@ -174,8 +175,10 @@ describe("after a sort, the row acted on is the row clicked (#839)", () => {
     fireEvent.click(bodyRows()[0]);
     fireEvent.click(bodyRows()[1], { shiftKey: true });
 
-    const selected = bodyRows().map((tr) => tr.getAttribute("aria-selected"));
-    expect(selected).toEqual(["true", "true", "false"]);
+    // The range is the row source's to say, so it lands a moment later.
+    await waitFor(() =>
+      expect(bodyRows().map((tr) => tr.getAttribute("aria-selected"))).toEqual(["true", "true", "false"])
+    );
   });
 });
 
@@ -256,7 +259,7 @@ describe("a sorted grid acts in screen order (#858)", () => {
     fireEvent.keyDown(screen.getByDisplayValue("bob"), { key: "Tab" });
 
     // The editor opens on the first column of "cy": id 1.
-    expect(screen.getByDisplayValue("1")).toBeDefined();
+    expect(await screen.findByDisplayValue("1")).toBeDefined();
   });
 
   it("copies selected rows in the order they appear", async () => {
@@ -266,6 +269,7 @@ describe("a sorted grid acts in screen order (#858)", () => {
     // Select all three on screen: ada (2), bob (3), cy (1).
     fireEvent.click(bodyRows()[0]);
     fireEvent.click(bodyRows()[2], { shiftKey: true });
+    await waitFor(() => expect(bodyRows()[2].getAttribute("aria-selected")).toBe("true"));
     rightClick(bodyRows()[0]);
     fireEvent.click(menuItem(/^Copy 3 rows as Tab-separated$/));
 
@@ -274,7 +278,7 @@ describe("a sorted grid acts in screen order (#858)", () => {
     expect(text.split("\n").slice(1)).toEqual(["2\tada", "3\tbob", "1\tcy"]);
   });
 
-  it("reads the clicked column in the virtualized layout", () => {
+  it("reads the clicked column in the virtualized layout", async () => {
     const big = makeResult();
     big.rows = Array.from({ length: 5001 }, (_, i) => [i + 1, `n${i + 1}`]);
     resultState.results = [big];
@@ -284,7 +288,7 @@ describe("a sorted grid acts in screen order (#858)", () => {
     fireEvent.contextMenu(screen.getByText("n1"));
     fireEvent.click(menuItem(/^Copy Cell$/));
 
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("n1");
+    await waitFor(() => expect(navigator.clipboard.writeText).toHaveBeenCalledWith("n1"));
   });
 });
 
@@ -310,14 +314,14 @@ describe("the grid from the keyboard (#852)", () => {
     await sortByName();
 
     fireEvent.keyDown(grid(), { key: "ArrowDown" });
-    expect(selectedNames()).toEqual(["ada"]);
+    await waitFor(() => expect(selectedNames()).toEqual(["ada"]));
     fireEvent.keyDown(grid(), { key: "ArrowDown", shiftKey: true });
-    expect(selectedNames()).toEqual(["ada", "bob"]);
+    await waitFor(() => expect(selectedNames()).toEqual(["ada", "bob"]));
     // End stays in the row; Ctrl+End goes to the last row (#852).
     fireEvent.keyDown(grid(), { key: "End" });
-    expect(selectedNames()).toEqual(["ada", "bob"]);
+    await waitFor(() => expect(selectedNames()).toEqual(["ada", "bob"]));
     fireEvent.keyDown(grid(), { key: "End", ctrlKey: true });
-    expect(selectedNames()).toEqual(["cy"]);
+    await waitFor(() => expect(selectedNames()).toEqual(["cy"]));
   });
 
   it("copies the selected rows as TSV on Ctrl+C", async () => {
@@ -325,6 +329,7 @@ describe("the grid from the keyboard (#852)", () => {
     await sortByName();
     fireEvent.click(bodyRows()[0]);
     fireEvent.click(bodyRows()[1], { shiftKey: true });
+    await waitFor(() => expect(selectedNames()).toEqual(["ada", "bob"]));
 
     fireEvent.keyDown(grid(), { key: "c", ctrlKey: true });
 
@@ -356,17 +361,17 @@ describe("the focused cell (#852)", () => {
     await sortByName();
 
     key("ArrowDown");
-    expect(focused()).toEqual(["ada", "id"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "id"]));
     key("ArrowRight");
-    expect(focused()).toEqual(["ada", "name"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "name"]));
     key("ArrowRight");
-    expect(focused()).toEqual(["ada", "name"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "name"]));
     key("Home");
-    expect(focused()).toEqual(["ada", "id"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "id"]));
     key("ArrowLeft");
-    expect(focused()).toEqual(["ada", "id"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "id"]));
     key("End");
-    expect(focused()).toEqual(["ada", "name"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "name"]));
   });
 
   it("keeps its column as Up and Down move the row, in screen order", async () => {
@@ -374,11 +379,11 @@ describe("the focused cell (#852)", () => {
     await sortByName();
 
     fireEvent.click(screen.getByText("ada"));
-    expect(focused()).toEqual(["ada", "name"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "name"]));
     key("ArrowDown");
-    expect(focused()).toEqual(["bob", "name"]);
+    await waitFor(() => expect(focused()).toEqual(["bob", "name"]));
     key("ArrowUp");
-    expect(focused()).toEqual(["ada", "name"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "name"]));
   });
 
   it("goes to the corners with Ctrl+Home and Ctrl+End", async () => {
@@ -387,9 +392,9 @@ describe("the focused cell (#852)", () => {
     fireEvent.click(screen.getByText("bob"));
 
     key("End", { ctrlKey: true });
-    expect(focused()).toEqual(["cy", "name"]);
+    await waitFor(() => expect(focused()).toEqual(["cy", "name"]));
     key("Home", { ctrlKey: true });
-    expect(focused()).toEqual(["ada", "id"]);
+    await waitFor(() => expect(focused()).toEqual(["ada", "id"]));
   });
 
   it("copies the focused cell on Ctrl+C when no row is selected", async () => {

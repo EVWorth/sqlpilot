@@ -36,6 +36,16 @@ export type {
 // building one to *send* should import the _Deserialize form from ../lib/bindings.
 export type { QueryResult_Serialize as QueryResult } from "../lib/bindings";
 
+// Results the backend keeps (docs/design/RESULT_STORE.md): the handle a run
+// returns in place of its rows, and the window of rows read back from it.
+export type {
+  Cell_Serialize as Cell,
+  ResultHandle_Serialize as ResultHandle,
+  ResultWindow_Serialize as ResultWindow,
+  SortKey,
+  WireValue,
+} from "../lib/bindings";
+
 // Connection profiles are read and written in different shapes, because Rust
 // marks password / passphrase #[serde(skip_serializing)]: the backend accepts
 // them but never sends them back.

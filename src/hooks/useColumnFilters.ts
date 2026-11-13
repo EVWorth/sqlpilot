@@ -2,18 +2,18 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { type ColumnFilter, describeFilter, isActiveFilter } from "../lib/grid-filter";
 
 /**
- * The per-column filters, and the shape TanStack wants them in.
+ * The per-column filters, as the menus edit them.
  *
- * Split out of ResultsGrid (#406). The grid owns this state rather than
- * letting TanStack own it, because a filter here is an operator plus an
- * operand and TanStack's value is one opaque thing — the menus need to edit
- * both halves together.
+ * Split out of ResultsGrid (#406). The grid owns this state, because the
+ * menus need to edit an operator and its operand together, half-written
+ * filters included. The ones that would narrow something are handed to the
+ * result's row source, which applies them (`useRowSource`).
  */
 
 export interface ColumnFilters {
   /** By column name, including half-written ones the menus are still editing. */
   filters: Record<string, ColumnFilter>;
-  /** Only the filters that would actually narrow something, for the table. */
+  /** Only the filters that would actually narrow something, for the row source. */
   active: { id: string; value: ColumnFilter }[];
   set: (column: string, filter: ColumnFilter | undefined) => void;
   clear: () => void;
