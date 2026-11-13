@@ -1,6 +1,7 @@
 # Backend-owned results
 
-Status: in progress. The store exists in `mas-core` (`src/results/`); nothing uses it yet. Tracking issue: #967.
+Status: in progress. The store (`mas-core`, `src/results/`), the executor's
+write path and the commands exist; the results grid does not use them yet. Tracking issue: #967.
 
 ## Why
 
@@ -102,7 +103,7 @@ Results of the user's SQLite files (`mas-sqlite`) go through the same store.
 ```rust
 result_window(result_id, offset, count, sort: Vec<SortKey>, filters: Vec<ColumnFilter>)
     -> ResultWindow { rows: Vec<Vec<Cell>>, row_ids: Vec<u64>, matching_rows: u64 }
-result_cell(result_id, row_id, column) -> SqlValue      // the full value
+result_cell(result_id, row_id, column) -> WireValue     // the full value
 result_export(result_id, format, path, sort, filters, row_ids?) -> ExportSummary
 result_release(result_ids)
 ```
@@ -118,6 +119,32 @@ result_release(result_ids)
   cases run against both until the frontend version is deleted.
 - **Export and copy** read from the store. An export is written straight to
   the chosen file; nothing passes through the webview.
+
+## As built
+
+- **`run_query`** takes what `execute_query` takes and returns
+  `Vec<ResultHandle>`. One fetch loop serves both: it writes rows to a sink,
+  which either collects them (the old path) or appends them to the store in
+  batches of 1,000 rows or 4 MiB.
+- **A statement with no rows stores nothing.** Its handle has `row_count` 0
+  and an id the store does not know, so a window is only asked for when
+  `row_count` is above zero.
+- **A failing script** returns the handles of the statements that completed
+  (`completedHandles` on the error), including when the failing statement is
+  the first, so nothing is left that cannot be released.
+- **A full store** cuts that result short with `truncation_reason`
+  `store_full` and the script carries on.
+- **Measured** on MySQL 8, release build, against the baseline above:
+
+  |                             | 100,000 narrow rows | 100 rows of 1 MB BLOB |
+  | --------------------------- | ------------------- | --------------------- |
+  | Backend peak                | 15.8 MB (was 106)   | 86.6 MB (was 461)     |
+  | Sent to the webview         | 0.06 MB (was 14.6)  | 8.4 MB (was 357)      |
+  | Time to store               | 263 ms              | 265 ms                |
+  | A 200-row window, with JSON | 0.2 ms              | 38.9 ms               |
+
+  "Sent to the webview" is the handles plus one window: 200 rows for the
+  narrow case, all 100 rows cut to 64 KiB each for the BLOB case.
 
 ## Lifetime
 

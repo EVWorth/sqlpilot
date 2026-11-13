@@ -20,6 +20,21 @@ describe("truncationMessage", () => {
     expect(msg).not.toContain("Settings");
   });
 
+  it("says the result store is full, and what frees it, when that was the cap", () => {
+    const msg = truncationMessage(52_000, "store_full");
+    expect(msg).toBe(
+      "Results stopped at 52,000 rows — the space SQLPilot keeps results in is full. "
+        + "A larger LIMIT will not help; close other result tabs, or narrow the query with a WHERE clause.",
+    );
+    // Not the memory message: the two caps have different remedies.
+    expect(msg).not.toContain("low on memory");
+  });
+
+  it("falls back to the plain message for a reason it has never heard of", () => {
+    // A newer backend than this frontend; the compiler stops it in-tree.
+    expect(truncationMessage(50, "something_new" as never)).toBe("Results truncated to 50 rows.");
+  });
+
   it("claims nothing about why when the reason is absent", () => {
     // A result from a backend predating truncation_reason, or one built by
     // hand. Better to say less than to guess and be wrong.

@@ -562,6 +562,144 @@ describe("api (Tauri unavailable)", () => {
   });
 });
 
+// Backend-owned results (docs/design/RESULT_STORE.md).
+describe("result store commands", () => {
+  let api: Api;
+
+  beforeAll(async () => {
+    api = await loadWithTauri();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const handle = {
+    result_id: "result-1",
+    statement_index: 0,
+    sql: "SELECT 1",
+    columns: [],
+    row_count: 1,
+    rows_affected: 1,
+    execution_time_ms: 2,
+    warnings: [],
+  };
+
+  it("runQuery calls invoke with all args and returns the handles", async () => {
+    invokeMock.mockResolvedValue([handle]);
+    const result = await api.runQuery("conn-1", "SELECT 1", "mydb", 100, 200, "tab-3");
+    expect(invokeMock).toHaveBeenCalledWith("run_query", {
+      connectionId: "conn-1",
+      sql: "SELECT 1",
+      database: "mydb",
+      limit: 100,
+      offset: 200,
+      session: "tab-3",
+    });
+    expect(result).toEqual([handle]);
+  });
+
+  it("runQuery sends null for the arguments left out", async () => {
+    invokeMock.mockResolvedValue([]);
+    await api.runQuery("conn-1", "SELECT 1");
+    expect(invokeMock).toHaveBeenCalledWith("run_query", {
+      connectionId: "conn-1",
+      sql: "SELECT 1",
+      database: null,
+      limit: null,
+      offset: null,
+      session: null,
+    });
+  });
+
+  it("a failed runQuery carries the handles of the statements that completed", async () => {
+    invokeMock.mockRejectedValue({
+      message: "Table 'shop.nope' doesn't exist",
+      code: 1146,
+      sqlState: "42S02",
+      statementIndex: 1,
+      completedHandles: [handle],
+      transaction: "open",
+    });
+    const error = await api.runQuery("conn-1", "SELECT 1; SELECT * FROM nope").catch((e: unknown) => e);
+    const { CommandError } = await import("../tauri-api");
+    expect(error).toBeInstanceOf(CommandError);
+    expect(error).toMatchObject({
+      message: "Table 'shop.nope' doesn't exist",
+      code: 1146,
+      sqlState: "42S02",
+      statementIndex: 1,
+      completedHandles: [handle],
+      transaction: "open",
+    });
+    // Rows never come back on this path.
+    expect(error.completedResults).toBeUndefined();
+  });
+
+  it("a failed runQuery with nothing completed has no completedHandles", async () => {
+    invokeMock.mockRejectedValue({ message: "nope", code: 1064, sqlState: "42000", statementIndex: 0 });
+    const error = await api.runQuery("conn-1", "SELEC 1").catch((e: unknown) => e);
+    expect(error.completedHandles).toBeUndefined();
+  });
+
+  it("a failed executeQuery still carries completedResults, and no handles", async () => {
+    invokeMock.mockRejectedValue({
+      message: "nope",
+      code: 1146,
+      sqlState: "42S02",
+      statementIndex: 1,
+      completedResults: [queryResult],
+    });
+    const error = await api.executeQuery("conn-1", "SELECT 1; SELECT * FROM nope").catch((e: unknown) => e);
+    expect(error.completedResults).toEqual([queryResult]);
+    expect(error.completedHandles).toBeUndefined();
+  });
+
+  it("resultWindow calls invoke with the window, sort and filters", async () => {
+    const window = { row_ids: [3], rows: [[{ value: "a", full_len: null }]], matching_rows: 9 };
+    invokeMock.mockResolvedValue(window);
+    const sort = [{ column: 1, descending: true }];
+    const filters = [{ column: 0, operator: "contains", value: "a" }];
+    expect(await api.resultWindow("result-1", 50, 100, sort, filters)).toEqual(window);
+    expect(invokeMock).toHaveBeenCalledWith("result_window", {
+      resultId: "result-1",
+      offset: 50,
+      count: 100,
+      sort,
+      filters,
+    });
+  });
+
+  it("resultWindow sends no sort and no filters when given neither", async () => {
+    invokeMock.mockResolvedValue({ row_ids: [], rows: [], matching_rows: 0 });
+    await api.resultWindow("result-1", 0, 10);
+    expect(invokeMock).toHaveBeenCalledWith("result_window", {
+      resultId: "result-1",
+      offset: 0,
+      count: 10,
+      sort: [],
+      filters: [],
+    });
+  });
+
+  it("resultWindow rejects with the backend's message", async () => {
+    invokeMock.mockRejectedValue("Not found: Result result-9");
+    await expect(api.resultWindow("result-9", 0, 10)).rejects.toThrow("Not found: Result result-9");
+  });
+
+  it("resultCell calls invoke with the row id and column", async () => {
+    invokeMock.mockResolvedValue({ bytes: "AP8=" });
+    expect(await api.resultCell("result-1", 4812, 2)).toEqual({ bytes: "AP8=" });
+    expect(invokeMock).toHaveBeenCalledWith("result_cell", { resultId: "result-1", rowId: 4812, column: 2 });
+  });
+
+  it("resultRelease calls invoke with the ids", async () => {
+    invokeMock.mockResolvedValue(null);
+    await api.resultRelease(["result-1", "result-2"]);
+    expect(invokeMock).toHaveBeenCalledWith("result_release", { resultIds: ["result-1", "result-2"] });
+  });
+});
+
 // #935: a failed run says whether its connection is still inside a
 // transaction, as the backend reports it (#917).
 describe("CommandError", () => {

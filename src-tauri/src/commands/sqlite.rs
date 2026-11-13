@@ -96,6 +96,7 @@ fn sqlite_query_error(err: &mas_sqlite::error::SqliteError) -> mas_core::QueryEr
             sql_state: None,
             statement_index: None,
             completed_results: None,
+            completed_handles: None,
             transaction: None,
         },
     }

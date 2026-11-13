@@ -128,7 +128,7 @@ async fn run_each(
                 index,
                 source: Box::new(CoreError::Sqlx(e)),
                 // A save reports counts, not result sets.
-                completed: Vec::new(),
+                completed: crate::error::Completed::none(),
                 // The save already knows the state it began in; see
                 // `apply_in_session`.
                 transaction: None,

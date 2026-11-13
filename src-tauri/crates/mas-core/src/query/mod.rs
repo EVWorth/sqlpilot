@@ -3,6 +3,7 @@ pub mod explain;
 pub mod grid_edits;
 pub mod in_flight;
 pub mod redact;
+mod sink;
 pub mod staged;
 pub mod statement;
 pub use executor::{split_statements, CancelScope, QueryExecutor};

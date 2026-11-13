@@ -10,10 +10,14 @@ use mas_core::history::{
     render_export, HistoryEntry, HistoryExportFormat, HistoryFacets, HistoryQuery, HistoryStore,
 };
 use mas_core::models::{
-    ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, TestConnectionResult,
+    ConnectionInfo, ConnectionProfile, ConnectionProfileSummary, QueryResult, ResultHandle,
+    TestConnectionResult,
 };
 use mas_core::query::{
     CancelScope, ExplainFormat, ExplainResponse, GridEditOutcome, QueryExecutor,
+};
+use mas_core::results::{
+    ResultFilter, ResultStore, ResultWindow, SortKey, WindowRequest, WireValue,
 };
 use mas_core::schema::inspector::{
     ColumnInfo, DatabaseInfo, EventInfo, ForeignKeyInfo, IndexInfo, PartitionInfo, RoutineInfo,
@@ -49,6 +53,9 @@ pub struct AppState {
     pub sqlite_manager: Arc<SqliteConnectionManager>,
     pub sqlite_executor: Arc<SqliteQueryExecutor>,
     pub sqlite_inspector: Arc<SqliteSchemaInspector>,
+    // Where `run_query` writes its rows and the `result_*` commands read
+    // them back (docs/design/RESULT_STORE.md).
+    pub result_store: Arc<ResultStore>,
 }
 
 // Connection commands
@@ -288,6 +295,138 @@ pub async fn execute_query(
         "Query executed"
     );
     Ok(results)
+}
+
+/// [`execute_query`], with the rows kept in the backend.
+///
+/// Same arguments, same semantics: the limit and offset, the tab's session,
+/// what a failing script reports. What differs is what comes back. Each
+/// statement yields a handle, its rows go to the result store, and the grid
+/// reads them a window at a time with [`result_window`]. The caller owns the
+/// results and frees them with [`result_release`]; on a failure that
+/// includes the ones in the error's `completedHandles`.
+#[tauri::command]
+// `sql` is skipped for the reason `execute_query` gives (#875).
+#[tracing::instrument(
+    skip(state, sql),
+    fields(
+        connection_id = %connection_id,
+        sql_preview = %mas_core::query::redacted_preview(&sql, mas_core::query::LOG_PREVIEW_CHARS),
+    )
+)]
+#[specta::specta]
+pub async fn run_query(
+    state: State<'_, AppState>,
+    connection_id: String,
+    sql: String,
+    database: Option<String>,
+    limit: Option<u32>,
+    offset: Option<u32>,
+    session: Option<String>,
+) -> Result<Vec<ResultHandle>, QueryError> {
+    let executor = &state.query_executor;
+    let store = &state.result_store;
+    let (limit, offset) = (limit.map(u64::from), offset.map(u64::from));
+    let handles = match session {
+        Some(session) => {
+            executor
+                .run_in_session(&session, connection_id, sql, database, limit, offset, store)
+                .await
+        }
+        None => {
+            executor
+                .run_owned(connection_id, sql, database, limit, offset, store)
+                .await
+        }
+    };
+    let handles = handles.map_err(|e| {
+        tracing::error!(error = %mas_core::query::log_safe_error(&e), "Query execution failed");
+        QueryError::from_core(&e)
+    })?;
+    let total_rows: u64 = handles.iter().map(|h| h.rows_affected).sum();
+    tracing::info!(
+        statement_count = handles.len(),
+        total_rows = total_rows,
+        "Query executed into the result store"
+    );
+    Ok(handles)
+}
+
+/// The most rows one `result_window` call returns, whatever it asks for.
+/// The grid asks for what is on screen plus a margin, far below this; the
+/// cap is what stops a single call from carrying a whole result.
+pub const RESULT_WINDOW_MAX_ROWS: u32 = 1000;
+
+/// The most bytes of one text or binary cell a window carries. A longer
+/// value arrives as its first bytes with its real length (`full_len`), and
+/// whole from [`result_cell`].
+pub const RESULT_WINDOW_MAX_CELL_BYTES: u32 = 64 * 1024;
+
+/// Rows of a stored result: filtered, sorted, then cut to `offset`/`count`.
+#[tauri::command]
+// Filter values are what the user typed about their data; only how many
+// there are is recorded.
+#[tracing::instrument(skip(state, sort, filters), fields(sort_keys = sort.len(), filters = filters.len()))]
+#[specta::specta]
+pub async fn result_window(
+    state: State<'_, AppState>,
+    result_id: String,
+    // u32, as `execute_query`'s limit is: specta forbids exporting u64, and
+    // a result of more than 4.29e9 rows does not fit the store's budget.
+    offset: u32,
+    count: u32,
+    sort: Vec<SortKey>,
+    filters: Vec<ResultFilter>,
+) -> Result<ResultWindow, String> {
+    let store = Arc::clone(&state.result_store);
+    let request = WindowRequest {
+        offset: u64::from(offset),
+        count: count.min(RESULT_WINDOW_MAX_ROWS),
+        sort,
+        filters,
+        max_cell_bytes: RESULT_WINDOW_MAX_CELL_BYTES,
+    };
+    tokio::task::spawn_blocking(move || store.window(&result_id, &request))
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// One whole cell of a stored result, however long. `row_id` is the row's
+/// identity as a window's `row_ids` reports it; `column` is zero-based.
+#[tauri::command]
+#[tracing::instrument(skip(state))]
+#[specta::specta]
+pub async fn result_cell(
+    state: State<'_, AppState>,
+    result_id: String,
+    row_id: u32,
+    column: u32,
+) -> Result<WireValue, String> {
+    let store = Arc::clone(&state.result_store);
+    tokio::task::spawn_blocking(move || {
+        let column = usize::try_from(column).unwrap_or(usize::MAX);
+        store.cell(&result_id, u64::from(row_id), column)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+    .map(WireValue::from)
+    .map_err(|e| e.to_string())
+}
+
+/// Free stored results. Ids the store does not know (already released, or
+/// a handle with no rows) are ignored.
+#[tauri::command]
+#[tracing::instrument(skip(state), fields(count = result_ids.len()))]
+#[specta::specta]
+pub async fn result_release(
+    state: State<'_, AppState>,
+    result_ids: Vec<String>,
+) -> Result<(), String> {
+    let store = Arc::clone(&state.result_store);
+    tokio::task::spawn_blocking(move || store.release(&result_ids))
+        .await
+        .map_err(|e| e.to_string())
 }
 
 /// What went wrong before the window existed, for the frontend to show.

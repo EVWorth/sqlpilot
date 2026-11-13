@@ -5,7 +5,7 @@
 // name ending in `*` matches by prefix: `fail=get_*` fails every schema read.
 //
 // The rejection has the shape the real command rejects with, because that is
-// what the UI has to cope with. The three commands typed `QueryError` in the
+// what the UI has to cope with. The commands typed `QueryError` in the
 // bindings reject with that object; everything else rejects with the string
 // a `CoreError` renders as. A plugin command (`plugin:updater|check`) rejects
 // with a plain string, as Tauri's plugins do.
@@ -14,7 +14,7 @@ import type { QueryError } from "../../lib/bindings";
 import { state } from "./state";
 
 /** The commands whose error type in `bindings.ts` is `QueryError`. */
-export const QUERY_ERROR_COMMANDS = new Set(["execute_query", "apply_grid_edits", "sqlite_execute"]);
+export const QUERY_ERROR_COMMANDS = new Set(["execute_query", "run_query", "apply_grid_edits", "sqlite_execute"]);
 
 const LOST = "Lost connection to MySQL server during query";
 const DRIVER_LOST = `error returned from database: 2013 (HY000): ${LOST}`;
@@ -34,6 +34,8 @@ function messageFor(cmd: string): string {
     return "Storage error: Permission denied (os error 13)";
   }
   if (/^get_|_ddl$/.test(cmd)) return `Schema error: ${DRIVER_LOST}`;
+  // The result store is a SQLite file of the app's own.
+  if (/^result_/.test(cmd)) return "Storage error: database is locked";
   if (/^sqlite_/.test(cmd)) return "Query error: database is locked";
   if (/agent/.test(cmd)) return "The agent endpoint did not answer: connection refused";
   return `Query error: ${DRIVER_LOST}`;
