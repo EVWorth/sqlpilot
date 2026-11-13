@@ -28,10 +28,13 @@ mod filter;
 mod order;
 #[cfg(test)]
 mod tests;
+mod wire;
 
 pub use filter::{
-    is_active_filter, matches_filter, ColumnFilter, CompiledFilter, FilterCell, FilterOperator,
+    is_active_filter, matches_filter, CompiledFilter, FilterCell, FilterOperator, ResultFilter,
 };
+
+pub use wire::WireValue;
 
 use crate::error::CoreError;
 use crate::models::query::{ColumnMeta, SqlValue};
@@ -71,6 +74,10 @@ pub struct SortKey {
 /// One cell of a window.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, specta::Type)]
 pub struct Cell {
+    /// On the wire a [`WireValue`]: binary travels as base64, not as an
+    /// array of numbers.
+    #[serde(with = "wire")]
+    #[specta(type = WireValue)]
     pub value: SqlValue,
     /// Set when `value` is only the start of a longer text or binary value:
     /// the real length in bytes. The whole value comes from
@@ -90,7 +97,7 @@ pub struct WindowRequest {
     /// the whole order when this is empty.
     pub sort: Vec<SortKey>,
     /// All must pass. Filters with nothing typed into them are ignored.
-    pub filters: Vec<ColumnFilter>,
+    pub filters: Vec<ResultFilter>,
     /// The most bytes of one text or binary cell to return.
     pub max_cell_bytes: u32,
 }
@@ -262,7 +269,8 @@ impl State {
 
 struct Inner {
     state: Mutex<State>,
-    path: PathBuf,
+    /// The store's file, or `None` for a store that lives in memory.
+    path: Option<PathBuf>,
     budget_bytes: u64,
 }
 
@@ -306,8 +314,10 @@ impl Drop for Inner {
                 tracing::warn!(error = %e, "Failed to close the result store");
             }
         }
-        if let Err(e) = std::fs::remove_file(&self.path) {
-            tracing::warn!(error = %e, "Failed to delete the result store file");
+        if let Some(path) = &self.path {
+            if let Err(e) = std::fs::remove_file(path) {
+                tracing::warn!(error = %e, "Failed to delete the result store file");
+            }
         }
     }
 }
@@ -337,14 +347,28 @@ impl ResultStore {
         create_private_file(&path)
             .map_err(|e| CoreError::Storage(format!("Cannot create the result store: {e}")))?;
 
-        let opened = Self::open_database(&path, budget_bytes);
+        let opened = Connection::open(&path)
+            .map_err(CoreError::from)
+            .and_then(|conn| Self::configure(conn, budget_bytes));
         if opened.is_err() {
             // Nothing owns the file yet, so nothing else would delete it.
             let _ = std::fs::remove_file(&path);
         }
-        let conn = opened?;
+        Ok(Self::with_connection(opened?, Some(path), budget_bytes))
+    }
 
-        Ok(Self {
+    /// A store that keeps its results in memory rather than in a file.
+    ///
+    /// For when no directory can be written to: the app still runs queries,
+    /// with `budget_bytes` of RAM as the ceiling on what it can hold.
+    #[tracing::instrument]
+    pub fn in_memory(budget_bytes: u64) -> Result<Self, CoreError> {
+        let conn = Self::configure(Connection::open_in_memory()?, budget_bytes)?;
+        Ok(Self::with_connection(conn, None, budget_bytes))
+    }
+
+    fn with_connection(conn: Connection, path: Option<PathBuf>, budget_bytes: u64) -> Self {
+        Self {
             inner: Arc::new(Inner {
                 state: Mutex::new(State {
                     conn: Some(conn),
@@ -354,12 +378,10 @@ impl ResultStore {
                 path,
                 budget_bytes,
             }),
-        })
+        }
     }
 
-    fn open_database(path: &Path, budget_bytes: u64) -> Result<Connection, CoreError> {
-        let conn = Connection::open(path)?;
-
+    fn configure(conn: Connection, budget_bytes: u64) -> Result<Connection, CoreError> {
         // A scratch file: if the process dies the file is deleted at the
         // next start, so nothing has to survive a crash. That buys speed:
         // no fsync, and the rollback journal in memory instead of in a
@@ -616,6 +638,20 @@ impl ResultStore {
         decode_value(found.get_ref(0)?, column_state, exception)
     }
 
+    /// How many result tables the file holds, finished or still being
+    /// written. A result with rows is one table, plus one more in the rare
+    /// case that it has a side table of mismatched cells. For diagnostics
+    /// and for tests that nothing is left behind.
+    pub fn table_count(&self) -> Result<u64, CoreError> {
+        let mut state = self.inner.lock();
+        let count: i64 = state.conn()?.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type = 'table'",
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(u64::try_from(count).unwrap_or_default())
+    }
+
     /// Forget these results and free their space for later ones. Ids the
     /// store does not know (already released, or never finished) are
     /// ignored.
@@ -828,7 +864,7 @@ fn check_column(meta: &ResultMeta, column: usize) -> Result<&ColumnState, CoreEr
 /// operand is a bound parameter.
 fn where_clause(
     meta: &ResultMeta,
-    filters: &[ColumnFilter],
+    filters: &[ResultFilter],
 ) -> Result<(String, Vec<String>), CoreError> {
     let mut clauses = Vec::new();
     let mut params = Vec::new();

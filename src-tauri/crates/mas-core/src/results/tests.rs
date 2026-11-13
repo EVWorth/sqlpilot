@@ -59,8 +59,8 @@ fn desc(column: usize) -> SortKey {
     }
 }
 
-fn filter(column: usize, operator: FilterOperator, value: &str) -> ColumnFilter {
-    ColumnFilter {
+fn filter(column: usize, operator: FilterOperator, value: &str) -> ResultFilter {
+    ResultFilter {
         column,
         operator,
         value: value.to_string(),
@@ -665,7 +665,7 @@ fn text_sorts_without_regard_to_case_with_a_binary_tiebreak() {
 
 // ---------------------------------------------------------------- filters
 
-fn filtered_ids(store: &ResultStore, result_id: &str, filters: Vec<ColumnFilter>) -> Vec<u64> {
+fn filtered_ids(store: &ResultStore, result_id: &str, filters: Vec<ResultFilter>) -> Vec<u64> {
     store
         .window(
             result_id,
@@ -736,7 +736,7 @@ fn each_filter_operator_narrows_a_stored_result() {
         filtered_ids(
             &store,
             id,
-            vec![ColumnFilter {
+            vec![ResultFilter {
                 value2: Some(high.to_string()),
                 ..filter(column, Op::Between, low)
             }],
@@ -1127,7 +1127,9 @@ fn the_budget_stops_a_write_and_keeps_the_rows_before_it() {
     assert_eq!(writer.row_count(), batches * 100);
 
     // The file never grew past the budget.
-    let size = std::fs::metadata(&store.inner.path).expect("file").len();
+    let size = std::fs::metadata(store.inner.path.as_ref().expect("a file"))
+        .expect("file")
+        .len();
     assert!(size <= MIB, "{size} bytes");
 
     // Full is not broken: the same error again, and what was written reads.
@@ -1225,6 +1227,8 @@ fn opening_sweeps_files_left_by_a_crash_and_dropping_deletes_its_own() {
     let own = store
         .inner
         .path
+        .as_ref()
+        .expect("a file")
         .file_name()
         .expect("file name")
         .to_string_lossy()
@@ -1251,14 +1255,20 @@ fn the_store_file_is_readable_by_its_owner_only() {
     use std::os::unix::fs::PermissionsExt;
     let (_dir, store) = open_store(64 * MIB);
     put(&store, &["INT"], &[vec![Int(1)]]);
-    let mode = std::fs::metadata(&store.inner.path)
+    let mode = std::fs::metadata(store.inner.path.as_ref().expect("a file"))
         .expect("file")
         .permissions()
         .mode();
     assert_eq!(mode & 0o777, 0o600, "{mode:o}");
     // SQLite keeps its journal in memory: nothing else appears beside it
     // that could carry different permissions.
-    let dir = store.inner.path.parent().expect("parent");
+    let dir = store
+        .inner
+        .path
+        .as_ref()
+        .expect("a file")
+        .parent()
+        .expect("parent");
     assert_eq!(store_files(dir).len(), 1);
 }
 
@@ -1438,7 +1448,9 @@ fn measure_write(
     let stored = writer.finish().expect("finish");
     spent += start.elapsed();
 
-    let file = std::fs::metadata(&store.inner.path).expect("file").len();
+    let file = std::fs::metadata(store.inner.path.as_ref().expect("a file"))
+        .expect("file")
+        .len();
     println!("rows                              {total:8} in batches of {batch_size}");
     println!(
         "cell data                         {:8.1} MB",
@@ -1588,4 +1600,128 @@ fn measure_blob_100mb() {
     );
     assert!(matches!(whole, Bytes(bytes) if bytes.len() == 1024 * 1024));
     println!("RSS after reads                   {:8.1} MB", rss_mb());
+}
+
+// ------------------------------------------------------------------ wire
+
+#[test]
+fn binary_crosses_the_wire_as_base64_and_everything_else_as_it_always_did() {
+    let (_dir, store) = open_store(16 * MIB);
+    let row = vec![
+        Null,
+        Bool(true),
+        Int(-7),
+        // Above `i64::MAX`, so that reading the JSON back cannot take it for
+        // a signed integer.
+        UInt(u64::MAX),
+        Float(1.5),
+        s("text"),
+        Bytes(vec![0, 1, 2, 255]),
+        Bytes(Vec::new()),
+    ];
+    let result = put(
+        &store,
+        &[
+            "INT",
+            "BOOLEAN",
+            "INT",
+            "INT UNSIGNED",
+            "DOUBLE",
+            "VARCHAR",
+            "BLOB",
+            "BLOB",
+        ],
+        std::slice::from_ref(&row),
+    );
+    let window = store.window(&result.result_id, &first(10)).expect("window");
+    let json = serde_json::to_value(&window).expect("serialises");
+    let cells: Vec<serde_json::Value> = json["rows"][0]
+        .as_array()
+        .expect("a row")
+        .iter()
+        .map(|cell| cell["value"].clone())
+        .collect();
+
+    // Every value but binary is the JSON `SqlValue` itself produces.
+    for (cell, value) in cells.iter().zip(&row).take(6) {
+        assert_eq!(cell, &serde_json::to_value(value).expect("serialises"));
+    }
+    assert_eq!(cells[6], serde_json::json!({ "bytes": "AAEC/w==" }));
+    assert_eq!(cells[7], serde_json::json!({ "bytes": "" }));
+    assert_eq!(json["rows"][0][6]["full_len"], serde_json::Value::Null);
+
+    // And it reads back as the window it was.
+    let back: ResultWindow = serde_json::from_value(json).expect("deserialises");
+    assert_eq!(back, window);
+
+    // `SqlValue` itself still serialises binary as numbers: the old path
+    // and the frontend's `isBytes` depend on it.
+    assert_eq!(
+        serde_json::to_value(Bytes(vec![0, 255])).expect("serialises"),
+        serde_json::json!([0, 255])
+    );
+}
+
+#[test]
+fn a_whole_cell_converts_to_its_wire_form() {
+    let wire = |value: SqlValue| serde_json::to_value(WireValue::from(value)).expect("serialises");
+    assert_eq!(wire(Null), serde_json::Value::Null);
+    assert_eq!(wire(Bool(false)), serde_json::json!(false));
+    assert_eq!(wire(Int(-1)), serde_json::json!(-1));
+    assert_eq!(wire(UInt(u64::MAX)), serde_json::json!(u64::MAX));
+    assert_eq!(wire(Float(0.25)), serde_json::json!(0.25));
+    assert_eq!(
+        wire(s("{\"bytes\": 1}")),
+        serde_json::json!("{\"bytes\": 1}")
+    );
+    assert_eq!(
+        wire(Bytes(b"hello".to_vec())),
+        serde_json::json!({ "bytes": "aGVsbG8=" })
+    );
+
+    for value in [Null, Bool(true), Int(3), s("x"), Bytes(vec![9, 8, 7])] {
+        let back: WireValue = serde_json::from_value(wire(value.clone())).expect("deserialises");
+        assert_eq!(SqlValue::try_from(back).expect("decodes"), value);
+    }
+}
+
+#[test]
+fn a_truncated_binary_cell_carries_its_real_length() {
+    let (_dir, store) = open_store(16 * MIB);
+    let result = put(&store, &["BLOB"], &[vec![Bytes(vec![5; 1000])]]);
+    let mut request = first(1);
+    request.max_cell_bytes = 3;
+    let window = store.window(&result.result_id, &request).expect("window");
+    let json = serde_json::to_value(&window).expect("serialises");
+    assert_eq!(
+        json["rows"][0][0],
+        serde_json::json!({ "value": { "bytes": "BQUF" }, "full_len": 1000 })
+    );
+}
+
+// ------------------------------------------------------------- in memory
+
+#[test]
+fn a_store_in_memory_works_like_one_in_a_file_and_has_a_budget_too() {
+    let store = ResultStore::in_memory(MIB).expect("opens");
+    let rows = vec![vec![Int(1), s("one")], vec![Null, Bytes(vec![1, 2, 3])]];
+    assert_round_trip(&store, &["INT", "BLOB"], &rows);
+
+    let mut writer = store.begin(&cols(&["VARCHAR"])).expect("begin");
+    let batch: Vec<Vec<SqlValue>> = (0..100).map(|_| vec![s(&"x".repeat(4000))]).collect();
+    let mut stopped = None;
+    for _ in 0..100 {
+        if let Err(e) = writer.append(&batch) {
+            stopped = Some(e);
+            break;
+        }
+    }
+    let err = stopped.expect("the budget stops the write");
+    assert!(matches!(err, CoreError::ResultStoreFull(_)), "{err:?}");
+    drop(writer);
+    assert_eq!(
+        store.table_count().expect("count"),
+        1,
+        "only the finished result is left"
+    );
 }

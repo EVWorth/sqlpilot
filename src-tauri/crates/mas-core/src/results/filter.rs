@@ -90,7 +90,7 @@ impl FilterOperator {
 
 /// One filter on one column of a result.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, specta::Type)]
-pub struct ColumnFilter {
+pub struct ResultFilter {
     /// Zero-based position of the column in the result.
     #[specta(type = specta_typescript::Number)]
     pub column: usize,
@@ -106,7 +106,7 @@ pub struct ColumnFilter {
 ///
 /// A filter with nothing typed into it is ignored rather than applied, so
 /// opening the filter menu does not empty the grid.
-pub fn is_active_filter(filter: &ColumnFilter) -> bool {
+pub fn is_active_filter(filter: &ResultFilter) -> bool {
     if filter.operator.is_nullary() {
         return true;
     }
@@ -224,7 +224,7 @@ impl CompiledFilter {
 
 /// Does `cell` pass `filter`? The whole of `matchesFilter`, for callers and
 /// tests that have one cell rather than a scan.
-pub fn matches_filter(cell: &FilterCell<'_>, filter: &ColumnFilter) -> bool {
+pub fn matches_filter(cell: &FilterCell<'_>, filter: &ResultFilter) -> bool {
     CompiledFilter::new(filter.operator, &filter.value, filter.value2.as_deref()).matches(cell)
 }
 
@@ -369,8 +369,8 @@ mod tests {
     use super::FilterOperator as Op;
     use super::*;
 
-    fn f(operator: Op, value: &str) -> ColumnFilter {
-        ColumnFilter {
+    fn f(operator: Op, value: &str) -> ResultFilter {
+        ResultFilter {
             column: 0,
             operator,
             value: value.to_string(),
@@ -378,8 +378,8 @@ mod tests {
         }
     }
 
-    fn between(low: &str, high: &str) -> ColumnFilter {
-        ColumnFilter {
+    fn between(low: &str, high: &str) -> ResultFilter {
+        ResultFilter {
             value2: Some(high.to_string()),
             ..f(Op::Between, low)
         }
@@ -389,7 +389,7 @@ mod tests {
     /// under its headings, so the two files can be read side by side.
     #[test]
     fn matches_filter_agrees_with_the_typescript_cases() {
-        let cases: Vec<(&str, FilterCell<'_>, ColumnFilter, bool)> = vec![
+        let cases: Vec<(&str, FilterCell<'_>, ResultFilter, bool)> = vec![
             (
                 "matches text case-insensitively",
                 Text("Alice"),
@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn every_operator_has_a_case_of_its_own() {
-        let cases: Vec<(FilterCell<'_>, ColumnFilter, bool)> = vec![
+        let cases: Vec<(FilterCell<'_>, ResultFilter, bool)> = vec![
             (Text("Hello World"), f(Op::Contains, "LO W"), true),
             (Text("Hello World"), f(Op::NotContains, "LO W"), false),
             (Text("Hello"), f(Op::Equals, "hELLO"), true),
@@ -804,7 +804,7 @@ mod tests {
         }
         assert_eq!(Op::from_code(99), None);
 
-        let filter: ColumnFilter =
+        let filter: ResultFilter =
             serde_json::from_str(r#"{"column":2,"operator":"startsWith","value":"a"}"#)
                 .expect("value2 may be left out");
         assert_eq!(filter.column, 2);

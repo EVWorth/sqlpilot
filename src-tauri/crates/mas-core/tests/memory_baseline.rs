@@ -8,11 +8,18 @@
 //! ```text
 //! cargo test -p mas-core --release --test memory_baseline -- --ignored --exact narrow_100k --nocapture
 //! ```
+//!
+//! Each workload has a second case, `*_store`, that runs it into the result
+//! store instead (`run_owned`) and prints the same lines, so the two can be
+//! read side by side. There the "IPC JSON" is what one screen of the grid
+//! costs: the handles plus a window of 200 rows.
 use chrono::Utc;
 use mas_core::connection::ConnectionManager;
 use mas_core::models::{ConnectionProfile, SqlValue};
 use mas_core::query::QueryExecutor;
+use mas_core::results::{ResultStore, WindowRequest};
 use std::sync::Arc;
+use std::time::Instant;
 
 fn test_profile() -> ConnectionProfile {
     ConnectionProfile {
@@ -128,6 +135,131 @@ async fn measure(label: &str, setup: &[&str], query: &str) {
     );
 }
 
+/// Rows in the window the store-path cases serialise: a screen of the grid
+/// and its margin.
+const WINDOW_ROWS: u32 = 200;
+
+/// The cell limit `result_window` applies.
+const WINDOW_CELL_BYTES: u32 = 64 * 1024;
+
+/// The same workload as [`measure`], written to the result store.
+async fn measure_store(label: &str, setup: &[&str], query: &str) {
+    let manager = Arc::new(ConnectionManager::new());
+    let executor = QueryExecutor::new(manager.clone());
+    let info = manager.connect(&test_profile()).await.unwrap();
+    let db = || Some("test_db".to_string());
+    for statement in setup {
+        executor
+            .execute(&info.id, statement, db(), None, None)
+            .await
+            .unwrap_or_else(|e| panic!("setup failed: {statement}: {e}"));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(ResultStore::open(dir.path(), 8 << 30).unwrap());
+
+    let (idle, _) = memory_mb();
+    let started = Instant::now();
+    let handles = executor
+        .run_owned(info.id.clone(), query.to_string(), db(), None, None, &store)
+        .await
+        .unwrap();
+    let stored_in = started.elapsed();
+    let (fetched, fetched_peak) = memory_mb();
+    let handle = &handles[0];
+
+    // What crosses IPC for one screen: the command's return value, then a
+    // window. Both are built while the store is open, as in the app.
+    let started = Instant::now();
+    let window = store
+        .window(
+            &handle.result_id,
+            &WindowRequest {
+                count: WINDOW_ROWS,
+                max_cell_bytes: WINDOW_CELL_BYTES,
+                ..WindowRequest::default()
+            },
+        )
+        .unwrap();
+    let handles_json = serde_json::to_string(&handles).unwrap();
+    let window_json = serde_json::to_string(&window).unwrap();
+    let window_in = started.elapsed();
+    let (serialized, serialized_peak) = memory_mb();
+    let file_mb = std::fs::read_dir(dir.path())
+        .unwrap()
+        .flatten()
+        .filter_map(|entry| entry.metadata().ok())
+        .map(|meta| meta.len())
+        .sum::<u64>() as f64
+        / 1048576.0;
+
+    if let Ok(dump) = std::env::var("MEM_BASELINE_DUMP") {
+        let name = label.split(',').next().unwrap_or(label).replace(' ', "_");
+        std::fs::write(format!("{dump}/{name}.window.json"), &window_json).unwrap();
+    }
+
+    // Counted last, a thousand rows at a time, so that reading the result
+    // back to measure it is not part of what is measured.
+    let mut payload = 0usize;
+    let mut offset = 0u64;
+    while offset < handle.row_count {
+        let page = store
+            .window(
+                &handle.result_id,
+                &WindowRequest {
+                    offset,
+                    count: 1000,
+                    max_cell_bytes: u32::MAX,
+                    ..WindowRequest::default()
+                },
+            )
+            .unwrap();
+        let rows: Vec<Vec<SqlValue>> = page
+            .rows
+            .into_iter()
+            .map(|cells| cells.into_iter().map(|cell| cell.value).collect())
+            .collect();
+        payload += payload_bytes(&rows);
+        offset += 1000;
+    }
+    let payload = payload as f64 / 1048576.0;
+
+    println!("== {label}, into the result store");
+    println!("rows                    {}", handle.row_count);
+    println!("truncated               {:?}", handle.truncation_reason);
+    println!("cell data               {payload:8.1} MB");
+    println!("idle RSS                {idle:8.1} MB");
+    println!(
+        "rows held               {:8.1} MB over idle (peak {:.1})",
+        fetched - idle,
+        fetched_peak - idle
+    );
+    println!(
+        "IPC JSON                {:8.3} MB (handles {} bytes + a {}-row window {} bytes)",
+        (handles_json.len() + window_json.len()) as f64 / 1048576.0,
+        handles_json.len(),
+        window.rows.len(),
+        window_json.len()
+    );
+    println!(
+        "rows + JSON held        {:8.1} MB over idle (peak {:.1})",
+        serialized - idle,
+        serialized_peak - idle
+    );
+    println!(
+        "peak / cell data        {:8.1}x",
+        (serialized_peak - idle) / payload
+    );
+    println!("store file              {file_mb:8.1} MB");
+    println!(
+        "stored in               {:8.0} ms",
+        stored_in.as_secs_f64() * 1000.0
+    );
+    println!(
+        "window read + JSON in   {:8.1} ms",
+        window_in.as_secs_f64() * 1000.0
+    );
+}
+
 const NARROW_SETUP: &[&str] = &[
     "DROP TABLE IF EXISTS mem_narrow",
     "CREATE TABLE mem_narrow (
@@ -178,6 +310,28 @@ async fn narrow_100k() {
 #[ignore = "a measurement, and it needs a live MySQL server"]
 async fn blob_100mb() {
     measure(
+        "100 rows with a 1 MB BLOB each",
+        BLOB_SETUP,
+        "SELECT * FROM mem_blob",
+    )
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "a measurement, and it needs a live MySQL server"]
+async fn narrow_100k_store() {
+    measure_store(
+        "100,000 narrow rows, 7 columns",
+        NARROW_SETUP,
+        "SELECT * FROM mem_narrow",
+    )
+    .await;
+}
+
+#[tokio::test]
+#[ignore = "a measurement, and it needs a live MySQL server"]
+async fn blob_100mb_store() {
+    measure_store(
         "100 rows with a 1 MB BLOB each",
         BLOB_SETUP,
         "SELECT * FROM mem_blob",

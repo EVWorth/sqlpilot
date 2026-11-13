@@ -22,6 +22,7 @@ import { fileHandlers } from "./handlers/files";
 import { historyHandlers } from "./handlers/history";
 import { pluginHandlers } from "./handlers/plugins";
 import { queryHandlers } from "./handlers/query";
+import { resetResults, resultHandlers } from "./handlers/results";
 import { resetSchemaKeys, schemaHandlers } from "./handlers/schema";
 import { sqliteHandlers } from "./handlers/sqlite";
 import { delay, type Handlers } from "./router";
@@ -30,6 +31,7 @@ import { type MockOptions, optionsFromUrl, resetState, type Scenario, scenarioFr
 export const handlers: Handlers = {
   ...connectionHandlers,
   ...queryHandlers,
+  ...resultHandlers,
   ...schemaHandlers,
   ...adminHandlers,
   ...fileHandlers,
@@ -47,6 +49,7 @@ export function installMockBackend(
   resetAccounts();
   resetDatabases();
   resetSchemaKeys();
+  resetResults();
   mockWindows("main");
   mockIPC(
     async (cmd, payload) => {

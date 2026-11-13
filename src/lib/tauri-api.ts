@@ -10,7 +10,10 @@ import type {
   HistoryQuery,
   NativeMenu,
   RestoreOptions,
+  ResultFilter,
+  ResultHandle_Serialize,
   SetupTarget,
+  SortKey,
   TransactionState,
 } from "./bindings";
 import { commands } from "./bindings";
@@ -60,6 +63,12 @@ export class CommandError extends Error {
    */
   readonly completedResults?: QueryResult[];
   /**
+   * The same for a run that keeps its rows in the backend (`runQuery`): the
+   * handles of the statements that ran before the failing one. Their rows
+   * are in the result store, and the caller releases them like any other.
+   */
+  readonly completedHandles?: ResultHandle_Serialize[];
+  /**
    * Whether the connection or session the run failed on is still inside a
    * transaction, when the backend could tell (#917, #935).
    */
@@ -72,6 +81,7 @@ export class CommandError extends Error {
       sqlState?: string | null;
       statementIndex?: number | null;
       completedResults?: unknown;
+      completedHandles?: unknown;
       transaction?: TransactionState | null;
     },
   ) {
@@ -82,6 +92,9 @@ export class CommandError extends Error {
     if (fields?.sqlState != null) this.sqlState = fields.sqlState;
     if (fields?.statementIndex != null) this.statementIndex = fields.statementIndex;
     if (Array.isArray(fields?.completedResults)) this.completedResults = fields.completedResults as QueryResult[];
+    if (Array.isArray(fields?.completedHandles)) {
+      this.completedHandles = fields.completedHandles as ResultHandle_Serialize[];
+    }
     if (fields?.transaction === "open" || fields?.transaction === "none") this.transaction = fields.transaction;
   }
 }
@@ -165,6 +178,53 @@ export const api = {
           orNull(session),
         ),
     ),
+
+  /**
+   * Run like `executeQuery`, but leave the rows in the backend's result
+   * store: what comes back is a handle per statement, read a window at a
+   * time with `resultWindow`. The caller owns the results and frees them with
+   * `resultRelease`, including a failure's `completedHandles`.
+   */
+  runQuery: (
+    connectionId: string,
+    sql: string,
+    database?: string,
+    limit?: number,
+    offset?: number,
+    /** The editor tab running this, as for `executeQuery`. */
+    session?: string,
+  ) =>
+    unwrap(
+      "run_query",
+      () =>
+        commands.runQuery(
+          connectionId,
+          sql,
+          orNull(database),
+          orNull(limit),
+          orNull(offset),
+          orNull(session),
+        ),
+    ),
+
+  /**
+   * Rows of a stored result: filtered, sorted, then cut to `offset`/`count`.
+   * The backend returns at most 1,000 rows and the first 64 KiB of a cell.
+   */
+  resultWindow: (
+    resultId: string,
+    offset: number,
+    count: number,
+    sort: SortKey[] = [],
+    filters: ResultFilter[] = [],
+  ) => unwrap("result_window", () => commands.resultWindow(resultId, offset, count, sort, filters)),
+
+  /** One whole cell. `rowId` is from a window's `row_ids`; `column` is zero-based. */
+  resultCell: (resultId: string, rowId: number, column: number) =>
+    unwrap("result_cell", () => commands.resultCell(resultId, rowId, column)),
+
+  /** Free stored results. Ids the store does not know are ignored. */
+  resultRelease: (resultIds: string[]) => unwrap("result_release", () => commands.resultRelease(resultIds)),
 
   // History (#585). Stored in SQLite rather than localStorage, so every read
   // and write crosses the IPC boundary.

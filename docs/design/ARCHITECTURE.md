@@ -296,6 +296,11 @@ The read is streamed; the reply is not. What crosses IPC is bounded by the row
 limit, so the renderer never receives more than it asked for. "Next page"
 re-runs the statement with an offset.
 
+This is being replaced: [RESULT_STORE.md](RESULT_STORE.md) describes results
+held in the backend with the grid reading windows of rows, and the commands
+for it exist (§5.2). The paragraph below records why the earlier answer was a
+bounded page.
+
 **Why not stream rows into the grid.** An `execute_query_stream` with
 per-batch events was specified early and never built. The case it was for, a
 million-row result overwhelming the renderer, is what the row limit prevents;
@@ -407,6 +412,10 @@ async fn close_session(connection_id: String, session: String) -> Result<(), Str
 async fn apply_grid_edits(connection_id: String, session: String, database: Option<String>, statements: Vec<String>) -> Result<Option<GridEditOutcome>, QueryError>;
 async fn kill_query(connection_id: String, process_id: ProcessId) -> Result<(), String>;
 async fn get_own_thread_ids(connection_id: String) -> Result<Vec<ProcessId>, String>;
+async fn run_query(connection_id: String, sql: String, database: Option<String>, limit: Option<u32>, offset: Option<u32>, session: Option<String>) -> Result<Vec<ResultHandle>, QueryError>;
+async fn result_window(result_id: String, offset: u32, count: u32, sort: Vec<SortKey>, filters: Vec<ColumnFilter>) -> Result<ResultWindow, String>;
+async fn result_cell(result_id: String, row_id: u32, column: u32) -> Result<WireValue, String>;
+async fn result_release(result_ids: Vec<String>) -> Result<(), String>;
 ```
 
 - `session` is the editor tab's id; it routes the statement to that tab's own
@@ -414,6 +423,10 @@ async fn get_own_thread_ids(connection_id: String) -> Result<Vec<ProcessId>, Str
 - `explain_query` decides itself whether ANALYZE is safe to run (#412), and
   returns a `format_fallback` when the server lacks the requested format
   (#424).
+- `run_query` is `execute_query` with the rows kept in the backend's result
+  store: it returns handles, and `result_window`, `result_cell` and
+  `result_release` read and free them. The results grid does not use them
+  yet; see [RESULT_STORE.md](RESULT_STORE.md).
 - `kill_query` ends another connection's statement from the process list;
   `get_own_thread_ids` lets the list refuse to kill the app's own sessions.
 
@@ -827,6 +840,12 @@ sqlpilot/
 
 History is a separate file so an append-only log that grows cannot take the
 connection profiles down with it.
+
+Query results held by the backend are scratch data and live under the cache
+directory instead: `dirs::cache_dir()/sqlpilot/results/results-<uuid>.db`, one
+file per run, owner-only, deleted on exit and swept at the next start. If the
+cache directory cannot be used the store falls back to the system temporary
+directory, and then to memory with a startup warning.
 
 ### SQLite Schemas
 
