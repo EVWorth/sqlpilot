@@ -101,7 +101,7 @@ Results of the user's SQLite files (`mas-sqlite`) go through the same store.
 ## Reading
 
 ```rust
-result_window(result_id, offset, count, sort: Vec<SortKey>, filters: Vec<ColumnFilter>)
+result_window(result_id, offset, count, sort: Vec<SortKey>, filters: Vec<ResultFilter>)
     -> ResultWindow { rows: Vec<Vec<Cell>>, row_ids: Vec<u64>, matching_rows: u64 }
 result_cell(result_id, row_id, column) -> WireValue     // the full value
 result_export(result_id, format, path, sort, filters, row_ids?) -> ExportSummary
@@ -145,6 +145,24 @@ result_release(result_ids)
 
   "Sent to the webview" is the handles plus one window: 200 rows for the
   narrow case, all 100 rows cut to 64 KiB each for the BLOB case.
+- **A view is computed once.** The first read of a sort or filter writes the
+  ordered row ids to a table beside the result, with an index from row id to
+  position; every later window, id lookup or position lookup is a seek. A
+  sort is done in a private scratch database so other results stay readable
+  meanwhile. Three views are kept per result. On 100,000 narrow rows the
+  first read of a text sort takes about 120 ms and every read after it about
+  0.1 ms, at any depth.
+- **Whole rows and positions.** `result_rows` returns whole rows by id (at
+  most 1,000 rows or 64 MiB a call); `result_row_ids`, `result_row_position`
+  and `result_order` say which rows are where in a view. The grid needs them
+  for selection, keyboard movement, copy and edit.
+- **Wide results.** The bundled SQLite is built with its column limit raised
+  to 32,767 (`src-tauri/.cargo/config.toml`), checked at runtime when the
+  store opens and by a 4,096-column test. Connections to the user's own
+  SQLite files keep the standard 2,000.
+- **SQLite files.** `sqlite_run_query` puts a SQLite file's results in the
+  same store. Values are stored as `sqlite_execute` shows them, so a BLOB is
+  the text `<blob N bytes>` and every column is text.
 
 ## Lifetime
 
@@ -179,15 +197,13 @@ would bring back a memory ceiling.
 
 ## Open points
 
-- **Very wide results.** SQLite allows 2,000 columns in a table by default;
-  MySQL allows 4,096. Decide before the executor writes to the store: raise
-  SQLite's limit at build time, or split wide results across tables.
 - **Sorting a large result** spills to SQLite's own temporary files, which go
   to the system temporary directory rather than the cache directory. They are
   unlinked as soon as they are opened on Unix.
-- **Sorted windows deep into a large result** sort every row each time (about
-  180 ms at row 90,000 of 100,000). Keeping the sorted row order per
-  (result, sort, filter) turns them into seeks.
+- **SQLite-file results** are stored as text. Storing real types would let
+  numeric columns sort as numbers and BLOBs open in the viewer.
+- **A build started outside `src-tauri/`** does not pick up the raised column
+  limit; the store then refuses results wider than 2,000 columns.
 
 ## Stages
 

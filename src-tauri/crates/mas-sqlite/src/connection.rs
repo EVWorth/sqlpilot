@@ -59,6 +59,24 @@ fn verify_is_sqlite_file(path: &str) -> Result<(), SqliteError> {
     Ok(())
 }
 
+/// SQLite's stock limit on the columns of a table, an index or a result set.
+pub const STOCK_MAX_COLUMNS: i32 = 2000;
+
+/// Put back the column limit every other SQLite has.
+///
+/// The SQLite bundled with the app is built with a far higher one, for the
+/// app's own result store (`src-tauri/.cargo/config.toml`). Left as it is,
+/// a user could create a table in their own file that no other SQLite tool
+/// can open. A limit can only be lowered at run time, so this is a no-op on
+/// a build without the raised limit.
+fn restore_stock_limits(db: &SqliteConn) -> Result<(), SqliteError> {
+    db.set_limit(
+        rusqlite::limits::Limit::SQLITE_LIMIT_COLUMN,
+        STOCK_MAX_COLUMNS,
+    )?;
+    Ok(())
+}
+
 pub struct SqliteConnection {
     pub id: String,
     pub path: PathBuf,
@@ -79,6 +97,7 @@ impl SqliteConnectionManager {
     pub fn open(&self, id: &str, path: &str) -> Result<Arc<SqliteConnection>, SqliteError> {
         verify_is_sqlite_file(path)?;
         let db = SqliteConn::open(path)?;
+        restore_stock_limits(&db)?;
         let conn = Arc::new(SqliteConnection {
             id: id.to_string(),
             path: PathBuf::from(path),
@@ -114,5 +133,29 @@ impl SqliteConnectionManager {
 impl Default for SqliteConnectionManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_user_file_keeps_the_stock_column_limit() {
+        let manager = SqliteConnectionManager::new();
+        let conn = manager.open("c", ":memory:").expect("opens");
+        let db = conn.db.lock().expect("lock");
+        let columns = |count: usize| {
+            (0..count)
+                .map(|n| format!("c{n}"))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        db.execute_batch(&format!("CREATE TABLE fits ({})", columns(2000)))
+            .expect("2,000 columns are allowed");
+        let err = db
+            .execute_batch(&format!("CREATE TABLE wide ({})", columns(2001)))
+            .expect_err("2,001 are not");
+        assert!(err.to_string().contains("too many columns"), "{err}");
     }
 }

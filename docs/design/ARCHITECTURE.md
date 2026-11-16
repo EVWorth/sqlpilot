@@ -413,9 +413,13 @@ async fn apply_grid_edits(connection_id: String, session: String, database: Opti
 async fn kill_query(connection_id: String, process_id: ProcessId) -> Result<(), String>;
 async fn get_own_thread_ids(connection_id: String) -> Result<Vec<ProcessId>, String>;
 async fn run_query(connection_id: String, sql: String, database: Option<String>, limit: Option<u32>, offset: Option<u32>, session: Option<String>) -> Result<Vec<ResultHandle>, QueryError>;
-async fn result_window(result_id: String, offset: u32, count: u32, sort: Vec<SortKey>, filters: Vec<ColumnFilter>) -> Result<ResultWindow, String>;
+async fn result_window(result_id: String, offset: u32, count: u32, sort: Vec<SortKey>, filters: Vec<ResultFilter>) -> Result<ResultWindow, String>;
 async fn result_cell(result_id: String, row_id: u32, column: u32) -> Result<WireValue, String>;
 async fn result_release(result_ids: Vec<String>) -> Result<(), String>;
+async fn result_row_ids(result_id: String, offset: u32, count: u32, sort: Vec<SortKey>, filters: Vec<ResultFilter>) -> Result<Vec<u32>, String>;
+async fn result_row_position(result_id: String, row_id: u32, sort: Vec<SortKey>, filters: Vec<ResultFilter>) -> Result<Option<u32>, String>;
+async fn result_order(result_id: String, row_ids: Vec<u32>, sort: Vec<SortKey>, filters: Vec<ResultFilter>) -> Result<Vec<u32>, String>;
+async fn result_rows(result_id: String, row_ids: Vec<u32>) -> Result<Vec<Vec<WireValue>>, String>;
 ```
 
 - `session` is the editor tab's id; it routes the statement to that tab's own
@@ -425,8 +429,10 @@ async fn result_release(result_ids: Vec<String>) -> Result<(), String>;
   (#424).
 - `run_query` is `execute_query` with the rows kept in the backend's result
   store: it returns handles, and `result_window`, `result_cell` and
-  `result_release` read and free them. The results grid does not use them
-  yet; see [RESULT_STORE.md](RESULT_STORE.md).
+  `result_release` read and free them. `result_row_ids`,
+  `result_row_position` and `result_order` answer where rows are in a sorted
+  and filtered view, and `result_rows` returns whole rows by id. The results
+  grid does not use them yet; see [RESULT_STORE.md](RESULT_STORE.md).
 - `kill_query` ends another connection's statement from the process list;
   `get_own_thread_ids` lets the list refuse to kill the app's own sessions.
 
@@ -508,7 +514,8 @@ the MySQL ones.
 async fn sqlite_open(path: String) -> Result<String, String>;
 async fn sqlite_close(connection_id: String) -> Result<(), String>;
 async fn sqlite_list() -> Result<Vec<String>, String>;
-async fn sqlite_execute(connection_id: String, sql: String) -> Result<Vec<SqliteQueryResult>, QueryError>;
+async fn sqlite_execute(connection_id: String, sql: String, limit: Option<u32>, offset: Option<u32>) -> Result<Vec<SqliteQueryResult>, QueryError>;
+async fn sqlite_run_query(connection_id: String, sql: String, limit: Option<u32>, offset: Option<u32>) -> Result<Vec<ResultHandle>, QueryError>;
 async fn sqlite_get_tables(connection_id: String) -> Result<Vec<SqliteTableInfo>, String>;
 async fn sqlite_get_columns(connection_id: String, table: String) -> Result<Vec<SqliteColumnInfo>, String>;
 async fn sqlite_get_indexes(connection_id: String, table: String) -> Result<Vec<SqliteIndexInfo>, String>;

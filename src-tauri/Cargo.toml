@@ -22,7 +22,10 @@ regex = "1"
 rmcp = { version = "=3.9.0", features = ["server", "transport-streamable-http-server"] }
 # The result store (mas-core) orders and filters stored results with its own
 # collations and one scalar function, hence `collation` and `functions`.
-rusqlite = { version = "0.41", features = ["bundled", "collation", "functions"] }
+# `limits` reads and sets SQLite's run-time limits: the store checks the
+# column limit the bundled SQLite was built with (.cargo/config.toml), and
+# mas-sqlite puts the stock one back for the user's own files.
+rusqlite = { version = "0.41", features = ["bundled", "collation", "functions", "limits"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Pre-1.0: specta has been in RC since 2023. Pinned exactly (no caret) so an
