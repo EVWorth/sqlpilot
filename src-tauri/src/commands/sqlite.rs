@@ -133,7 +133,9 @@ async fn run_into_store(
         }
         Err(failure) => {
             let mut reported = sqlite_query_error(&failure.error);
-            reported.statement_index = failure.statement_index;
+            if let Some(index) = failure.statement_index {
+                reported = reported.at_statement(index);
+            }
             // Whenever anything completed, as `run_query` reports it: a
             // handle left out would be rows nobody could release.
             if !failure.completed.is_empty() {

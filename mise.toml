@@ -15,7 +15,7 @@
 # silently disagree with the lockfile.
 [tools]
 node = "24"
-rust = "1.95.0"
+rust = "1.100.0"
 # The task runner. Every task lives in the justfile; `just --list` is the
 # discovery path. Pinned to a major so recipe syntax cannot shift underneath
 # the repo on a contributor's fresh install.

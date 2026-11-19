@@ -6,5 +6,5 @@
 # more than a wide MSRV — and an unpinned toolchain means a new stable
 # release can turn CI red overnight with no code change.
 [toolchain]
-channel = "1.95.0"
+channel = "1.100.0"
 components = ["rustfmt", "clippy"]
