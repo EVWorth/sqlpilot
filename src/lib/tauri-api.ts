@@ -219,6 +219,39 @@ export const api = {
     filters: ResultFilter[] = [],
   ) => unwrap("result_window", () => commands.resultWindow(resultId, offset, count, sort, filters)),
 
+  /**
+   * The ids of the rows at positions `offset` to `offset + count` of a view
+   * (the result under `sort` and `filters`), fewer where the view ends first.
+   * The backend returns at most 100,000 ids; ask again from where it stopped.
+   */
+  resultRowIds: (
+    resultId: string,
+    offset: number,
+    count: number,
+    sort: SortKey[] = [],
+    filters: ResultFilter[] = [],
+  ) => unwrap("result_row_ids", () => commands.resultRowIds(resultId, offset, count, sort, filters)),
+
+  /** Where a row is in a view, counted from 0, or null when the filters leave it out. */
+  resultRowPosition: (resultId: string, rowId: number, sort: SortKey[] = [], filters: ResultFilter[] = []) =>
+    unwrap("result_row_position", () => commands.resultRowPosition(resultId, rowId, sort, filters)),
+
+  /**
+   * Those of `rowIds` that are in a view, in the view's order, each once.
+   * More than 1,000,000 ids is an error.
+   */
+  resultOrder: (resultId: string, rowIds: number[], sort: SortKey[] = [], filters: ResultFilter[] = []) =>
+    unwrap("result_order", () => commands.resultOrder(resultId, rowIds, sort, filters)),
+
+  /**
+   * Whole rows, every value complete, in the order asked. More than 1,000
+   * rows or 64 MiB of cell data is an error; the one for the bytes starts
+   * with "The rows are too large to return at once", and asking for fewer
+   * rows gets past it.
+   */
+  resultRows: (resultId: string, rowIds: number[]) =>
+    unwrap("result_rows", () => commands.resultRows(resultId, rowIds)),
+
   /** One whole cell. `rowId` is from a window's `row_ids`; `column` is zero-based. */
   resultCell: (resultId: string, rowId: number, column: number) =>
     unwrap("result_cell", () => commands.resultCell(resultId, rowId, column)),
@@ -461,6 +494,18 @@ export const api = {
     unwrap(
       "sqlite_execute",
       () => commands.sqliteExecute(connectionId, sql, orNull(limit), orNull(offset)),
+    ),
+
+  /**
+   * Run like `sqliteExecute`, but leave the rows in the backend's result
+   * store, as `runQuery` does: a handle per statement, read with the
+   * `result*` methods and freed with `resultRelease`, including a failure's
+   * `completedHandles`.
+   */
+  sqliteRunQuery: (connectionId: string, sql: string, limit?: number, offset?: number) =>
+    unwrap(
+      "sqlite_run_query",
+      () => commands.sqliteRunQuery(connectionId, sql, orNull(limit), orNull(offset)),
     ),
 
   sqliteGetTables: (connectionId: string) => unwrap("sqlite_get_tables", () => commands.sqliteGetTables(connectionId)),

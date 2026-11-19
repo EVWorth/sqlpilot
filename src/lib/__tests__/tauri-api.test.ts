@@ -687,6 +687,124 @@ describe("result store commands", () => {
     await expect(api.resultWindow("result-9", 0, 10)).rejects.toThrow("Not found: Result result-9");
   });
 
+  it("resultRowIds calls invoke with the range, sort and filters", async () => {
+    invokeMock.mockResolvedValue([7, 3]);
+    const sort = [{ column: 1, descending: true }];
+    const filters = [{ column: 0, operator: "contains", value: "a" }];
+    expect(await api.resultRowIds("result-1", 50, 100, sort, filters)).toEqual([7, 3]);
+    expect(invokeMock).toHaveBeenCalledWith("result_row_ids", {
+      resultId: "result-1",
+      offset: 50,
+      count: 100,
+      sort,
+      filters,
+    });
+  });
+
+  it("resultRowIds sends no sort and no filters when given neither", async () => {
+    invokeMock.mockResolvedValue([]);
+    await api.resultRowIds("result-1", 0, 10);
+    expect(invokeMock).toHaveBeenCalledWith("result_row_ids", {
+      resultId: "result-1",
+      offset: 0,
+      count: 10,
+      sort: [],
+      filters: [],
+    });
+  });
+
+  it("resultRowPosition calls invoke with the row id, and passes a null through", async () => {
+    const sort = [{ column: 0, descending: false }];
+    invokeMock.mockResolvedValue(41);
+    expect(await api.resultRowPosition("result-1", 9, sort)).toBe(41);
+    expect(invokeMock).toHaveBeenCalledWith("result_row_position", {
+      resultId: "result-1",
+      rowId: 9,
+      sort,
+      filters: [],
+    });
+    invokeMock.mockResolvedValue(null);
+    expect(await api.resultRowPosition("result-1", 9)).toBeNull();
+    expect(invokeMock).toHaveBeenLastCalledWith("result_row_position", {
+      resultId: "result-1",
+      rowId: 9,
+      sort: [],
+      filters: [],
+    });
+  });
+
+  it("resultOrder calls invoke with the ids, sort and filters", async () => {
+    invokeMock.mockResolvedValue([3, 1]);
+    const filters = [{ column: 0, operator: "isNotNull", value: "" }];
+    expect(await api.resultOrder("result-1", [1, 2, 3], [], filters)).toEqual([3, 1]);
+    expect(invokeMock).toHaveBeenCalledWith("result_order", {
+      resultId: "result-1",
+      rowIds: [1, 2, 3],
+      sort: [],
+      filters,
+    });
+    await api.resultOrder("result-1", [4]);
+    expect(invokeMock).toHaveBeenLastCalledWith("result_order", {
+      resultId: "result-1",
+      rowIds: [4],
+      sort: [],
+      filters: [],
+    });
+  });
+
+  it("resultRows calls invoke with the ids", async () => {
+    const rows = [["a", { bytes: "AP8=" }, null]];
+    invokeMock.mockResolvedValue(rows);
+    expect(await api.resultRows("result-1", [12])).toEqual(rows);
+    expect(invokeMock).toHaveBeenCalledWith("result_rows", { resultId: "result-1", rowIds: [12] });
+  });
+
+  it("resultRows rejects with the backend's message", async () => {
+    invokeMock.mockRejectedValue("Query error: The rows are too large to return at once: ask for fewer");
+    await expect(api.resultRows("result-1", [1, 2])).rejects.toThrow(/The rows are too large to return at once/);
+  });
+
+  it("sqliteRunQuery calls invoke with the limit and offset, null when left out", async () => {
+    invokeMock.mockResolvedValue([handle]);
+    expect(await api.sqliteRunQuery("lite-1", "SELECT 1", 100, 200)).toEqual([handle]);
+    expect(invokeMock).toHaveBeenCalledWith("sqlite_run_query", {
+      connectionId: "lite-1",
+      sql: "SELECT 1",
+      limit: 100,
+      offset: 200,
+    });
+    await api.sqliteRunQuery("lite-1", "SELECT 1");
+    expect(invokeMock).toHaveBeenLastCalledWith("sqlite_run_query", {
+      connectionId: "lite-1",
+      sql: "SELECT 1",
+      limit: null,
+      offset: null,
+    });
+  });
+
+  it("a failed sqliteRunQuery carries the handles of the statements that completed", async () => {
+    invokeMock.mockRejectedValue({
+      message: "no such table: nope",
+      code: 1,
+      sqlState: null,
+      statementIndex: 1,
+      completedHandles: [handle],
+      transaction: "open",
+    });
+    const error = await api.sqliteRunQuery("lite-1", "SELECT 1; SELECT * FROM nope").catch((e: unknown) => e);
+    const { CommandError } = await import("../tauri-api");
+    expect(error).toBeInstanceOf(CommandError);
+    expect(error).toMatchObject({
+      message: "no such table: nope",
+      code: 1,
+      statementIndex: 1,
+      completedHandles: [handle],
+      transaction: "open",
+    });
+    expect(error.sqlState).toBeUndefined();
+    expect(error.completedResults).toBeUndefined();
+  });
+
   it("resultCell calls invoke with the row id and column", async () => {
     invokeMock.mockResolvedValue({ bytes: "AP8=" });
     expect(await api.resultCell("result-1", 4812, 2)).toEqual({ bytes: "AP8=" });

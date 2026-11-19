@@ -10,6 +10,7 @@ import type {
   ForeignKeyInfo,
   QueryError,
   QueryResult,
+  ResultHandle_Serialize,
   SqliteColumnInfo,
   SqliteIndexInfo,
   SqliteQueryResult,
@@ -19,6 +20,7 @@ import { splitSqliteStatements } from "../../../lib/sqlite-split";
 import { isoDate, rand } from "../dataset";
 import { type Args, delay, fail, type Handlers } from "../router";
 import { newId } from "../state";
+import { storeResult } from "./results";
 
 type Value = string | number | null;
 
@@ -310,6 +312,40 @@ const shared = ({ in_transaction, ...r }: SqliteQueryResult): QueryResult => ({
   transaction: in_transaction ? "open" : "none",
 });
 
+/**
+ * Keep a result's rows in the result store and describe it by a handle. The
+ * columns stay on a handle with no rows, unlike `run_query`'s: SQLite knows
+ * them from the prepared statement.
+ */
+const storedHandle = (r: QueryResult): ResultHandle_Serialize => ({ ...storeResult(r), columns: r.columns });
+
+/**
+ * Run a script, one result per statement. What `sqlite_execute` returns whole
+ * and `sqlite_run_query` leaves in the result store.
+ */
+async function runScript({ connectionId, sql, limit, offset }: Args): Promise<SqliteQueryResult[]> {
+  session(connectionId);
+  const id = String(connectionId);
+  await delay(80);
+  // One result per statement; the first failure stops the run and carries
+  // what ran before it, as the backend reports it (#928), and whether the
+  // connection is still inside a transaction (#935).
+  const results: SqliteQueryResult[] = [];
+  for (const [i, s] of splitSqliteStatements(String(sql ?? "")).entries()) {
+    try {
+      const body = s.replace(/^\s*(--[^\n]*\n\s*)*/, "");
+      const r = transactionStatement(id, body, i)
+        ?? (/^(select|pragma|explain|with)\b/i.test(body) ? select(body, i) : write(body, i));
+      results.push(windowed({ ...r, sql: s, in_transaction: openTransactions.has(id) }, limit, offset));
+    } catch (e) {
+      if (!isQueryError(e)) throw e;
+      const transaction = openTransactions.has(id) ? "open" : "none";
+      fail({ ...e, ...(results.length > 0 ? { completedResults: results.map(shared) } : {}), transaction });
+    }
+  }
+  return results;
+}
+
 export const sqliteHandlers: Handlers = {
   sqlite_open: async ({ path }: Args) => {
     await delay(150);
@@ -331,27 +367,18 @@ export const sqliteHandlers: Handlers = {
 
   sqlite_list: () => [...sessions.keys()],
 
-  sqlite_execute: async ({ connectionId, sql, limit, offset }: Args) => {
-    session(connectionId);
-    const id = String(connectionId);
-    await delay(80);
-    // One result per statement; the first failure stops the run and carries
-    // what ran before it, as the backend reports it (#928), and whether the
-    // connection is still inside a transaction (#935).
-    const results: SqliteQueryResult[] = [];
-    for (const [i, s] of splitSqliteStatements(String(sql ?? "")).entries()) {
-      try {
-        const body = s.replace(/^\s*(--[^\n]*\n\s*)*/, "");
-        const r = transactionStatement(id, body, i)
-          ?? (/^(select|pragma|explain|with)\b/i.test(body) ? select(body, i) : write(body, i));
-        results.push(windowed({ ...r, sql: s, in_transaction: openTransactions.has(id) }, limit, offset));
-      } catch (e) {
-        if (!isQueryError(e)) throw e;
-        const transaction = openTransactions.has(id) ? "open" : "none";
-        fail({ ...e, ...(results.length > 0 ? { completedResults: results.map(shared) } : {}), transaction });
-      }
+  sqlite_execute: runScript,
+
+  sqlite_run_query: async (args: Args): Promise<ResultHandle_Serialize[]> => {
+    try {
+      return (await runScript(args)).map((r) => storedHandle(shared(r)));
+    } catch (e) {
+      // The same failure, with the statements that ran before it as handles:
+      // their rows are in the store, for the caller to read and release.
+      if (!isQueryError(e) || !e.completedResults) throw e;
+      const { completedResults, ...error } = e;
+      return fail({ ...error, completedHandles: completedResults.map(storedHandle) });
     }
-    return results;
   },
 
   sqlite_get_tables: ({ connectionId }: Args): SqliteTableInfo[] => {

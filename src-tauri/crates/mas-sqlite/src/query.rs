@@ -129,6 +129,330 @@ impl SqliteQueryExecutor {
     }
 }
 
+/// One value of a row, as SQLite holds it, for a [`RowConsumer`].
+///
+/// Text that is not valid UTF-8 is read with the bad bytes replaced, as
+/// [`SqliteQueryExecutor::execute`] reads it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SqliteValue {
+    Null,
+    Integer(i64),
+    Real(f64),
+    Text(String),
+    Blob(Vec<u8>),
+}
+
+impl SqliteValue {
+    fn read(value: rusqlite::types::ValueRef<'_>) -> Self {
+        use rusqlite::types::ValueRef;
+        match value {
+            ValueRef::Null => SqliteValue::Null,
+            ValueRef::Integer(i) => SqliteValue::Integer(i),
+            ValueRef::Real(f) => SqliteValue::Real(f),
+            ValueRef::Text(s) => SqliteValue::Text(String::from_utf8_lossy(s).into_owned()),
+            ValueRef::Blob(b) => SqliteValue::Blob(b.to_vec()),
+        }
+    }
+
+    /// Roughly what the value takes in memory, for ending a batch early.
+    fn bytes(&self) -> usize {
+        match self {
+            SqliteValue::Text(s) => s.len(),
+            SqliteValue::Blob(b) => b.len(),
+            _ => 8,
+        }
+    }
+}
+
+/// Rows handed to a [`RowConsumer`] at a time, at most.
+pub const STREAM_BATCH_ROWS: usize = 1000;
+
+/// Cell data that ends a batch early, in bytes: a thousand rows is nothing
+/// when they are narrow and a gigabyte when each carries a 1 MB BLOB. One
+/// row can still be as large as the database holds it.
+pub const STREAM_BATCH_BYTES: usize = 4 * 1024 * 1024;
+
+/// What a [`RowConsumer`] says after a batch.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    /// Send the next batch.
+    Continue,
+    /// No room for more. The rest of this result set is not read, the
+    /// result is reported as cut short, and the script carries on.
+    Stop,
+}
+
+/// Takes the rows of a run a batch at a time, so the executor never holds
+/// more than one batch ([`SqliteQueryExecutor::run_window`]).
+///
+/// For each statement that returns rows the executor calls
+/// [`rows`](Self::rows) zero or more times and then exactly one of
+/// [`finish`](Self::finish) or [`discard`](Self::discard), after which the
+/// consumer is ready for the next result set. A statement that returns no
+/// columns never reaches the consumer.
+///
+/// This is how results reach the app's result store without this crate
+/// knowing about it.
+pub trait RowConsumer: Send {
+    /// What the consumer makes of one finished result set: the id it kept
+    /// the rows under, say.
+    type Output: Send;
+
+    /// Take the next rows of the current result set, in order. Never
+    /// called with an empty batch.
+    fn rows(
+        &mut self,
+        columns: &[SqliteColumnMeta],
+        rows: Vec<Vec<SqliteValue>>,
+    ) -> Result<Flow, SqliteError>;
+
+    /// The current result set is complete, or cut short by the row limit
+    /// or by the consumer's own [`Flow::Stop`]. Also called for a result
+    /// set that had no rows.
+    fn finish(&mut self, columns: &[SqliteColumnMeta]) -> Result<Self::Output, SqliteError>;
+
+    /// The current result set's statement failed part way: drop its rows.
+    fn discard(&mut self);
+}
+
+/// Why a streamed result set is not complete.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StreamTruncation {
+    /// The caller's row limit was reached.
+    RowLimit,
+    /// The consumer answered [`Flow::Stop`].
+    ConsumerFull,
+}
+
+/// One statement of a streamed run: a [`SqliteQueryResult`] without its
+/// rows, which went to the consumer.
+#[derive(Debug, Clone)]
+pub struct StreamedResult<O> {
+    pub query_id: String,
+    pub statement_index: usize,
+    pub sql: String,
+    pub columns: Vec<SqliteColumnMeta>,
+    /// Rows handed to the consumer, including a batch it answered
+    /// [`Flow::Stop`] to. How many it kept is the consumer's to say.
+    pub rows_read: u64,
+    pub rows_affected: u64,
+    pub execution_time_ms: u64,
+    pub warnings: Vec<String>,
+    pub truncation: Option<StreamTruncation>,
+    /// As on [`SqliteQueryResult`].
+    pub in_transaction: bool,
+    /// What the consumer returned from `finish`; `None` for a statement
+    /// that returns no columns.
+    pub output: Option<O>,
+}
+
+/// A streamed run that failed.
+#[derive(Debug)]
+pub struct StreamFailure<O> {
+    pub error: SqliteError,
+    /// Which statement failed; `None` when the run never started (the
+    /// connection is gone).
+    pub statement_index: Option<usize>,
+    /// The statements before it, in order. What their consumer outputs
+    /// stand for is still held by the consumer's backing store, and is the
+    /// caller's to free.
+    pub completed: Vec<StreamedResult<O>>,
+    /// Whether the connection was inside a transaction after the failure;
+    /// `None` when the run never started.
+    pub in_transaction: Option<bool>,
+}
+
+impl<O> StreamFailure<O> {
+    fn before_start(error: SqliteError) -> Self {
+        Self {
+            error,
+            statement_index: None,
+            completed: Vec::new(),
+            in_transaction: None,
+        }
+    }
+}
+
+impl SqliteQueryExecutor {
+    /// [`execute_window`](Self::execute_window), with the rows handed to
+    /// `consumer` in batches instead of returned.
+    ///
+    /// The same script splitting, the same limit and offset per result
+    /// set, the same transaction reporting. What differs: no row is kept
+    /// here past its batch (at most [`STREAM_BATCH_ROWS`] rows or
+    /// [`STREAM_BATCH_BYTES`]), so the free-memory guard has nothing to
+    /// guard and is not consulted; a consumer with a limit of its own
+    /// answers [`Flow::Stop`] instead.
+    #[tracing::instrument(skip(self, sql, consumer))]
+    pub async fn run_window<C>(
+        &self,
+        connection_id: &str,
+        sql: &str,
+        window: FetchWindow,
+        consumer: C,
+    ) -> Result<Vec<StreamedResult<C::Output>>, StreamFailure<C::Output>>
+    where
+        C: RowConsumer + 'static,
+    {
+        let conn = self
+            .manager
+            .get(connection_id)
+            .map_err(StreamFailure::before_start)?;
+        let sql = sql.to_string();
+        // The consumer travels into the task. If the task panics the
+        // consumer is dropped there, and with it whatever it had half
+        // written.
+        tokio::task::spawn_blocking(move || stream_sync(&conn, &sql, window, consumer))
+            .await
+            .map_err(|e| StreamFailure::before_start(SqliteError::Query(e.to_string())))?
+    }
+}
+
+/// [`execute_sync`] for a consumer: every statement in order, the first
+/// failure ends the run and carries what completed before it.
+fn stream_sync<C: RowConsumer>(
+    conn: &crate::connection::SqliteConnection,
+    sql: &str,
+    window: FetchWindow,
+    mut consumer: C,
+) -> Result<Vec<StreamedResult<C::Output>>, StreamFailure<C::Output>> {
+    let db = conn
+        .db
+        .lock()
+        .map_err(|e| StreamFailure::before_start(SqliteError::Query(e.to_string())))?;
+
+    let mut results = Vec::new();
+    for (index, statement) in crate::split::split_statements(sql).iter().enumerate() {
+        match stream_one(&db, index, statement, window, &mut consumer) {
+            Ok(result) => results.push(result),
+            Err(error) => {
+                return Err(StreamFailure {
+                    error,
+                    statement_index: Some(index),
+                    completed: results,
+                    in_transaction: Some(!db.is_autocommit()),
+                })
+            }
+        }
+    }
+    Ok(results)
+}
+
+/// [`execute_one`] for a consumer. Leaves the consumer between result sets
+/// whether it succeeds or fails.
+fn stream_one<C: RowConsumer>(
+    db: &rusqlite::Connection,
+    index: usize,
+    statement: &crate::split::Statement<'_>,
+    window: FetchWindow,
+    consumer: &mut C,
+) -> Result<StreamedResult<C::Output>, SqliteError> {
+    let start = std::time::Instant::now();
+    let mut stmt = db.prepare(statement.text)?;
+    let col_count = stmt.column_count();
+    let columns: Vec<SqliteColumnMeta> = (0..col_count)
+        .map(|i| SqliteColumnMeta {
+            name: stmt.column_name(i).unwrap_or("?").to_string(),
+            data_type: "TEXT".to_string(),
+            nullable: true,
+            is_primary_key: false,
+        })
+        .collect();
+
+    let total_before = db.total_changes();
+    let mut rows_read: u64 = 0;
+    let mut truncation = None;
+    let mut output = None;
+    if col_count > 0 {
+        let read = read_rows(&mut stmt, &columns, window, consumer);
+        match read {
+            Ok((count, cut)) => {
+                rows_read = count;
+                truncation = cut;
+                // A consumer that cannot close the result has not kept it.
+                output = Some(
+                    consumer
+                        .finish(&columns)
+                        .inspect_err(|_| consumer.discard())?,
+                );
+            }
+            Err(e) => {
+                consumer.discard();
+                return Err(e);
+            }
+        }
+    } else {
+        stmt.execute([])?;
+    }
+    let rows_affected = if db.total_changes() == total_before {
+        0
+    } else {
+        db.changes()
+    };
+
+    Ok(StreamedResult {
+        query_id: uuid::Uuid::new_v4().to_string(),
+        statement_index: index,
+        sql: statement.display.to_string(),
+        columns,
+        rows_read,
+        rows_affected,
+        execution_time_ms: start.elapsed().as_millis() as u64,
+        warnings: vec![],
+        truncation,
+        in_transaction: !db.is_autocommit(),
+        output,
+    })
+}
+
+/// Step through one result set, handing the rows inside the window to the
+/// consumer a batch at a time. Returns how many it was handed and why the
+/// read stopped early, if it did.
+fn read_rows<C: RowConsumer>(
+    stmt: &mut rusqlite::Statement<'_>,
+    columns: &[SqliteColumnMeta],
+    window: FetchWindow,
+    consumer: &mut C,
+) -> Result<(u64, Option<StreamTruncation>), SqliteError> {
+    let mut cursor = stmt.query([])?;
+    let mut skipped: u64 = 0;
+    let mut taken: u64 = 0;
+    let mut batch: Vec<Vec<SqliteValue>> = Vec::new();
+    let mut batch_bytes = 0_usize;
+    let mut truncation = None;
+    while let Some(row) = cursor.next()? {
+        if window.offset.is_some_and(|skip| skipped < skip) {
+            skipped += 1;
+            continue;
+        }
+        // Set only once a row was actually withheld, as `execute_one` does.
+        if window.limit.is_some_and(|max| taken >= max) {
+            truncation = Some(StreamTruncation::RowLimit);
+            break;
+        }
+        let values: Vec<SqliteValue> = (0..columns.len())
+            .map(|i| row.get_ref(i).map_or(SqliteValue::Null, SqliteValue::read))
+            .collect();
+        batch_bytes += values.iter().map(SqliteValue::bytes).sum::<usize>();
+        batch.push(values);
+        taken += 1;
+        if batch.len() >= STREAM_BATCH_ROWS || batch_bytes >= STREAM_BATCH_BYTES {
+            batch_bytes = 0;
+            if consumer.rows(columns, std::mem::take(&mut batch))? == Flow::Stop {
+                // Stepping stops here, as it does at the row limit: the
+                // rest of the result set is never read.
+                return Ok((taken, Some(StreamTruncation::ConsumerFull)));
+            }
+        }
+    }
+    if !batch.is_empty() && consumer.rows(columns, batch)? == Flow::Stop {
+        // The consumer's limit wins over the row limit: once it is full, a
+        // different limit would not have kept more.
+        truncation = Some(StreamTruncation::ConsumerFull);
+    }
+    Ok((taken, truncation))
+}
+
 /// Run every statement of `sql`, in order, one result per statement (#928).
 ///
 /// `Connection::prepare` compiles only the first statement of its input and
@@ -479,6 +803,364 @@ mod tests {
         assert!(in_transaction("SELECT * FROM missing"));
         run(&conn, "ROLLBACK").expect("rolls back");
         assert!(!in_transaction("SELECT * FROM missing"));
+    }
+
+    /// A consumer that keeps what it is handed and records how.
+    #[derive(Default)]
+    struct Collector {
+        current: Vec<Vec<SqliteValue>>,
+        /// The size of every batch, across result sets.
+        batches: Vec<usize>,
+        /// Answer `Stop` to the batch that takes the current result set to
+        /// this many rows or more.
+        full_at: Option<usize>,
+        /// Fail the batch with this number, counted from 1 across the run.
+        fail_batch: Option<usize>,
+        finished: usize,
+        discarded: Arc<std::sync::atomic::AtomicUsize>,
+    }
+
+    impl RowConsumer for Collector {
+        type Output = Vec<Vec<SqliteValue>>;
+
+        fn rows(
+            &mut self,
+            columns: &[SqliteColumnMeta],
+            rows: Vec<Vec<SqliteValue>>,
+        ) -> Result<Flow, SqliteError> {
+            assert!(!rows.is_empty(), "an empty batch");
+            assert!(rows.iter().all(|row| row.len() == columns.len()));
+            self.batches.push(rows.len());
+            if self.fail_batch == Some(self.batches.len()) {
+                return Err(SqliteError::Query("the consumer broke".into()));
+            }
+            self.current.extend(rows);
+            Ok(match self.full_at {
+                Some(full) if self.current.len() >= full => Flow::Stop,
+                _ => Flow::Continue,
+            })
+        }
+
+        fn finish(&mut self, _: &[SqliteColumnMeta]) -> Result<Self::Output, SqliteError> {
+            self.finished += 1;
+            Ok(std::mem::take(&mut self.current))
+        }
+
+        fn discard(&mut self) {
+            self.discarded
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            self.current.clear();
+        }
+    }
+
+    type Streamed =
+        Result<Vec<StreamedResult<Vec<Vec<SqliteValue>>>>, StreamFailure<Vec<Vec<SqliteValue>>>>;
+
+    fn stream(conn: &SqliteConnection, sql: &str, window: FetchWindow) -> Streamed {
+        stream_sync(conn, sql, window, Collector::default())
+    }
+
+    fn integers(rows: &[Vec<SqliteValue>]) -> Vec<i64> {
+        rows.iter()
+            .map(|row| match row[0] {
+                SqliteValue::Integer(i) => i,
+                ref other => panic!("{other:?}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_consumer_gets_every_row_in_order_in_batches() {
+        let conn = memory();
+        numbers(&conn, 2500);
+
+        /// Hands its batch sizes out through a shared list when finished.
+        struct Sizes(Collector, Arc<std::sync::Mutex<Vec<usize>>>);
+        impl RowConsumer for Sizes {
+            type Output = Vec<Vec<SqliteValue>>;
+            fn rows(
+                &mut self,
+                columns: &[SqliteColumnMeta],
+                rows: Vec<Vec<SqliteValue>>,
+            ) -> Result<Flow, SqliteError> {
+                assert!(rows.len() <= STREAM_BATCH_ROWS, "more than a batch held");
+                self.0.rows(columns, rows)
+            }
+            fn finish(
+                &mut self,
+                columns: &[SqliteColumnMeta],
+            ) -> Result<Self::Output, SqliteError> {
+                self.1.lock().expect("lock").clone_from(&self.0.batches);
+                self.0.finish(columns)
+            }
+            fn discard(&mut self) {
+                self.0.discard();
+            }
+        }
+
+        let sizes = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let results = stream_sync(
+            &conn,
+            "SELECT x FROM t ORDER BY x",
+            FetchWindow::default(),
+            Sizes(Collector::default(), Arc::clone(&sizes)),
+        )
+        .expect("runs");
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].rows_read, 2500);
+        assert_eq!(results[0].truncation, None);
+        assert_eq!(results[0].columns.len(), 1);
+        assert_eq!(results[0].columns[0].name, "x");
+        let rows = results[0].output.as_ref().expect("a result set");
+        assert_eq!(integers(rows), (1..=2500).collect::<Vec<i64>>());
+        assert_eq!(*sizes.lock().expect("lock"), [1000, 1000, 500]);
+    }
+
+    #[test]
+    fn large_rows_end_a_batch_early() {
+        let conn = memory();
+        // Ten rows of 1.5 MiB: three reach the 4 MiB a batch is held to.
+        let results = stream(
+            &conn,
+            "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 10) \
+             SELECT x, zeroblob(1572864) FROM c",
+            FetchWindow::default(),
+        )
+        .expect("runs");
+        let rows = results[0].output.as_ref().expect("rows");
+        assert_eq!(rows.len(), 10);
+        assert!(matches!(&rows[9][1], SqliteValue::Blob(b) if b.len() == 1_572_864));
+
+        struct Sizes(Vec<usize>);
+        impl RowConsumer for Sizes {
+            type Output = Vec<usize>;
+            fn rows(
+                &mut self,
+                _: &[SqliteColumnMeta],
+                rows: Vec<Vec<SqliteValue>>,
+            ) -> Result<Flow, SqliteError> {
+                self.0.push(rows.len());
+                Ok(Flow::Continue)
+            }
+            fn finish(&mut self, _: &[SqliteColumnMeta]) -> Result<Vec<usize>, SqliteError> {
+                Ok(std::mem::take(&mut self.0))
+            }
+            fn discard(&mut self) {}
+        }
+        let results = stream_sync(
+            &conn,
+            "WITH RECURSIVE c(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM c WHERE x < 10) \
+             SELECT x, zeroblob(1572864) FROM c",
+            FetchWindow::default(),
+            Sizes(Vec::new()),
+        )
+        .expect("runs");
+        assert_eq!(results[0].output, Some(vec![3, 3, 3, 1]));
+    }
+
+    #[test]
+    fn a_consumer_sees_each_value_as_sqlite_holds_it() {
+        let conn = memory();
+        let results = stream(
+            &conn,
+            "SELECT 1, -2.5, 'text', x'00ff10', NULL, 9223372036854775807",
+            FetchWindow::default(),
+        )
+        .expect("runs");
+        assert_eq!(
+            results[0].output.as_ref().expect("rows")[0],
+            vec![
+                SqliteValue::Integer(1),
+                SqliteValue::Real(-2.5),
+                SqliteValue::Text("text".into()),
+                SqliteValue::Blob(vec![0x00, 0xff, 0x10]),
+                SqliteValue::Null,
+                SqliteValue::Integer(i64::MAX),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_streamed_run_applies_the_limit_and_offset_as_a_collected_one_does() {
+        let conn = memory();
+        numbers(&conn, 25);
+        let window = |limit, offset| FetchWindow {
+            limit: Some(limit),
+            offset: Some(offset),
+        };
+        let sql = "SELECT x FROM t ORDER BY x; SELECT x * 2 FROM t ORDER BY x";
+
+        let capped = stream(&conn, sql, window(10, 0)).expect("runs");
+        assert_eq!(capped.len(), 2);
+        for (result, factor) in capped.iter().zip([1, 2]) {
+            assert_eq!(result.truncation, Some(StreamTruncation::RowLimit));
+            assert_eq!(result.rows_read, 10);
+            assert_eq!(
+                integers(result.output.as_ref().expect("rows")),
+                (1..=10).map(|x| x * factor).collect::<Vec<i64>>()
+            );
+        }
+
+        // The last page is short and not cut; a page exactly as long as
+        // the result is not cut either.
+        let page = stream(&conn, sql, window(10, 20)).expect("runs");
+        assert_eq!(page[0].truncation, None);
+        assert_eq!(
+            integers(page[0].output.as_ref().expect("rows")),
+            [21, 22, 23, 24, 25]
+        );
+        let exact = stream(&conn, sql, window(25, 0)).expect("runs");
+        assert_eq!(exact[0].truncation, None);
+        assert_eq!(exact[0].rows_read, 25);
+
+        // Row for row what `execute_window` returns.
+        let collected = windowed(&conn, sql, 10, 5);
+        let streamed = stream(&conn, sql, window(10, 5)).expect("runs");
+        for (c, s) in collected.iter().zip(&streamed) {
+            assert_eq!(c.sql, s.sql);
+            assert_eq!(c.statement_index, s.statement_index);
+            assert_eq!(c.rows_truncated, s.truncation.is_some());
+            let expected: Vec<i64> = c.rows.iter().map(|r| r[0].as_i64().expect("int")).collect();
+            assert_eq!(integers(s.output.as_ref().expect("rows")), expected);
+        }
+    }
+
+    #[test]
+    fn statements_without_rows_never_reach_the_consumer_and_empty_results_do() {
+        let conn = memory();
+        let results = stream(
+            &conn,
+            "CREATE TABLE t(x); INSERT INTO t VALUES (1), (2); SELECT x FROM t WHERE x > 5; \
+             BEGIN; INSERT INTO t VALUES (3) RETURNING x; COMMIT",
+            FetchWindow::default(),
+        )
+        .expect("runs");
+        assert_eq!(results.len(), 6);
+        // No columns: no output, and the count SQLite reports.
+        assert!(results[0].output.is_none());
+        assert!(results[1].output.is_none());
+        assert_eq!(results[1].rows_affected, 2);
+        // Columns and no rows: an empty result set, with its columns.
+        assert_eq!(results[2].output, Some(vec![]));
+        assert_eq!(results[2].columns.len(), 1);
+        assert_eq!(results[2].rows_read, 0);
+        assert_eq!(results[2].rows_affected, 0);
+        // RETURNING has both rows and a count.
+        assert_eq!(integers(results[4].output.as_ref().expect("rows")), [3]);
+        assert_eq!(results[4].rows_affected, 1);
+        let open: Vec<bool> = results.iter().map(|r| r.in_transaction).collect();
+        assert_eq!(open, [false, false, false, true, true, false]);
+    }
+
+    #[test]
+    fn a_full_consumer_cuts_one_result_short_and_the_script_carries_on() {
+        let conn = memory();
+        numbers(&conn, 3500);
+        let consumer = Collector {
+            full_at: Some(2000),
+            ..Collector::default()
+        };
+        let results = stream_sync(
+            &conn,
+            "SELECT x FROM t ORDER BY x; SELECT 7; \
+             INSERT INTO t SELECT x FROM t WHERE x <= 2500 RETURNING x; SELECT count(*) FROM t",
+            FetchWindow::default(),
+            consumer,
+        )
+        .expect("a full consumer is not a failure");
+        assert_eq!(results.len(), 4);
+        assert_eq!(results[0].truncation, Some(StreamTruncation::ConsumerFull));
+        // Reading stopped with the batch that filled it.
+        assert_eq!(results[0].rows_read, 2000);
+        assert_eq!(results[0].output.as_ref().expect("rows").len(), 2000);
+        // The next result set starts with room again.
+        assert_eq!(results[1].truncation, None);
+        assert_eq!(integers(results[1].output.as_ref().expect("rows")), [7]);
+        // A statement that writes has written everything by its first row.
+        assert_eq!(results[2].truncation, Some(StreamTruncation::ConsumerFull));
+        assert_eq!(results[2].rows_affected, 2500);
+        assert_eq!(integers(results[3].output.as_ref().expect("rows")), [6000]);
+
+        // Full on the last, short batch, with the row limit reached too:
+        // the consumer's limit is the one reported.
+        let consumer = Collector {
+            full_at: Some(5),
+            ..Collector::default()
+        };
+        let window = FetchWindow {
+            limit: Some(5),
+            offset: None,
+        };
+        let results = stream_sync(&conn, "SELECT x FROM t", window, consumer).expect("runs");
+        assert_eq!(results[0].truncation, Some(StreamTruncation::ConsumerFull));
+    }
+
+    #[test]
+    fn a_failing_script_keeps_what_completed_and_discards_the_rest() {
+        let conn = memory();
+        numbers(&conn, 1500);
+        // abs() of the smallest integer overflows, but only when the row
+        // is reached: after the first batch has gone to the consumer.
+        run(&conn, "INSERT INTO t VALUES (-9223372036854775808)").expect("inserts");
+        let discarded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let consumer = Collector {
+            discarded: Arc::clone(&discarded),
+            ..Collector::default()
+        };
+        let failure = stream_sync(
+            &conn,
+            "SELECT 1; BEGIN; SELECT abs(x) FROM t ORDER BY rowid; SELECT 2",
+            FetchWindow::default(),
+            consumer,
+        )
+        .expect_err("the third statement fails");
+        assert_eq!(failure.statement_index, Some(2));
+        assert_eq!(failure.in_transaction, Some(true));
+        assert!(
+            failure.error.to_string().contains("integer overflow"),
+            "{}",
+            failure.error
+        );
+        assert_eq!(failure.completed.len(), 2);
+        assert_eq!(
+            integers(failure.completed[0].output.as_ref().expect("rows")),
+            [1]
+        );
+        assert!(failure.completed[1].output.is_none());
+        assert_eq!(discarded.load(std::sync::atomic::Ordering::Relaxed), 1);
+        run(&conn, "ROLLBACK").expect("rolls back");
+
+        // A statement that does not compile fails before any row: nothing
+        // to discard, nothing completed.
+        let failure =
+            stream(&conn, "SELEC 1; SELECT 2", FetchWindow::default()).expect_err("fails");
+        assert_eq!(failure.statement_index, Some(0));
+        assert_eq!(failure.in_transaction, Some(false));
+        assert!(failure.completed.is_empty());
+    }
+
+    #[test]
+    fn a_consumer_that_fails_ends_the_run_and_is_told_to_discard() {
+        let conn = memory();
+        numbers(&conn, 2500);
+        let discarded = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let consumer = Collector {
+            fail_batch: Some(3),
+            discarded: Arc::clone(&discarded),
+            ..Collector::default()
+        };
+        let failure = stream_sync(
+            &conn,
+            "SELECT x FROM t LIMIT 1; SELECT x FROM t; CREATE TABLE never(y)",
+            FetchWindow::default(),
+            consumer,
+        )
+        .expect_err("the consumer fails on its third batch");
+        assert_eq!(failure.statement_index, Some(1));
+        assert!(failure.error.to_string().contains("the consumer broke"));
+        assert_eq!(failure.completed.len(), 1);
+        assert_eq!(discarded.load(std::sync::atomic::Ordering::Relaxed), 1);
+        assert_eq!(tables(&conn), ["t"]);
     }
 
     fn tables(conn: &SqliteConnection) -> Vec<String> {

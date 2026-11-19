@@ -363,6 +363,9 @@ pub const RESULT_WINDOW_MAX_ROWS: u32 = 1000;
 pub const RESULT_WINDOW_MAX_CELL_BYTES: u32 = 64 * 1024;
 
 /// Rows of a stored result: filtered, sorted, then cut to `offset`/`count`.
+///
+/// The first window of a sort or a filter costs the sort or the scan; the
+/// store keeps the order, and every window after it is a seek.
 #[tauri::command]
 // Filter values are what the user typed about their data; only how many
 // there are is recorded.
@@ -390,6 +393,121 @@ pub async fn result_window(
         .await
         .map_err(|e| e.to_string())?
         .map_err(|e| e.to_string())
+}
+
+/// Run a read of the result store off the async runtime and flatten its
+/// two failures (the task, the store) into the string a command returns.
+async fn read_store<T: Send + 'static>(
+    read: impl FnOnce() -> Result<T, mas_core::error::CoreError> + Send + 'static,
+) -> Result<T, String> {
+    tokio::task::spawn_blocking(read)
+        .await
+        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())
+}
+
+/// A row id or a position as the frontend takes it. The store counts in
+/// u64 and specta forbids exporting it; a result of more than 4.29e9 rows
+/// does not fit the store's budget, so nothing is ever cut here.
+fn narrow(value: u64) -> u32 {
+    u32::try_from(value).unwrap_or(u32::MAX)
+}
+
+/// The ids of the rows at view positions `[offset, offset + count)`, fewer
+/// where the view ends first. A view is the result under `sort` and
+/// `filters`, as `result_window` reads it. `count` is cut to 100,000
+/// (`mas_core::results::ROW_IDS_MAX_COUNT`); ask again from where the
+/// answer stopped for more. Row ids count from 1.
+#[tauri::command]
+#[tracing::instrument(skip(state, sort, filters), fields(sort_keys = sort.len(), filters = filters.len()))]
+#[specta::specta]
+pub async fn result_row_ids(
+    state: State<'_, AppState>,
+    result_id: String,
+    offset: u32,
+    count: u32,
+    sort: Vec<SortKey>,
+    filters: Vec<ResultFilter>,
+) -> Result<Vec<u32>, String> {
+    let store = Arc::clone(&state.result_store);
+    read_store(move || {
+        let ids = store.row_ids(&result_id, u64::from(offset), count, &sort, &filters)?;
+        Ok(ids.into_iter().map(narrow).collect())
+    })
+    .await
+}
+
+/// Where a row is in a view, counted from 0, or `None` when the filters
+/// leave it out.
+#[tauri::command]
+#[tracing::instrument(skip(state, sort, filters), fields(sort_keys = sort.len(), filters = filters.len()))]
+#[specta::specta]
+pub async fn result_row_position(
+    state: State<'_, AppState>,
+    result_id: String,
+    row_id: u32,
+    sort: Vec<SortKey>,
+    filters: Vec<ResultFilter>,
+) -> Result<Option<u32>, String> {
+    let store = Arc::clone(&state.result_store);
+    read_store(move || {
+        let position = store.row_position(&result_id, u64::from(row_id), &sort, &filters)?;
+        Ok(position.map(narrow))
+    })
+    .await
+}
+
+/// Those of `row_ids` that are in a view, in the view's order. An id given
+/// twice comes back once. At most 1,000,000 ids per call
+/// (`mas_core::results::ORDER_MAX_IDS`); more is an error.
+#[tauri::command]
+#[tracing::instrument(
+    skip(state, row_ids, sort, filters),
+    fields(ids = row_ids.len(), sort_keys = sort.len(), filters = filters.len())
+)]
+#[specta::specta]
+pub async fn result_order(
+    state: State<'_, AppState>,
+    result_id: String,
+    row_ids: Vec<u32>,
+    sort: Vec<SortKey>,
+    filters: Vec<ResultFilter>,
+) -> Result<Vec<u32>, String> {
+    let store = Arc::clone(&state.result_store);
+    read_store(move || {
+        let ids: Vec<u64> = row_ids.into_iter().map(u64::from).collect();
+        let ordered = store.order(&result_id, &ids, &sort, &filters)?;
+        Ok(ordered.into_iter().map(narrow).collect())
+    })
+    .await
+}
+
+/// Whole rows of a stored result, every value complete, in the order
+/// asked. An id the result does not have is an error.
+///
+/// At most 1,000 rows and 64 MiB of cell data per call
+/// (`mas_core::results::ROWS_MAX_COUNT`, `ROWS_MAX_BYTES`); more of either
+/// is an error. The one for the bytes starts with "The rows are too large
+/// to return at once" (`ROWS_TOO_LARGE`): ask for fewer rows. A single row
+/// is always returned, whatever its size.
+#[tauri::command]
+#[tracing::instrument(skip(state, row_ids), fields(rows = row_ids.len()))]
+#[specta::specta]
+pub async fn result_rows(
+    state: State<'_, AppState>,
+    result_id: String,
+    row_ids: Vec<u32>,
+) -> Result<Vec<Vec<WireValue>>, String> {
+    let store = Arc::clone(&state.result_store);
+    read_store(move || {
+        let ids: Vec<u64> = row_ids.into_iter().map(u64::from).collect();
+        let rows = store.rows(&result_id, &ids)?;
+        Ok(rows
+            .into_iter()
+            .map(|row| row.into_iter().map(WireValue::from).collect())
+            .collect())
+    })
+    .await
 }
 
 /// One whole cell of a stored result, however long. `row_id` is the row's

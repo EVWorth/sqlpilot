@@ -14,7 +14,13 @@ import type { QueryError } from "../../lib/bindings";
 import { state } from "./state";
 
 /** The commands whose error type in `bindings.ts` is `QueryError`. */
-export const QUERY_ERROR_COMMANDS = new Set(["execute_query", "run_query", "apply_grid_edits", "sqlite_execute"]);
+export const QUERY_ERROR_COMMANDS = new Set([
+  "execute_query",
+  "run_query",
+  "apply_grid_edits",
+  "sqlite_execute",
+  "sqlite_run_query",
+]);
 
 const LOST = "Lost connection to MySQL server during query";
 const DRIVER_LOST = `error returned from database: 2013 (HY000): ${LOST}`;
@@ -48,7 +54,7 @@ function messageFor(cmd: string): string {
 export function injectedFailure(cmd: string): string | QueryError | undefined {
   if (!state.options.fail.some((p) => matches(p, cmd))) return undefined;
   if (QUERY_ERROR_COMMANDS.has(cmd)) {
-    return cmd === "sqlite_execute"
+    return cmd.startsWith("sqlite_")
       ? { message: "database is locked", code: 5, sqlState: null, statementIndex: 0 }
       : { message: LOST, code: 2013, sqlState: "HY000", statementIndex: 0 };
   }

@@ -10,7 +10,15 @@ import type {
   SqlValue,
   WireValue,
 } from "../../../lib/bindings";
-import { storeResult, WINDOW_MAX_CELL_BYTES, WINDOW_MAX_ROWS } from "../handlers/results";
+import {
+  ORDER_MAX_IDS,
+  ROW_IDS_MAX_COUNT,
+  ROWS_MAX_BYTES,
+  ROWS_MAX_COUNT,
+  storeResult,
+  WINDOW_MAX_CELL_BYTES,
+  WINDOW_MAX_ROWS,
+} from "../handlers/results";
 import { call, install, rejection, settle } from "./helpers";
 
 let conn: ConnectionInfo;
@@ -304,6 +312,208 @@ describe("result_window", () => {
   it("rejects an id the store does not know", async () => {
     expect(await rejection("result_window", { resultId: "nope", offset: 0, count: 1, sort: [], filters: [] }))
       .toBe("Not found: Result nope");
+  });
+});
+
+/** Five people; "ann" matches rows 1, 3 and 5, which sort by `n` as 5, 3, 1. */
+const people = () =>
+  stored([col("name", "VARCHAR"), col("n", "INT")], [
+    ["Anna", 5],
+    ["bob", 1],
+    ["HANNAH", 3],
+    [null, 9],
+    ["Joanna", 2],
+  ]);
+const ANN: ColumnFilter[] = [{ column: 0, operator: "contains", value: "ann" }];
+const BY_N: SortKey[] = [{ column: 1, descending: false }];
+
+/** A handle with no rows: an id the store does not know. */
+const emptyHandle = async () => (await runQuery("UPDATE orders SET total = 1 WHERE id = 3"))[0].result_id;
+
+describe("result_row_ids", () => {
+  const rowIds = (
+    resultId: string,
+    offset: number,
+    count: number,
+    sort: SortKey[] = [],
+    filters: ColumnFilter[] = [],
+  ) => call<number[]>("result_row_ids", { resultId, offset, count, sort, filters });
+
+  it("returns the ids at the view's positions, as result_window orders them", async () => {
+    const id = people();
+    expect(await rowIds(id, 0, 10)).toEqual([1, 2, 3, 4, 5]);
+    expect(await rowIds(id, 0, 10, BY_N, ANN)).toEqual([5, 3, 1]);
+    expect(await rowIds(id, 1, 1, BY_N, ANN)).toEqual([3]);
+    expect(await rowIds(id, 0, 10, BY_N, ANN)).toEqual((await windowOf(id, { sort: BY_N, filters: ANN })).row_ids);
+  });
+
+  it("clamps to the view: fewer at the end, none past it or for a count of zero", async () => {
+    const id = people();
+    expect(await rowIds(id, 3, 10)).toEqual([4, 5]);
+    expect(await rowIds(id, 5, 10)).toEqual([]);
+    expect(await rowIds(id, 0, 0)).toEqual([]);
+    expect(await rowIds(id, 2, 10, BY_N, ANN)).toEqual([1]);
+  });
+
+  it("cuts the count to 100,000 without complaint", async () => {
+    const id = stored([col("n", "INT")], Array.from({ length: ROW_IDS_MAX_COUNT + 5 }, (_, i) => [i]));
+    const ids = await rowIds(id, 2, ROW_IDS_MAX_COUNT + 5);
+    expect(ids).toHaveLength(100_000);
+    expect([ids[0], ids[ids.length - 1]]).toEqual([3, 100_002]);
+  });
+
+  it("rejects an unknown id and a handle with no rows, even for a count of zero", async () => {
+    const args = { offset: 0, count: 0, sort: [], filters: [] };
+    expect(await rejection("result_row_ids", { resultId: "nope", ...args })).toBe("Not found: Result nope");
+    const empty = await emptyHandle();
+    expect(await rejection("result_row_ids", { resultId: empty, ...args })).toBe(`Not found: Result ${empty}`);
+  });
+
+  it("rejects a sort on a column the result does not have", async () => {
+    expect(
+      await rejection("result_row_ids", {
+        resultId: people(),
+        offset: 0,
+        count: 1,
+        sort: [{ column: 4, descending: false }],
+        filters: [],
+      }),
+    ).toBe("Query error: The result has no column 4");
+  });
+});
+
+describe("result_row_position", () => {
+  const position = (resultId: string, rowId: number, sort: SortKey[] = [], filters: ColumnFilter[] = []) =>
+    call<number | null>("result_row_position", { resultId, rowId, sort, filters });
+
+  it("counts from 0 in the view's order", async () => {
+    const id = people();
+    expect(await position(id, 1)).toBe(0);
+    expect(await position(id, 5)).toBe(4);
+    expect(await position(id, 5, BY_N, ANN)).toBe(0);
+    expect(await position(id, 1, BY_N, ANN)).toBe(2);
+    expect(await position(id, 4, [{ column: 1, descending: true }])).toBe(0);
+  });
+
+  it("is null for a row the filters leave out", async () => {
+    const id = people();
+    expect(await position(id, 2, BY_N, ANN)).toBeNull();
+    expect(await position(id, 4, [], ANN)).toBeNull();
+  });
+
+  it("is null for row 0 and for a row beyond the result", async () => {
+    const id = people();
+    expect(await position(id, 0)).toBeNull();
+    expect(await position(id, 6)).toBeNull();
+    expect(await position(id, 6, BY_N, ANN)).toBeNull();
+  });
+
+  it("rejects an unknown id and a handle with no rows", async () => {
+    const args = { rowId: 1, sort: [], filters: [] };
+    expect(await rejection("result_row_position", { resultId: "nope", ...args })).toBe("Not found: Result nope");
+    const empty = await emptyHandle();
+    expect(await rejection("result_row_position", { resultId: empty, ...args })).toBe(`Not found: Result ${empty}`);
+  });
+});
+
+describe("result_order", () => {
+  const order = (resultId: string, rowIds: number[], sort: SortKey[] = [], filters: ColumnFilter[] = []) =>
+    call<number[]>("result_order", { resultId, rowIds, sort, filters });
+
+  it("puts the ids in the view's order", async () => {
+    const id = people();
+    expect(await order(id, [5, 1, 3])).toEqual([1, 3, 5]);
+    expect(await order(id, [1, 2, 3, 4, 5], BY_N)).toEqual([2, 5, 3, 1, 4]);
+  });
+
+  it("returns a duplicate once and leaves out ids the filters or the result do not have", async () => {
+    const id = people();
+    expect(await order(id, [1, 5, 1, 2, 4, 5, 0, 99], BY_N, ANN)).toEqual([5, 1]);
+    expect(await order(id, [])).toEqual([]);
+  });
+
+  it("rejects more than 1,000,000 ids", async () => {
+    const id = people();
+    expect(await order(id, new Array<number>(ORDER_MAX_IDS).fill(1))).toEqual([1]);
+    expect(
+      await rejection("result_order", {
+        resultId: id,
+        rowIds: new Array<number>(ORDER_MAX_IDS + 1).fill(1),
+        sort: [],
+        filters: [],
+      }),
+    ).toBe("Query error: Too many rows to put in order at once: 1000001 (the limit is 1000000)");
+  });
+
+  it("rejects an unknown id and a handle with no rows, even for no ids", async () => {
+    const args = { rowIds: [], sort: [], filters: [] };
+    expect(await rejection("result_order", { resultId: "nope", ...args })).toBe("Not found: Result nope");
+    const empty = await emptyHandle();
+    expect(await rejection("result_order", { resultId: empty, ...args })).toBe(`Not found: Result ${empty}`);
+  });
+});
+
+describe("result_rows", () => {
+  const rows = (resultId: string, rowIds: number[]) => call<WireValue[][]>("result_rows", { resultId, rowIds });
+
+  it("returns the rows in the order asked, duplicates included", async () => {
+    const id = people();
+    expect(await rows(id, [5, 1, 5])).toEqual([["Joanna", 2], ["Anna", 5], ["Joanna", 2]]);
+    expect(await rows(id, [4])).toEqual([[null, 9]]);
+    expect(await rows(id, [])).toEqual([]);
+  });
+
+  it("returns whole the values a window cuts short, binary as base64", async () => {
+    const long = "z".repeat(WINDOW_MAX_CELL_BYTES + 100);
+    const big = Array.from({ length: WINDOW_MAX_CELL_BYTES + 10 }, (_, i) => i % 256);
+    const id = stored([col("t", "LONGTEXT"), col("b", "BLOB")], [["first", [0, 255]], [long, big]]);
+
+    const cut = (await windowOf(id)).rows[1];
+    expect(cut.map((c) => c.full_len)).toEqual([65_636, 65_546]);
+
+    const [second, first] = await rows(id, [2, 1]);
+    expect(second[0]).toBe(long);
+    expect(atob((second[1] as { bytes: string }).bytes)).toHaveLength(65_546);
+    expect(first).toEqual(["first", { bytes: "AP8=" }]);
+  });
+
+  it("rejects a row the result does not have", async () => {
+    const id = people();
+    expect(await rejection("result_rows", { resultId: id, rowIds: [1, 6] })).toBe(`Not found: Row 6 of result ${id}`);
+    expect(await rejection("result_rows", { resultId: id, rowIds: [0] })).toBe(`Not found: Row 0 of result ${id}`);
+  });
+
+  it("rejects more than 1,000 rows", async () => {
+    const id = people();
+    expect(await rows(id, new Array<number>(ROWS_MAX_COUNT).fill(1))).toHaveLength(1000);
+    expect(await rejection("result_rows", { resultId: id, rowIds: new Array<number>(ROWS_MAX_COUNT + 1).fill(1) }))
+      .toBe("Query error: Too many rows asked for at once: 1001 (the limit is 1000)");
+  });
+
+  it("rejects more than 64 MiB of cells, but always returns a single row", async () => {
+    // Two cells of 20 MiB and one of 30: any one row fits, the first two
+    // together fit, and the third does not fit after them.
+    const mib = 1024 * 1024;
+    const id = stored([col("t", "LONGTEXT")], [["a".repeat(20 * mib)], ["b".repeat(20 * mib)], [
+      "c".repeat(30 * mib),
+    ]]);
+    expect(await rows(id, [1, 2])).toHaveLength(2);
+    expect(await rejection("result_rows", { resultId: id, rowIds: [1, 2, 3] })).toBe(
+      "Query error: The rows are too large to return at once: the first 2 of the 3 rows asked for already hold "
+        + `${40 * mib} bytes and the limit is ${ROWS_MAX_BYTES}. Ask for fewer rows at a time.`,
+    );
+
+    const huge = stored([col("t", "LONGTEXT")], [["d".repeat(65 * mib)]]);
+    expect((await rows(huge, [1]))[0][0]).toHaveLength(65 * mib);
+    expect(await rejection("result_rows", { resultId: huge, rowIds: [1, 1] })).toMatch(
+      /^Query error: The rows are too large to return at once: the first 1 of the 2 rows/,
+    );
+  });
+
+  it("rejects an unknown id and a handle with no rows, even for no ids", async () => {
+    expect(await rejection("result_rows", { resultId: "nope", rowIds: [] })).toBe("Not found: Result nope");
+    const empty = await emptyHandle();
+    expect(await rejection("result_rows", { resultId: empty, rowIds: [] })).toBe(`Not found: Result ${empty}`);
   });
 });
 

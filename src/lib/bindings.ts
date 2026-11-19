@@ -27,8 +27,43 @@ export const commands = {
 	 *  includes the ones in the error's `completedHandles`.
 	 */
 	runQuery: (connectionId: string, sql: string, database: string | null, limit: number | null, offset: number | null, session: string | null) => typedError<ResultHandle_Serialize[], QueryError_Serialize>(__TAURI_INVOKE("run_query", { connectionId, sql, database, limit, offset, session })),
-	/**  Rows of a stored result: filtered, sorted, then cut to `offset`/`count`. */
+	/**
+	 *  Rows of a stored result: filtered, sorted, then cut to `offset`/`count`.
+	 * 
+	 *  The first window of a sort or a filter costs the sort or the scan; the
+	 *  store keeps the order, and every window after it is a seek.
+	 */
 	resultWindow: (resultId: string, offset: number, count: number, sort: SortKey[], filters: ResultFilter[]) => typedError<ResultWindow_Serialize, string>(__TAURI_INVOKE("result_window", { resultId, offset, count, sort, filters })),
+	/**
+	 *  The ids of the rows at view positions `[offset, offset + count)`, fewer
+	 *  where the view ends first. A view is the result under `sort` and
+	 *  `filters`, as `result_window` reads it. `count` is cut to 100,000
+	 *  (`mas_core::results::ROW_IDS_MAX_COUNT`); ask again from where the
+	 *  answer stopped for more. Row ids count from 1.
+	 */
+	resultRowIds: (resultId: string, offset: number, count: number, sort: SortKey[], filters: ResultFilter[]) => typedError<number[], string>(__TAURI_INVOKE("result_row_ids", { resultId, offset, count, sort, filters })),
+	/**
+	 *  Where a row is in a view, counted from 0, or `None` when the filters
+	 *  leave it out.
+	 */
+	resultRowPosition: (resultId: string, rowId: number, sort: SortKey[], filters: ResultFilter[]) => typedError<number | null, string>(__TAURI_INVOKE("result_row_position", { resultId, rowId, sort, filters })),
+	/**
+	 *  Those of `row_ids` that are in a view, in the view's order. An id given
+	 *  twice comes back once. At most 1,000,000 ids per call
+	 *  (`mas_core::results::ORDER_MAX_IDS`); more is an error.
+	 */
+	resultOrder: (resultId: string, rowIds: number[], sort: SortKey[], filters: ResultFilter[]) => typedError<number[], string>(__TAURI_INVOKE("result_order", { resultId, rowIds, sort, filters })),
+	/**
+	 *  Whole rows of a stored result, every value complete, in the order
+	 *  asked. An id the result does not have is an error.
+	 * 
+	 *  At most 1,000 rows and 64 MiB of cell data per call
+	 *  (`mas_core::results::ROWS_MAX_COUNT`, `ROWS_MAX_BYTES`); more of either
+	 *  is an error. The one for the bytes starts with "The rows are too large
+	 *  to return at once" (`ROWS_TOO_LARGE`): ask for fewer rows. A single row
+	 *  is always returned, whatever its size.
+	 */
+	resultRows: (resultId: string, rowIds: number[]) => typedError<WireValue[][], string>(__TAURI_INVOKE("result_rows", { resultId, rowIds })),
 	/**
 	 *  One whole cell of a stored result, however long. `row_id` is the row's
 	 *  identity as a window's `row_ids` reports it; `column` is zero-based.
@@ -256,6 +291,19 @@ export const commands = {
 	sqliteClose: (connectionId: string) => typedError<null, string>(__TAURI_INVOKE("sqlite_close", { connectionId })),
 	sqliteList: () => typedError<string[], string>(__TAURI_INVOKE("sqlite_list")),
 	sqliteExecute: (connectionId: string, sql: string, limit: number | null, offset: number | null) => typedError<SqliteQueryResult[], QueryError_Serialize>(__TAURI_INVOKE("sqlite_execute", { connectionId, sql, limit, offset })),
+	/**
+	 *  [`sqlite_execute`], with the rows kept in the backend.
+	 * 
+	 *  Same arguments, same semantics: the script is split the same way, the
+	 *  limit and offset apply to each result set, and every result says whether
+	 *  the connection is in a transaction. What differs is what comes back, as
+	 *  with `run_query` on MySQL: each statement yields a handle, its rows go
+	 *  to the result store, and the grid reads them with the `result_*`
+	 *  commands. The caller owns the results and frees them with
+	 *  `result_release`; on a failure that includes the ones in the error's
+	 *  `completedHandles`.
+	 */
+	sqliteRunQuery: (connectionId: string, sql: string, limit: number | null, offset: number | null) => typedError<ResultHandle_Serialize[], QueryError_Serialize>(__TAURI_INVOKE("sqlite_run_query", { connectionId, sql, limit, offset })),
 	sqliteGetTables: (connectionId: string) => typedError<SqliteTableInfo[], string>(__TAURI_INVOKE("sqlite_get_tables", { connectionId })),
 	sqliteGetColumns: (connectionId: string, table: string) => typedError<SqliteColumnInfo[], string>(__TAURI_INVOKE("sqlite_get_columns", { connectionId, table })),
 	sqliteGetIndexes: (connectionId: string, table: string) => typedError<SqliteIndexInfo[], string>(__TAURI_INVOKE("sqlite_get_indexes", { connectionId, table })),
