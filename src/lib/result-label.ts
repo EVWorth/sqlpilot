@@ -1,4 +1,5 @@
 import type { QueryResult } from "../types";
+import { resultRowCount } from "./stored-result";
 
 /**
  * A short name for one result of a script, for its tab above the grid (#844).
@@ -27,7 +28,7 @@ export function statementLabel(sql: string): string {
 /** What the result holds: its rows when it has columns, else what it changed. */
 export function resultCount(result: QueryResult): string {
   if (result.columns.length > 0) {
-    const n = result.rows.length;
+    const n = resultRowCount(result);
     return `${n.toLocaleString()} row${n === 1 ? "" : "s"}${result.rows_truncated ? "+" : ""}`;
   }
   const n = Number(result.rows_affected);

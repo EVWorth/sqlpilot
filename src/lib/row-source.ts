@@ -1,16 +1,22 @@
-import type { ColumnMeta, QueryResult, ResultFilter, SortKey, SqlValue } from "./bindings";
-import { type ColumnFilter, isActiveFilter, matchesFilter } from "./grid-filter";
+import type { QueryResult } from "../types";
+import type { ColumnMeta, ResultFilter, SortKey, SqlValue } from "./bindings";
+import { matchesFilter } from "./grid-filter";
 import { rowComparator } from "./result-compare";
+import { normalizeView, sameFilters, sameSort, toColumnFilter } from "./row-view";
+import { storeSourceFor } from "./store-row-source";
+
+export { normalizeView } from "./row-view";
 
 /**
  * The one way the results grid reads a result's rows
  * (docs/design/RESULT_STORE.md).
  *
  * The grid, its hooks, the viewers and the agent's result context go through
- * a `RowSource` and never index a `rows` array. Today the only source is
- * `createArraySource`, over rows the webview holds. The next one reads windows
- * from the backend's result store, so every method here is written for a
- * source whose rows are mostly not loaded:
+ * a `RowSource` and never index a `rows` array. There are two:
+ * `createArraySource`, over rows the webview holds, and `createStoreSource`
+ * (`store-row-source.ts`), which reads windows from the backend's result
+ * store. Every method here is written for the second, whose rows are mostly
+ * not loaded:
  *
  * - painting is synchronous and may find a row missing (`rowAt`);
  * - anything that needs values it may not have is a promise;
@@ -98,37 +104,13 @@ export interface RowSource {
   positionOf(index: number): Promise<number | null>;
   /** The indices of the rows at view positions `[start, end)`, clamped to the view. */
   indicesAt(start: number, end: number): Promise<number[]>;
-}
 
-const sameSort = (a: readonly SortKey[], b: readonly SortKey[]) =>
-  a.length === b.length && a.every((k, i) => k.column === b[i].column && k.descending === b[i].descending);
-
-const sameFilters = (a: readonly ResultFilter[], b: readonly ResultFilter[]) =>
-  a.length === b.length
-  && a.every((f, i) =>
-    f.column === b[i].column && f.operator === b[i].operator && f.value === b[i].value
-    && (f.value2 ?? null) === (b[i].value2 ?? null)
-  );
-
-const toColumnFilter = (f: ResultFilter): ColumnFilter => ({
-  operator: f.operator,
-  value: f.value,
-  value2: f.value2 ?? undefined,
-});
-
-/**
- * Drop what cannot apply, so two views that show the same rows compare equal.
- * Shared by every source: it is what makes `setView` idempotent.
- */
-export function normalizeView(
-  columns: readonly ColumnMeta[],
-  sort: readonly SortKey[],
-  filters: readonly ResultFilter[],
-): { sort: SortKey[]; filters: ResultFilter[] } {
-  return {
-    sort: sort.filter((k) => columns[k.column] !== undefined),
-    filters: filters.filter((f) => columns[f.column] !== undefined && isActiveFilter(toColumnFilter(f))),
-  };
+  /**
+   * Stop: drop what is cached, forget the listeners, and ignore what is still
+   * on its way. Called when the result can no longer be shown. Freeing the
+   * rows in the backend is the result store's job, not the source's.
+   */
+  dispose(): void;
 }
 
 /**
@@ -246,6 +228,10 @@ export function createArraySource(result: QueryResult): RowSource {
       if (view) return view.slice(from, to);
       return Array.from({ length: Math.max(0, to - from) }, (_, i) => from + i);
     },
+
+    dispose() {
+      // The rows are the result object's; there is nothing to let go of.
+    },
   };
 }
 
@@ -273,6 +259,8 @@ const sources = new WeakMap<QueryResult, RowSource>();
  */
 export function rowSourceFor(result: QueryResult | undefined): RowSource {
   if (!result) return EMPTY_ROW_SOURCE;
+  // Rows kept in the backend: one source per stored result, read on demand.
+  if (result.stored) return storeSourceFor(result.stored, result.columns);
   let source = sources.get(result);
   if (!source) {
     source = createArraySource(result);

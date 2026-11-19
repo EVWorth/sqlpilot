@@ -133,9 +133,7 @@ function cell(v: SqlValue, limit: number): Cell_Serialize {
  * and matches nothing else.
  */
 function passes(v: SqlValue, filter: ColumnFilter): boolean {
-  if (isNull(v)) return matchesFilter(null, filter);
-  if (Array.isArray(v)) return filter.operator === "isNotNull";
-  return matchesFilter(v, filter);
+  return matchesFilter(isNull(v) ? null : v, filter);
 }
 
 interface ActiveFilter {

@@ -264,6 +264,7 @@ export function ResultsGrid() {
     showContextMenu,
     onCopyAs: copyAs,
     onSetNull: setCellNull,
+    onMessage: showToast,
   });
 
   const { isSaving, save } = useGridSave({

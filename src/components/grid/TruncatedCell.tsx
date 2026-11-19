@@ -1,6 +1,7 @@
 import { Check, Copy, Maximize2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { describeBlob, detectMime, formatBytes, isBytes, toHex } from "../../lib/blob";
+import { writeClipboardText } from "../../lib/clipboard";
 import { isLongTextSqlType } from "../../lib/sql-types";
 
 interface Props {
@@ -139,14 +140,15 @@ export function TruncatedCell({
     if (copyTimer.current) clearTimeout(copyTimer.current);
   }, []);
   const copyValue = () => {
-    const write = (text: string) =>
-      navigator.clipboard.writeText(text).then(() => {
+    // A promise, inside the click: see `writeClipboardText`.
+    const write = (text: string | Promise<string>) =>
+      writeClipboardText(text).then(() => {
         setCopied(true);
         if (copyTimer.current) clearTimeout(copyTimer.current);
         copyTimer.current = setTimeout(() => setCopied(false), 1500);
       });
     if (whole) {
-      void whole().then((full) => write(isBytes(full) ? toHex(full) : formatValue(full))).catch(() => {});
+      void write(whole().then((full) => (isBytes(full) ? toHex(full) : formatValue(full)))).catch(() => {});
       return;
     }
     void write(binary ? toHex(binary) : formatted).catch(() => {});

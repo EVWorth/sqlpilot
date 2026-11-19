@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { writeClipboardText } from "../lib/clipboard";
 import { stepColumn } from "../lib/grid-navigation";
 import type { Selection } from "../lib/grid-selection";
 import type { ResultMeta, RowSource } from "../lib/row-source";
@@ -231,12 +232,14 @@ export function useGridKeyboard({
     const column = result.columns[cell.colIndex];
     if (!column || cell.rowIndex < 0 || cell.rowIndex >= source.rowCount) return;
     // The whole value: what the grid painted may be cut short.
-    void source.cell(cell.rowIndex, cell.colIndex).then((original) => {
+    // Written as a promise, inside the key press: see `writeClipboardText`.
+    const text = source.cell(cell.rowIndex, cell.colIndex).then((original) => {
       const value: SqlValue = editing.editMode
         ? editing.getCellValue(cell.rowIndex, column.name, original)
         : original;
-      return navigator.clipboard.writeText(SqlValueGuard.toString(value));
-    }).then(
+      return SqlValueGuard.toString(value);
+    });
+    void writeClipboardText(text).then(
       () => onMessage(`Copied ${column.name}`),
       (e: unknown) => onMessage(`Copy failed: ${String(e)}`),
     );

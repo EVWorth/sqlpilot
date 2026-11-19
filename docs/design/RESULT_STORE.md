@@ -1,7 +1,8 @@
 # Backend-owned results
 
-Status: in progress. The store (`mas-core`, `src/results/`), the executor's
-write path and the commands exist; the results grid does not use them yet. Tracking issue: #967.
+Status: in progress. Editor results can be kept in the store behind a setting
+that is off by default ("Keep results in SQLPilot's result store", in the
+Appearance dialog's Editor section); everything else still uses the old path. Tracking issue: #967.
 
 ## Why
 
@@ -164,6 +165,32 @@ result_release(result_ids)
   same store. Values are stored as `sqlite_execute` shows them, so a BLOB is
   the text `<blob N bytes>` and every column is text.
 
+## The grid over the store
+
+- **Behind a setting.** With "Keep results in SQLPilot's result store" on,
+  the editor's own runs (Run, Run at cursor, the refresh after a grid save)
+  go through `run_query` or `sqlite_run_query`. The admin tabs, schema tree,
+  EXPLAIN, the routine viewer, import and agents keep the old path.
+- **A stored result** is a `QueryResult` with `rows` empty and a `stored`
+  reference (`src/lib/stored-result.ts`), so result tabs, banners, history
+  and paging read the same fields they always have. Its size is
+  `resultRowCount`, never `rows.length`.
+- **Reading.** `src/lib/store-row-source.ts` is a `RowSource` over the
+  store: it reads the rows on screen plus a screen either side, in pages of
+  200, and keeps the last 50 pages.
+- **Freeing.** A stored result is released when no tab holds it any more:
+  the tab ran again, closed, or its connection closed. A tab that is only
+  hidden keeps its results.
+- **Copy and export** take every row of the grid's current view, in its
+  order, whichever kind of result it is. The clipboard write starts inside
+  the click or key press and is filled in when the rows arrive
+  (`src/lib/clipboard.ts`), because WebKit can refuse a write made after an
+  await. That has been tested in Chromium and jsdom, not in WebKit.
+- **Filters on binary values** match only "is NULL" and "is not NULL", for
+  both kinds of result, so the setting does not change what a filter shows.
+- **The agent's result context** carries at most the first 1,000 rows of a
+  stored result and says it was cut.
+
 ## Lifetime
 
 A result belongs to the editor tab that ran it. It is released when the tab
@@ -213,10 +240,13 @@ Each stage is one or more PRs into `dev`, and each re-runs the baseline.
    it, `result_window`, `result_cell`, `result_release`, bindings, API and
    mock. Nothing in the UI uses them yet.
 2. **Grid on windows.** The results grid reads windows; sort and filter run in
-   the backend; hidden tabs keep ids.
+   the backend; hidden tabs keep ids. Done, behind the setting.
 3. **Everything that reads rows.** Copy, export, the cell and BLOB viewers,
-   grid edits, row counts, the agent's result context.
-4. **Remove the old path** for editor results, and `MemoryGuard` with it.
+   grid edits, row counts, the agent's result context. Done, behind the
+   setting.
+4. **Turn the setting on by default** once it has been used in the desktop
+   app on Linux, macOS and Windows.
+5. **Remove the old path** for editor results, and `MemoryGuard` with it.
 
 ## Risks
 

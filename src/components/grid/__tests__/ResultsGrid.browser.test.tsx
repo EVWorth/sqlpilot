@@ -312,6 +312,17 @@ function resetState() {
 // ──────────────────────────────────────────────────────────────
 //  Tests
 // ──────────────────────────────────────────────────────────────
+// The grid writes to the clipboard with a `ClipboardItem` where the browser
+// has one, as Chromium does (lib/clipboard.ts). These tests watch `writeText`,
+// so a `write` is passed on to it with the item's text: whichever way the
+// text reaches the clipboard, the spies see it.
+beforeEach(() => {
+  vi.spyOn(navigator.clipboard, "write").mockImplementation(async (items) => {
+    const blob = await items[0].getType("text/plain");
+    await navigator.clipboard.writeText(await blob.text());
+  });
+});
+
 describe("ResultsGrid (browser)", () => {
   beforeEach(() => {
     resetState();
@@ -882,7 +893,7 @@ describe("ResultsGrid (browser)", () => {
     await user.click(screen.getByText("Copy"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Copied 1 rows to clipboard/)).toBeInTheDocument();
+      expect(screen.getByText(/Copied 1 row to clipboard/)).toBeInTheDocument();
     });
   });
 
@@ -1402,7 +1413,7 @@ describe("ResultsGrid (browser)", () => {
     await user.click(screen.getByText("CSV"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Exported 1 rows as CSV/)).toBeInTheDocument();
+      expect(screen.getByText(/Exported 1 row as CSV/)).toBeInTheDocument();
     });
   });
 

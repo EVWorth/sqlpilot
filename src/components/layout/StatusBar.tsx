@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { releaseUrl } from "../../lib/repo";
 import { serverFlavour } from "../../lib/server-flavour";
+import { resultRowCount } from "../../lib/stored-result";
 import { useAppInfoStore } from "../../stores/appInfoStore";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -309,7 +310,7 @@ export function StatusBar() {
         )}
         {activeResult && !isExecuting && (
           <span className="text-xs text-[var(--color-text-muted)]">
-            {formatRows(activeResult.rows.length)} · {formatTime(activeResult.execution_time_ms)}
+            {formatRows(resultRowCount(activeResult))} · {formatTime(activeResult.execution_time_ms)}
           </span>
         )}
         {updateStatus === "available" && updateVersion !== dismissedVersion && (

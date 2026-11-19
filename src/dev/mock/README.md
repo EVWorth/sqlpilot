@@ -51,6 +51,7 @@ Separate URL parameters, which combine with any scenario and with each other:
 | `startup=problems`      | the connection and history stores could not be opened at startup                       |
 | `agent=uninstalled`     | no agent CLI installed: the panel shows the install commands                           |
 | `agent=no-tools`        | sessions start without the database tools                                              |
+| `slow`                  | reads of stored rows take 30-80 ms, so the grid's placeholder rows can be seen         |
 
 The update chip appears after the automatic check; click it to download.
 

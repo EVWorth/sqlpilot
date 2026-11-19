@@ -34,7 +34,26 @@ export type {
 // backend returns differs from what it accepts. These alias the _Serialize
 // phase — the shape you get back — since that is what consumers handle. Code
 // building one to *send* should import the _Deserialize form from ../lib/bindings.
-export type { QueryResult_Serialize as QueryResult } from "../lib/bindings";
+import type { QueryResult_Serialize } from "../lib/bindings";
+
+/**
+ * A result whose rows the backend's result store keeps
+ * (docs/design/RESULT_STORE.md): enough to read them and to free them.
+ */
+export interface StoredResultRef {
+  /** The handle's `result_id`; the store knows it only when `row_count` is above zero. */
+  readonly result_id: string;
+  /** Rows in the store. The result's `rows` is empty; this is its size. */
+  readonly row_count: number;
+}
+
+/**
+ * A result as the app holds it: what `execute_query` returns, or, for a run
+ * that kept its rows in the backend, the same shape with `rows` empty and
+ * `stored` saying where they are. Read its size with `resultRowCount`
+ * (lib/stored-result.ts), never `rows.length`.
+ */
+export type QueryResult = QueryResult_Serialize & { stored?: StoredResultRef };
 
 // Results the backend keeps (docs/design/RESULT_STORE.md): the handle a run
 // returns in place of its rows, and the window of rows read back from it.

@@ -1,6 +1,7 @@
 import { CircleSlash, ClipboardCopy, ClipboardList, Copy, FileCode, Trash2 } from "lucide-react";
 import { useCallback } from "react";
 import type { MenuItem } from "../components/common/ContextMenu";
+import { writeClipboardText } from "../lib/clipboard";
 import { COPY_FORMAT_LABEL, type CopyFormat } from "../lib/copy-formats";
 import { describeSelection, type Selection } from "../lib/grid-selection";
 import type { ResultMeta, RowSource } from "../lib/row-source";
@@ -29,6 +30,8 @@ export interface UseGridContextMenuOptions {
   showContextMenu: (e: React.MouseEvent, items: MenuItem[]) => void;
   onCopyAs: (format: CopyFormat) => void | Promise<void>;
   onSetNull: (rowIdx: number, colIdx: number) => void;
+  /** Where a failed copy is reported; it used to fail silently. */
+  onMessage: (message: string) => void;
 }
 
 export function useGridContextMenu({
@@ -40,6 +43,7 @@ export function useGridContextMenu({
   showContextMenu,
   onCopyAs,
   onSetNull,
+  onMessage,
 }: UseGridContextMenuOptions) {
   return useCallback(
     (e: React.MouseEvent<HTMLElement>, rowIdx: number) => {
@@ -58,8 +62,9 @@ export function useGridContextMenu({
       const selectionLabel = describeSelection(selection, source.rowCount);
       // The menu opens at once; the values are read when an item is chosen,
       // whole, since the source may hold a long one cut short or not at all.
+      // Written as a promise, inside the click: see `writeClipboardText`.
       const copy = (text: Promise<string>) => {
-        void text.then((t) => navigator.clipboard.writeText(t));
+        void writeClipboardText(text).catch((e: unknown) => onMessage(`Copy failed: ${String(e)}`));
       };
 
       // Annotated: without it the separators widen to `separator: boolean`
@@ -112,6 +117,6 @@ export function useGridContextMenu({
 
       showContextMenu(e, menuItems);
     },
-    [result, source, orderedColumns, selection, editing, showContextMenu, onCopyAs, onSetNull],
+    [result, source, orderedColumns, selection, editing, showContextMenu, onCopyAs, onSetNull, onMessage],
   );
 }
