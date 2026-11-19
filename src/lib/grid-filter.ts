@@ -1,3 +1,4 @@
+import { isBytes } from "./blob";
 import { isNumericSqlType } from "./sql-types";
 
 /**
@@ -140,6 +141,10 @@ export function matchesFilter(cell: unknown, filter: ColumnFilter): boolean {
   if (filter.operator === "isNull") return isNull;
   if (filter.operator === "isNotNull") return !isNull;
   if (isNull) return false;
+  // A binary value has no text to search or order, so only the NULL
+  // operators apply to it. The backend's result store filters by the same
+  // rule, so a grid filters the same rows whichever holds them.
+  if (isBytes(cell)) return false;
 
   const text = String(cell);
   const needle = filter.value;

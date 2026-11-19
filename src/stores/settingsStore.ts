@@ -34,6 +34,14 @@ export interface QuerySettings {
   editorFontSize: number;
   /** The whole interface's size, as a factor: 1 is 100% (#837). */
   uiScale: number;
+  /**
+   * Whether an editor tab's results stay in the backend's result store, read
+   * a window at a time, rather than arriving whole in the webview
+   * (docs/design/RESULT_STORE.md). Off by default while it is experimental.
+   * Only the editor's own runs use it; the admin tabs, the schema tree,
+   * EXPLAIN and the rest read whole results as before.
+   */
+  keepResultsInBackend: boolean;
 }
 
 const DEFAULT_QUERY_SETTINGS: QuerySettings = {
@@ -43,6 +51,7 @@ const DEFAULT_QUERY_SETTINGS: QuerySettings = {
   showMinimap: false,
   editorFontSize: 14,
   uiScale: 1,
+  keepResultsInBackend: false,
 };
 
 /** The interface scales offered, smallest to largest; Ctrl+= and Ctrl+- step through them. */

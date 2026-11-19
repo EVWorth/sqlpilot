@@ -26,7 +26,15 @@ import { resetResults, resultHandlers } from "./handlers/results";
 import { resetSchemaKeys, schemaHandlers } from "./handlers/schema";
 import { sqliteHandlers } from "./handlers/sqlite";
 import { delay, type Handlers } from "./router";
-import { type MockOptions, optionsFromUrl, resetState, type Scenario, scenarioFromUrl, startsConnected } from "./state";
+import {
+  type MockOptions,
+  optionsFromUrl,
+  resetState,
+  type Scenario,
+  scenarioFromUrl,
+  startsConnected,
+  state,
+} from "./state";
 
 export const handlers: Handlers = {
   ...connectionHandlers,
@@ -40,6 +48,9 @@ export const handlers: Handlers = {
   ...agentHandlers,
   ...pluginHandlers,
 };
+
+/** What `?slow` slows down: reads of rows the result store keeps. */
+const SLOW_COMMANDS: ReadonlySet<string> = new Set(["result_window", "result_rows"]);
 
 export function installMockBackend(
   scenario: Scenario = scenarioFromUrl(window.location.search),
@@ -64,6 +75,7 @@ export function installMockBackend(
         await delay();
         throw failure;
       }
+      if (state.options.slow && SLOW_COMMANDS.has(cmd)) await delay(30 + Math.floor(Math.random() * 50));
       return handler((payload ?? {}) as Record<string, unknown>);
     },
     { shouldMockEvents: true },

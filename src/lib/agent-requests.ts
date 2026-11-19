@@ -1,4 +1,5 @@
-import type { ConnectionInfo, QueryResult, SqlValue } from "../lib/bindings";
+import type { ConnectionInfo, SqlValue } from "../lib/bindings";
+import type { QueryResult } from "../types";
 import type { EditorTab } from "../types";
 import { allIndices, rowSourceFor } from "./row-source";
 
@@ -92,6 +93,9 @@ function cell(value: SqlValue): unknown {
   return value;
 }
 
+/** The most rows of a stored result the agent's result context carries. */
+export const AGENT_STORED_ROWS = 1000;
+
 /**
  * The result on screen.
  *
@@ -112,7 +116,14 @@ export async function resultAnswer(
   const result = results[activeIndex];
   if (!result) return null;
   const source = rowSourceFor(result);
-  const rows = await source.rows(allIndices(source));
+  // A result the backend's store keeps can be far larger than anything the
+  // webview held; the agent gets its first rows, as the server returned them,
+  // and is told the answer is partial.
+  const capped = result.stored !== undefined && source.rowCount > AGENT_STORED_ROWS;
+  const indices = capped
+    ? Array.from({ length: AGENT_STORED_ROWS }, (_, i) => i)
+    : allIndices(source);
+  const rows = await source.rows(indices);
 
   return {
     sql: result.sql,
@@ -120,7 +131,7 @@ export async function resultAnswer(
     rows: rows.map((row) => row.map(cell)),
     rowCount: source.rowCount,
     executionTimeMs: result.execution_time_ms,
-    truncated: result.rows_truncated,
+    truncated: result.rows_truncated || capped,
     connection: profileIdOf(connections, connectionId),
   };
 }

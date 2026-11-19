@@ -264,7 +264,8 @@ describe("copy and export wait for the source", () => {
 
     fireEvent.click(screen.getByTitle("Copy as tab-separated values"));
     await settle();
-    expect(fake.asked).toContain("rows");
+    // Every row of the view, in the grid's order (copy all follows the view).
+    expect(fake.asked).toContain("allRows");
     expect(clipboard()).not.toHaveBeenCalled();
     expect(screen.queryByText(/Copied/)).toBeNull();
 

@@ -1,7 +1,8 @@
 import { useCallback } from "react";
+import { CopyRefused, writeClipboardText } from "../lib/clipboard";
 import { COPY_FORMAT_LABEL, type CopyFormat, type CopySource, renderCopy } from "../lib/copy-formats";
-import { describeSelection, rowsToCopy, type Selection } from "../lib/grid-selection";
-import { allIndices, type ResultMeta, type RowSource } from "../lib/row-source";
+import { rowsToCopy, type Selection } from "../lib/grid-selection";
+import type { ResultMeta, RowSource } from "../lib/row-source";
 import { resolveEditTarget } from "../lib/sql-generator";
 import { api } from "../lib/tauri-api";
 import type { ColumnMeta } from "../types";
@@ -63,28 +64,36 @@ export function useGridExport({
   rowKey,
   onMessage,
 }: UseGridExportOptions) {
-  /** The footer's Copy button: every row, tab-separated. */
+  /**
+   * The footer's Copy button: every row in the view, tab-separated, in the
+   * order the grid shows them.
+   *
+   * The clipboard write starts here, inside the click, and is filled in when
+   * the rows arrive: see `writeClipboardText`.
+   */
   const copyAll = useCallback(async () => {
     if (!result) return;
-    let fetched;
+    let copied = 0;
+    const text = source.allRows().then((fetched) => {
+      copied = fetched.length;
+      const header = result.columns.map((c) => c.name).join("\t");
+      const rows = fetched
+        .map((row) => row.map((v) => SqlValueGuard.toString(v)).join("\t"))
+        .join("\n");
+      return header + "\n" + rows;
+    });
     try {
-      // The result as the server returned it, whatever the sort and filters.
-      fetched = await source.rows(allIndices(source));
+      await writeClipboardText(text);
     } catch (e) {
       onMessage(`Copy failed: ${String(e)}`);
       return;
     }
-    const header = result.columns.map((c) => c.name).join("\t");
-    const rows = fetched
-      .map((row) => row.map((v) => SqlValueGuard.toString(v)).join("\t"))
-      .join("\n");
-    await navigator.clipboard.writeText(header + "\n" + rows);
-    onMessage(`Copied ${fetched.length} rows to clipboard`);
+    onMessage(`Copied ${plural(copied)} to clipboard`);
   }, [result, source, onMessage]);
 
   /**
-   * Copy the selected rows — or all of them, when nothing is selected — in
-   * one of the formats FR-3.3 asks for.
+   * Copy the selected rows — or every row in the view, when nothing is
+   * selected — in one of the formats FR-3.3 asks for.
    *
    * The SQL formats need to know which table the rows came from and what
    * identifies one, and neither can be invented: an INSERT into `your_table`
@@ -93,53 +102,62 @@ export function useGridExport({
   const copyAs = useCallback(async (format: CopyFormat) => {
     if (!result) return;
     const { rowCount } = source;
-    let fetched;
-    try {
+    let copied = 0;
+    const text = (async () => {
       // Selected rows are copied in the order they are on screen (#858), which
-      // the source knows; nothing selected means the result as returned.
-      const order = selection.rows.size > 0 ? await source.order([...selection.rows]) : undefined;
-      fetched = await source.rows(rowsToCopy(selection, rowCount, order));
+      // the source knows; nothing selected means the whole view, in order.
+      let fetched;
+      if (selection.rows.size > 0) {
+        const order = await source.order([...selection.rows]);
+        fetched = await source.rows(rowsToCopy(selection, rowCount, order));
+      } else {
+        fetched = await source.allRows();
+      }
+      copied = fetched.length;
+      const columnAt = orderedColumns.map((c) => result.columns.findIndex((rc) => rc.name === c.name));
+      const copy: CopySource = {
+        columns: orderedColumns.map((c) => ({ name: c.name, dataType: c.data_type })),
+        rows: fetched.map((row) => columnAt.map((at) => row[at])),
+      };
+      const target = resolveEditTarget(result.sql ?? "");
+      const rendered = renderCopy(format, copy, {
+        table: target.editable ? target.table : null,
+        keyColumns: rowKey.state.status === "ready" ? rowKey.state.columns : [],
+      });
+      if ("refusal" in rendered) throw new CopyRefused(rendered.refusal);
+      return rendered.text;
+    })();
+    try {
+      await writeClipboardText(text);
     } catch (e) {
-      onMessage(`Copy failed: ${String(e)}`);
+      // A refused copy explains itself; the clipboard keeps what it had.
+      const refusal = await text.then(() => null, (r: unknown) => (r instanceof CopyRefused ? r.reason : null));
+      onMessage(refusal ?? `Copy failed: ${String(e)}`);
       return;
     }
-    const columnAt = orderedColumns.map((c) => result.columns.findIndex((rc) => rc.name === c.name));
-    const copy: CopySource = {
-      columns: orderedColumns.map((c) => ({ name: c.name, dataType: c.data_type })),
-      rows: fetched.map((row) => columnAt.map((at) => row[at])),
-    };
-
-    const target = resolveEditTarget(result.sql ?? "");
-    const rendered = renderCopy(format, copy, {
-      table: target.editable ? target.table : null,
-      keyColumns: rowKey.state.status === "ready" ? rowKey.state.columns : [],
-    });
-
-    if ("refusal" in rendered) {
-      onMessage(rendered.refusal);
-      return;
-    }
-    await navigator.clipboard.writeText(rendered.text);
-    onMessage(
-      `Copied ${describeSelection(selection, rowCount)} as ${COPY_FORMAT_LABEL[format]}`,
-    );
+    onMessage(`Copied ${plural(copied)} as ${COPY_FORMAT_LABEL[format]}`);
   }, [result, source, selection, orderedColumns, rowKey.state, onMessage]);
 
   /** Download the whole result, rendered by the backend's exporter. */
   const exportAs = useCallback(async (format: string) => {
     if (!result) return;
     try {
-      // The exporter takes a whole result; the rows are the source's, as the
-      // server returned them.
-      const rows = await source.rows(allIndices(source));
+      // The exporter takes a whole result: every row in the view, in the
+      // order the grid shows them.
+      const rows = await source.allRows();
       const content = await api.exportResults({ ...result, rows }, format);
       const ts = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
       downloadBlob(content, `query-results-${ts}.${EXT[format]}`, MIME[format]);
-      onMessage(`Exported ${rows.length} rows as ${format.toUpperCase()}`);
+      onMessage(`Exported ${plural(rows.length)} as ${format.toUpperCase()}`);
     } catch {
       onMessage("Export failed — try Copy instead");
     }
   }, [result, source, onMessage]);
 
   return { copyAll, copyAs, exportAs };
+}
+
+/** "1 row", "2 rows", "1,000 rows". */
+function plural(n: number): string {
+  return `${n.toLocaleString()} row${n === 1 ? "" : "s"}`;
 }

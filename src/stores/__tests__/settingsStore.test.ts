@@ -34,6 +34,7 @@ const defaultQuerySettings = {
   showMinimap: false,
   editorFontSize: 14,
   uiScale: 1,
+  keepResultsInBackend: false,
 };
 const defaultFormatterSettings = {
   keywordCase: "upper" as const,

@@ -94,7 +94,9 @@ describe("useGridSave", () => {
       statements: [expect.stringContaining("UPDATE")],
     });
     expect(runStatement).not.toHaveBeenCalled();
-    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", "tab-1", "tab-1");
+    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", "tab-1", "tab-1", {
+      fromEditor: true,
+    });
     expect(onMessage).toHaveBeenCalledWith("Applied 1 change(s)");
   });
 
@@ -131,7 +133,9 @@ describe("useGridSave", () => {
 
     expect(runGridEdits).not.toHaveBeenCalled();
     expect(runStatement).toHaveBeenCalledTimes(1);
-    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", undefined, "tab-1");
+    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", undefined, "tab-1", {
+      fromEditor: true,
+    });
   });
 
   it("refreshes in the grid's own tab when the user switched tabs during the save", async () => {
@@ -147,7 +151,9 @@ describe("useGridSave", () => {
 
     await save();
 
-    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", undefined, "tab-1");
+    expect(executeQuery).toHaveBeenCalledWith("conn-1", "SELECT * FROM users", "app", undefined, "tab-1", {
+      fromEditor: true,
+    });
   });
 
   it("saves where the result was read, not where the editor points now (#840)", async () => {
@@ -162,7 +168,9 @@ describe("useGridSave", () => {
     expect(call.session).toBe("tab-9");
     expect(call.database).toBe("other");
     expect(call.statements[0]).toMatch(/^UPDATE `users` SET `name` = 'grace' WHERE `id` = 1/);
-    expect(executeQuery).toHaveBeenCalledWith("conn-2", "SELECT * FROM users", "other", "tab-9", "tab-1");
+    expect(executeQuery).toHaveBeenCalledWith("conn-2", "SELECT * FROM users", "other", "tab-9", "tab-1", {
+      fromEditor: true,
+    });
   });
 
   it("refuses when it cannot tell where the result came from", async () => {
