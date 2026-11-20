@@ -477,14 +477,12 @@ export function ImportDialog({
               />
               <span className="text-[11px] text-[var(--color-text-secondary)]">
                 Stop at the first error
-                {
-                  /*
+                {/*
                     Said plainly rather than implied. A dump's CREATE, DROP and
                     ALTER each commit as they run, so what has already been
                     applied when the import stops cannot be undone — wrapping
                     the run in a transaction would not change that (#365).
-                  */
-                }
+                  */}
                 <span className="mt-0.5 block text-[10px] text-[var(--color-text-muted)]">
                   Statements that already ran stay applied either way — SQL files containing CREATE, DROP or ALTER
                   cannot be rolled back.

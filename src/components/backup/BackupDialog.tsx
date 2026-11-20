@@ -610,10 +610,8 @@ export function BackupDialog({
             </div>
           )}
 
-          {
-            /* Whatever the dump could not read. The file says so too, but
-              nobody should have to open it to find out something is missing. */
-          }
+          {/* Whatever the dump could not read. The file says so too, but
+              nobody should have to open it to find out something is missing. */}
           {warnings.length > 0 && (
             <div className="rounded border edge-warning surface-warning px-3 py-2 text-xs text-[var(--color-warning)]">
               <div className="mb-1 flex items-center gap-2 font-medium">

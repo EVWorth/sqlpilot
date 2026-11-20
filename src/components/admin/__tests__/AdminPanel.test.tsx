@@ -323,12 +323,10 @@ describe("ServerStatusTab", () => {
     {
       query_id: "q1",
       statement_index: 0,
-      columns: [{ name: "Variable_name", data_type: "VARCHAR", nullable: false, is_primary_key: false }, {
-        name: "Value",
-        data_type: "VARCHAR",
-        nullable: false,
-        is_primary_key: false,
-      }],
+      columns: [
+        { name: "Variable_name", data_type: "VARCHAR", nullable: false, is_primary_key: false },
+        { name: "Value", data_type: "VARCHAR", nullable: false, is_primary_key: false },
+      ],
       rows: [
         ["Uptime", "3600"],
         ["Queries", "1000"],

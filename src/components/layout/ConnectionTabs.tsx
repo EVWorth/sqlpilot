@@ -328,14 +328,12 @@ export function ConnectionTabs() {
           );
         })}
 
-        {
-          /*
+        {/*
           Open SQLite files, rendered beside the server connections rather
           than in a pane of their own. A file has no host, port or profile, so
           it carries only its name and a distinct icon — but selecting one
           drives the same sidebar, editor and grid (#461).
-        */
-        }
+        */}
         {sqliteSessions.map((session) => {
           const isSelected = session.id === selectedConnectionId;
           return (
@@ -359,8 +357,7 @@ export function ConnectionTabs() {
                   ? "bg-[var(--color-bg-primary)] text-[var(--color-text-primary)] shadow-sm"
                   : "text-[var(--color-text-secondary)] hover:bg-[var(--color-bg-tertiary)]",
               )}
-              onClick={() =>
-                selectConnection(session.id)}
+              onClick={() => selectConnection(session.id)}
               title={session.path}
             >
               {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}
@@ -386,10 +383,8 @@ export function ConnectionTabs() {
           );
         })}
 
-        {
-          /* A tab for each connect in flight, from the moment it starts, so
-            the wait shows where the connection will appear (#799). */
-        }
+        {/* A tab for each connect in flight, from the moment it starts, so
+            the wait shows where the connection will appear (#799). */}
         {connecting.map((profileId) => {
           const profile = profiles.find((p) => p.id === profileId);
           const label = profile?.name || profile?.host || profileId;

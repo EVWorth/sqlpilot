@@ -131,11 +131,9 @@ function ConnectionRow({ connection }: { connection: AgentConnection }) {
         </label>
       )}
 
-      {
-        /* Production schema changes are refused outright unless this is on, and
+      {/* Production schema changes are refused outright unless this is on, and
           it lapses when the app closes — so it belongs next to the connection
-          rather than in a preferences pane someone sets once and forgets. */
-      }
+          rather than in a preferences pane someone sets once and forgets. */}
       {shared && connection.environment === "production" && !connection.readOnly && (
         <label className="flex items-center gap-2 text-xs text-[var(--color-text-secondary)]">
           <input

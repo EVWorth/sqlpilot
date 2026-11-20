@@ -494,10 +494,8 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         )}
       </div>
 
-      {
-        /* FR-4.1.6: the server's own schemas, on request (#291). Only offered
-          when there are some — SQLite has none. */
-      }
+      {/* FR-4.1.6: the server's own schemas, on request (#291). Only offered
+          when there are some — SQLite has none. */}
       {allDatabases.some((d) => d.is_system) && (
         <label className="mb-1 flex cursor-pointer items-center gap-1.5 px-2 text-[10px] text-[var(--color-text-muted)] hover:text-[var(--color-text-secondary)]">
           <input
@@ -514,21 +512,17 @@ export function SchemaTree({ connectionId }: { connectionId: string }) {
         </label>
       )}
 
-      {
-        /* Without this a filter that hides everything left a blank tree, which
-          reads as "still loading" (#806). */
-      }
+      {/* Without this a filter that hides everything left a blank tree, which
+          reads as "still loading" (#806). */}
       {isFiltering && databases.length > 0 && visibleDatabases.length === 0 && (
         <p role="status" className="px-2 py-1 text-[11px] text-[var(--color-text-muted)]">
           No objects match '{filterText.trim()}'
         </p>
       )}
 
-      {
-        /* The tree is the rows only: the filter and the toggle above it are
+      {/* The tree is the rows only: the filter and the toggle above it are
           not tree items, and a tree containing them is not one a screen
-          reader can walk. */
-      }
+          reader can walk. */}
       <div role="tree" aria-label="Schema" {...treeProps}>
         {visibleDatabases.map((db) => (
           <div key={db.name} role="none">

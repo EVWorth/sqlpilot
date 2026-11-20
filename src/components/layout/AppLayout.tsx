@@ -340,19 +340,15 @@ export function AppLayout() {
             </Panel>
           </Group>
         </div>
-        {
-          /* Outside the resizable group: the panel keeps its own width (it
+        {/* Outside the resizable group: the panel keeps its own width (it
             has its own divider, and remembers where it was left), and it
-            should not steal space from the editor when it is closed. */
-        }
+            should not steal space from the editor when it is closed. */}
         {agentPanelOpen && <AgentPanel onClose={() => setAgentPanelOpen(false)} />}
       </div>
       <StatusBar />
-      {
-        /* Always mounted: it listens for its own chord, and View → Command
+      {/* Always mounted: it listens for its own chord, and View → Command
           Palette routes here too, so the feature does not depend on a key
-          combination the window manager might have claimed. */
-      }
+          combination the window manager might have claimed. */}
       <CommandPalette
         isOpen={paletteOpen}
         onOpen={() => setPaletteOpen(true)}
@@ -409,11 +405,9 @@ export function AppLayout() {
         onConfirm={confirmExecution}
         onCancel={cancelExecution}
       />
-      {
-        /* The awaitable gate (#588). Separate from the one above because that
+      {/* The awaitable gate (#588). Separate from the one above because that
           one runs the statement itself, while this one only answers yes or no
-          and leaves the caller to carry on. */
-      }
+          and leaves the caller to carry on. */}
       <ConfirmDialog
         isOpen={!!guardRequest}
         title={guardRequest?.title ?? ""}

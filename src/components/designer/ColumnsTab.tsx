@@ -127,10 +127,8 @@ export function ColumnsTab({
                       <GripVertical className="h-3 w-3" />
                     </td>
                     <td className="px-1 py-1 text-center">
-                      {
-                        /* The key itself lives in the Indexes tab; this is the
-                          same index, reached from where the columns are. */
-                      }
+                      {/* The key itself lives in the Indexes tab; this is the
+                          same index, reached from where the columns are. */}
                       <button
                         type="button"
                         onClick={() => col.name && onTogglePrimaryKey(col.name)}
@@ -210,11 +208,9 @@ export function ColumnsTab({
                       />
                     </td>
                     <td className="px-1 py-1 text-center">
-                      {
-                        /* MySQL rejects AUTO_INCREMENT on anything but an
+                      {/* MySQL rejects AUTO_INCREMENT on anything but an
                           integer type (ERROR 1063), so it is offered only
-                          there (#383). */
-                      }
+                          there (#383). */}
                       <input
                         type="checkbox"
                         checked={col.autoIncrement && canAutoIncrement(col.type)}

@@ -231,10 +231,8 @@ export function ReplicationTab({ connectionId }: { connectionId: string }) {
               {replicas.map((r) => (
                 <tr key={r.serverId} className="border-b border-[var(--color-border)]">
                   <td className="py-1 pr-4 font-mono">{r.serverId}</td>
-                  {
-                    /* SHOW REPLICAS reports an empty host unless the replica was
-                      started with report_host, which most are not. */
-                  }
+                  {/* SHOW REPLICAS reports an empty host unless the replica was
+                      started with report_host, which most are not. */}
                   <td className="py-1 pr-4 font-mono">{r.host || "not reported"}</td>
                   <td className="py-1 font-mono">{r.port}</td>
                 </tr>

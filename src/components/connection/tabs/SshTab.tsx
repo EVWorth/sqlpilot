@@ -28,15 +28,13 @@ export function SshTab({
 }: SshTabProps) {
   return (
     <div className="space-y-4">
-      {
-        /*
+      {/*
               The fields below are stored but not acted on: nothing in the
               backend opens a tunnel. A profile configured here used to
               connect straight to the database host while the UI implied
               the traffic was tunnelled, so the connection is now refused
               outright rather than quietly going direct (#273).
-            */
-      }
+            */}
       <div
         data-testid="ssh-unsupported"
         className="flex items-start gap-2 rounded border edge-warning surface-warning-strong px-3 py-2 text-xs text-[var(--color-warning)]"

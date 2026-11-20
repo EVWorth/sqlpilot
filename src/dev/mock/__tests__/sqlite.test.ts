@@ -144,10 +144,10 @@ describe("sqlite_run_query", () => {
 
   it("gives every statement its own handle and result id", async () => {
     const handles = await run("SELECT 'a;b'; SELECT * FROM settings");
-    expect(handles.map((h) => [h.statement_index, h.sql])).toEqual([[0, "SELECT 'a;b'"], [
-      1,
-      "SELECT * FROM settings",
-    ]]);
+    expect(handles.map((h) => [h.statement_index, h.sql])).toEqual([
+      [0, "SELECT 'a;b'"],
+      [1, "SELECT * FROM settings"],
+    ]);
     expect(new Set(handles.map((h) => h.result_id)).size).toBe(2);
   });
 
