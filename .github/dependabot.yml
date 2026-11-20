@@ -23,12 +23,12 @@ updates:
   # it into main (docs/RELEASING.md). The tauri group sets it above. Security
   # updates ignore target-branch and use the default branch, which is dev.
   # Supply-chain defense: minimum 7-day cooldown before Dependabot opens
-  # a version-bump PR. Matches `.npmrc` `min-release-age=7` and the
-  # cargo audit `min-age` policy. Security updates bypass cooldown by
+  # a version-bump PR. Matches `.npmrc` `min-release-age=7` and, for cargo,
+  # `registry.global-min-publish-age` in `src-tauri/.cargo/config.toml`,
+  # which holds local `cargo update` and `cargo add` to the same rule (#225).
+  # The cargo cooldown stays as well: it stops Dependabot opening a PR the
+  # config would then refuse to resolve. Security updates bypass cooldown by
   # default (Dependabot's `security-updates`-first behavior).
-  # When RFC 3923 (`-Zmin-publish-age`) stabilizes on Rust stable
-  # (~1.98+), the cargo ecosystem can drop to native enforcement
-  # and `cooldown` can be relaxed. Tracking: see sqlpilot issue.
 
   # Members of the `tauri` group above: `patterns` (required) is what each
   # ecosystem contributes, and the schedule comes from the group. Keep the

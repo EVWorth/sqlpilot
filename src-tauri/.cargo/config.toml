@@ -13,3 +13,17 @@
 # The user's own SQLite files are opened with the stock limit put back
 # (crates/mas-sqlite/src/connection.rs).
 LIBSQLITE3_FLAGS = "-DSQLITE_MAX_COLUMN=32767"
+
+[registry]
+# Supply-chain defence: a crate version is used only once it has been on
+# crates.io for 7 days, the same rule `.npmrc` (`min-release-age=7`) and
+# Dependabot's `cooldown` apply (#225). Cargo 1.100 and later enforce it in
+# every resolve started here, so a local `cargo update` or `cargo add` is
+# held to it too, which Dependabot's cooldown never covered. Versions already
+# in Cargo.lock are kept whatever their age.
+#
+# An urgent security fix younger than that:
+#   CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update -p <crate> --precise <version>
+# A later plain `cargo update` downgrades it again until it is 7 days old,
+# so update only the crates you mean to until then.
+global-min-publish-age = "7 days"
