@@ -39,6 +39,14 @@ After each merge that touches `package-lock.json` or `src-tauri/Cargo.lock`,
 the other PRs touching that file go stale: comment `@dependabot rebase` on
 each and wait for green before merging the next.
 
+When Dependabot does not act on a command within a few minutes (it has
+ignored `@dependabot rebase` before, perhaps because of the footer every
+comment carries), don't keep asking. For a PR whose CI predates a check, fetch
+its branch into a worktree and run that check there, for example
+`node <main checkout>/scripts/check-dependency-age.mjs --base origin/dev`, and
+merge on the result if every other check is green. Otherwise close it and
+let Dependabot open it again on its next run.
+
 ## 4. Checking ages yourself
 
 `node scripts/check-dependency-age.mjs --base origin/dev` lists every package

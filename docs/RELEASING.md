@@ -140,13 +140,12 @@ updater artifact and `latest.json`.
 
 tauri-action's "build only" mode is achieved by omitting `tagName`, `releaseName`, and `releaseId` (per the action's README). The signing key is still passed to the build step because tauri itself signs during `tauri build` when `bundle.createUpdaterArtifacts: true`.
 
-**Verify after each release.** Confirm exactly one release exists for the tag
-and it has every asset:
+**Verify after each release.** Confirm exactly one release exists for the tag,
+it is published, it has every asset above, and its `latest.json` names the
+version and every updater key:
 
 ```bash
-gh release view v<X.Y.Z> --json isDraft,assets -q '{draft: .isDraft, assets: [.assets[].name]}'
-gh api repos/EVWorth/sqlpilot/releases | \
-  jq '[.[] | select(.tag_name == "v<X.Y.Z>")] | length'   # expect 1
+node scripts/verify-release.mjs <X.Y.Z>   # exit 0: all there; 1: lists what is missing
 ```
 
 ---
