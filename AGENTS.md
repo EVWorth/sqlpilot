@@ -81,7 +81,9 @@ and don't report one as passing that you didn't run.
    regenerated `package-lock.json` (lefthook blocks it otherwise). Never
    hand-edit `*.lock` files.
 9. **New dependencies wait a week.** Dependabot's cooldown holds bumps for 7
-   days; security fixes are exempt.
+   days, and so do `.npmrc` (`min-release-age=7`) and, for every Cargo run in
+   `src-tauri/`, `src-tauri/.cargo/config.toml`. A security fix younger than
+   that goes in with the override documented in that file.
 10. **There is no E2E suite.** It could not drive a Tauri window and was
     removed. `src/lib/__tests__/tauri-command-contract.test.ts` covers the
     Rust↔JS command contract.
