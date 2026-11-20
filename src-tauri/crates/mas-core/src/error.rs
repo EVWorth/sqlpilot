@@ -156,8 +156,11 @@ pub struct QueryError {
     ///
     /// A script whose third statement failed used to surface as one opaque
     /// failure, with no way to tell which line to look at (#329).
+    // u32 rather than usize: no script has four billion statements, and the
+    // smaller field keeps the error under clippy's `result_large_err` limit,
+    // which every command returning it would otherwise trip.
     #[specta(type = Option<specta_typescript::Number>)]
-    pub statement_index: Option<usize>,
+    pub statement_index: Option<u32>,
     /// The results of the statements that ran before the failing one, when a
     /// run stopped at its second statement or later (#845).
     ///
@@ -283,7 +286,9 @@ impl QueryError {
     /// Say which statement this was, for a multi-statement run.
     #[must_use]
     pub fn at_statement(mut self, index: usize) -> Self {
-        self.statement_index = Some(index);
+        // Saturates rather than fails: an index past u32::MAX cannot happen,
+        // and a wrong number is better than losing the error.
+        self.statement_index = Some(u32::try_from(index).unwrap_or(u32::MAX));
         self
     }
 }

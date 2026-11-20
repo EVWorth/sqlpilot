@@ -813,7 +813,7 @@ System font stack: `-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helv
 | No Oracle Cloud integration | Focus on self-hosted and standard cloud MySQL instances; avoid Oracle ecosystem lock-in                                                                                                 |
 | Tauri 2.0 minimum           | Tauri 2.0 provides essential features (multi-window, tray, plugins) not available in 1.x                                                                                                |
 | Node.js 24 for development  | Pinned in `.node-version` and `mise.toml`; `package.json` requires `>=24`                                                                                                               |
-| Rust 1.95 for the backend   | Pinned in `rust-toolchain.toml`, so every machine and CI job builds with the same one                                                                                                   |
+| Rust 1.100 for the backend  | Pinned in `rust-toolchain.toml`, so every machine and CI job builds with the same one                                                                                                   |
 | npm as package manager      | `package-lock.json` is what is committed and what CI installs from                                                                                                                      |
 
 ## Appendix C: Future Considerations
