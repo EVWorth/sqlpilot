@@ -23,6 +23,10 @@ without asking again.
   End the report with a table of the specific points worth the maintainer's
   attention: what was decided, why, and what changing it would cost. Say
   each point in plain words; never refer to one by a label alone.
+- **Automate what repeats.** When a task needs the same manual steps a
+  second time, turn them into a skill in `.claude/skills/`, a script in
+  `scripts/`, or a CI check, in the same session, so it is not done by hand
+  again.
 - **Write lasting instructions down.** When the maintainer sets a rule for how
   to work, add it to `AGENTS.md` (any agent) or this file (Claude only) in the
   same session. Put a procedure in a skill instead.
@@ -32,17 +36,18 @@ without asking again.
 Procedures live in `.claude/skills/<name>/SKILL.md`. Each one loads when its
 task comes up, or by `/<name>`.
 
-| Skill               | Use it to                                                         |
-| ------------------- | ----------------------------------------------------------------- |
-| `release`           | cut a release: merge the dev → main release PR, watch it ship     |
-| `add-tauri-command` | add or change a Tauri command across Rust, bindings, API and mock |
-| `integration-tests` | run the database-backed Rust tests against MySQL and MariaDB      |
-| `ui-preview`        | see or screenshot the UI with the mock backend                    |
-| `file-issue`        | file an issue for something wrong you found                       |
-| `findissues`        | scan the codebase and file issues for what it finds               |
-| `reviewissues`      | triage open issues into a prioritized report                      |
-| `review-prs`        | review an open PR with the `reviewer` agent                       |
-| `doc-keeper`        | run a docs drift sweep and open a PR                              |
+| Skill                | Use it to                                                         |
+| -------------------- | ----------------------------------------------------------------- |
+| `release`            | cut a release: merge the dev → main release PR, watch it ship     |
+| `add-tauri-command`  | add or change a Tauri command across Rust, bindings, API and mock |
+| `integration-tests`  | run the database-backed Rust tests against MySQL and MariaDB      |
+| `ui-preview`         | see or screenshot the UI with the mock backend                    |
+| `file-issue`         | file an issue for something wrong you found                       |
+| `findissues`         | scan the codebase and file issues for what it finds               |
+| `reviewissues`       | triage open issues into a prioritized report                      |
+| `review-prs`         | review an open PR with the `reviewer` agent                       |
+| `doc-keeper`         | run a docs drift sweep and open a PR                              |
+| `dependency-updates` | merge Dependabot and dprint PRs in a safe order, fixing failures  |
 
 ## Subagents
 
@@ -95,8 +100,13 @@ Code, commits, PRs, issues and log lines are written in normal English.
   `origin/dev`.
 - The disk fills quickly with test binaries. Before a long Rust run, run
   `bash scripts/clean-debug.sh` (or `just clean-debug`; `just` may not be
-  installed) and set `CARGO_INCREMENTAL=0`. The `rm -rf` deny rule blocks
-  deleting those directories by hand on purpose.
+  installed) and set `CARGO_INCREMENTAL=0`. If a build still runs out of
+  space, `cargo clean` in `src-tauri/` clears the rest (two toolchains' worth
+  of output reached 22 GB). The `rm -rf` deny rule blocks deleting those
+  directories by hand on purpose.
+- The container's Node and npm can be older than `.node-version` pins, and
+  an older npm ignores `.npmrc`'s `min-release-age`. After any lockfile
+  change, run `node scripts/check-dependency-age.mjs --base origin/dev`.
 - After a container restart the Docker daemon is down, but `/var/lib/docker`
   (images, test containers, their data) survives: start `dockerd`, then
   `just db-up`.
