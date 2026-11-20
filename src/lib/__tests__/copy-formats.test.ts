@@ -126,10 +126,13 @@ describe("copy-formats (#416)", () => {
     });
 
     it("matches a NULL key part with IS NULL", () => {
-      const out = text(renderCopy("update", {
-        columns: [{ name: "k" }, { name: "v" }],
-        rows: [[null, 1]],
-      }, { table: "t", keyColumns: ["k"] }));
+      const out = text(
+        renderCopy(
+          "update",
+          { columns: [{ name: "k" }, { name: "v" }], rows: [[null, 1]] },
+          { table: "t", keyColumns: ["k"] },
+        ),
+      );
       expect(out).toContain("WHERE `k` IS NULL");
     });
 
@@ -140,10 +143,11 @@ describe("copy-formats (#416)", () => {
 
     it("refuses when every column is part of the key", () => {
       // There would be nothing left to SET.
-      const out = renderCopy("update", {
-        columns: [{ name: "a" }, { name: "b" }],
-        rows: [[1, 2]],
-      }, { table: "t", keyColumns: ["a", "b"] });
+      const out = renderCopy(
+        "update",
+        { columns: [{ name: "a" }, { name: "b" }], rows: [[1, 2]] },
+        { table: "t", keyColumns: ["a", "b"] },
+      );
       expect("refusal" in out && out.refusal).toMatch(/not part of the key/);
     });
 

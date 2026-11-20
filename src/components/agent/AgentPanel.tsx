@@ -111,10 +111,8 @@ export function AgentPanel({ onClose }: AgentPanelProps) {
 
   return (
     <div className="flex h-full shrink-0" style={{ width }}>
-      {
-        /* The same divider as the sidebar's: a 4px line with a wider grab
-          area, focusable so the arrow keys resize it too. */
-      }
+      {/* The same divider as the sidebar's: a 4px line with a wider grab
+          area, focusable so the arrow keys resize it too. */}
       <div
         {...separatorProps}
         className="relative z-10 w-1 shrink-0 cursor-col-resize bg-[var(--color-border)] transition-colors hover:bg-brand-500 focus-visible:bg-brand-500 focus-visible:outline-none after:absolute after:inset-y-0 after:-left-2.5 after:-right-2.5 after:content-['']"

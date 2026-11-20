@@ -188,11 +188,10 @@ describe("result_window", () => {
   });
 
   it("sorts a numeric column by value, including numbers that travel as text", async () => {
-    const id = stored([col("total", "DECIMAL"), col("big", "BIGINT")], [
-      ["10.5", "9007199254740993"],
-      ["9", "9007199254740992"],
-      ["100", "-5"],
-    ]);
+    const id = stored(
+      [col("total", "DECIMAL"), col("big", "BIGINT")],
+      [["10.5", "9007199254740993"], ["9", "9007199254740992"], ["100", "-5"]],
+    );
     expect(column(await windowOf(id, { sort: [{ column: 0, descending: false }] }))).toEqual(["9", "10.5", "100"]);
     // Past 2^53, where a double cannot tell the two apart.
     expect(column(await windowOf(id, { sort: [{ column: 1, descending: false }] }), 1))
@@ -228,13 +227,10 @@ describe("result_window", () => {
   });
 
   it("filters before sorting and paging, keeping each row's id", async () => {
-    const id = stored([col("name", "VARCHAR"), col("n", "INT")], [
-      ["Anna", 5],
-      ["bob", 1],
-      ["HANNAH", 3],
-      [null, 9],
-      ["Joanna", 2],
-    ]);
+    const id = stored(
+      [col("name", "VARCHAR"), col("n", "INT")],
+      [["Anna", 5], ["bob", 1], ["HANNAH", 3], [null, 9], ["Joanna", 2]],
+    );
     const filters: ColumnFilter[] = [{ column: 0, operator: "contains", value: "ann" }];
     const w = await windowOf(id, { filters, sort: [{ column: 1, descending: false }], offset: 1, count: 1 });
     expect(w.matching_rows).toBe(3);
@@ -243,10 +239,10 @@ describe("result_window", () => {
   });
 
   it("combines filters, compares numbers as numbers, and ignores a filter with no operand", async () => {
-    const id = stored([col("name", "VARCHAR"), col("n", "BIGINT")], [["a", "9"], ["b", "10"], [null, "11"], [
-      "d",
-      "200",
-    ]]);
+    const id = stored(
+      [col("name", "VARCHAR"), col("n", "BIGINT")],
+      [["a", "9"], ["b", "10"], [null, "11"], ["d", "200"]],
+    );
     const w = await windowOf(id, {
       filters: [
         { column: 1, operator: "between", value: "10", value2: "150" },
@@ -317,13 +313,7 @@ describe("result_window", () => {
 
 /** Five people; "ann" matches rows 1, 3 and 5, which sort by `n` as 5, 3, 1. */
 const people = () =>
-  stored([col("name", "VARCHAR"), col("n", "INT")], [
-    ["Anna", 5],
-    ["bob", 1],
-    ["HANNAH", 3],
-    [null, 9],
-    ["Joanna", 2],
-  ]);
+  stored([col("name", "VARCHAR"), col("n", "INT")], [["Anna", 5], ["bob", 1], ["HANNAH", 3], [null, 9], ["Joanna", 2]]);
 const ANN: ColumnFilter[] = [{ column: 0, operator: "contains", value: "ann" }];
 const BY_N: SortKey[] = [{ column: 1, descending: false }];
 
@@ -494,9 +484,7 @@ describe("result_rows", () => {
     // Two cells of 20 MiB and one of 30: any one row fits, the first two
     // together fit, and the third does not fit after them.
     const mib = 1024 * 1024;
-    const id = stored([col("t", "LONGTEXT")], [["a".repeat(20 * mib)], ["b".repeat(20 * mib)], [
-      "c".repeat(30 * mib),
-    ]]);
+    const id = stored([col("t", "LONGTEXT")], [["a".repeat(20 * mib)], ["b".repeat(20 * mib)], ["c".repeat(30 * mib)]]);
     expect(await rows(id, [1, 2])).toHaveLength(2);
     expect(await rejection("result_rows", { resultId: id, rowIds: [1, 2, 3] })).toBe(
       "Query error: The rows are too large to return at once: the first 2 of the 3 rows asked for already hold "
@@ -521,11 +509,10 @@ describe("result_cell", () => {
   it("returns the whole value a window cut short", async () => {
     const long = "z".repeat(WINDOW_MAX_CELL_BYTES + 100);
     const big = Array.from({ length: WINDOW_MAX_CELL_BYTES + 10 }, (_, i) => i % 256);
-    const id = stored([col("t", "LONGTEXT"), col("b", "BLOB"), col("n", "INT")], [["first", [1], null], [
-      long,
-      big,
-      7,
-    ]]);
+    const id = stored(
+      [col("t", "LONGTEXT"), col("b", "BLOB"), col("n", "INT")],
+      [["first", [1], null], [long, big, 7]],
+    );
 
     expect(await call<WireValue>("result_cell", { resultId: id, rowId: 2, column: 0 })).toBe(long);
     const whole = await call<{ bytes: string }>("result_cell", { resultId: id, rowId: 2, column: 1 });

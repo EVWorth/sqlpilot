@@ -113,10 +113,10 @@ describe("createArraySource", () => {
       expect(source.getSnapshot().viewCount).toBe(2);
       expect(source.rowCount).toBe(4);
 
-      source.setView([], [
-        { column: 1, operator: "contains", value: "ada" },
-        { column: 2, operator: "gt", value: "10" },
-      ]);
+      source.setView(
+        [],
+        [{ column: 1, operator: "contains", value: "ada" }, { column: 2, operator: "gt", value: "10" }],
+      );
       expect(painted(source)).toEqual([3]);
     });
 
@@ -139,11 +139,14 @@ describe("createArraySource", () => {
 
     it("leaves out a filter that would narrow nothing, and one for a missing column", () => {
       const source = createArraySource(makeResult());
-      source.setView([asc(9)], [
-        { column: 1, operator: "contains", value: "  " },
-        { column: 2, operator: "between", value: "1", value2: null },
-        { column: 9, operator: "isNull", value: "" },
-      ]);
+      source.setView(
+        [asc(9)],
+        [
+          { column: 1, operator: "contains", value: "  " },
+          { column: 2, operator: "between", value: "1", value2: null },
+          { column: 9, operator: "isNull", value: "" },
+        ],
+      );
       expect(source.getSnapshot()).toMatchObject({ viewCount: 4, sort: [], filters: [] });
     });
   });
@@ -172,10 +175,10 @@ describe("createArraySource", () => {
       const before = source.getSnapshot();
 
       // New arrays, the same view; and a filter that is not active changes nothing.
-      source.setView([asc(1)], [
-        { column: 1, operator: "contains", value: "a", value2: null },
-        { column: 0, operator: "equals", value: "" },
-      ]);
+      source.setView(
+        [asc(1)],
+        [{ column: 1, operator: "contains", value: "a", value2: null }, { column: 0, operator: "equals", value: "" }],
+      );
 
       expect(listener).not.toHaveBeenCalled();
       expect(source.getSnapshot()).toBe(before);

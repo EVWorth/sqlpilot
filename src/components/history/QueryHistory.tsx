@@ -313,11 +313,9 @@ export function QueryHistory() {
               onChange={(e) => setRedactLiterals(e.target.checked)}
               className="h-3 w-3 accent-brand-500"
             />
-            {
-              /* Off by default: a redacted entry cannot be rerun and is much
+            {/* Off by default: a redacted entry cannot be rerun and is much
                 harder to read, which is most of what history is for. This is
-                for shared or regulated machines (#330). */
-            }
+                for shared or regulated machines (#330). */}
             <span title="Applies to entries recorded from now on, not to ones already stored.">
               Hide values in new entries
             </span>
@@ -330,10 +328,8 @@ export function QueryHistory() {
               onChange={(e) => void setFilters({ includeAppOrigins: e.target.checked })}
               className="h-3 w-3 accent-brand-500"
             />
-            {
-              /* Off by default: a thousand-statement dump would otherwise bury
-                a day's editing under statements nobody typed (#586). */
-            }
+            {/* Off by default: a thousand-statement dump would otherwise bury
+                a day's editing under statements nobody typed (#586). */}
             <span>Include imports, restores and internal reads</span>
           </label>
 
@@ -373,10 +369,8 @@ export function QueryHistory() {
         </div>
       )}
 
-      {
-        /* Retention. Lives here rather than in a settings dialog because it is
-          about this panel, and the count it governs is on screen next to it. */
-      }
+      {/* Retention. Lives here rather than in a settings dialog because it is
+          about this panel, and the count it governs is on screen next to it. */}
       <div className="flex items-center gap-1 border-b border-[var(--color-border)] px-2 py-1 text-[10px] text-[var(--color-text-muted)]">
         <label htmlFor="history-limit">Keep</label>
         <select

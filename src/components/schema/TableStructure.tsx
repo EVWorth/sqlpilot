@@ -317,10 +317,8 @@ function IndexesTable({ indexes }: { indexes: IndexInfo[] }) {
           <tr key={idx.name} className={TR}>
             <td className={`${TD} font-medium`}>{idx.name}</td>
             <td className={`${TD} font-mono text-[var(--color-text-secondary)]`}>
-              {
-                /* An expression index has no columns; saying so beats an empty
-                  cell that reads as a rendering failure (#290). */
-              }
+              {/* An expression index has no columns; saying so beats an empty
+                  cell that reads as a rendering failure (#290). */}
               {idx.columns.length > 0
                 ? idx.columns.join(", ")
                 : <span className="italic opacity-60">expression</span>}
@@ -356,11 +354,9 @@ function ForeignKeysTable({ keys }: { keys: ForeignKeyInfo[] }) {
             <td className={`${TD} font-mono text-[var(--color-text-secondary)]`}>
               {fk.referenced_table} ({fk.referenced_columns.join(", ")})
             </td>
-            {
-              /* The rules are the part people come here for: whether deleting a
+            {/* The rules are the part people come here for: whether deleting a
                 parent row takes children with it is not visible anywhere
-                else. */
-            }
+                else. */}
             <td className={`${TD} text-[var(--color-text-muted)]`}>{fk.on_update}</td>
             <td className={`${TD} text-[var(--color-text-muted)]`}>{fk.on_delete}</td>
           </tr>

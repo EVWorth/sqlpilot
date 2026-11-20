@@ -759,8 +759,7 @@ function IndexColumnOrder({ columns, onChange }: { columns: string[]; onChange: 
           <span className="min-w-24">{name}</span>
           <button
             type="button"
-            onClick={() =>
-              move(i, i - 1)}
+            onClick={() => move(i, i - 1)}
             disabled={i === 0}
             aria-label={`Move ${name} up`}
             className={arrowClass}
@@ -769,8 +768,7 @@ function IndexColumnOrder({ columns, onChange }: { columns: string[]; onChange: 
           </button>
           <button
             type="button"
-            onClick={() =>
-              move(i, i + 1)}
+            onClick={() => move(i, i + 1)}
             disabled={i === columns.length - 1}
             aria-label={`Move ${name} down`}
             className={arrowClass}

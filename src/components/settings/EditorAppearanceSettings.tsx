@@ -33,10 +33,8 @@ export function EditorAppearanceSettings() {
             })}
           className="h-3.5 w-3.5 accent-brand-500"
         />
-        {
-          /* FR-2.3.7. Off by default — statements are short and the
-              minimap costs width — but that is a preference (#295). */
-        }
+        {/* FR-2.3.7. Off by default — statements are short and the
+              minimap costs width — but that is a preference (#295). */}
         Show minimap
       </label>
 

@@ -143,10 +143,8 @@ export function ConnectionDialog({
         ))}
       </div>
 
-      {
-        /* A form, so Enter in any field does what the primary button does.
-          It did nothing (#832). */
-      }
+      {/* A form, so Enter in any field does what the primary button does.
+          It did nothing (#832). */}
       <form
         onSubmit={(e) => {
           e.preventDefault();

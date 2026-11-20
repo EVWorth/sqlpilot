@@ -374,11 +374,9 @@ export function RestoreDialog({
             </div>
           )}
 
-          {
-            /* What happened. The old dialog said "completed" or "completed
+          {/* What happened. The old dialog said "completed" or "completed
               with N errors" and never said whether the database had been
-              changed, which is the thing a user has to know. */
-          }
+              changed, which is the thing a user has to know. */}
           {summary && (
             <div
               className={isCleanRun(summary)

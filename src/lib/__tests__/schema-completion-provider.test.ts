@@ -1,5 +1,6 @@
 import type * as monacoNs from "monaco-editor";
 import { describe, expect, it, vi } from "vitest";
+import type { SchemaData } from "../schema-completion-provider";
 import {
   createCompletionProvider,
   detectContext,
@@ -8,7 +9,6 @@ import {
   MYSQL_KEYWORDS,
   parseFromTables,
 } from "../schema-completion-provider";
-import type { SchemaData } from "../schema-completion-provider";
 
 function makeMockModel(lineContent: string, fullContent?: string, lineNumber = 1, column = lineContent.length + 1) {
   return {

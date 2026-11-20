@@ -407,10 +407,8 @@ export function PrivilegesEditor({
               <option value="">Select a database…</option>
               {databases.map((db) => (
                 <option key={db} value={db}>
-                  {
-                    /* Edits on a database you have switched away from are kept
-                      and will be applied, so say which those are. */
-                  }
+                  {/* Edits on a database you have switched away from are kept
+                      and will be applied, so say which those are. */}
                   {dirtyDbs.includes(db) ? `${db} •` : db}
                 </option>
               ))}

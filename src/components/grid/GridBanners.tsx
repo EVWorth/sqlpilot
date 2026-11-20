@@ -41,10 +41,8 @@ export function GridBanners({
             </button>
           )}
 
-          {
-            /* FR-3.1.7: 1000 of 1,200 and 1000 of 12,000,000 call for different
-              responses, and the banner said nothing either way (#402). */
-          }
+          {/* FR-3.1.7: 1000 of 1,200 and 1000 of 12,000,000 call for different
+              responses, and the banner said nothing either way (#402). */}
           {rowCount.total && (
             <span className="shrink-0 text-[var(--color-warning)]">
               {describeTotal(rowsShown, rowCount.total)}
