@@ -1,3 +1,19 @@
+## v1.6.0 (2026-11-20)
+
+### Feat
+
+- keep editor results in the backend, behind a setting (#984)
+
+### Fix
+
+- patch SQLite CVE and add a result store (#972)
+
+### Refactor
+
+- add views and row lookups to the result store (#982)
+- read grid rows through a row source (#975)
+- let the executor write to the result store (#974)
+
 ## v1.5.1 (2026-11-11)
 
 ### Fix
