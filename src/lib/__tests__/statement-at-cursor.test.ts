@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { getStatementAtCursor, sqlAtCursor } from "../statement-at-cursor";
 import type { CursorSource } from "../statement-at-cursor";
+import { getStatementAtCursor, sqlAtCursor } from "../statement-at-cursor";
 
 const text = `
 select * from job_search.scrape_log

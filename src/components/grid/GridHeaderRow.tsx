@@ -2,6 +2,7 @@ import { flexRender, type Header } from "@tanstack/react-table";
 import type { ColumnFilters } from "../../hooks/useColumnFilters";
 import type { ColumnLayout } from "../../hooks/useColumnLayout";
 import type { GridFeatures } from "../../lib/grid-features";
+import type { GridSort } from "../../lib/grid-sort";
 import { ColumnFilterMenu } from "./ColumnFilterMenu";
 import { GridHeaderCell } from "./GridHeaderCell";
 
@@ -21,8 +22,10 @@ export interface GridHeaderRowProps {
   headers: Header<GridFeatures, Record<string, unknown>>[];
   /** `th` for the plain table, `div` for the virtualized flex layout. */
   as: "th" | "div";
-  /** How many columns are sorting, which decides whether priority is shown. */
-  sortedColumnCount: number;
+  /** The sort keys in order; more than one decides whether priority is shown. */
+  sort: GridSort;
+  /** A header was clicked, or Enter pressed on it; `multi` when Shift was held. */
+  onSort: (columnId: string, multi: boolean) => void;
   columnTypes: Record<string, string>;
   numericColumns: ReadonlySet<string>;
   /** Longest value per column, for the virtualized layout's minimum width. */
@@ -37,7 +40,8 @@ export interface GridHeaderRowProps {
 export function GridHeaderRow({
   headers,
   as,
-  sortedColumnCount,
+  sort,
+  onSort,
   columnTypes,
   numericColumns,
   maxContentLen,
@@ -54,20 +58,21 @@ export function GridHeaderRow({
         // The flex layout needs a floor so a narrow column does not collapse;
         // the table sizes from the header itself.
         const minWidth = Math.max(50, Math.min(maxContentLen[id] ?? 5, 20) * 7 + 30);
+        const sortAt = sort.findIndex((k) => k.id === id);
         return (
           <GridHeaderCell
             as={as}
             key={header.id}
             columnId={id}
             label={flexRender(header.column.columnDef.header, header.getContext())}
-            sortDirection={header.column.getIsSorted()}
-            sortIndex={header.column.getSortIndex() + 1}
-            showSortPriority={sortedColumnCount > 1}
+            sortDirection={sortAt < 0 ? false : sort[sortAt].desc ? "desc" : "asc"}
+            sortIndex={sortAt + 1}
+            showSortPriority={sort.length > 1}
             dataType={columnTypes[id]}
             numeric={numericColumns.has(id)}
             canResize={header.column.getCanResize()}
             isResizing={header.column.getIsResizing()}
-            onSort={(e) => header.column.getToggleSortingHandler()?.(e)}
+            onSort={(e) => onSort(id, e.shiftKey)}
             onResizeStart={(e) => header.getResizeHandler()(e)}
             onAutoSize={() => onAutoSize(id)}
             filterMenu={

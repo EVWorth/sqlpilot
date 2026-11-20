@@ -1,9 +1,11 @@
 use crate::connection::{ConnectionManager, Route};
-use crate::error::CoreError;
-use crate::models::{ColumnMeta, QueryResult, SqlValue, TruncationReason};
+use crate::error::{Completed, CoreError};
+use crate::models::{ColumnMeta, QueryResult, ResultHandle, SqlValue, TruncationReason};
 use crate::query::grid_edits::{transaction_state, TransactionState};
 use crate::query::in_flight::{InFlightMap, InFlightTicket, InFlightTracker};
 use crate::query::redact::{redact_credentials, redacted_preview, LOG_PREVIEW_CHARS};
+use crate::query::sink::{CollectSink, RowSink, StatementInfo, StoreSink};
+use crate::results::ResultStore;
 use dashmap::DashMap;
 use futures::StreamExt;
 use sqlx::{AssertSqlSafe, Column, Either, Row, TypeInfo};
@@ -197,15 +199,66 @@ impl QueryExecutor {
         .await
     }
 
-    #[tracing::instrument(
-        skip(self, sql),
-        fields(
-            connection_id = %connection_id,
-            ?route,
-            statement_count,
-            sql_preview = %redacted_preview(&sql, LOG_PREVIEW_CHARS),
+    /// [`execute_owned`](Self::execute_owned), with the rows written to
+    /// `store` instead of returned.
+    ///
+    /// Each statement yields a [`ResultHandle`]; the rows are read back
+    /// through [`ResultStore::window`]. Everything else about the run is the
+    /// same, because it is the same loop: the limit and offset, the timeout,
+    /// cancelling, and what a script does when a statement fails. The
+    /// executor holds at most one batch of a result's rows at a time.
+    ///
+    /// The caller owns the returned results and releases them with
+    /// [`ResultStore::release`]. That includes the handles a failed run
+    /// carries in its error ([`Completed::Handles`]).
+    #[tracing::instrument(skip(self, sql, store), fields(connection_id = %connection_id, statement_count))]
+    pub async fn run_owned(
+        &self,
+        connection_id: String,
+        sql: String,
+        database: Option<String>,
+        limit: Option<u64>,
+        offset: Option<u64>,
+        store: &Arc<ResultStore>,
+    ) -> Result<Vec<ResultHandle>, CoreError> {
+        self.run_routed(
+            Route::Interactive,
+            connection_id,
+            sql,
+            database,
+            limit,
+            offset,
+            StoreSink::new(Arc::clone(store)),
         )
-    )]
+        .await
+    }
+
+    /// [`run_owned`](Self::run_owned), on an editor tab's own session, as
+    /// [`execute_in_session`](Self::execute_in_session) is to `execute_owned`.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_in_session(
+        &self,
+        session: &str,
+        connection_id: String,
+        sql: String,
+        database: Option<String>,
+        limit: Option<u64>,
+        offset: Option<u64>,
+        store: &Arc<ResultStore>,
+    ) -> Result<Vec<ResultHandle>, CoreError> {
+        self.run_routed(
+            Route::Session(session.to_string()),
+            connection_id,
+            sql,
+            database,
+            limit,
+            offset,
+            StoreSink::new(Arc::clone(store)),
+        )
+        .await
+    }
+
+    /// Run `sql` and return each statement's result whole.
     pub(crate) async fn execute_routed(
         &self,
         route: Route,
@@ -215,6 +268,44 @@ impl QueryExecutor {
         limit: Option<u64>,
         offset: Option<u64>,
     ) -> Result<Vec<QueryResult>, CoreError> {
+        self.run_routed(
+            route,
+            connection_id,
+            sql,
+            database,
+            limit,
+            offset,
+            CollectSink::new(),
+        )
+        .await
+    }
+
+    /// Run `sql` on `route`, handing the rows of each result set to `sink`.
+    ///
+    /// The one loop behind every way of running a statement. What differs
+    /// between returning results whole and writing them to the result store
+    /// is only what `sink` does with a row and what it gives back for a
+    /// finished statement.
+    #[allow(clippy::too_many_arguments)]
+    #[tracing::instrument(
+        skip(self, sql, sink),
+        fields(
+            connection_id = %connection_id,
+            ?route,
+            statement_count,
+            sql_preview = %redacted_preview(&sql, LOG_PREVIEW_CHARS),
+        )
+    )]
+    async fn run_routed<S: RowSink>(
+        &self,
+        route: Route,
+        connection_id: String,
+        sql: String,
+        database: Option<String>,
+        limit: Option<u64>,
+        offset: Option<u64>,
+        mut sink: S,
+    ) -> Result<Vec<S::Output>, CoreError> {
         let pool = self.connection_manager.route_pool(&connection_id, &route)?;
         let statements = split_statements(&sql);
 
@@ -271,7 +362,9 @@ impl QueryExecutor {
             }
         }
 
-        // Memory guard: detect OOM before the OS kills us
+        // Memory guard: detect OOM before the OS kills us. Only consulted for
+        // a sink that holds its rows in memory; the result store is bounded
+        // by its own budget.
         let mut mem_guard = MemoryGuard::new(self.memory_floor_mb);
 
         tracing::Span::current().record("statement_count", statements.len());
@@ -321,8 +414,7 @@ impl QueryExecutor {
         let mut _in_flight: Option<InFlightTicket> = None;
 
         let mut stream = sqlx::raw_sql(AssertSqlSafe(combined_sql)).fetch_many(&pool);
-        let mut results = Vec::new();
-        let mut current_rows: Vec<sqlx::mysql::MySqlRow> = Vec::new();
+        let mut results: Vec<S::Output> = Vec::new();
         // Whether the CALL being processed has already produced a result set,
         // so its closing OK packet is recognised as a marker rather than
         // reported as an extra empty statement.
@@ -348,6 +440,16 @@ impl QueryExecutor {
         let mut failure: Option<(Option<usize>, CoreError)> = None;
 
         loop {
+            // Checked here as well as by `timeout_at` below, which only
+            // looks at the clock when the stream has nothing ready. A result
+            // that arrives faster than it is consumed always has a row
+            // ready, so a large fetch ran on long past its deadline: 23 s
+            // against a 2 s timeout when the rows were only being counted,
+            // minutes when each was being written to the result store.
+            if deadline.is_some_and(|dl| tokio::time::Instant::now() >= dl) {
+                timed_out = true;
+                break;
+            }
             let next = match deadline {
                 Some(dl) => match tokio::time::timeout_at(dl, stream.next()).await {
                     Ok(next) => next,
@@ -449,22 +551,27 @@ impl QueryExecutor {
                             }
                             continue;
                         }
-                        if limit.is_some_and(|max| current_rows.len() as u64 >= max) {
+                        let kept = sink.kept();
+                        if limit.is_some_and(|max| kept >= max) {
                             limit_reached = true;
                             continue;
                         }
                         // Check memory every 1000 rows to prevent OOM
-                        if !current_rows.is_empty()
-                            && current_rows.len().is_multiple_of(1000)
+                        if S::HOLDS_ROWS_IN_MEMORY
+                            && kept != 0
+                            && kept.is_multiple_of(1000)
                             && mem_guard.check().is_err()
                         {
                             tracing::warn!(
-                                rows_accumulated = current_rows.len(),
+                                rows_accumulated = kept,
                                 "Memory limit reached, stopping query fetch"
                             );
                             break;
                         }
-                        current_rows.push(row);
+                        if let Err(e) = sink.push(row).await {
+                            failure = Some((failing_statement, e));
+                            break;
+                        }
                     }
                 }
                 Either::Left(qr) => {
@@ -480,7 +587,7 @@ impl QueryExecutor {
                     // Past the end, the Left belongs to a statement that has
                     // already reported. Attribute it there rather than
                     // indexing out of bounds.
-                    let had_rows = !current_rows.is_empty();
+                    let had_rows = sink.kept() != 0;
                     let mut call_in_progress = false;
                     if stmt_idx >= 0 {
                         let overrun = stmt_idx as usize >= statements.len();
@@ -510,11 +617,16 @@ impl QueryExecutor {
                         // verb still covers a SELECT that matched nothing, so
                         // an empty result set stays a result set rather than
                         // turning into a count.
-                        let is_select =
-                            !current_rows.is_empty() || (!overrun && returns_rows(stmt));
+                        let is_select = had_rows || (!overrun && returns_rows(stmt));
+                        let info = StatementInfo {
+                            query_id: query_id.clone(),
+                            statement_index: idx,
+                            sql: stmt.clone(),
+                            execution_time_ms: execution_time,
+                        };
 
                         if is_select {
-                            let row_count = current_rows.len() as u64;
+                            let row_count = sink.kept();
                             let truncation = truncation_for(limit_reached, mem_guard.triggered());
 
                             if execution_time > 1000 {
@@ -532,15 +644,20 @@ impl QueryExecutor {
                                 "Query executed"
                             );
 
-                            results.push(build_select_result(
-                                query_id,
-                                idx,
-                                stmt.clone(),
-                                &current_rows,
-                                execution_time,
-                                truncation,
-                                skipped_shape.as_ref(),
-                            ));
+                            // Only a page whose rows were all skipped needs
+                            // the skipped row's shape (#391).
+                            let shape = if had_rows {
+                                None
+                            } else {
+                                skipped_shape.as_ref().map(columns_of)
+                            };
+                            match sink.finish_rows(info, truncation, shape).await {
+                                Ok(result) => results.push(result),
+                                Err(e) => {
+                                    failure = Some((Some(idx), e));
+                                    break;
+                                }
+                            }
                             call_emitted |= call_in_progress;
                         } else if overrun || (call_in_progress && call_emitted) {
                             // A CALL's closing OK packet. The sets it closes
@@ -580,23 +697,9 @@ impl QueryExecutor {
                                 "Statement executed"
                             );
 
-                            results.push(QueryResult {
-                                query_id,
-                                statement_index: idx,
-                                sql: stmt.clone(),
-                                columns: vec![],
-                                rows: vec![],
-                                rows_affected,
-                                execution_time_ms: execution_time,
-                                warnings: vec![],
-                                rows_truncated: false,
-                                truncation_reason: None,
-                                total_rows_available: None,
-                                transaction: None,
-                            });
+                            results.push(sink.finish_count(info, rows_affected));
                         }
 
-                        current_rows.clear();
                         limit_reached = false;
                         skipped = 0;
                         skipped_shape = None;
@@ -625,10 +728,14 @@ impl QueryExecutor {
 
         if let Some((failing_statement, e)) = failure {
             drop(stream);
+            // The statement that failed keeps nothing: its rows so far are
+            // not a result anyone asked for, and in the store they would be
+            // rows nobody could release.
+            sink.discard().await;
             return Err(tag_statement(
                 failing_statement,
                 e,
-                std::mem::take(&mut results),
+                S::completed(std::mem::take(&mut results)),
                 &route,
                 &pool,
             )
@@ -676,6 +783,7 @@ impl QueryExecutor {
             }
             drain_after_kill(&mut stream).await;
             drop(stream);
+            sink.discard().await;
             let secs = query_timeout.map(|d| d.as_secs()).unwrap_or(0);
             tracing::warn!(connection_id = %connection_id, timeout_secs = secs, "Query timed out");
             // Tagged like any other failure, so a script that timed out at
@@ -687,7 +795,7 @@ impl QueryExecutor {
             return Err(tag_statement(
                 running,
                 timeout_error(secs),
-                std::mem::take(&mut results),
+                S::completed(std::mem::take(&mut results)),
                 &route,
                 &pool,
             )
@@ -695,7 +803,7 @@ impl QueryExecutor {
         }
 
         // If memory guard triggered mid-stream, process accumulated rows for current statement
-        if mem_guard.triggered() && stmt_idx >= 0 && !current_rows.is_empty() {
+        if mem_guard.triggered() && stmt_idx >= 0 && sink.kept() != 0 {
             let idx = stmt_idx as usize;
             let stmt = &statements[idx];
             let execution_time = start.elapsed().as_millis() as u64;
@@ -703,15 +811,30 @@ impl QueryExecutor {
             let is_select = returns_rows(stmt);
 
             if is_select {
-                results.push(build_select_result(
-                    uuid::Uuid::new_v4().to_string(),
-                    idx,
-                    stmt.clone(),
-                    &current_rows,
-                    execution_time,
-                    Some(TruncationReason::MemoryGuard),
-                    None,
-                ));
+                let info = StatementInfo {
+                    query_id: uuid::Uuid::new_v4().to_string(),
+                    statement_index: idx,
+                    sql: stmt.clone(),
+                    execution_time_ms: execution_time,
+                };
+                let partial = sink
+                    .finish_rows(info, Some(TruncationReason::MemoryGuard), None)
+                    .await;
+                match partial {
+                    Ok(result) => results.push(result),
+                    Err(e) => {
+                        drop(stream);
+                        sink.discard().await;
+                        return Err(tag_statement(
+                            Some(idx),
+                            e,
+                            S::completed(std::mem::take(&mut results)),
+                            &route,
+                            &pool,
+                        )
+                        .await);
+                    }
+                }
             }
         }
 
@@ -723,7 +846,7 @@ impl QueryExecutor {
         drop(stream);
         if matches!(route, Route::Session(_)) {
             if let Some(last) = results.last_mut() {
-                last.transaction = session_transaction(&pool).await;
+                S::set_transaction(last, session_transaction(&pool).await);
             }
         }
 
@@ -770,7 +893,7 @@ const FAILURE_PROBE_BOUND: std::time::Duration = std::time::Duration::from_secs(
 async fn tag_statement(
     index: Option<usize>,
     source: CoreError,
-    completed: Vec<QueryResult>,
+    completed: Completed,
     route: &Route,
     pool: &sqlx::MySqlPool,
 ) -> CoreError {
@@ -1132,51 +1255,50 @@ fn truncation_for(limit_reached: bool, memory_exhausted: bool) -> Option<Truncat
     }
 }
 
-fn build_select_result(
+/// The columns of a result set, read from one of its rows.
+pub(crate) fn columns_of(row: &sqlx::mysql::MySqlRow) -> Vec<ColumnMeta> {
+    row.columns()
+        .iter()
+        .map(|col| ColumnMeta {
+            name: col.name().to_string(),
+            data_type: col.type_info().name().to_string(),
+            // Placeholders, not facts. MySQL does send NOT_NULL and
+            // PRIMARY_KEY flags in the result-set metadata, but sqlx
+            // keeps ColumnFlags pub(crate), so they cannot be read
+            // here. Anything that needs the real answer — the grid,
+            // when working out how to address a row for UPDATE — asks
+            // the schema inspector, which reads information_schema.
+            // Do not start trusting these two (#387).
+            nullable: true,
+            is_primary_key: false,
+        })
+        .collect()
+}
+
+/// Decode every cell of a row.
+pub(crate) fn decode_row(row: &sqlx::mysql::MySqlRow) -> Vec<SqlValue> {
+    row.columns()
+        .iter()
+        .enumerate()
+        .map(|(i, col)| extract_value(row, i, col.type_info().name()))
+        .collect()
+}
+
+pub(crate) fn build_select_result(
     query_id: String,
     statement_index: usize,
     sql: String,
     rows: &[sqlx::mysql::MySqlRow],
     execution_time_ms: u64,
     truncation: Option<TruncationReason>,
-    // A row that was skipped to reach the page offset, used only when every
-    // row of the page was skipped and there is no kept row to read the shape
-    // from (#391).
-    shape: Option<&sqlx::mysql::MySqlRow>,
+    // The columns of a row that was skipped to reach the page offset, used
+    // only when every row of the page was skipped and there is no kept row
+    // to read the shape from (#391).
+    shape: Option<Vec<ColumnMeta>>,
 ) -> QueryResult {
-    let columns: Vec<ColumnMeta> = rows
-        .first()
-        .or(shape)
-        .map(|r| {
-            r.columns()
-                .iter()
-                .map(|col| ColumnMeta {
-                    name: col.name().to_string(),
-                    data_type: col.type_info().name().to_string(),
-                    // Placeholders, not facts. MySQL does send NOT_NULL and
-                    // PRIMARY_KEY flags in the result-set metadata, but sqlx
-                    // keeps ColumnFlags pub(crate), so they cannot be read
-                    // here. Anything that needs the real answer — the grid,
-                    // when working out how to address a row for UPDATE — asks
-                    // the schema inspector, which reads information_schema.
-                    // Do not start trusting these two (#387).
-                    nullable: true,
-                    is_primary_key: false,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
+    let columns: Vec<ColumnMeta> = rows.first().map(columns_of).or(shape).unwrap_or_default();
 
-    let result_rows: Vec<Vec<SqlValue>> = rows
-        .iter()
-        .map(|row| {
-            row.columns()
-                .iter()
-                .enumerate()
-                .map(|(i, col)| extract_value(row, i, col.type_info().name()))
-                .collect()
-        })
-        .collect();
+    let result_rows: Vec<Vec<SqlValue>> = rows.iter().map(decode_row).collect();
 
     let row_count = result_rows.len() as u64;
 

@@ -85,11 +85,9 @@ export function ConnectionTab({
       {/* Active indicator bar */}
       {isSelected && <span className="absolute bottom-0 left-2 right-2 h-0.5 rounded-full bg-brand-500" />}
 
-      {
-        /* Green while the server answers, red once the health checker
+      {/* Green while the server answers, red once the health checker
           says it does not; the third FR-1.3.2 state, connecting, is
-          the placeholder tab. It was green whatever was true (#294). */
-      }
+          the placeholder tab. It was green whatever was true (#294). */}
       <Database
         role="img"
         aria-label={state}
@@ -106,11 +104,9 @@ export function ConnectionTab({
         />
       )}
 
-      {
-        /* Read-only is enforced in the executor, but a guard the user
+      {/* Read-only is enforced in the executor, but a guard the user
           cannot see is one they will be surprised by — the refusal
-          arrives only after they run something (#277). */
-      }
+          arrives only after they run something (#277). */}
       {profile?.read_only && (
         <Lock
           role="img"

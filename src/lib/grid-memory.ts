@@ -1,7 +1,7 @@
-import type { SortingState } from "@tanstack/react-table";
 import { useEffect, useRef } from "react";
 import type { EditingDraft } from "../hooks/useGridEditing";
 import { useEditorStore } from "../stores/editorStore";
+import type { GridSort } from "./grid-sort";
 
 /**
  * What a results grid keeps of itself while its tab is not shown (#842).
@@ -14,7 +14,7 @@ import { useEditorStore } from "../stores/editorStore";
  */
 export interface GridMemorySlots {
   editing: EditingDraft;
-  sorting: SortingState;
+  sorting: GridSort;
   columnSizing: Record<string, number>;
 }
 

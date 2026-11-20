@@ -12,6 +12,7 @@ import {
 import { useEffect, useRef, useState } from "react";
 import { releaseUrl } from "../../lib/repo";
 import { serverFlavour } from "../../lib/server-flavour";
+import { resultRowCount } from "../../lib/stored-result";
 import { useAppInfoStore } from "../../stores/appInfoStore";
 import { useConnectionHealthStore } from "../../stores/connectionHealthStore";
 import { useConnectionStore } from "../../stores/connectionStore";
@@ -309,16 +310,13 @@ export function StatusBar() {
         )}
         {activeResult && !isExecuting && (
           <span className="text-xs text-[var(--color-text-muted)]">
-            {formatRows(activeResult.rows.length)} · {formatTime(activeResult.execution_time_ms)}
+            {formatRows(resultRowCount(activeResult))} · {formatTime(activeResult.execution_time_ms)}
           </span>
         )}
         {updateStatus === "available" && updateVersion !== dismissedVersion && (
           <div className="relative" ref={updateConfirmRef}>
             <button
-              onClick={() =>
-                setShowUpdateConfirm((open) =>
-                  !open
-                )}
+              onClick={() => setShowUpdateConfirm((open) => !open)}
               className="flex min-h-6 items-center gap-1 text-xs text-[var(--color-success)] hover:text-[var(--color-success)] transition-colors"
               title={`Update v${updateVersion} available`}
             >
@@ -333,14 +331,12 @@ export function StatusBar() {
                 <p className="text-xs font-medium text-[var(--color-text-primary)]">
                   Update to v{updateVersion}
                 </p>
-                {
-                  /*
+                {/*
                   No size: the download's length is not known until it starts,
                   and inventing an estimate would be worse than omitting one.
                   No restart claim either — since #573 the restart is a
                   separate step the user takes when ready.
-                */
-                }
+                */}
                 <p className="mt-1 text-xs text-[var(--color-text-muted)]">
                   Downloads in the background. SQLPilot will ask before restarting.
                 </p>

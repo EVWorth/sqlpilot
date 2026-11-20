@@ -58,6 +58,50 @@ pub enum TruncationReason {
     /// fetch stopped early. A larger LIMIT cannot help; a narrower projection
     /// or a WHERE clause can.
     MemoryGuard,
+    /// The result store reached its size budget, so the rest of the result
+    /// was not kept. Only a run that writes to the store reports it.
+    /// Releasing other results, or a narrower query, makes room; a larger
+    /// LIMIT cannot.
+    StoreFull,
+}
+
+/// What a run that writes to the result store returns for one statement, in
+/// place of a [`QueryResult`]: everything but the rows, which stay in the
+/// store and are read a window at a time (`docs/design/RESULT_STORE.md`).
+#[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]
+pub struct ResultHandle {
+    /// What `result_window`, `result_cell` and `result_release` take.
+    ///
+    /// Always set and always unique, so it also names the result in the UI.
+    /// The store holds rows under it only when `row_count` is above zero: a
+    /// statement that reported a count, and a result set with no rows, write
+    /// nothing, and the store does not know their id.
+    pub result_id: String,
+    #[specta(type = specta_typescript::Number)]
+    pub statement_index: usize,
+    /// The statement this result came from, as on [`QueryResult`].
+    pub sql: String,
+    /// Empty for a statement that reported a count, and for a result set
+    /// with no rows at all (the columns are read from the first row).
+    pub columns: Vec<ColumnMeta>,
+    /// Rows in the store for this result.
+    #[specta(type = specta_typescript::Number)]
+    pub row_count: u64,
+    /// What the server reported for a statement that changed rows. For a
+    /// result set, the same as `row_count`, as on [`QueryResult`].
+    #[specta(type = specta_typescript::Number)]
+    pub rows_affected: u64,
+    #[specta(type = specta_typescript::Number)]
+    pub execution_time_ms: u64,
+    pub warnings: Vec<String>,
+    /// Why rows were withheld, when they were. A result is truncated exactly
+    /// when this is set, so there is no separate flag to disagree with it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub truncation_reason: Option<TruncationReason>,
+    /// As on [`QueryResult`]: the session's transaction state after the run,
+    /// on the last handle of a run on an editor tab's session only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<crate::query::TransactionState>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, specta::Type)]

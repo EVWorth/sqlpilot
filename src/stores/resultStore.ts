@@ -9,6 +9,8 @@ import { splitSqlStatements } from "../lib/sql-import";
 import { isDestructiveStatement } from "../lib/sql-safety";
 import { splitSqliteStatements } from "../lib/sqlite-split";
 import { noteSqliteTransaction } from "../lib/sqlite-transactions";
+import { disposeStoreSources } from "../lib/store-row-source";
+import { fromHandle, resultRowCount, storedIdsOf } from "../lib/stored-result";
 import { api, CommandError } from "../lib/tauri-api";
 import { transactionAfter } from "../lib/transaction-tracking";
 import { forgetGridEdits, gridEditsIn } from "../lib/unsaved-grid-edits";
@@ -19,6 +21,7 @@ import { useEditorStore } from "./editorStore";
 import { useHistoryStore } from "./historyStore";
 import { isProductionConnection, useProductionGuardStore } from "./productionGuardStore";
 import { useSettingsStore } from "./settingsStore";
+import { useSqliteStore } from "./sqliteStore";
 import { hasOpenTransaction, useTransactionStore } from "./transactionStore";
 
 /**
@@ -41,6 +44,8 @@ interface ConfirmDialogState {
    * after switching tabs still files the results under that tab (#842).
    */
   tabKey?: string;
+  /** For `query`: whether the run keeps its results in the result store. */
+  stored?: boolean;
   /**
    * The plan format asked for, for `explain-analyze`. Kept here rather than
    * read back from the store on approval, where it is the shown tab's.
@@ -107,6 +112,8 @@ interface PageState {
   size: number;
   /** False once a page comes back short, which is how the end is recognised. */
   hasMore: boolean;
+  /** True when the page was read into the result store, so the next one is too. */
+  stored?: boolean;
 }
 
 /** Which statement of a script failed, for the error box and the editor (#845). */
@@ -119,6 +126,16 @@ export interface FailedStatement {
   sql: string | null;
   /** The driver's error number, when it gave one. */
   code: number | null;
+}
+
+/** How a run was asked for, beyond where it runs. */
+export interface RunOptions {
+  /**
+   * True for the editor's own runs: Run, Run at cursor, and the refresh
+   * after a grid save. Only these keep their results in the backend's result
+   * store, and only when the setting says so (docs/design/RESULT_STORE.md).
+   */
+  fromEditor?: boolean;
 }
 
 /** The connection, database and editor tab session a result was read on. */
@@ -212,6 +229,12 @@ interface ResultState {
    * from one server is not shown, or offered for editing, under another.
    */
   dropForeignResults: (connectionId: string | null | undefined) => void;
+  /**
+   * A connection has closed: drop the results read on it that the result
+   * store keeps, in every tab, so they are released. Results held whole in
+   * the webview stay on screen, as they always have.
+   */
+  forgetConnection: (connectionId: string) => void;
 
   /**
    * `session` is the editor tab running the statement, which keeps it on that
@@ -228,6 +251,7 @@ interface ResultState {
     database?: string,
     session?: string,
     tabId?: string,
+    options?: RunOptions,
   ) => Promise<RunOutcome>;
   executeExplain: (
     connectionId: string,
@@ -675,7 +699,20 @@ export const useResultStore = create<ResultState>((set, get) => ({
     }
   },
 
-  executeQuery: async (connectionId, sql, database, session, tabId) => {
+  forgetConnection: (connectionId) => {
+    const holdsStoredFrom = (slice: Pick<TabResultSlice, "results" | "resultSource">) =>
+      slice.resultSource?.connectionId === connectionId && slice.results.some((r) => r.stored);
+    const cleared = { results: [], activeResultIndex: 0, page: null, resultSource: null };
+    const state = get();
+    const parked = Object.fromEntries(
+      Object.entries(state.parked).map((
+        [id, slice],
+      ) => [id, holdsStoredFrom(slice) ? { ...slice, ...cleared } : slice]),
+    );
+    set({ ...(holdsStoredFrom(state) ? cleared : {}), parked });
+  },
+
+  executeQuery: async (connectionId, sql, database, session, tabId, options) => {
     const target = targetFor(session, tabId);
     // The run replaces the tab's results, and with them the grid's unsaved
     // edits, which are by row index and cannot follow (#865).
@@ -692,11 +729,20 @@ export const useResultStore = create<ResultState>((set, get) => ({
     // Production safety check
     if (isProductionConnection(connectionId) && isDestructiveStatement(sql)) {
       set({
-        confirmDialog: { isOpen: true, kind: "query", connectionId, sql, database, session, tabKey: target.tab },
+        confirmDialog: {
+          isOpen: true,
+          kind: "query",
+          connectionId,
+          sql,
+          database,
+          session,
+          tabKey: target.tab,
+          stored: wantsStore(options),
+        },
       });
       return { status: "awaiting-confirmation" };
     }
-    return doExecuteQuery(connectionId, sql, target, database, undefined, session);
+    return doExecuteQuery(connectionId, sql, target, database, undefined, session, wantsStore(options));
   },
 
   confirmExecution: async () => {
@@ -724,6 +770,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       dialog.database,
       undefined,
       dialog.session,
+      dialog.stored ?? false,
     );
   },
 
@@ -801,6 +848,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
       page.database,
       { index, size: page.size },
       page.session,
+      page.stored ?? false,
     );
   },
   setShowExplain: (show) => set({ showExplain: show }),
@@ -948,6 +996,8 @@ async function doExecuteQuery(
   paging?: { index: number; size: number },
   /** The editor tab whose session this runs on (#731). */
   session?: string,
+  /** Keep the rows in the backend's result store (docs/design/RESULT_STORE.md). */
+  stored = false,
 ): Promise<RunOutcome> {
   const startTime = Date.now();
   const connState = useConnectionStore.getState();
@@ -990,7 +1040,7 @@ async function doExecuteQuery(
     const source = dataSourceFor(connectionId);
     if (session) bindTabToRun(session, connectionId, conn?.profile_id);
     if (session && source.kind === "mysql") noteSession(session, connectionId);
-    const results = await source.execute(
+    const results = await (stored ? source.runStored : source.execute)(
       connectionId,
       sql,
       effectiveDatabase,
@@ -1014,13 +1064,17 @@ async function doExecuteQuery(
     // ran the statement (#935).
     if (source.kind === "sqlite") noteSqliteTransaction(connectionId, results[results.length - 1]?.transaction);
 
-    if (!isCurrent(run)) return run.cancelled ? { status: "cancelled" } : { status: "succeeded", results };
+    if (!isCurrent(run)) {
+      // Never shown, so nothing else will free what it stored.
+      releaseStoredResults(storedIdsOf(results));
+      return run.cancelled ? { status: "cancelled" } : { status: "succeeded", results };
+    }
 
     // Paging is offered only where a page actually filled up. A result that
     // came back short is the whole answer, and page controls on it would
     // invite a second round trip to fetch nothing.
     const filled = rowLimit !== undefined
-      && results.some((r) => r.rows.length >= rowLimit);
+      && results.some((r) => resultRowCount(r) >= rowLimit);
     const pageIndex = paging?.index ?? 0;
     shown = true;
     set({
@@ -1044,6 +1098,7 @@ async function doExecuteQuery(
           index: pageIndex,
           size: rowLimit,
           hasMore: filled,
+          ...(stored ? { stored } : {}),
         }
         : null,
     });
@@ -1053,7 +1108,16 @@ async function doExecuteQuery(
     // server's interrupt error. Reporting it would replace the "cancelled"
     // message with a raw database error and log the user's own cancellation
     // to history as a failed query.
-    if (run.cancelled) return { status: "cancelled" };
+    const structured = e instanceof CommandError ? e : undefined;
+    // What the statements before the failing one returned (#845): whole, or,
+    // for a run into the result store, as handles whose rows are kept there.
+    const completed: QueryResult[] = structured?.completedResults
+      ?? structured?.completedHandles?.map(fromHandle)
+      ?? [];
+    if (run.cancelled) {
+      releaseStoredResults(storedIdsOf(completed));
+      return { status: "cancelled" };
+    }
 
     // Recorded whether or not the tab is still waiting, as a success is.
     // Without a connection the statement never reached a server, so the
@@ -1062,7 +1126,6 @@ async function doExecuteQuery(
     // trace back to anything (#328).
     // The driver's code and SQLSTATE ride along where it supplied them, so
     // the history panel can say which failure this was (#324).
-    const structured = e instanceof CommandError ? e : undefined;
     // The session's state after the failure, when the backend could ask it
     // (#917, #942): the failing statement may itself have changed it — DDL
     // commits before it runs, a deadlock rolls back. Otherwise the statements
@@ -1072,7 +1135,6 @@ async function doExecuteQuery(
         noteTransaction(session, structured.transaction, []);
       } else if (structured.statementIndex !== undefined) {
         const ran = splitSqlStatements(sql).slice(0, structured.statementIndex);
-        const completed = structured.completedResults ?? [];
         noteTransaction(session, completed[completed.length - 1]?.transaction, ran);
       }
     }
@@ -1106,7 +1168,6 @@ async function doExecuteQuery(
       // What the statements before the failing one returned stays on screen,
       // when the backend reports it, and the error says which one failed
       // (#845).
-      const completed = structured?.completedResults ?? [];
       set({
         error: message,
         failedStatement: failedStatementOf(sql, structured, connectionId),
@@ -1122,6 +1183,8 @@ async function doExecuteQuery(
           }
           : null,
       });
+    } else {
+      releaseStoredResults(storedIdsOf(completed));
     }
     return { status: "failed", error: message };
   } finally {
@@ -1247,7 +1310,7 @@ function recordSuccess(
       // separately, and inventing a split would be worse than repeating the
       // one number that is true.
       executionTimeMs: elapsed,
-      rowCount: result.rows.length,
+      rowCount: resultRowCount(result),
       status: "success",
       error: null,
       errorCode: null,
@@ -1255,6 +1318,83 @@ function recordSuccess(
       origin: "editor",
     });
   }
+}
+
+/** Whether a run asked for with these options keeps its rows in the result store. */
+function wantsStore(options: RunOptions | undefined): boolean {
+  return Boolean(options?.fromEditor) && Boolean(useSettingsStore.getState().querySettings.keepResultsInBackend);
+}
+
+/**
+ * Free stored results in the backend, and stop the grid's sources over them.
+ * Freeing is best effort: a result the store has lost already is no loss.
+ */
+function releaseStoredResults(ids: readonly string[]) {
+  if (ids.length === 0) return;
+  disposeStoreSources(ids);
+  api.resultRelease([...ids]).catch((e: unknown) => {
+    console.warn(`Could not release ${ids.length} stored result(s): ${String(e)}`);
+  });
+}
+
+/** Every stored result any tab, shown or parked, still holds. */
+function heldStoredIds(state: Pick<ResultState, "results" | "parked">): Set<string> {
+  const ids = new Set(storedIdsOf(state.results));
+  for (const slice of Object.values(state.parked)) {
+    for (const id of storedIdsOf(slice.results)) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * Release a stored result once no tab holds it any more
+ * (docs/design/RESULT_STORE.md, "Lifetime").
+ *
+ * One rule rather than a call at each place results are replaced: a tab
+ * that runs again, closes (`forgetTabs`), is cancelled, has its results
+ * cleared or dropped, or loses its connection (`forgetConnection`) stops
+ * holding its results, and that is when they go. A parked tab still holds
+ * its own, so they are kept.
+ */
+export function followStoredResults(hot: HotHandle | undefined = import.meta.hot): () => void {
+  const unsub = useResultStore.subscribe((state, prev) => {
+    if (state.results === prev.results && state.parked === prev.parked) return;
+    const held = heldStoredIds(state);
+    releaseStoredResults([...heldStoredIds(prev)].filter((id) => !held.has(id)));
+  });
+  hot?.dispose(unsub);
+  return unsub;
+}
+
+/**
+ * Tell the store when a connection closes, so the stored results read on it
+ * are released. Returns the unsubscribe.
+ */
+export function followConnections(hot: HotHandle | undefined = import.meta.hot): (() => void) | undefined {
+  // A test that replaces the stores with bare mocks has nothing to follow.
+  const stores = [useConnectionStore, useSqliteStore].filter((s) => typeof s.subscribe === "function");
+  if (stores.length === 0) return undefined;
+  // Read defensively: a test's bare store mock may lack the lists.
+  const liveIds = (): Set<string> | null => {
+    try {
+      return new Set(liveConnectionIds());
+    } catch {
+      return null;
+    }
+  };
+  let live = liveIds() ?? new Set<string>();
+  const check = () => {
+    const now = liveIds();
+    if (!now) return;
+    for (const id of live) {
+      if (!now.has(id)) useResultStore.getState().forgetConnection(id);
+    }
+    live = now;
+  };
+  const unsubs = stores.map((s) => s.subscribe(check));
+  const unsub = () => unsubs.forEach((u) => u());
+  hot?.dispose(unsub);
+  return unsub;
 }
 
 /**
@@ -1306,3 +1446,5 @@ export function followEditorStore(hot: HotHandle | undefined = import.meta.hot):
 }
 
 followEditorStore();
+followStoredResults();
+followConnections();

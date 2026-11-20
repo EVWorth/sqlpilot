@@ -1,5 +1,7 @@
-import type { ConnectionInfo, QueryResult, SqlValue } from "../lib/bindings";
+import type { ConnectionInfo, SqlValue } from "../lib/bindings";
+import type { QueryResult } from "../types";
 import type { EditorTab } from "../types";
+import { allIndices, rowSourceFor } from "./row-source";
 
 /**
  * What the window tells an agent about itself.
@@ -91,29 +93,45 @@ function cell(value: SqlValue): unknown {
   return value;
 }
 
+/** The most rows of a stored result the agent's result context carries. */
+export const AGENT_STORED_ROWS = 1000;
+
 /**
  * The result on screen.
  *
  * Null when nothing has been run. The rows are included here and the *policy*
  * decides whether they leave — the window should not be the second place that
  * rule lives, because two places is how the rules drift apart.
+ *
+ * The rows are read through the result's row source, whole and in the order
+ * the server returned them, whatever the grid is sorted or filtered by. That
+ * is a promise: the source may have to fetch them.
  */
-export function resultAnswer(
+export async function resultAnswer(
   results: QueryResult[],
   activeIndex: number,
   connectionId: string | undefined,
   connections: ConnectionInfo[],
-): ResultAnswer | null {
+): Promise<ResultAnswer | null> {
   const result = results[activeIndex];
   if (!result) return null;
+  const source = rowSourceFor(result);
+  // A result the backend's store keeps can be far larger than anything the
+  // webview held; the agent gets its first rows, as the server returned them,
+  // and is told the answer is partial.
+  const capped = result.stored !== undefined && source.rowCount > AGENT_STORED_ROWS;
+  const indices = capped
+    ? Array.from({ length: AGENT_STORED_ROWS }, (_, i) => i)
+    : allIndices(source);
+  const rows = await source.rows(indices);
 
   return {
     sql: result.sql,
     columns: result.columns.map((c) => c.name),
-    rows: result.rows.map((row) => row.map(cell)),
-    rowCount: result.rows.length,
+    rows: rows.map((row) => row.map(cell)),
+    rowCount: source.rowCount,
     executionTimeMs: result.execution_time_ms,
-    truncated: result.rows_truncated,
+    truncated: result.rows_truncated || capped,
     connection: profileIdOf(connections, connectionId),
   };
 }

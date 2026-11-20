@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { userEvent } from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useContextMenu } from "../../../hooks/useContextMenu";
@@ -312,6 +312,17 @@ function resetState() {
 // ──────────────────────────────────────────────────────────────
 //  Tests
 // ──────────────────────────────────────────────────────────────
+// The grid writes to the clipboard with a `ClipboardItem` where the browser
+// has one, as Chromium does (lib/clipboard.ts). These tests watch `writeText`,
+// so a `write` is passed on to it with the item's text: whichever way the
+// text reaches the clipboard, the spies see it.
+beforeEach(() => {
+  vi.spyOn(navigator.clipboard, "write").mockImplementation(async (items) => {
+    const blob = await items[0].getType("text/plain");
+    await navigator.clipboard.writeText(await blob.text());
+  });
+});
+
 describe("ResultsGrid (browser)", () => {
   beforeEach(() => {
     resetState();
@@ -882,7 +893,7 @@ describe("ResultsGrid (browser)", () => {
     await user.click(screen.getByText("Copy"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Copied 1 rows to clipboard/)).toBeInTheDocument();
+      expect(screen.getByText(/Copied 1 row to clipboard/)).toBeInTheDocument();
     });
   });
 
@@ -1402,7 +1413,7 @@ describe("ResultsGrid (browser)", () => {
     await user.click(screen.getByText("CSV"));
 
     await waitFor(() => {
-      expect(screen.getByText(/Exported 1 rows as CSV/)).toBeInTheDocument();
+      expect(screen.getByText(/Exported 1 row as CSV/)).toBeInTheDocument();
     });
   });
 
@@ -1602,15 +1613,18 @@ describe("Tab moves the edit to the next cell", () => {
     expect(editingIndex()).toBe(0);
   });
 
-  it("carries on into the next row past the last column", () => {
+  it("carries on into the next row past the last column", async () => {
     render(<ResultsGrid />);
     tabFrom(1);
-    expect(editingIndex()).toBe(2);
+    // Which row is next on screen is the row source's to say, by a promise.
+    await waitFor(() => expect(editingIndex()).toBe(2));
   });
 
-  it("stops at the end of the grid rather than wrapping to the top", () => {
+  it("stops at the end of the grid rather than wrapping to the top", async () => {
     render(<ResultsGrid />);
     tabFrom(3);
+    // Once the row source has answered that there is no next row.
+    await act(async () => {});
     expect(editingIndex()).toBe(-1);
   });
 
@@ -1658,7 +1672,8 @@ describe("setting a cell to NULL", () => {
   it("records NULL against that column and keeps the original value", async () => {
     openCellMenu(2).find((i) => i.label === "Set name to NULL")!.onClick();
 
-    expect(mockGridEditing.editCell).toHaveBeenCalledWith(0, "name", "Alice", null);
+    // The original value is read from the row source, which answers with a promise.
+    await waitFor(() => expect(mockGridEditing.editCell).toHaveBeenCalledWith(0, "name", "Alice", null));
   });
 
   it("names the right column after the columns have been dragged", async () => {
@@ -1704,7 +1719,7 @@ describe("setting a cell to NULL", () => {
 
     fireEvent.keyDown(window, { key: "N", ctrlKey: true, shiftKey: true });
 
-    expect(mockGridEditing.editCell).toHaveBeenCalledWith(0, "id", 1, null);
+    await waitFor(() => expect(mockGridEditing.editCell).toHaveBeenCalledWith(0, "id", 1, null));
   });
 
   it("does nothing on Ctrl+Shift+N with no cell being edited", async () => {
@@ -1858,14 +1873,15 @@ describe("row selection", () => {
     expect(selected()).toHaveLength(2);
   });
 
-  it("extends from the anchor on Shift+click", () => {
+  it("extends from the anchor on Shift+click", async () => {
     resultState.results = [makeResult({ rows: [[1, "a"], [2, "b"], [3, "c"], [4, "d"]] })];
     render(<ResultsGrid />);
 
     fireEvent.click(bodyRows()[0]);
     fireEvent.click(bodyRows()[2], { shiftKey: true });
 
-    expect(selected()).toHaveLength(3);
+    // The rows between are the row source's to say, by a promise.
+    await waitFor(() => expect(selected()).toHaveLength(3));
   });
 
   it("clears the selection by clicking the only selected row", () => {

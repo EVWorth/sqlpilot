@@ -401,3 +401,180 @@ describe("TruncatedCell copy (#739)", () => {
     expect(onRowClick).not.toHaveBeenCalled();
   });
 });
+
+// A row source may paint only the start of a long value (its `full_len` says
+// how long it really is). What is painted must never be taken for the value.
+describe("a value that was cut short", () => {
+  function stubClipboard() {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
+    return writeText;
+  }
+  const whole = "the start, and then the rest of it";
+
+  /** A promise the test settles, to see what happens before it does. */
+  function deferred<T>() {
+    let resolve: (value: T) => void = () => {};
+    let reject: (reason: unknown) => void = () => {};
+    const promise = new Promise<T>((res, rej) => {
+      resolve = res;
+      reject = rej;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it("shows the start, marked as not being all of it, and always offers the viewer", () => {
+    const { container } = render(
+      <TruncatedCell
+        value="the start"
+        columnName="note"
+        dataType="varchar"
+        fullLen={34}
+        loadFull={async () => whole}
+        onViewFull={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("the start…")).toBeInTheDocument();
+    // A short varchar gets no icon; a cut one always does.
+    expect(getIconButton(container)).not.toBeNull();
+  });
+
+  it("says a BLOB's real size, not the size of the part it holds", () => {
+    render(
+      <TruncatedCell
+        value={[0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]}
+        columnName="avatar"
+        dataType="blob"
+        fullLen={2 * 1024 * 1024}
+        loadFull={async () => []}
+        onViewFull={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("[image/png, 2.0 MB]")).toBeInTheDocument();
+  });
+
+  it("fetches the whole value before the viewer shows it", async () => {
+    const onViewFull = vi.fn();
+    const full = deferred<unknown>();
+    const loadFull = vi.fn(() => full.promise);
+    const { container } = render(
+      <TruncatedCell
+        value="the start"
+        columnName="note"
+        dataType="text"
+        fullLen={34}
+        loadFull={loadFull}
+        onViewFull={onViewFull}
+      />,
+    );
+
+    fireEvent.click(getIconButton(container) as HTMLButtonElement);
+    expect(loadFull).toHaveBeenCalledTimes(1);
+    // Nothing is shown while the whole value is on its way: not the part.
+    await act(async () => {});
+    expect(onViewFull).not.toHaveBeenCalled();
+
+    await act(async () => full.resolve(whole));
+    expect(onViewFull).toHaveBeenCalledWith(whole, "note");
+  });
+
+  it("hands the viewer the whole of a BLOB", async () => {
+    const onViewFull = vi.fn();
+    const bytes = [1, 2, 3, 4, 5, 6];
+    render(
+      <TruncatedCell
+        value={[1, 2]}
+        columnName="data"
+        dataType="blob"
+        fullLen={6}
+        loadFull={async () => bytes}
+        onViewFull={onViewFull}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByLabelText("View full content"));
+    });
+    expect(onViewFull).toHaveBeenCalledWith(null, "data", bytes);
+  });
+
+  it("copies the whole value, not the part painted", async () => {
+    const writeText = stubClipboard();
+    const full = deferred<unknown>();
+    const { container } = render(
+      <TruncatedCell
+        value="the start"
+        columnName="note"
+        dataType="text"
+        fullLen={34}
+        loadFull={() => full.promise}
+        onViewFull={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(container.querySelector("button[aria-label=\"Copy value\"]") as HTMLButtonElement);
+    await act(async () => {});
+    expect(writeText).not.toHaveBeenCalled();
+
+    await act(async () => full.resolve(whole));
+    expect(writeText).toHaveBeenCalledWith(whole);
+    expect(writeText).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "Copied" })).toBeTruthy();
+  });
+
+  it("copies the whole of a BLOB as hex", async () => {
+    const writeText = stubClipboard();
+    const { container } = render(
+      <TruncatedCell
+        value={[0x89]}
+        columnName="data"
+        fullLen={3}
+        loadFull={async () => [0x89, 0x50, 0x0a]}
+        onViewFull={vi.fn()}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(container.querySelector("button[aria-label=\"Copy value\"]") as HTMLButtonElement);
+    });
+    expect(writeText).toHaveBeenCalledWith("89500a");
+  });
+
+  it("opens nothing and copies nothing when the whole value cannot be had", async () => {
+    const writeText = stubClipboard();
+    const onViewFull = vi.fn();
+    const { container } = render(
+      <TruncatedCell
+        value="the start"
+        columnName="note"
+        dataType="text"
+        fullLen={34}
+        loadFull={() => Promise.reject(new Error("gone"))}
+        onViewFull={onViewFull}
+      />,
+    );
+    await act(async () => {
+      fireEvent.click(getIconButton(container) as HTMLButtonElement);
+      fireEvent.click(container.querySelector("button[aria-label=\"Copy value\"]") as HTMLButtonElement);
+    });
+    expect(onViewFull).not.toHaveBeenCalled();
+    expect(writeText).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: "Copied" })).toBeNull();
+  });
+
+  it("treats a value with no full length as whole, whatever else it is given", () => {
+    const onViewFull = vi.fn();
+    const loadFull = vi.fn();
+    const { container } = render(
+      <TruncatedCell
+        value={"a".repeat(40)}
+        columnName="note"
+        dataType="text"
+        fullLen={null}
+        loadFull={loadFull}
+        onViewFull={onViewFull}
+      />,
+    );
+    fireEvent.click(getIconButton(container) as HTMLButtonElement);
+    expect(loadFull).not.toHaveBeenCalled();
+    expect(onViewFull).toHaveBeenCalledWith("a".repeat(40), "note");
+  });
+});

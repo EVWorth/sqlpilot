@@ -52,6 +52,12 @@ export interface MockOptions {
   keyring: boolean;
   startupProblems: boolean;
   agent: string[];
+  /**
+   * `?slow`: reads of stored rows (`result_window`, `result_rows`) take a
+   * moment, as an IPC round trip to the result store does, so the grid's
+   * placeholder rows can be seen. Off by default, so tests stay quick.
+   */
+  slow: boolean;
 }
 
 export type UpdateMode = "none" | "available" | "downloading" | "download-error" | "error";
@@ -64,6 +70,7 @@ export const defaultOptions = (): MockOptions => ({
   keyring: true,
   startupProblems: false,
   agent: [],
+  slow: false,
 });
 
 const list = (value: string | null): string[] => (value ?? "").split(",").map((s) => s.trim()).filter(Boolean);
@@ -76,6 +83,7 @@ export function optionsFromUrl(search: string): MockOptions {
     keyring: params.get("keyring") !== "missing",
     startupProblems: params.get("startup") === "problems",
     agent: list(params.get("agent")),
+    slow: params.has("slow"),
   };
 }
 

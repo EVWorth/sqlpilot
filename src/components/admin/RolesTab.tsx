@@ -194,8 +194,7 @@ export function RolesTab({ connectionId }: { connectionId: string }) {
           <p role="status" className="mb-2 flex items-start gap-1 text-[11px] text-[var(--color-text-secondary)]">
             <span className="flex-1">{notice}</span>
             <button
-              onClick={() =>
-                setNotice(null)}
+              onClick={() => setNotice(null)}
               aria-label="Dismiss"
               className="text-[var(--color-text-muted)]"
             >

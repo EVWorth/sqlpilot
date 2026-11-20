@@ -173,6 +173,9 @@ jobs:
       - name: Test the Tauri version check
         run: scripts/test-check-tauri-versions.sh
 
+      - name: Test the dependency age check
+        run: node --test scripts/test-check-dependency-age.mjs
+
   # ARCHITECTURE section 5 is the reference for the Tauri command surface, and
   # it had drifted into describing ten commands that were never written — a
   # reader following it wrote calls that fail at runtime with "command not
@@ -227,6 +230,38 @@ jobs:
         run: npm audit signatures
       - name: Audit vulnerabilities
         run: npm audit --audit-level=critical
+
+  # Every package version a PR adds to package-lock.json or Cargo.lock must
+  # have been published at least 7 days ago (AGENTS.md, rule 9). The other
+  # guards each miss a route in: Dependabot's cooldown covers only the
+  # packages a PR names, not what its lockfile pulls in with them (#988), and
+  # Cargo's own setting keeps whatever is already locked. This reads the
+  # lockfile, so how a version got there does not matter. An urgent security
+  # fix: label the PR `dependency-age-exception` and re-run this job.
+  dependency-age:
+    name: Dependency age
+    needs: detect-changes
+    if: >-
+      github.event_name == 'pull_request'
+      && (needs.detect-changes.outputs.npm == 'true' || needs.detect-changes.outputs.cargo == 'true')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: read # the PR's labels, read when the job runs
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: ".node-version"
+      - name: Check the age of every added package version
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF: ${{ github.base_ref }}
+        run: node scripts/check-dependency-age.mjs --base "origin/$BASE_REF"
 
   # NOTE: cargo-audit runs via the cargo-audit-check wrapper script (not
   # raw cargo audit). The wrapper:

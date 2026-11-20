@@ -21,6 +21,7 @@ are in [CONTRIBUTING.md](../CONTRIBUTING.md).
 | [design/TESTING_STRATEGY.md](design/TESTING_STRATEGY.md)       | Test layers, the database containers, and which tests run where       | Writing tests, or wondering why a test did not run in CI      |
 | [design/TECH_DECISIONS.md](design/TECH_DECISIONS.md)           | ADRs for the major technology choices, with status                    | Picking new technology, or asking "why X and not Y"           |
 | [design/DESIGN_REQUIREMENTS.md](design/DESIGN_REQUIREMENTS.md) | Functional and non-functional requirements with status flags          | Planning a feature, or checking what was promised             |
+| [design/RESULT_STORE.md](design/RESULT_STORE.md)               | Planned: results owned by the backend and windowed into the grid      | Working on query results, the grid's data, or memory use      |
 
 `ARCHITECTURE.md` section 5 is checked in CI by
 [`scripts/check-documented-commands.sh`](../scripts/check-documented-commands.sh):

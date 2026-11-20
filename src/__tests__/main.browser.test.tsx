@@ -36,7 +36,8 @@ vi.mock("../App", () => ({
   default: () => null,
 }));
 
-vi.mock("../styles/globals.css", () => ({}));
+// No mock for ../styles/globals.css: src/test-setup.ts already loads it, so a
+// mock here could never take effect, and Vitest 5.1 reports one that cannot.
 
 describe("main.tsx entry point (browser)", () => {
   // What loading the module did, copied out before the assertions run.

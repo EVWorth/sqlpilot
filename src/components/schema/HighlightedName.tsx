@@ -17,10 +17,8 @@ export function HighlightedName({ name, match }: { name: string; match: string }
     <>
       {name.slice(0, at)}
       <mark className="bg-brand-500/30 text-[var(--color-text-primary)]">
-        {
-          /* Sliced from the original rather than rendering the needle, so the
-            name's own casing survives being matched case-insensitively. */
-        }
+        {/* Sliced from the original rather than rendering the needle, so the
+            name's own casing survives being matched case-insensitively. */}
         {name.slice(at, at + needle.length)}
       </mark>
       {name.slice(at + needle.length)}

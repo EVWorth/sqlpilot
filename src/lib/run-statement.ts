@@ -2,6 +2,7 @@ import { useConnectionStore } from "../stores/connectionStore";
 import { useHistoryStore } from "../stores/historyStore";
 import type { QueryResult } from "../types";
 import type { GridEditOutcome } from "./bindings";
+import { resultRowCount } from "./stored-result";
 import { api, CommandError } from "./tauri-api";
 
 /**
@@ -170,9 +171,9 @@ function record(
   // produced no result set still ran, so an empty result list records the
   // statement as sent rather than nothing at all.
   const rows = results.length > 0
-    // `rows` is absent on a result that reported only a count, so read it
-    // defensively rather than trusting every backend shape.
-    ? results.map((r) => ({ sql: r.sql || sql, rowCount: r.rows?.length ?? 0 }))
+    // `rows` is absent on a result that reported only a count, and empty on
+    // one the result store keeps, so the count comes from `resultRowCount`.
+    ? results.map((r) => ({ sql: r.sql || sql, rowCount: resultRowCount(r) }))
     : [{ sql, rowCount: 0 }];
   recordRows({ rows, connection, database, origin, startTime });
 }

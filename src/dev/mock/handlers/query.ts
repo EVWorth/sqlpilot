@@ -28,14 +28,16 @@ import type {
   QueryError,
   QueryResult_Deserialize,
   QueryResult_Serialize,
+  ResultHandle_Serialize,
   SqlValue,
 } from "../../../lib/bindings";
 import { redactCredentials } from "../../../lib/sql-redact";
 import { DATABASES, type MockColumn, type MockTable, rand } from "../dataset";
-import { delay, fail, type Handlers } from "../router";
+import { type Args, delay, fail, type Handlers } from "../router";
 import { liveConnection, newId, state } from "../state";
 import { accountStatement } from "./accounts";
 import { applyDdl, DdlError } from "./ddl";
+import { storeResult } from "./results";
 import { createTableDdl, eventDdl, schemaHandlers } from "./schema";
 
 // ---------------------------------------------------------------- limits
@@ -1065,53 +1067,71 @@ function exportText(r: QueryResult_Deserialize, format: string, tableName: strin
 
 // ---------------------------------------------------------------- handlers
 
-export const queryHandlers: Handlers = {
-  execute_query: async (args): Promise<QueryResult_Serialize[]> => {
-    const { ctx, readOnly } = contextFor(args.connectionId, args.database);
-    const statements = splitStatements(String(args.sql ?? "")).filter((s) => stripComments(s));
-    if (readOnly) {
-      const write = statements.find((s) => isWrite(stripComments(s)));
-      if (write) refuseWrite(write);
-    }
-    const win: RowWindow = {
-      limit: typeof args.limit === "number" ? args.limit : null,
-      offset: typeof args.offset === "number" ? args.offset : null,
-    };
-    const results: QueryResult_Serialize[] = [];
-    for (const [index, stmt] of statements.entries()) {
-      try {
-        const r = await runStatement(stmt, { ...ctx, index, session: tabSession(args.session) }, win, args.session);
-        // What the statement "took", spent waiting so the spinner shows; the
-        // SLEEP branch has already waited its own time.
-        if (!/^select\s+sleep\s*\(/i.test(stripComments(stmt))) {
-          await busy(ctx.conn.id, tabSession(args.session), Math.min(600, 60 + r.execution_time_ms), index);
-        }
-        results.push(r);
-      } catch (e) {
-        // What ran before the failing statement rides along, as the backend
-        // sends it (#845), and a tab's session says whether a transaction is
-        // still open (#917).
-        if (!isQueryError(e)) throw e;
-        const session = tabSession(args.session);
-        const transaction = session && e.statementIndex !== null
-          ? (openTransactions.has(sessionKey(ctx.conn.id, args.session)) ? "open" : "none")
-          : undefined;
-        if (results.length > 0 || transaction) {
-          fail({
-            ...e,
-            ...(results.length > 0 ? { completedResults: results } : {}),
-            ...(transaction ? { transaction } : {}),
-          });
-        }
-        throw e;
+/**
+ * Run a script, one result per statement. What `execute_query` returns whole
+ * and `run_query` leaves in the result store.
+ */
+async function runScript(args: Args): Promise<QueryResult_Serialize[]> {
+  const { ctx, readOnly } = contextFor(args.connectionId, args.database);
+  const statements = splitStatements(String(args.sql ?? "")).filter((s) => stripComments(s));
+  if (readOnly) {
+    const write = statements.find((s) => isWrite(stripComments(s)));
+    if (write) refuseWrite(write);
+  }
+  const win: RowWindow = {
+    limit: typeof args.limit === "number" ? args.limit : null,
+    offset: typeof args.offset === "number" ? args.offset : null,
+  };
+  const results: QueryResult_Serialize[] = [];
+  for (const [index, stmt] of statements.entries()) {
+    try {
+      const r = await runStatement(stmt, { ...ctx, index, session: tabSession(args.session) }, win, args.session);
+      // What the statement "took", spent waiting so the spinner shows; the
+      // SLEEP branch has already waited its own time.
+      if (!/^select\s+sleep\s*\(/i.test(stripComments(stmt))) {
+        await busy(ctx.conn.id, tabSession(args.session), Math.min(600, 60 + r.execution_time_ms), index);
       }
+      results.push(r);
+    } catch (e) {
+      // What ran before the failing statement rides along, as the backend
+      // sends it (#845), and a tab's session says whether a transaction is
+      // still open (#917).
+      if (!isQueryError(e)) throw e;
+      const session = tabSession(args.session);
+      const transaction = session && e.statementIndex !== null
+        ? (openTransactions.has(sessionKey(ctx.conn.id, args.session)) ? "open" : "none")
+        : undefined;
+      if (results.length > 0 || transaction) {
+        fail({
+          ...e,
+          ...(results.length > 0 ? { completedResults: results } : {}),
+          ...(transaction ? { transaction } : {}),
+        });
+      }
+      throw e;
     }
-    // A tab's session reports its transaction state on the last result (#843).
-    const last = results[results.length - 1];
-    if (last && tabSession(args.session)) {
-      last.transaction = openTransactions.has(sessionKey(ctx.conn.id, args.session)) ? "open" : "none";
+  }
+  // A tab's session reports its transaction state on the last result (#843).
+  const last = results[results.length - 1];
+  if (last && tabSession(args.session)) {
+    last.transaction = openTransactions.has(sessionKey(ctx.conn.id, args.session)) ? "open" : "none";
+  }
+  return results;
+}
+
+export const queryHandlers: Handlers = {
+  execute_query: runScript,
+
+  run_query: async (args): Promise<ResultHandle_Serialize[]> => {
+    try {
+      return (await runScript(args)).map(storeResult);
+    } catch (e) {
+      // The same failure, with the statements that ran before it as handles:
+      // their rows are in the store, for the caller to read and release.
+      if (!isQueryError(e) || !e.completedResults) throw e;
+      const { completedResults, ...error } = e;
+      return fail({ ...error, completedHandles: (completedResults as QueryResult_Serialize[]).map(storeResult) });
     }
-    return results;
   },
 
   explain_query: async (args): Promise<ExplainResponse_Serialize> => {

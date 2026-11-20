@@ -110,7 +110,14 @@ pub async fn version_of_command(command: &str) -> Option<String> {
     if !output.status.success() {
         return None;
     }
-    let text = String::from_utf8_lossy(&output.stdout);
+    first_line(&String::from_utf8_lossy(&output.stdout))
+}
+
+/// The first line of a `--version` answer, trimmed.
+///
+/// Copilot prints an update notice on the second line. Taking the whole
+/// output would put "Run `copilot update`" in the settings screen.
+fn first_line(text: &str) -> Option<String> {
     text.lines().next().map(|line| line.trim().to_string())
 }
 
@@ -188,13 +195,28 @@ mod tests {
         assert!(version_of_command("false").await.is_none());
     }
 
+    #[test]
+    fn a_version_is_the_first_line_and_nothing_else() {
+        let copilot = "GitHub Copilot CLI 1.4.2\nRun `copilot update` to get 1.5.0\n";
+        assert_eq!(
+            first_line(copilot).as_deref(),
+            Some("GitHub Copilot CLI 1.4.2")
+        );
+        assert_eq!(
+            first_line("  claude 2.0.1  \n").as_deref(),
+            Some("claude 2.0.1")
+        );
+        assert_eq!(first_line(""), None);
+    }
+
     #[tokio::test]
-    async fn a_version_is_the_first_line_and_nothing_else() {
-        // Copilot prints an update notice on the second line. Taking the whole
-        // output would put "Run `copilot update`" in the settings screen.
-        // `echo --version` is GNU echo reporting itself, over several lines.
+    async fn an_installed_command_reports_one_line() {
+        // The text depends on the system's `echo`: GNU coreutils answers
+        // over several lines, uutils (Ubuntu 25.10 and later, and GitHub's
+        // ubuntu-latest runners since November 2026) over one. Either way
+        // what comes back is a single non-empty line.
         let version = version_of_command("echo").await.expect("echo is there");
-        assert!(version.starts_with("echo (GNU"), "{version}");
+        assert!(version.starts_with("echo"), "{version}");
         assert!(!version.contains('\n'));
     }
 }

@@ -212,7 +212,9 @@ export function SQLEditor() {
           const sql = sqlAtCursor(editor);
           const { connectionId, database, session } = activeTabContext();
           if (sql.trim() && connectionId) {
-            useResultStore.getState().executeQuery(connectionId, sql, database, session);
+            useResultStore.getState().executeQuery(connectionId, sql, database, session, undefined, {
+              fromEditor: true,
+            });
           }
         },
       });
@@ -249,7 +251,9 @@ export function SQLEditor() {
           const sql = model?.getValue() ?? "";
           const { connectionId, database, session } = activeTabContext();
           if (sql.trim() && connectionId) {
-            useResultStore.getState().executeQuery(connectionId, sql, database, session);
+            useResultStore.getState().executeQuery(connectionId, sql, database, session, undefined, {
+              fromEditor: true,
+            });
           }
         },
       });

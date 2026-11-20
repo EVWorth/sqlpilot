@@ -51,14 +51,17 @@ Separate URL parameters, which combine with any scenario and with each other:
 | `startup=problems`      | the connection and history stores could not be opened at startup                       |
 | `agent=uninstalled`     | no agent CLI installed: the panel shows the install commands                           |
 | `agent=no-tools`        | sessions start without the database tools                                              |
+| `slow`                  | reads of stored rows take 30-80 ms, so the grid's placeholder rows can be seen         |
 
 The update chip appears after the automatic check; click it to download.
 
 `fail=` takes the Rust command names from `src/lib/bindings.ts`
 (`get_foreign_keys`, `save_connection_profile`) or a plugin command
-(`plugin:updater|check`). `execute_query`, `apply_grid_edits` and
-`sqlite_execute` reject with a `QueryError`; every other command rejects with
-the string its `CoreError` renders as. The console names each injected failure.
+(`plugin:updater|check`). `execute_query`, `run_query`, `apply_grid_edits`,
+`sqlite_execute` and `sqlite_run_query` reject with a `QueryError`; every
+other command (the `result_*` reads among them) rejects with the string its
+`CoreError` renders as. The console names each injected
+failure.
 
 ## Built-in behaviour
 

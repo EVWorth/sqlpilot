@@ -1,0 +1,40 @@
+# A stand-in for sqlx's SQLite driver, which SQLPilot never builds (#973).
+#
+# sqlx 0.9.0 lists `sqlx-sqlite` as an optional dependency, and that crate
+# caps `libsqlite3-sys` below 0.38. Cargo resolves optional dependencies
+# whether or not they are enabled, and only one crate may link `sqlite3`, so
+# the cap stopped `rusqlite` from moving to a `libsqlite3-sys` that bundles a
+# SQLite without CVE-2026-119375. This crate has the same name, version and
+# feature names, and no dependencies, which removes the cap.
+#
+# It is empty on purpose: enabling sqlx's `sqlite` feature would fail to
+# compile, which is the right outcome. Delete this directory and the
+# `[patch.crates-io]` entry once sqlx's own driver allows libsqlite3-sys 0.39.
+[package]
+name = "sqlx-sqlite"
+version = "0.9.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[features]
+_unstable-all-sqlite-features = []
+_unstable-all-types = []
+_unstable-docs = []
+any = []
+bigdecimal = []
+bundled = []
+chrono = []
+deserialize = []
+json = []
+load-extension = []
+migrate = []
+offline = []
+preupdate-hook = []
+regexp = []
+rust_decimal = []
+sqlx-toml = []
+time = []
+unbundled = []
+unlock-notify = []
+uuid = []

@@ -144,27 +144,22 @@ vi.mock("../CellViewerModal", () => ({
   )),
 }));
 
-let tableRows: any[] = [];
 let tableHeaders: any[] = [];
 
+// TanStack keeps the grid's columns only (widths, resizing, order); the rows
+// come from the result's row source.
 vi.mock("@tanstack/react-table", () => ({
   useTable: vi.fn(() => ({
-    getRowModel: () => ({ rows: tableRows }),
     getFlatHeaders: () => tableHeaders,
     setColumnSizing: vi.fn(),
-    getState: () => ({ sorting: [], columnSizing: {} }),
+    getState: () => ({ columnSizing: {} }),
   })),
   // v9: features are declared up front; tableFeatures() just returns the
   // registry object, so an identity mock is enough here.
   tableFeatures: vi.fn((f: Record<string, unknown>) => f),
-  createSortedRowModel: vi.fn(() => ({})),
-  createFilteredRowModel: vi.fn(() => ({})),
-  rowSortingFeature: {},
   columnSizingFeature: {},
   columnResizingFeature: {},
-  columnVisibilityFeature: {},
   columnOrderingFeature: {},
-  columnFilteringFeature: {},
   flexRender: vi.fn((def: any, ctx: any) => {
     if (def.header) return def.header;
     return null;
@@ -199,7 +194,6 @@ describe("ResultsGrid", () => {
     state.isExecuting = false;
     state.error = null;
     state.viewTabId = null;
-    tableRows = [];
     tableHeaders = [];
     editorTabs = [];
     editorActiveTabId = null;

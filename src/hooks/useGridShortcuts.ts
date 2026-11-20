@@ -1,5 +1,6 @@
 import { useCallback, useEffect } from "react";
-import type { QueryResult } from "../types";
+import type { ResultMeta, RowSource } from "../lib/row-source";
+import type { SqlValue } from "../types";
 import type { useGridEditing } from "./useGridEditing";
 
 /**
@@ -11,25 +12,40 @@ import type { useGridEditing } from "./useGridEditing";
  */
 
 export interface UseGridShortcutsOptions {
-  result: QueryResult | undefined;
+  result: ResultMeta | undefined;
+  /** Where the cell's value as fetched is read from. */
+  source: RowSource;
   editing: ReturnType<typeof useGridEditing>;
   /** Which cell is being edited, which is what Ctrl+Shift+N acts on. */
   editingCell: { rowIndex: number; colIndex: number } | null;
+  onMessage: (message: string) => void;
 }
 
-export function useGridShortcuts({ result, editing, editingCell }: UseGridShortcutsOptions) {
+export function useGridShortcuts({ result, source, editing, editingCell, onMessage }: UseGridShortcutsOptions) {
   /**
    * Set one cell to NULL.
    *
    * FR-3.2.3 asks for this from the context menu and from Ctrl+Shift+N. Both
    * route through here so they cannot drift (#403).
+   *
+   * The edit records the value the row was fetched with, whole, which the
+   * source may have to go and get.
    */
   const setCellNull = useCallback((rowIdx: number, colIdx: number) => {
     if (!result || !editing.editMode) return;
     const col = result.columns[colIdx];
     if (!col) return;
-    editing.editCell(rowIdx, col.name, result.rows[rowIdx]?.[colIdx] ?? null, null);
-  }, [result, editing]);
+    const { editCell } = editing;
+    // A pending insert (negative index) has no fetched value.
+    if (rowIdx < 0 || rowIdx >= source.rowCount) {
+      editCell(rowIdx, col.name, null, null);
+      return;
+    }
+    void source.cell(rowIdx, colIdx).then(
+      (original: SqlValue) => editCell(rowIdx, col.name, original, null),
+      (e: unknown) => onMessage(`Could not set ${col.name} to NULL: ${String(e)}`),
+    );
+  }, [result, source, editing, onMessage]);
 
   useEffect(() => {
     if (!editing.editMode) return;

@@ -74,7 +74,7 @@ async function handle(request: AgentRequest) {
         const tab = tabs.find((t) => t.id === activeTabId);
         await answer_(
           request.id,
-          resultAnswer(
+          await resultAnswer(
             results,
             activeResultIndex,
             tab?.connectionId,

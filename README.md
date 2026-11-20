@@ -24,7 +24,7 @@
 <p align="center">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-blue" alt="Platform" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
-  <img src="https://img.shields.io/badge/rust-1.95-orange" alt="Rust" />
+  <img src="https://img.shields.io/badge/rust-1.100-orange" alt="Rust" />
   <img src="https://img.shields.io/badge/node-24%2B-brightgreen" alt="Node.js" />
 </p>
 

@@ -11,6 +11,7 @@ import type {
   TriggerInfo,
   ViewInfo,
 } from "../types";
+import { fromHandle } from "./stored-result";
 import { api } from "./tauri-api";
 
 /**
@@ -59,6 +60,20 @@ export interface DataSource {
      */
     session?: string,
   ): Promise<QueryResult[]>;
+  /**
+   * Run like `execute`, but leave the rows in the backend's result store
+   * (docs/design/RESULT_STORE.md). Each result comes back with no rows and a
+   * `stored` reference; the caller releases them. A failure carries the
+   * statements that completed as `completedHandles`.
+   */
+  runStored(
+    connectionId: string,
+    sql: string,
+    database?: string,
+    limit?: number,
+    offset?: number,
+    session?: string,
+  ): Promise<QueryResult[]>;
 }
 
 const mysql: DataSource = {
@@ -77,6 +92,8 @@ const mysql: DataSource = {
   getTableDdl: (c, d, t) => api.getTableDdl(c, d, t),
   getViewDdl: (c, d, v) => api.getViewDdl(c, d, v),
   execute: (c, sql, d, limit, offset, session) => api.executeQuery(c, sql, d, limit, offset, session),
+  runStored: async (c, sql, d, limit, offset, session) =>
+    (await api.runQuery(c, sql, d, limit, offset, session)).map(fromHandle),
 };
 
 /**
@@ -195,6 +212,9 @@ const sqlite: DataSource = {
       // SQLite answers for the whole connection, after every statement.
       transaction: r.in_transaction ? "open" : "none",
     })) as QueryResult[],
+  // Every column is text and a BLOB is `<blob N bytes>` in the store, as
+  // `sqlite_execute` shows them (docs/design/RESULT_STORE.md, "As built").
+  runStored: async (c, sql, _d, limit, offset) => (await api.sqliteRunQuery(c, sql, limit, offset)).map(fromHandle),
 };
 
 const SOURCES: Record<DataSourceKind, DataSource> = { mysql, sqlite };

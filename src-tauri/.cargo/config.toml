@@ -1,0 +1,29 @@
+# Settings for every Cargo run started in src-tauri/: local builds, the CI
+# jobs (all use `working-directory: src-tauri`) and `tauri build`, which
+# changes into this directory before it calls Cargo.
+
+[env]
+# The result store keeps one SQLite column per result column, and SQLite's
+# default of 2,000 columns per table is below what MySQL can return (4,096
+# per table, more from a join). 32,767 is the most SQLite can be built for.
+# libsqlite3-sys reads this when it compiles the bundled SQLite and rebuilds
+# when it changes. The store asks SQLite for the limit it was really built
+# with (`ResultStore::max_columns`), and a test fails if this did not take
+# effect, so a build that lost the flag is caught rather than assumed.
+# The user's own SQLite files are opened with the stock limit put back
+# (crates/mas-sqlite/src/connection.rs).
+LIBSQLITE3_FLAGS = "-DSQLITE_MAX_COLUMN=32767"
+
+[registry]
+# Supply-chain defence: a crate version is used only once it has been on
+# crates.io for 7 days, the same rule `.npmrc` (`min-release-age=7`) and
+# Dependabot's `cooldown` apply (#225). Cargo 1.100 and later enforce it in
+# every resolve started here, so a local `cargo update` or `cargo add` is
+# held to it too, which Dependabot's cooldown never covered. Versions already
+# in Cargo.lock are kept whatever their age.
+#
+# An urgent security fix younger than that:
+#   CARGO_RESOLVER_INCOMPATIBLE_PUBLISH_AGE=allow cargo update -p <crate> --precise <version>
+# A later plain `cargo update` downgrades it again until it is 7 days old,
+# so update only the crates you mean to until then.
+global-min-publish-age = "7 days"
