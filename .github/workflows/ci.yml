@@ -176,6 +176,9 @@ jobs:
       - name: Test the dependency age check
         run: node --test scripts/test-check-dependency-age.mjs
 
+      - name: Test the release verifier
+        run: node --test scripts/test-verify-release.mjs
+
   # ARCHITECTURE section 5 is the reference for the Tauri command surface, and
   # it had drifted into describing ten commands that were never written — a
   # reader following it wrote calls that fail at runtime with "command not
