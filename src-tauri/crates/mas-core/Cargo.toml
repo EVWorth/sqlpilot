@@ -7,7 +7,7 @@ edition = "2021"
 anyhow = { workspace = true }
 # Already in the lockfile through tauri and sqlx; binary cells cross IPC as
 # base64 (results/wire.rs).
-base64 = "0.22"
+base64 = "0.23"
 chrono = { workspace = true }
 dashmap = "6"
 futures = "0.3"
