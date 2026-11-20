@@ -3,7 +3,9 @@ target/
 Cargo.lock
 
 # Node
-node_modules/
+# No trailing slash: a worktree's node_modules is often a symlink to the
+# main checkout's, and "node_modules/" matches only a directory.
+node_modules
 dist/
 .vite/
 
