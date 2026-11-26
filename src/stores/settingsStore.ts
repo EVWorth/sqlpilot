@@ -34,15 +34,6 @@ export interface QuerySettings {
   editorFontSize: number;
   /** The whole interface's size, as a factor: 1 is 100% (#837). */
   uiScale: number;
-  /**
-   * Whether an editor tab's results arrive whole in the webview, the old way,
-   * instead of staying in the backend's result store and being read a window
-   * at a time (docs/design/RESULT_STORE.md). Off by default: the store is the
-   * normal path. This is the way back while the old path still exists, and
-   * goes with it. Only the editor's own runs are affected; the admin tabs,
-   * the schema tree, EXPLAIN and the rest read whole results either way.
-   */
-  keepResultsInWebview: boolean;
 }
 
 const DEFAULT_QUERY_SETTINGS: QuerySettings = {
@@ -52,7 +43,6 @@ const DEFAULT_QUERY_SETTINGS: QuerySettings = {
   showMinimap: false,
   editorFontSize: 14,
   uiScale: 1,
-  keepResultsInWebview: false,
 };
 
 /** The interface scales offered, smallest to largest; Ctrl+= and Ctrl+- step through them. */
@@ -116,10 +106,10 @@ function loadQuerySettings(): QuerySettings {
   try {
     const stored = localStorage.getItem(QUERY_SETTINGS_KEY);
     if (stored) {
-      // `keepResultsInBackend` was the opt-in before the store became the
-      // default. Saved settings carry it as false whether or not anyone chose
-      // that, so it is dropped rather than carried over.
-      const { keepResultsInBackend: _optIn, ...saved } = JSON.parse(stored) as Record<string, unknown>;
+      // 1.6 saved a switch for keeping results in the backend's result store,
+      // which is now the only way results are held. Dropped on load so it
+      // does not linger in the file.
+      const { keepResultsInBackend: _retired, ...saved } = JSON.parse(stored) as Record<string, unknown>;
       const merged: QuerySettings = { ...DEFAULT_QUERY_SETTINGS, ...saved };
       // The file is editable; a bad value here would scale the window to nothing.
       return {

@@ -5,12 +5,11 @@ import { api, CommandError } from "@/lib/tauri-api";
 import { useConnectionStore } from "@/stores/connectionStore";
 import { useEditorStore } from "@/stores/editorStore";
 import { useResultStore } from "@/stores/resultStore";
-import { useSettingsStore } from "@/stores/settingsStore";
 import type { ConnectionInfo } from "@/types";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * Editor runs that keep their rows in the backend's result store
+ * Runs that keep their rows in the backend's result store
  * (docs/design/RESULT_STORE.md): what reaches the result state, and when the
  * stored rows are freed.
  */
@@ -42,14 +41,7 @@ let release: ReturnType<typeof vi.spyOn>;
 /** Store ids freed so far. */
 const released = () => release.mock.calls.flatMap(([ids]) => ids as string[]);
 
-/** `on`: the store, the default; off: the old path, through the opt-out. */
-function useStoreSetting(on: boolean) {
-  const { querySettings } = useSettingsStore.getState();
-  useSettingsStore.setState({ querySettings: { ...querySettings, keepResultsInWebview: !on } });
-}
-
-const run = (sql = "SELECT id FROM t", tab = "tab-1") =>
-  useResultStore.getState().executeQuery(CONN, sql, "app", tab, undefined, { fromEditor: true });
+const run = (sql = "SELECT id FROM t", tab = "tab-1") => useResultStore.getState().executeQuery(CONN, sql, "app", tab);
 
 beforeEach(() => {
   install();
@@ -61,7 +53,6 @@ beforeEach(() => {
   const tab = { id: "tab-1", title: "Query", content: "", type: "query" as const, isDirty: false };
   useEditorStore.setState({ tabs: [tab], activeTabId: "tab-1" });
   useResultStore.getState().showTab("tab-1");
-  useStoreSetting(true);
   runQuery = vi.spyOn(api, "runQuery").mockImplementation(async () => [handle(3)]);
   executeQuery = vi.spyOn(api, "executeQuery").mockResolvedValue([]);
   release = vi.spyOn(api, "resultRelease").mockResolvedValue(undefined);
@@ -73,7 +64,7 @@ afterEach(() => {
 });
 
 describe("running into the result store", () => {
-  it("runs through run_query by default, and shows a result without rows", async () => {
+  it("runs through run_query, and shows a result without rows", async () => {
     await run();
     expect(runQuery).toHaveBeenCalledWith(CONN, "SELECT id FROM t", "app", 1000, undefined, "tab-1");
     expect(executeQuery).not.toHaveBeenCalled();
@@ -83,23 +74,10 @@ describe("running into the result store", () => {
     expect(rowSourceFor(result).rowCount).toBe(3);
   });
 
-  it("takes the old path when the user opts out", async () => {
-    useStoreSetting(false);
-    await run();
-    expect(executeQuery).toHaveBeenCalled();
-    expect(runQuery).not.toHaveBeenCalled();
-  });
-
-  it("keeps the old path for runs that are not the editor's", async () => {
-    await useResultStore.getState().executeQuery(CONN, "SELECT 1", "app", "tab-1");
-    expect(executeQuery).toHaveBeenCalled();
-    expect(runQuery).not.toHaveBeenCalled();
-  });
-
   it("offers a next page when a stored result filled the row limit, and pages into the store", async () => {
     runQuery.mockImplementation(async () => [handle(1000)]);
     await run();
-    expect(useResultStore.getState().page).toMatchObject({ index: 0, size: 1000, hasMore: true, stored: true });
+    expect(useResultStore.getState().page).toMatchObject({ index: 0, size: 1000, hasMore: true });
 
     await useResultStore.getState().goToPage(1);
     expect(runQuery).toHaveBeenLastCalledWith(CONN, "SELECT id FROM t", "app", 1000, 1000, "tab-1");
@@ -159,26 +137,6 @@ describe("freeing stored results", () => {
     useResultStore.getState().forgetConnection(CONN);
     expect(useResultStore.getState().results).toEqual([]);
     expect(released()).toEqual(["r1"]);
-  });
-
-  it("leaves results held whole in the webview on screen when their connection closes", async () => {
-    useStoreSetting(false);
-    executeQuery.mockResolvedValue([
-      {
-        query_id: "q",
-        statement_index: 0,
-        sql: "SELECT 1",
-        columns: COLUMNS,
-        rows: [[1]],
-        rows_affected: 1,
-        execution_time_ms: 1,
-        warnings: [],
-        rows_truncated: false,
-      },
-    ]);
-    await run();
-    useResultStore.getState().forgetConnection(CONN);
-    expect(useResultStore.getState().results).toHaveLength(1);
   });
 
   it("frees what a failed run completed when nothing will show it", async () => {

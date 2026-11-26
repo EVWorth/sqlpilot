@@ -8,13 +8,12 @@ import {
 
 /**
  * The Appearance dialog's Editor section: minimap, editor font size and
- * interface scale, and where an editor tab's results are kept.
+ * and interface scale.
  */
 export function EditorAppearanceSettings() {
   const showMinimap = useSettingsStore((s) => s.querySettings.showMinimap);
   const editorFontSize = useSettingsStore((s) => s.querySettings.editorFontSize);
   const uiScale = useSettingsStore((s) => s.querySettings.uiScale);
-  const keepResultsInWebview = useSettingsStore((s) => s.querySettings.keepResultsInWebview);
   const setQuerySettings = useSettingsStore((s) => s.setQuerySettings);
 
   return (
@@ -78,28 +77,6 @@ export function EditorAppearanceSettings() {
       </div>
       <p className="mt-1 text-xs text-[var(--color-text-muted)]">
         Ctrl+= and Ctrl+- change the interface scale; Ctrl+0 resets it.
-      </p>
-
-      <p className="mb-2 mt-4 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-        Results
-      </p>
-      <label className="flex cursor-pointer items-center gap-2 text-xs text-[var(--color-text-secondary)]">
-        <input
-          type="checkbox"
-          checked={keepResultsInWebview}
-          aria-describedby="keep-results-in-webview-hint"
-          onChange={(e) =>
-            setQuerySettings({
-              ...useSettingsStore.getState().querySettings,
-              keepResultsInWebview: e.target.checked,
-            })}
-          className="h-3.5 w-3.5 accent-brand-500"
-        />
-        Load whole results into the window (the older way)
-      </label>
-      <p id="keep-results-in-webview-hint" className="mt-1 text-xs text-[var(--color-text-muted)]">
-        Uses much more memory on large results. Turn on only if something about results stopped working, and report it.
-        Applies to queries run from now on.
       </p>
     </>
   );

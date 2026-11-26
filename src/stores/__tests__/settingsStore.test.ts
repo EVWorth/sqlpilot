@@ -34,7 +34,6 @@ const defaultQuerySettings = {
   showMinimap: false,
   editorFontSize: 14,
   uiScale: 1,
-  keepResultsInWebview: false,
 };
 const defaultFormatterSettings = {
   keywordCase: "upper" as const,
@@ -101,13 +100,6 @@ describe("settingsStore", () => {
       vi.resetModules();
       const { useSettingsStore } = await import("../settingsStore");
       expect(useSettingsStore.getState().querySettings).toEqual({ ...defaultQuerySettings, maxResultRows: 500 });
-    });
-
-    it("keeps an opt-out to the old path", async () => {
-      localStorage.setItem(QUERY_SETTINGS_KEY, JSON.stringify({ keepResultsInWebview: true }));
-      vi.resetModules();
-      const { useSettingsStore } = await import("../settingsStore");
-      expect(useSettingsStore.getState().querySettings.keepResultsInWebview).toBe(true);
     });
   });
 

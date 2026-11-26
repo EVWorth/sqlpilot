@@ -29,6 +29,7 @@ import { ddlKey, type DdlTarget, useDdlStore } from "../../stores/ddlStore";
 import { useEditorStore } from "../../stores/editorStore";
 import { confirmDrop } from "../../stores/productionGuardStore";
 import { useResultStore } from "../../stores/resultStore";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { useThemeStore } from "../../stores/themeStore";
 import type { QueryResult } from "../../types";
 
@@ -124,7 +125,7 @@ export function RoutineViewer({
     if (!batch.ok) throw new Error(batch.reason);
     const sql = batch.sql;
 
-    const queryResults = await runStatement({ connectionId, sql, origin: "routine" });
+    const queryResults = await runStatement({ connectionId, sql, origin: "routine", limit: shownRowLimit() });
     setResults(queryResults);
 
     // Extract OUT param values from the last result set
@@ -153,7 +154,7 @@ export function RoutineViewer({
     });
 
     const sql = buildFunctionCall(database, routineName, args);
-    const queryResults = await runStatement({ connectionId, sql, origin: "routine" });
+    const queryResults = await runStatement({ connectionId, sql, origin: "routine", limit: shownRowLimit() });
     setResults(queryResults);
   };
 
@@ -471,6 +472,20 @@ function ParameterRow({
   );
 }
 
+/**
+ * The row limit the editor applies, for the routine viewer's result tables.
+ * They draw every row they are given, unlike the results grid, which reads
+ * from the backend's result store a window at a time; without a limit a
+ * procedure returning a million rows would fill the window.
+ */
+function shownRowLimit(): number {
+  const { limitEnabled, maxResultRows } = useSettingsStore.getState().querySettings;
+  return limitEnabled ? maxResultRows : ROUTINE_ROW_CEILING;
+}
+
+/** The cap when the user has turned the editor's row limit off. */
+const ROUTINE_ROW_CEILING = 10_000;
+
 function ResultTable({
   result,
   index,
@@ -535,6 +550,8 @@ function ResultTable({
       <div className="flex items-center gap-2 bg-[var(--color-bg-tertiary)] px-2 py-1 text-[10px] text-[var(--color-text-muted)]">
         <Rows3 className="h-3 w-3" />
         {result.rows.length} row(s)
+        {result.rows_truncated
+          && " shown: the rest are past the row limit; run the CALL in an editor tab to page through them"}
         <span className="ml-auto">{result.execution_time_ms}ms</span>
       </div>
     </div>

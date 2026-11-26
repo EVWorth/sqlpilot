@@ -12,6 +12,8 @@ vi.mock("../../../lib/tauri-api", () => ({
     getTriggers: vi.fn(),
     getEvents: vi.fn(),
     executeQuery: vi.fn(async () => []),
+    runQuery: vi.fn(async () => []),
+    resultRelease: vi.fn(async () => undefined),
     closeSession: vi.fn(async () => undefined),
     sqliteGetTables: vi.fn(async () => [
       { name: "notes", table_type: "table", row_count: 3, sql: "CREATE TABLE notes (id INTEGER)" },
@@ -50,6 +52,7 @@ vi.mock("../../../stores/productionGuardStore", () => ({
 
 import { forgetConnectionKind, registerConnectionKind } from "../../../lib/datasource";
 import { runStatement } from "../../../lib/run-statement";
+import { fromHandle } from "../../../lib/stored-result";
 import { api } from "../../../lib/tauri-api";
 import { useConnectionStore } from "../../../stores/connectionStore";
 import { useEditorStore } from "../../../stores/editorStore";
@@ -699,22 +702,22 @@ describe("SchemaTree menus (#293)", () => {
     // the DDL.
     setupStores({ activeTabId: "tab-a" });
     const stats = {
-      query_id: "s",
+      result_id: "s",
       statement_index: 0,
       sql: "SELECT ...",
       columns: [],
-      rows: [["app_db"]],
+      row_count: 1,
       rows_affected: 0,
       execution_time_ms: 1,
       warnings: [],
     };
-    vi.mocked(api.executeQuery).mockResolvedValueOnce([stats] as never);
+    vi.mocked(api.runQuery).mockResolvedValueOnce([stats]);
 
     item(await openDatabaseMenu(), "Statistics")?.onClick?.();
 
     const newTab = useEditorStore.getState().activeTabId;
     expect(newTab).not.toBe("tab-a");
-    await waitFor(() => expect(useResultStore.getState().results).toEqual([stats]));
+    await waitFor(() => expect(useResultStore.getState().results).toEqual([fromHandle(stats)]));
     expect(useResultStore.getState().viewTabId).toBe(newTab);
 
     useEditorStore.getState().setActiveTab("tab-a");

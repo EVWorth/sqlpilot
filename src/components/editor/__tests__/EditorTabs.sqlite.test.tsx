@@ -2,13 +2,15 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { act } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { sqliteExecute, sqliteClose, sqliteOpen } = vi.hoisted(() => ({
+const { sqliteExecute, sqliteRunQuery, resultRelease, sqliteClose, sqliteOpen } = vi.hoisted(() => ({
   sqliteExecute: vi.fn(),
+  sqliteRunQuery: vi.fn(),
+  resultRelease: vi.fn(),
   sqliteClose: vi.fn(),
   sqliteOpen: vi.fn(),
 }));
 vi.mock("../../../lib/tauri-api", () => ({
-  api: { sqliteExecute, sqliteClose, sqliteOpen },
+  api: { sqliteExecute, sqliteRunQuery, resultRelease, sqliteClose, sqliteOpen },
   CommandError: class CommandError extends Error {
     transaction?: string;
   },
@@ -41,7 +43,23 @@ const tab = (id: string, title: string, connectionId: string): EditorTab => ({
   connectionId,
 });
 
-/** What `sqlite_execute` returns for one statement. */
+/**
+ * What `sqlite_run_query` returns for a statement the grid ran: a handle to
+ * its rows in the result store, here none.
+ */
+const stored = (sql: string, inTransaction: boolean) => [{
+  result_id: "r",
+  statement_index: 0,
+  sql,
+  columns: [],
+  row_count: 0,
+  rows_affected: 0,
+  execution_time_ms: 1,
+  warnings: [],
+  transaction: inTransaction ? "open" : "none",
+}];
+
+/** What `sqlite_execute` returns for one statement, as the rollback on close runs it. */
 const ran = (sql: string, inTransaction: boolean) => [{
   query_id: "q",
   statement_index: 0,
@@ -71,6 +89,8 @@ const badgeOn = (title: string) => {
 describe("a SQLite file's shared transaction in the tab strip (#935)", () => {
   beforeEach(async () => {
     sqliteExecute.mockReset();
+    sqliteRunQuery.mockReset();
+    resultRelease.mockReset().mockResolvedValue(undefined);
     sqliteClose.mockReset().mockResolvedValue(undefined);
     sqliteOpen.mockReset().mockResolvedValue("lite-1");
     useSqliteStore.setState({ sessions: [], opening: false, error: null });
@@ -86,7 +106,7 @@ describe("a SQLite file's shared transaction in the tab strip (#935)", () => {
   afterEach(() => forgetConnectionKind("lite-1"));
 
   async function run(sql: string, tabId: string, inTransaction: boolean) {
-    sqliteExecute.mockResolvedValueOnce(ran(sql, inTransaction));
+    sqliteRunQuery.mockResolvedValueOnce(stored(sql, inTransaction));
     await act(() => useResultStore.getState().executeQuery("lite-1", sql, undefined, tabId));
   }
 
@@ -114,7 +134,10 @@ describe("a SQLite file's shared transaction in the tab strip (#935)", () => {
     expect(screen.queryByText("Notes A")).toBeNull();
     // The transaction is still open, on the tab left on the file.
     expect(badgeOn("Notes B")).toBeInTheDocument();
-    expect(sqliteExecute).toHaveBeenCalledTimes(1);
+    // Nothing was rolled back: the BEGIN ran through the result store, and
+    // closing this tab sent nothing.
+    expect(sqliteRunQuery).toHaveBeenCalledTimes(1);
+    expect(sqliteExecute).not.toHaveBeenCalled();
 
     act(() => useEditorStore.getState().requestClose("close", "tab-b"));
     expect(screen.getByText("Close tab with an open transaction?")).toBeInTheDocument();

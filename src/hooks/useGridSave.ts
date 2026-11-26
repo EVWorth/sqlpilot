@@ -180,7 +180,7 @@ export function useGridSave({
       }
 
       editing.discardAll();
-      await useResultStore.getState().executeQuery(connId, sql, database, session, tabId, { fromEditor: true });
+      await useResultStore.getState().executeQuery(connId, sql, database, session, tabId);
 
       // A WHERE that matches nothing is not an error — the statement runs and
       // affects zero rows — so the save reported success either way (#419).

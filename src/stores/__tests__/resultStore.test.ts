@@ -1,11 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { executeQueryMock, explainQueryMock, cancelQueryMock, sqliteExecuteMock } = vi.hoisted(() => ({
-  executeQueryMock: vi.fn().mockResolvedValue([]),
-  sqliteExecuteMock: vi.fn().mockResolvedValue([]),
-  explainQueryMock: vi.fn(),
-  cancelQueryMock: vi.fn().mockResolvedValue(undefined),
-}));
+const { runQueryMock, explainQueryMock, cancelQueryMock, sqliteExecuteMock, sqliteRunQueryMock, resultReleaseMock } = vi
+  .hoisted(() => ({
+    // The grid's runs: each returns handles to rows kept in the backend's
+    // result store (docs/design/RESULT_STORE.md).
+    runQueryMock: vi.fn().mockResolvedValue([]),
+    sqliteRunQueryMock: vi.fn().mockResolvedValue([]),
+    sqliteExecuteMock: vi.fn().mockResolvedValue([]),
+    resultReleaseMock: vi.fn().mockResolvedValue(undefined),
+    explainQueryMock: vi.fn(),
+    cancelQueryMock: vi.fn().mockResolvedValue(undefined),
+  }));
 
 const addEntryMock = vi.hoisted(() => vi.fn());
 
@@ -19,7 +24,9 @@ let settingsStoreState = {
 
 vi.mock("../../lib/tauri-api", () => ({
   api: {
-    executeQuery: executeQueryMock,
+    runQuery: runQueryMock,
+    sqliteRunQuery: sqliteRunQueryMock,
+    resultRelease: resultReleaseMock,
     explainQuery: explainQueryMock,
     cancelQuery: cancelQueryMock,
     sqliteExecute: sqliteExecuteMock,
@@ -32,6 +39,7 @@ vi.mock("../../lib/tauri-api", () => ({
     sqlState?: string;
     statementIndex?: number;
     completedResults?: unknown[];
+    completedHandles?: unknown[];
     transaction?: string;
     constructor(
       message: string,
@@ -40,6 +48,7 @@ vi.mock("../../lib/tauri-api", () => ({
         sqlState?: string | null;
         statementIndex?: number | null;
         completedResults?: unknown[];
+        completedHandles?: unknown[];
         transaction?: string | null;
       },
     ) {
@@ -50,6 +59,7 @@ vi.mock("../../lib/tauri-api", () => ({
       if (fields?.sqlState != null) this.sqlState = fields.sqlState;
       if (fields?.statementIndex != null) this.statementIndex = fields.statementIndex;
       if (fields?.completedResults) this.completedResults = fields.completedResults;
+      if (fields?.completedHandles) this.completedHandles = fields.completedHandles;
       if (fields?.transaction) this.transaction = fields.transaction;
     }
   },
@@ -76,9 +86,10 @@ vi.mock("../settingsStore", () => ({
 }));
 
 import { forgetConnectionKind, registerConnectionKind } from "../../lib/datasource";
+import { fromHandle } from "../../lib/stored-result";
 import { CommandError } from "../../lib/tauri-api";
 import { noteGridEdits, resetGridEdits } from "../../lib/unsaved-grid-edits";
-import type { EditorTab, QueryResult } from "../../types";
+import type { EditorTab, QueryResult, ResultHandle } from "../../types";
 import { useEditorStore } from "../editorStore";
 import { useProductionGuardStore } from "../productionGuardStore";
 import { anyTabExecuting, followEditorStore, resetRunBookkeeping, useResultStore } from "../resultStore";
@@ -118,6 +129,24 @@ function makeQueryResult(overrides: Partial<any> = {}) {
   };
 }
 
+/**
+ * What `runQuery` returns for one statement: everything but the rows, which
+ * stay in the backend's result store, counted by `row_count`.
+ */
+function makeHandle(overrides: Partial<ResultHandle> = {}): ResultHandle {
+  return {
+    result_id: "q1",
+    statement_index: 0,
+    sql: "SELECT 1",
+    columns: [],
+    row_count: 1,
+    rows_affected: 0,
+    execution_time_ms: 10,
+    warnings: [],
+    ...overrides,
+  };
+}
+
 describe("resultStore", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -137,7 +166,7 @@ describe("resultStore", () => {
       parked: {},
     });
     explainQueryMock.mockResolvedValue(makeExplainResponse());
-    executeQueryMock.mockResolvedValue([]);
+    runQueryMock.mockResolvedValue([]);
     // A connection that exists is the ordinary case. Leaving the list empty
     // modelled a state the app should not be in — executing against a
     // connection it does not hold — and #328 turns that into "record nothing",
@@ -214,7 +243,7 @@ describe("resultStore", () => {
     // A grid edit to the result on screen is saved on the session it was
     // read on, and the refresh after it reads from there too.
     it("remembers the tab session and database the result was read on", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM tmp", "shop", "tab-7");
 
       expect(useResultStore.getState().resultSource).toEqual({
@@ -225,7 +254,7 @@ describe("resultStore", () => {
     });
 
     it("forgets it when the results go", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "shop", "tab-7");
 
       useResultStore.getState().clearResults();
@@ -234,9 +263,9 @@ describe("resultStore", () => {
     });
 
     it("forgets it when the statement fails", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "shop", "tab-7");
-      executeQueryMock.mockRejectedValue(new Error("Table 'shop.nope' doesn't exist"));
+      runQueryMock.mockRejectedValue(new Error("Table 'shop.nope' doesn't exist"));
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM nope", "shop", "tab-7");
 
@@ -246,12 +275,12 @@ describe("resultStore", () => {
 
   describe("paging (#391)", () => {
     /** A page that came back exactly full, which is how "there may be more" is known. */
-    const fullPage = () => makeQueryResult({ rows: Array.from({ length: 1000 }, () => ["x"]) });
+    const fullPage = () => makeHandle({ row_count: 1000 });
 
     it("offers no paging for a result that fitted inside the limit", async () => {
       // Page controls on a complete answer invite a round trip that fetches
       // nothing.
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
@@ -259,7 +288,7 @@ describe("resultStore", () => {
     });
 
     it("offers paging once a page fills up", async () => {
-      executeQueryMock.mockResolvedValue([fullPage()]);
+      runQueryMock.mockResolvedValue([fullPage()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
 
@@ -273,12 +302,12 @@ describe("resultStore", () => {
     it("skips the rows already shown rather than rewriting the SQL", async () => {
       // Appending LIMIT/OFFSET breaks SHOW, locking clauses and trailing
       // comments; the executor discards rows as it reads instead.
-      executeQueryMock.mockResolvedValue([fullPage()]);
+      runQueryMock.mockResolvedValue([fullPage()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big", "shop");
 
       await useResultStore.getState().goToPage(1);
 
-      expect(executeQueryMock).toHaveBeenLastCalledWith(
+      expect(runQueryMock).toHaveBeenLastCalledWith(
         "conn-1",
         "SELECT * FROM big",
         "shop",
@@ -293,12 +322,12 @@ describe("resultStore", () => {
       // A temporary table or a session variable the statement uses exists
       // only on that session; a page read anywhere else would not find it
       // (#731).
-      executeQueryMock.mockResolvedValue([fullPage()]);
+      runQueryMock.mockResolvedValue([fullPage()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM tmp", "shop", "tab-7");
 
       await useResultStore.getState().goToPage(1);
 
-      expect(executeQueryMock).toHaveBeenLastCalledWith(
+      expect(runQueryMock).toHaveBeenLastCalledWith(
         "conn-1",
         "SELECT * FROM tmp",
         "shop",
@@ -309,20 +338,20 @@ describe("resultStore", () => {
     });
 
     it("recognises the last page by it coming back short", async () => {
-      executeQueryMock.mockResolvedValue([fullPage()]);
+      runQueryMock.mockResolvedValue([fullPage()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
 
-      executeQueryMock.mockResolvedValue([makeQueryResult({ rows: [["x"]] })]);
+      runQueryMock.mockResolvedValue([makeHandle({ row_count: 1 })]);
       await useResultStore.getState().goToPage(1);
 
       expect(useResultStore.getState().page).toMatchObject({ index: 1, hasMore: false });
     });
 
     it("keeps the controls on a short last page so the way back stays", async () => {
-      executeQueryMock.mockResolvedValue([fullPage()]);
+      runQueryMock.mockResolvedValue([fullPage()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
 
-      executeQueryMock.mockResolvedValue([makeQueryResult({ rows: [["x"]] })]);
+      runQueryMock.mockResolvedValue([makeHandle({ row_count: 1 })]);
       await useResultStore.getState().goToPage(1);
 
       expect(useResultStore.getState().page).not.toBeNull();
@@ -330,7 +359,7 @@ describe("resultStore", () => {
 
     it("does not record a history entry for every Next click", async () => {
       // The statement was run once; one row in history is the honest record.
-      executeQueryMock.mockResolvedValue([fullPage()]);
+      runQueryMock.mockResolvedValue([fullPage()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
       addEntryMock.mockClear();
 
@@ -340,30 +369,30 @@ describe("resultStore", () => {
     });
 
     it("ignores a page change with nothing to page", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
-      executeQueryMock.mockClear();
+      runQueryMock.mockClear();
 
       await useResultStore.getState().goToPage(1);
 
-      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(runQueryMock).not.toHaveBeenCalled();
     });
 
     it("will not page before the first page", async () => {
-      executeQueryMock.mockResolvedValue([fullPage()]);
+      runQueryMock.mockResolvedValue([fullPage()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
-      executeQueryMock.mockClear();
+      runQueryMock.mockClear();
 
       await useResultStore.getState().goToPage(-1);
 
-      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(runQueryMock).not.toHaveBeenCalled();
     });
 
     it("forgets the page when a different query runs", async () => {
-      executeQueryMock.mockResolvedValue([fullPage()]);
+      runQueryMock.mockResolvedValue([fullPage()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
 
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
       expect(useResultStore.getState().page).toBeNull();
@@ -380,19 +409,19 @@ describe("resultStore", () => {
       useProductionGuardStore.getState().answer(false);
 
       expect(await outcome).toEqual({ status: "cancelled" });
-      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(runQueryMock).not.toHaveBeenCalled();
     });
 
     it("runs once the user agrees to discard them", async () => {
       noteGridEdits("tab-1", 1);
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
       const outcome = useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
 
       await vi.waitFor(() => expect(useProductionGuardStore.getState().pending).not.toBeNull());
       useProductionGuardStore.getState().answer(true);
 
       expect((await outcome).status).toBe("succeeded");
-      expect(executeQueryMock).toHaveBeenCalledTimes(1);
+      expect(runQueryMock).toHaveBeenCalledTimes(1);
     });
 
     it("does not ask about another tab's edits", async () => {
@@ -400,18 +429,18 @@ describe("resultStore", () => {
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
 
       expect(useProductionGuardStore.getState().pending).toBeNull();
-      expect(executeQueryMock).toHaveBeenCalledTimes(1);
+      expect(runQueryMock).toHaveBeenCalledTimes(1);
     });
   });
 
   describe("executeQuery", () => {
     it("executes query successfully and adds history entry", async () => {
-      const result = makeQueryResult();
-      executeQueryMock.mockResolvedValue([result]);
+      const result = makeHandle();
+      runQueryMock.mockResolvedValue([result]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 1000, undefined, undefined);
+      expect(runQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 1000, undefined, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: "SELECT 1",
@@ -421,18 +450,18 @@ describe("resultStore", () => {
       );
 
       const state = useResultStore.getState();
-      expect(state.results).toEqual([result]);
+      expect(state.results).toEqual([fromHandle(result)]);
       expect(state.activeResultIndex).toBe(0);
       expect(state.isExecuting).toBe(false);
     });
 
     it("executes query with database param", async () => {
-      const result = makeQueryResult();
-      executeQueryMock.mockResolvedValue([result]);
+      const result = makeHandle();
+      runQueryMock.mockResolvedValue([result]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "mydb");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "mydb", 1000, undefined, undefined);
+      expect(runQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "mydb", 1000, undefined, undefined);
     });
 
     it("uses connection name and database in history entry", async () => {
@@ -440,7 +469,7 @@ describe("resultStore", () => {
         { id: "conn-1", profile_id: "p1", name: "MyDB", database: "defaultdb" },
       ];
       connectionStoreState.profiles = [{ id: "p1", environment: "development" }];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
@@ -458,18 +487,18 @@ describe("resultStore", () => {
         { id: "conn-1", profile_id: "p1", name: "MyDB", database: "defaultdb" },
       ];
       connectionStoreState.profiles = [{ id: "p1", environment: "development" }];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1", "otherdb");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "otherdb", 1000, undefined, undefined);
+      expect(runQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", "otherdb", 1000, undefined, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({ database: "otherdb" }),
       );
     });
 
     it("handles query error and adds error history entry", async () => {
-      executeQueryMock.mockRejectedValue(new Error("syntax error"));
+      runQueryMock.mockRejectedValue(new Error("syntax error"));
 
       await useResultStore.getState().executeQuery("conn-1", "BAD SQL");
 
@@ -490,7 +519,7 @@ describe("resultStore", () => {
 
     it("records the driver code and SQLSTATE on a failed query (#324)", async () => {
       const { CommandError } = await import("../../lib/tauri-api");
-      executeQueryMock.mockRejectedValue(
+      runQueryMock.mockRejectedValue(
         new CommandError("Table 'app.user' doesn't exist", { code: 1146, sqlState: "42S02" }),
       );
 
@@ -507,7 +536,7 @@ describe("resultStore", () => {
     });
 
     it("leaves the code fields empty when the failure carried none", async () => {
-      executeQueryMock.mockRejectedValue(new Error("connection reset"));
+      runQueryMock.mockRejectedValue(new Error("connection reset"));
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
@@ -529,7 +558,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "DROP TABLE users");
 
-      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(runQueryMock).not.toHaveBeenCalled();
       const dialog = useResultStore.getState().confirmDialog;
       expect(dialog).toMatchObject({
         isOpen: true,
@@ -570,7 +599,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "TRUNCATE TABLE logs");
 
-      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(runQueryMock).not.toHaveBeenCalled();
       expect(useResultStore.getState().confirmDialog).not.toBeNull();
     });
 
@@ -584,7 +613,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().executeQuery("conn-1", "ALTER TABLE users ADD COLUMN x INT");
 
-      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(runQueryMock).not.toHaveBeenCalled();
       expect(useResultStore.getState().confirmDialog).not.toBeNull();
     });
 
@@ -595,11 +624,11 @@ describe("resultStore", () => {
       connectionStoreState.profiles = [
         { id: "p1", environment: "production" },
       ];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalled();
+      expect(runQueryMock).toHaveBeenCalled();
       expect(useResultStore.getState().confirmDialog).toBeNull();
     });
 
@@ -610,11 +639,11 @@ describe("resultStore", () => {
       connectionStoreState.profiles = [
         { id: "p1", environment: "development" },
       ];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "DROP TABLE users");
 
-      expect(executeQueryMock).toHaveBeenCalled();
+      expect(runQueryMock).toHaveBeenCalled();
       expect(useResultStore.getState().confirmDialog).toBeNull();
     });
 
@@ -623,39 +652,39 @@ describe("resultStore", () => {
         { id: "conn-1", profile_id: "p1" },
       ];
       connectionStoreState.profiles = [{ id: "p1" }];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "DROP TABLE users");
 
-      expect(executeQueryMock).toHaveBeenCalled();
+      expect(runQueryMock).toHaveBeenCalled();
     });
 
     it("proceeds normally when connection not found", async () => {
       connectionStoreState.activeConnections = [];
       connectionStoreState.profiles = [];
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("unknown-conn", "DROP TABLE users");
 
-      expect(executeQueryMock).toHaveBeenCalled();
+      expect(runQueryMock).toHaveBeenCalled();
     });
 
     it("passes rowLimit from settings when limitEnabled is true", async () => {
       settingsStoreState.querySettings = { limitEnabled: true, maxResultRows: 500 };
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 500, undefined, undefined);
+      expect(runQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, 500, undefined, undefined);
     });
 
     it("passes undefined rowLimit when limitEnabled is false", async () => {
       settingsStoreState.querySettings = { limitEnabled: false, maxResultRows: 500 };
-      executeQueryMock.mockResolvedValue([makeQueryResult()]);
+      runQueryMock.mockResolvedValue([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, undefined, undefined, undefined);
+      expect(runQueryMock).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, undefined, undefined, undefined);
     });
   });
 
@@ -663,7 +692,7 @@ describe("resultStore", () => {
     it("runs a confirmed statement on the session it was asked for on", async () => {
       // Confirming happens after the fact; the statement still belongs to the
       // tab that ran it, and to that tab's open transaction if it has one.
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "DROP TABLE users" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "DROP TABLE users" })]);
       useResultStore.setState({
         confirmDialog: {
           isOpen: true,
@@ -677,13 +706,13 @@ describe("resultStore", () => {
 
       await useResultStore.getState().confirmExecution();
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000, undefined, "tab-4");
+      expect(runQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000, undefined, "tab-4");
     });
 
     it("calls doExecuteQuery when dialog exists", async () => {
       // The entry records the statement the *result* names, so the fixture has
       // to agree with what was run (#329).
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "DROP TABLE users" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "DROP TABLE users" })]);
 
       useResultStore.setState({
         confirmDialog: {
@@ -696,7 +725,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().confirmExecution();
 
-      expect(executeQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000, undefined, undefined);
+      expect(runQueryMock).toHaveBeenCalledWith("conn-1", "DROP TABLE users", "mydb", 1000, undefined, undefined);
       expect(addEntryMock).toHaveBeenCalledWith(
         expect.objectContaining({
           sql: "DROP TABLE users",
@@ -712,7 +741,7 @@ describe("resultStore", () => {
 
       await useResultStore.getState().confirmExecution();
 
-      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(runQueryMock).not.toHaveBeenCalled();
     });
   });
 
@@ -863,7 +892,7 @@ describe("resultStore", () => {
       useResultStore.getState().cancelExecution();
 
       expect(explainQueryMock).not.toHaveBeenCalled();
-      expect(executeQueryMock).not.toHaveBeenCalled();
+      expect(runQueryMock).not.toHaveBeenCalled();
       expect(useResultStore.getState().confirmDialog).toBeNull();
     });
 
@@ -909,7 +938,7 @@ describe("resultStore", () => {
     it("keeps the plan when the run cancelled is a query", async () => {
       const plan = makeQueryResult({ query_id: "plan" }) as QueryResult;
       useResultStore.setState({ explainResult: plan, showExplain: true });
-      executeQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
+      runQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
       void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)");
 
       await useResultStore.getState().cancelActiveQuery();
@@ -932,7 +961,7 @@ describe("resultStore", () => {
       try {
         vi.setSystemTime(10_000);
         const slow = new Promise<never>(() => {});
-        executeQueryMock.mockReturnValueOnce(slow);
+        runQueryMock.mockReturnValueOnce(slow);
         useResultStore.setState({ results: [makeQueryResult({ rows: [["old"]] })] as QueryResult[] });
         void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)");
         vi.setSystemTime(11_200);
@@ -965,7 +994,7 @@ describe("resultStore", () => {
       useResultStore.setState({ isExecuting: true, executionStartedAt: Date.now() });
       await useResultStore.getState().cancelActiveQuery();
       expect(useResultStore.getState().cancelledAfterMs).not.toBeNull();
-      executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+      runQueryMock.mockResolvedValueOnce([makeHandle()]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
@@ -974,7 +1003,7 @@ describe("resultStore", () => {
 
     it("tells the server to stop the statement it is running", async () => {
       let resolveQuery: (value: any) => void;
-      executeQueryMock.mockReturnValue(
+      runQueryMock.mockReturnValue(
         new Promise((r) => {
           resolveQuery = r;
         }),
@@ -1017,7 +1046,7 @@ describe("resultStore", () => {
       // KILL QUERY makes the in-flight call reject with the server's interrupt
       // error. Surfacing that would bury the message the user asked for.
       let rejectQuery: (e: unknown) => void;
-      executeQueryMock.mockReturnValue(
+      runQueryMock.mockReturnValue(
         new Promise((_, reject) => {
           rejectQuery = reject;
         }),
@@ -1035,7 +1064,7 @@ describe("resultStore", () => {
 
     it("does not log a cancelled query to history as a failure", async () => {
       let rejectQuery: (e: unknown) => void;
-      executeQueryMock.mockReturnValue(
+      runQueryMock.mockReturnValue(
         new Promise((_, reject) => {
           rejectQuery = reject;
         }),
@@ -1054,7 +1083,7 @@ describe("resultStore", () => {
       // The slot is tagged with the generation that opened it, so a slower
       // earlier execution settling must not deregister the current one.
       let resolveFirst: (v: unknown) => void;
-      executeQueryMock.mockReturnValueOnce(
+      runQueryMock.mockReturnValueOnce(
         new Promise((r) => {
           resolveFirst = r;
         }),
@@ -1075,7 +1104,7 @@ describe("resultStore", () => {
     it("reports a cancel the server would not confirm", async () => {
       cancelQueryMock.mockRejectedValue(new Error("connection lost"));
       let resolveQuery: (value: any) => void;
-      executeQueryMock.mockReturnValue(
+      runQueryMock.mockReturnValue(
         new Promise((r) => {
           resolveQuery = r;
         }),
@@ -1091,12 +1120,12 @@ describe("resultStore", () => {
     });
 
     it("does not apply results after cancellation", async () => {
-      const results = [makeQueryResult()];
+      const results = [makeHandle()];
       let resolveQuery: (value: any) => void;
       const deferred = new Promise<any>((resolve) => {
         resolveQuery = resolve;
       });
-      executeQueryMock.mockReturnValue(deferred);
+      runQueryMock.mockReturnValue(deferred);
 
       useResultStore.setState({
         activeConnections: [
@@ -1123,7 +1152,7 @@ describe("resultStore", () => {
   describe("an execution with no live connection (#328)", () => {
     it("records nothing when the failed query never had a connection", async () => {
       connectionStoreState.activeConnections = [];
-      executeQueryMock.mockRejectedValue(new Error("connection not found"));
+      runQueryMock.mockRejectedValue(new Error("connection not found"));
 
       await useResultStore.getState().executeQuery("gone", "SELECT 1");
 
@@ -1137,7 +1166,7 @@ describe("resultStore", () => {
       // The statement ran. Dropping the record because the frontend's
       // connection list is out of step would lose a real event.
       connectionStoreState.activeConnections = [];
-      executeQueryMock.mockResolvedValue([{ columns: [], rows: [] }]);
+      runQueryMock.mockResolvedValue([makeHandle({ row_count: 0 })]);
 
       await useResultStore.getState().executeQuery("gone", "SELECT 1");
 
@@ -1147,7 +1176,7 @@ describe("resultStore", () => {
     });
 
     it("records a failure normally when the connection is there", async () => {
-      executeQueryMock.mockRejectedValue(new Error("syntax error"));
+      runQueryMock.mockRejectedValue(new Error("syntax error"));
 
       await useResultStore.getState().executeQuery("conn-1", "BAD SQL");
 
@@ -1162,28 +1191,28 @@ describe("resultStore", () => {
     const open = () => Boolean(useTransactionStore.getState().open["tab-1"]);
 
     it("is open after BEGIN on the tab's session, and closed after COMMIT", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "BEGIN" })]);
       await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
       expect(open()).toBe(true);
 
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "UPDATE t SET a = 1" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "UPDATE t SET a = 1" })]);
       await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
       expect(open()).toBe(true);
 
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "COMMIT" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "COMMIT" })]);
       await useResultStore.getState().executeQuery("conn-1", "COMMIT", undefined, "tab-1");
       expect(open()).toBe(false);
     });
 
     it("takes the backend's answer over the statements when it gives one", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "UPDATE t SET a = 1", transaction: "open" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "UPDATE t SET a = 1", transaction: "open" })]);
       await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
 
       expect(open()).toBe(true);
     });
 
     it("takes the backend's \"none\" over a BEGIN in the statements", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN", transaction: "none" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "BEGIN", transaction: "none" })]);
       await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
 
       expect(open()).toBe(false);
@@ -1191,10 +1220,10 @@ describe("resultStore", () => {
 
     it("takes the state reported on the results before a failure over the statements", async () => {
       useTransactionStore.getState().setOpen("tab-1", true);
-      executeQueryMock.mockRejectedValue(
+      runQueryMock.mockRejectedValue(
         new CommandError("nope", {
           statementIndex: 1,
-          completedResults: [makeQueryResult({ sql: "SELECT 1", transaction: "none" })],
+          completedHandles: [makeHandle({ sql: "SELECT 1", transaction: "none" })],
         }),
       );
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1; UPDATE nope SET a = 1;", undefined, "tab-1");
@@ -1203,7 +1232,7 @@ describe("resultStore", () => {
     });
 
     it("counts the statements before a failure", async () => {
-      executeQueryMock.mockRejectedValue(new CommandError("nope", { statementIndex: 1 }));
+      runQueryMock.mockRejectedValue(new CommandError("nope", { statementIndex: 1 }));
       await useResultStore.getState().executeQuery("conn-1", "BEGIN; UPDATE nope SET a = 1;", undefined, "tab-1");
 
       expect(open()).toBe(true);
@@ -1211,14 +1240,14 @@ describe("resultStore", () => {
 
     describe("after a failure that reports the session's state (#942)", () => {
       async function begin() {
-        executeQueryMock.mockResolvedValueOnce([makeQueryResult({ sql: "BEGIN" })]);
+        runQueryMock.mockResolvedValueOnce([makeHandle({ sql: "BEGIN" })]);
         await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
         expect(open()).toBe(true);
       }
 
       it("keeps the badge when a later run fails inside the transaction", async () => {
         await begin();
-        executeQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 0, transaction: "open" }));
+        runQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 0, transaction: "open" }));
         await useResultStore.getState().executeQuery("conn-1", "UPDATE nope SET a = 1", undefined, "tab-1");
 
         expect(open()).toBe(true);
@@ -1228,14 +1257,14 @@ describe("resultStore", () => {
         // DDL commits before it runs, so it commits even when it then fails;
         // the statements alone would say the BEGIN is still open.
         await begin();
-        executeQueryMock.mockRejectedValueOnce(new CommandError("exists", { statementIndex: 0, transaction: "none" }));
+        runQueryMock.mockRejectedValueOnce(new CommandError("exists", { statementIndex: 0, transaction: "none" }));
         await useResultStore.getState().executeQuery("conn-1", "CREATE TABLE t (a INT)", undefined, "tab-1");
 
         expect(open()).toBe(false);
       });
 
       it("takes it over a BEGIN before the failing statement", async () => {
-        executeQueryMock.mockRejectedValueOnce(
+        runQueryMock.mockRejectedValueOnce(
           new CommandError("Deadlock found", { statementIndex: 1, transaction: "none" }),
         );
         await useResultStore.getState().executeQuery("conn-1", "BEGIN; UPDATE t SET a = 1;", undefined, "tab-1");
@@ -1245,7 +1274,7 @@ describe("resultStore", () => {
 
       it("shows one opened where the statements cannot tell", async () => {
         // A procedure can START TRANSACTION; the CALL says nothing about it.
-        executeQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 1, transaction: "open" }));
+        runQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 1, transaction: "open" }));
         await useResultStore.getState().executeQuery(
           "conn-1",
           "CALL begin_work(); UPDATE nope SET a = 1;",
@@ -1258,7 +1287,7 @@ describe("resultStore", () => {
 
       it("falls back to the statements when the error does not say", async () => {
         await begin();
-        executeQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 0 }));
+        runQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 0 }));
         await useResultStore.getState().executeQuery("conn-1", "UPDATE nope SET a = 1", undefined, "tab-1");
 
         expect(open()).toBe(true);
@@ -1266,7 +1295,7 @@ describe("resultStore", () => {
     });
 
     it("tracks nothing for a run off the tab's session", async () => {
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "BEGIN" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "BEGIN" })]);
       await useResultStore.getState().executeQuery("conn-1", "BEGIN");
 
       expect(useTransactionStore.getState().open).toEqual({});
@@ -1274,11 +1303,8 @@ describe("resultStore", () => {
   });
 
   describe("transaction state per SQLite connection (#935)", () => {
-    const sqliteResult = (sql: string, inTransaction: boolean) => ({
-      ...makeQueryResult({ sql }),
-      in_transaction: inTransaction,
-      truncation_reason: null,
-    });
+    const sqliteResult = (sql: string, inTransaction: boolean) =>
+      makeHandle({ sql, transaction: inTransaction ? "open" : "none" });
     const connectionOpen = () => Boolean(useTransactionStore.getState().openConnections["lite-1"]);
 
     beforeEach(() => {
@@ -1288,7 +1314,7 @@ describe("resultStore", () => {
     afterEach(() => forgetConnectionKind("lite-1"));
 
     it("records the file's connection as open after BEGIN, for no tab in particular", async () => {
-      sqliteExecuteMock.mockResolvedValueOnce([sqliteResult("BEGIN", true)]);
+      sqliteRunQueryMock.mockResolvedValueOnce([sqliteResult("BEGIN", true)]);
       await useResultStore.getState().executeQuery("lite-1", "BEGIN", undefined, "tab-1");
 
       expect(connectionOpen()).toBe(true);
@@ -1298,14 +1324,14 @@ describe("resultStore", () => {
 
     it("clears it after COMMIT, from whichever tab", async () => {
       useTransactionStore.getState().setConnectionOpen("lite-1", true);
-      sqliteExecuteMock.mockResolvedValueOnce([sqliteResult("COMMIT", false)]);
+      sqliteRunQueryMock.mockResolvedValueOnce([sqliteResult("COMMIT", false)]);
       await useResultStore.getState().executeQuery("lite-1", "COMMIT", undefined, "tab-2");
 
       expect(connectionOpen()).toBe(false);
     });
 
     it("takes what the backend reports after a failure", async () => {
-      sqliteExecuteMock.mockRejectedValueOnce(
+      sqliteRunQueryMock.mockRejectedValueOnce(
         new CommandError("no such table: nope", { statementIndex: 1, transaction: "open" }),
       );
       await useResultStore.getState().executeQuery("lite-1", "BEGIN; SELECT * FROM nope", undefined, "tab-1");
@@ -1315,14 +1341,14 @@ describe("resultStore", () => {
 
     it("leaves the state alone after a failure that does not say", async () => {
       useTransactionStore.getState().setConnectionOpen("lite-1", true);
-      sqliteExecuteMock.mockRejectedValueOnce(new CommandError("database is locked"));
+      sqliteRunQueryMock.mockRejectedValueOnce(new CommandError("database is locked"));
       await useResultStore.getState().executeQuery("lite-1", "SELECT 1", undefined, "tab-1");
 
       expect(connectionOpen()).toBe(true);
     });
 
     it("leaves MySQL tabs' state per tab", async () => {
-      executeQueryMock.mockResolvedValueOnce([makeQueryResult({ sql: "BEGIN", transaction: "open" })]);
+      runQueryMock.mockResolvedValueOnce([makeHandle({ sql: "BEGIN", transaction: "open" })]);
       await useResultStore.getState().executeQuery("conn-1", "BEGIN", undefined, "tab-1");
 
       expect(useTransactionStore.getState().open).toEqual({ "tab-1": true });
@@ -1356,8 +1382,8 @@ describe("resultStore", () => {
     });
 
     it("is bound to the SQLite file it ran on, and shows the file's transaction", async () => {
-      sqliteExecuteMock.mockResolvedValueOnce([
-        { ...makeQueryResult({ sql: "BEGIN" }), in_transaction: true, truncation_reason: null },
+      sqliteRunQueryMock.mockResolvedValueOnce([
+        makeHandle({ sql: "BEGIN", transaction: "open" }),
       ]);
       await useResultStore.getState().executeQuery("lite-1", "BEGIN", undefined, "tab-1");
 
@@ -1367,7 +1393,7 @@ describe("resultStore", () => {
     });
 
     it("is bound even when the run fails", async () => {
-      executeQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 0 }));
+      runQueryMock.mockRejectedValueOnce(new CommandError("nope", { statementIndex: 0 }));
       await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM nope", undefined, "tab-1");
 
       expect(bound("tab-1")?.connectionId).toBe("conn-1");
@@ -1414,8 +1440,8 @@ describe("resultStore", () => {
     const bound = (id: string) => useEditorStore.getState().tabs.find((t) => t.id === id);
     const sqliteSession = (id: string) => ({ id, path: `/data/${id}.db`, name: `${id}.db`, openedAt: "" });
     const begin = () =>
-      sqliteExecuteMock.mockResolvedValueOnce([
-        { ...makeQueryResult({ sql: "BEGIN" }), in_transaction: true, truncation_reason: null },
+      sqliteRunQueryMock.mockResolvedValueOnce([
+        makeHandle({ sql: "BEGIN", transaction: "open" }),
       ]);
 
     beforeEach(() => {
@@ -1510,7 +1536,7 @@ describe("resultStore", () => {
     const SCRIPT = "SELECT * FROM products;\nSELECT * FROM nope;\nSELECT 1;";
 
     it("says which statement failed, with its text and code, and no doubled prefix", async () => {
-      executeQueryMock.mockRejectedValue(
+      runQueryMock.mockRejectedValue(
         new CommandError("Table 'shop.nope' doesn't exist", { code: 1146, sqlState: "42S02", statementIndex: 1 }),
       );
 
@@ -1522,19 +1548,19 @@ describe("resultStore", () => {
     });
 
     it("keeps what the statements before it returned, when the backend reports them", async () => {
-      const first = makeQueryResult({ query_id: "first", columns: [{ name: "id" }] });
-      executeQueryMock.mockRejectedValue(
+      const first = makeHandle({ result_id: "first", columns: [{ name: "id" }] });
+      runQueryMock.mockRejectedValue(
         new CommandError("Table 'shop.nope' doesn't exist", {
           code: 1146,
           statementIndex: 1,
-          completedResults: [first],
+          completedHandles: [first],
         }),
       );
 
       await useResultStore.getState().executeQuery("conn-1", SCRIPT);
 
       const state = useResultStore.getState();
-      expect(state.results).toEqual([first]);
+      expect(state.results).toEqual([fromHandle(first)]);
       expect(state.resultSource?.connectionId).toBe("conn-1");
       expect(state.error).toBe("Table 'shop.nope' doesn't exist");
     });
@@ -1547,13 +1573,13 @@ describe("resultStore", () => {
         const script = "CREATE TABLE t(x);\n"
           + "CREATE TRIGGER tr AFTER INSERT ON t BEGIN\n  INSERT INTO t VALUES (1);\nEND;\n"
           + "SELECT * FROM nope;\nSELECT 1;";
-        sqliteExecuteMock.mockRejectedValueOnce(
+        sqliteRunQueryMock.mockRejectedValueOnce(
           new CommandError("no such table: nope", { code: 1, statementIndex: 2 }),
         );
 
         await useResultStore.getState().executeQuery("lite-1", script);
 
-        expect(sqliteExecuteMock).toHaveBeenCalled();
+        expect(sqliteRunQueryMock).toHaveBeenCalled();
         expect(useResultStore.getState().failedStatement).toEqual({
           index: 2,
           count: 4,
@@ -1566,9 +1592,9 @@ describe("resultStore", () => {
     });
 
     it("clears the failure when the next run starts", async () => {
-      executeQueryMock.mockRejectedValueOnce(new CommandError("bad", { statementIndex: 0 }));
+      runQueryMock.mockRejectedValueOnce(new CommandError("bad", { statementIndex: 0 }));
       await useResultStore.getState().executeQuery("conn-1", "SELECT nope");
-      executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+      runQueryMock.mockResolvedValueOnce([makeHandle()]);
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1");
 
       expect(useResultStore.getState().failedStatement).toBeNull();
@@ -1577,9 +1603,9 @@ describe("resultStore", () => {
 
   describe("multi-statement runs (#329)", () => {
     it("opens on the first result that has a grid (#844)", async () => {
-      executeQueryMock.mockResolvedValue([
-        makeQueryResult({ query_id: "u", columns: [], rows: [], rows_affected: 1 }),
-        makeQueryResult({ query_id: "s", statement_index: 1, columns: [{ name: "a" }] }),
+      runQueryMock.mockResolvedValue([
+        makeHandle({ result_id: "u", columns: [], row_count: 0, rows_affected: 1 }),
+        makeHandle({ result_id: "s", statement_index: 1, columns: [{ name: "a" }] }),
       ]);
 
       await useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1; SELECT * FROM t");
@@ -1588,9 +1614,9 @@ describe("resultStore", () => {
     });
 
     it("records one entry per statement, not one for the batch", async () => {
-      executeQueryMock.mockResolvedValue([
-        makeQueryResult({ statement_index: 0, sql: "SELECT 1", rows: [["a"]] }),
-        makeQueryResult({ statement_index: 1, sql: "SELECT 2", rows: [["b"], ["c"]] }),
+      runQueryMock.mockResolvedValue([
+        makeHandle({ statement_index: 0, sql: "SELECT 1", row_count: 1 }),
+        makeHandle({ statement_index: 1, sql: "SELECT 2", row_count: 2 }),
       ]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1; SELECT 2");
@@ -1600,9 +1626,9 @@ describe("resultStore", () => {
     });
 
     it("attributes each row count to its own statement", async () => {
-      executeQueryMock.mockResolvedValue([
-        makeQueryResult({ sql: "SELECT 1", rows: [["a"]] }),
-        makeQueryResult({ sql: "SELECT 2", rows: [["b"], ["c"]] }),
+      runQueryMock.mockResolvedValue([
+        makeHandle({ sql: "SELECT 1", row_count: 1 }),
+        makeHandle({ sql: "SELECT 2", row_count: 2 }),
       ]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1; SELECT 2");
@@ -1614,7 +1640,7 @@ describe("resultStore", () => {
       // A backend that does not report per-statement text should leave the
       // panel showing what ran, which is the pre-#329 behaviour, rather than
       // an empty row.
-      executeQueryMock.mockResolvedValue([makeQueryResult({ sql: "" })]);
+      runQueryMock.mockResolvedValue([makeHandle({ sql: "" })]);
 
       await useResultStore.getState().executeQuery("conn-1", "SELECT 1; SELECT 2");
 
@@ -1624,7 +1650,7 @@ describe("resultStore", () => {
     });
 
     it("records nothing for a run that produced no results", async () => {
-      executeQueryMock.mockResolvedValue([]);
+      runQueryMock.mockResolvedValue([]);
 
       await useResultStore.getState().executeQuery("conn-1", "SET @x = 1");
 
@@ -1635,7 +1661,7 @@ describe("resultStore", () => {
 
 describe("run bookkeeping between tests (#867)", () => {
   it("forgets a run left in flight", () => {
-    executeQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
+    runQueryMock.mockReturnValueOnce(new Promise<never>(() => {}));
     void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(100)");
     useResultStore.setState({ isExecuting: false, parked: {} });
     expect(anyTabExecuting(useResultStore.getState())).toBe(true);
@@ -1662,35 +1688,35 @@ describe("resultStore cancel generations (#287)", () => {
     useResultStore.setState({ results: [], error: null, isExecuting: false });
     cancelQueryMock.mockReset();
     cancelQueryMock.mockResolvedValue(undefined);
-    executeQueryMock.mockReset();
+    runQueryMock.mockReset();
   });
 
   it("keeps a later query's result when an earlier one was cancelled", async () => {
     // The issue's scenario: run, cancel, run again, and the first response
     // lands after the second. The second must survive.
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const first = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(1)");
 
     await useResultStore.getState().cancelActiveQuery();
 
-    const second = makeQueryResult({ sql: "SELECT 2", rows: [["second"]] });
-    executeQueryMock.mockResolvedValueOnce([second]);
+    const second = makeHandle({ sql: "SELECT 2", row_count: 1 });
+    runQueryMock.mockResolvedValueOnce([second]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT 2");
 
-    slow.resolve([makeQueryResult({ sql: "SELECT SLEEP(1)", rows: [["first"]] })]);
+    slow.resolve([makeHandle({ sql: "SELECT SLEEP(1)", row_count: 1 })]);
     await first;
 
-    expect(useResultStore.getState().results).toEqual([second]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(second)]);
   });
 
   it("drops the cancelled query's own late result", async () => {
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const inFlight = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(1)");
 
     await useResultStore.getState().cancelActiveQuery();
-    slow.resolve([makeQueryResult()]);
+    slow.resolve([makeHandle()]);
     await inFlight;
 
     expect(useResultStore.getState().results).toEqual([]);
@@ -1702,25 +1728,25 @@ describe("resultStore cancel generations (#287)", () => {
     // replace that query's state with a message about one already gone.
     const slowCancel = deferred<void>();
     cancelQueryMock.mockReturnValueOnce(slowCancel.promise);
-    executeQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
+    runQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
     void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(1)");
     const cancelling = useResultStore.getState().cancelActiveQuery();
 
-    const second = makeQueryResult({ sql: "SELECT 2" });
-    executeQueryMock.mockResolvedValueOnce([second]);
+    const second = makeHandle({ sql: "SELECT 2" });
+    runQueryMock.mockResolvedValueOnce([second]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT 2");
 
     slowCancel.reject(new Error("server unreachable"));
     await cancelling;
 
-    expect(useResultStore.getState().results).toEqual([second]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(second)]);
     expect(useResultStore.getState().error).toBeNull();
   });
 
   it("still reports a failed cancel when nothing has replaced it", async () => {
     const slowCancel = deferred<void>();
     cancelQueryMock.mockReturnValueOnce(slowCancel.promise);
-    executeQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
+    runQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
     void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(1)");
 
     const cancelling = useResultStore.getState().cancelActiveQuery();
@@ -1779,8 +1805,8 @@ describe("per-tab results", () => {
   });
 
   it("shows each tab its own results, and a fresh tab the empty state", async () => {
-    const orders = makeQueryResult({ sql: "SELECT * FROM orders", rows: [["o"]] });
-    executeQueryMock.mockResolvedValueOnce([orders]);
+    const orders = makeHandle({ sql: "SELECT * FROM orders", row_count: 1 });
+    runQueryMock.mockResolvedValueOnce([orders]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders", undefined, "tab-1");
 
     useResultStore.getState().showTab("tab-2");
@@ -1788,12 +1814,12 @@ describe("per-tab results", () => {
     expect(useResultStore.getState().resultSource).toBeNull();
 
     useResultStore.getState().showTab("tab-1");
-    expect(useResultStore.getState().results).toEqual([orders]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(orders)]);
   });
 
   it("does not show another tab's running query as this tab's", async () => {
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const pending = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "tab-1");
 
     useResultStore.getState().showTab("tab-2");
@@ -1805,28 +1831,28 @@ describe("per-tab results", () => {
 
   it("keeps a slow result in one tab when another tab runs a query", async () => {
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const first = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "tab-1");
 
     useResultStore.getState().showTab("tab-2");
-    const customers = makeQueryResult({ sql: "SELECT * FROM customers", rows: [["c"]] });
-    executeQueryMock.mockResolvedValueOnce([customers]);
+    const customers = makeHandle({ sql: "SELECT * FROM customers", row_count: 1 });
+    runQueryMock.mockResolvedValueOnce([customers]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM customers", undefined, "tab-2");
 
-    const sleep = makeQueryResult({ sql: "SELECT SLEEP(5)", rows: [["0"]] });
+    const sleep = makeHandle({ sql: "SELECT SLEEP(5)", row_count: 1 });
     slow.resolve([sleep]);
     await first;
 
     // Tab 2 still shows its own; tab 1's result arrived and was recorded.
-    expect(useResultStore.getState().results).toEqual([customers]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(customers)]);
     expect(addEntryMock).toHaveBeenCalledWith(expect.objectContaining({ sql: "SELECT SLEEP(5)" }));
     useResultStore.getState().showTab("tab-1");
-    expect(useResultStore.getState().results).toEqual([sleep]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(sleep)]);
     expect(useResultStore.getState().isExecuting).toBe(false);
   });
 
   it("forgets a closed tab's results", async () => {
-    executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+    runQueryMock.mockResolvedValueOnce([makeHandle()]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
     useResultStore.getState().showTab("tab-2");
 
@@ -1836,7 +1862,7 @@ describe("per-tab results", () => {
   });
 
   it("clears a grid read on another connection when the selection changes", async () => {
-    executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+    runQueryMock.mockResolvedValueOnce([makeHandle()]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
 
     useResultStore.getState().dropForeignResults("conn-2");
@@ -1849,14 +1875,14 @@ describe("per-tab results", () => {
     // Show DDL opens a tab and runs in it in one go. Following the tab in an
     // effect after render filed the run under the tab shown before.
     useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
-    const ddl = makeQueryResult({ sql: "SHOW CREATE TABLE t" });
-    executeQueryMock.mockResolvedValueOnce([ddl]);
+    const ddl = makeHandle({ sql: "SHOW CREATE TABLE t" });
+    runQueryMock.mockResolvedValueOnce([ddl]);
 
     const opened = useEditorStore.getState().addTab();
     await useResultStore.getState().executeQuery("conn-1", "SHOW CREATE TABLE t");
 
     expect(useResultStore.getState().viewTabId).toBe(opened);
-    expect(useResultStore.getState().results).toEqual([ddl]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(ddl)]);
     useEditorStore.getState().setActiveTab("query-a");
     expect(useResultStore.getState().results).toEqual([]);
   });
@@ -1866,14 +1892,14 @@ describe("per-tab results", () => {
     // designer runs belongs in the query tab the user last looked at.
     useEditorStore.setState({ tabs: [queryTab("query-a"), designerTab("designer-d")], activeTabId: "query-a" });
     useEditorStore.getState().setActiveTab("designer-d");
-    const rows = makeQueryResult({ sql: "SELECT * FROM orders" });
-    executeQueryMock.mockResolvedValueOnce([rows]);
+    const selected = makeHandle({ sql: "SELECT * FROM orders" });
+    runQueryMock.mockResolvedValueOnce([selected]);
 
     await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders");
 
     expect(useResultStore.getState().results).toEqual([]);
     useEditorStore.getState().setActiveTab("query-a");
-    expect(useResultStore.getState().results).toEqual([rows]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(selected)]);
   });
 
   it("runs a confirmed statement into the tab it was asked in", async () => {
@@ -1881,14 +1907,14 @@ describe("per-tab results", () => {
     useEditorStore.setState({ tabs: [queryTab("query-a"), queryTab("query-b")], activeTabId: "query-a" });
     await useResultStore.getState().executeQuery("conn-1", "DELETE FROM orders");
     useEditorStore.getState().setActiveTab("query-b");
-    const deleted = makeQueryResult({ sql: "DELETE FROM orders", rows: [] });
-    executeQueryMock.mockResolvedValueOnce([deleted]);
+    const deleted = makeHandle({ sql: "DELETE FROM orders", row_count: 0 });
+    runQueryMock.mockResolvedValueOnce([deleted]);
 
     await useResultStore.getState().confirmExecution();
 
     expect(useResultStore.getState().results).toEqual([]);
     useEditorStore.getState().setActiveTab("query-a");
-    expect(useResultStore.getState().results).toEqual([deleted]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(deleted)]);
   });
 
   it("returns the run's own outcome, not the shown tab's error", async () => {
@@ -1896,20 +1922,20 @@ describe("per-tab results", () => {
     // a tab switch mid-run that was another tab's.
     useEditorStore.setState({ tabs: [queryTab("query-a"), queryTab("query-b")], activeTabId: "query-a" });
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const pending = useResultStore.getState().executeQuery("conn-1", "ALTER TABLE t ADD c INT");
     useEditorStore.getState().setActiveTab("query-b");
     useResultStore.setState({ error: "tab 2's own failure" });
 
-    const ddl = makeQueryResult({ sql: "ALTER TABLE t ADD c INT", rows: [] });
+    const ddl = makeHandle({ sql: "ALTER TABLE t ADD c INT", row_count: 0 });
     slow.resolve([ddl]);
 
-    await expect(pending).resolves.toEqual({ status: "succeeded", results: [ddl] });
+    await expect(pending).resolves.toEqual({ status: "succeeded", results: [fromHandle(ddl)] });
   });
 
   it("reports a failure as the outcome even when the tab is not shown", async () => {
     useEditorStore.setState({ tabs: [queryTab("query-a"), queryTab("query-b")], activeTabId: "query-a" });
-    executeQueryMock.mockRejectedValueOnce(new Error("Duplicate column name 'c'"));
+    runQueryMock.mockRejectedValueOnce(new Error("Duplicate column name 'c'"));
     const pending = useResultStore.getState().executeQuery("conn-1", "ALTER TABLE t ADD c INT");
     useEditorStore.getState().setActiveTab("query-b");
 
@@ -1921,7 +1947,7 @@ describe("per-tab results", () => {
 
   it("gives the outcome the same message the results pane shows (#912)", async () => {
     useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
-    executeQueryMock.mockRejectedValueOnce(new CommandError("Unknown column 'nope' in 'field list'", { code: 1054 }));
+    runQueryMock.mockRejectedValueOnce(new CommandError("Unknown column 'nope' in 'field list'", { code: 1054 }));
 
     const outcome = await useResultStore.getState().executeQuery("conn-1", "SELECT nope FROM t");
 
@@ -1933,12 +1959,12 @@ describe("per-tab results", () => {
     // It ran, and may have written; dropping it from history because nobody
     // was left to show it to hid that.
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const pending = useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
     useResultStore.getState().showTab("tab-2");
     useResultStore.getState().forgetTabs(["tab-2"]);
 
-    slow.resolve([makeQueryResult({ sql: "UPDATE t SET a = 1", rows: [] })]);
+    slow.resolve([makeHandle({ sql: "UPDATE t SET a = 1", row_count: 0 })]);
     await pending;
 
     expect(addEntryMock).toHaveBeenCalledWith(
@@ -1949,7 +1975,7 @@ describe("per-tab results", () => {
 
   it("records a failure whose tab closed while it ran", async () => {
     let reject!: (e: unknown) => void;
-    executeQueryMock.mockReturnValueOnce(new Promise((_, rej) => (reject = rej)));
+    runQueryMock.mockReturnValueOnce(new Promise((_, rej) => (reject = rej)));
     const pending = useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
     useResultStore.getState().showTab("tab-2");
     useResultStore.getState().forgetTabs(["tab-2"]);
@@ -1964,7 +1990,7 @@ describe("per-tab results", () => {
 
   it("still keeps a cancelled run's interrupt error out of history", async () => {
     let reject!: (e: unknown) => void;
-    executeQueryMock.mockReturnValueOnce(new Promise((_, rej) => (reject = rej)));
+    runQueryMock.mockReturnValueOnce(new Promise((_, rej) => (reject = rej)));
     const pending = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "tab-1");
     await useResultStore.getState().cancelActiveQuery();
 
@@ -1981,20 +2007,20 @@ describe("per-tab results", () => {
     useEditorStore.setState({ tabs: [queryTab("query-a"), designerTab("designer-d")], activeTabId: "query-a" });
     connectionStoreState.activeConnections.push({ id: "conn-2", profile_id: "p1", name: "Other" });
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const select = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "query-a");
 
     useEditorStore.getState().setActiveTab("designer-d");
-    const alter = makeQueryResult({ sql: "ALTER TABLE orders ADD c INT", rows: [] });
+    const alter = makeHandle({ sql: "ALTER TABLE orders ADD c INT", row_count: 0 });
     const slowAlter = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slowAlter.promise);
+    runQueryMock.mockReturnValueOnce(slowAlter.promise);
     const altering = useResultStore.getState().executeQuery("conn-2", "ALTER TABLE orders ADD c INT");
     useEditorStore.getState().setActiveTab("query-a");
 
     await useResultStore.getState().cancelActiveQuery();
     expect(cancelQueryMock).toHaveBeenCalledWith("conn-1", "query-a");
     slowAlter.resolve([alter]);
-    await expect(altering).resolves.toEqual({ status: "succeeded", results: [alter] });
+    await expect(altering).resolves.toEqual({ status: "succeeded", results: [fromHandle(alter)] });
     slow.resolve([]);
     await select;
   });
@@ -2002,24 +2028,24 @@ describe("per-tab results", () => {
   it("shows a tab's own response when a session-less run started after it", async () => {
     useEditorStore.setState({ tabs: [queryTab("query-a"), designerTab("designer-d")], activeTabId: "query-a" });
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const select = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "query-a");
 
     useEditorStore.getState().setActiveTab("designer-d");
-    const alter = makeQueryResult({ sql: "ALTER TABLE orders ADD c INT", rows: [] });
-    executeQueryMock.mockResolvedValueOnce([alter]);
+    const alter = makeHandle({ sql: "ALTER TABLE orders ADD c INT", row_count: 0 });
+    runQueryMock.mockResolvedValueOnce([alter]);
     await useResultStore.getState().executeQuery("conn-1", "ALTER TABLE orders ADD c INT");
     useEditorStore.getState().setActiveTab("query-a");
     // The ALTER is shown, as the latest thing run here, but the SELECT is
     // still running.
-    expect(useResultStore.getState().results).toEqual([alter]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(alter)]);
     expect(useResultStore.getState().isExecuting).toBe(true);
 
-    const sleep = makeQueryResult({ sql: "SELECT SLEEP(5)", rows: [["0"]] });
+    const sleep = makeHandle({ sql: "SELECT SLEEP(5)", row_count: 1 });
     slow.resolve([sleep]);
     await select;
 
-    expect(useResultStore.getState().results).toEqual([sleep]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(sleep)]);
     expect(useResultStore.getState().isExecuting).toBe(false);
   });
 
@@ -2027,18 +2053,18 @@ describe("per-tab results", () => {
     useEditorStore.setState({ tabs: [queryTab("query-a"), designerTab("designer-d")], activeTabId: "designer-d" });
     useResultStore.setState({ runTabId: "query-a" });
     const slowAlter = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slowAlter.promise);
+    runQueryMock.mockReturnValueOnce(slowAlter.promise);
     const altering = useResultStore.getState().executeQuery("conn-1", "ALTER TABLE orders ADD c INT");
 
     useEditorStore.getState().setActiveTab("query-a");
-    const mine = makeQueryResult({ sql: "SELECT 1", rows: [["1"]] });
-    executeQueryMock.mockResolvedValueOnce([mine]);
+    const mine = makeHandle({ sql: "SELECT 1", row_count: 1 });
+    runQueryMock.mockResolvedValueOnce([mine]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "query-a");
 
-    slowAlter.resolve([makeQueryResult({ sql: "ALTER TABLE orders ADD c INT", rows: [] })]);
+    slowAlter.resolve([makeHandle({ sql: "ALTER TABLE orders ADD c INT", row_count: 0 })]);
     await altering;
 
-    expect(useResultStore.getState().results).toEqual([mine]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(mine)]);
     expect(useResultStore.getState().isExecuting).toBe(false);
   });
 
@@ -2046,38 +2072,38 @@ describe("per-tab results", () => {
     // A grid refresh after a save: the user may have moved to another query
     // tab while the save was awaited.
     useEditorStore.setState({ tabs: [queryTab("query-a"), queryTab("query-b")], activeTabId: "query-b" });
-    const rows = makeQueryResult({ sql: "SELECT * FROM users" });
-    executeQueryMock.mockResolvedValueOnce([rows]);
+    const selected = makeHandle({ sql: "SELECT * FROM users" });
+    runQueryMock.mockResolvedValueOnce([selected]);
 
     await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM users", "app", undefined, "query-a");
 
     expect(useResultStore.getState().results).toEqual([]);
     useEditorStore.getState().setActiveTab("query-a");
-    expect(useResultStore.getState().results).toEqual([rows]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(selected)]);
   });
 
   it("hands a run started with every tab closed to the tab opened next", async () => {
     useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
     useEditorStore.setState({ tabs: [], activeTabId: null });
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const pending = useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders");
     expect(useResultStore.getState().isExecuting).toBe(true);
 
     useEditorStore.setState({ tabs: [queryTab("query-b")], activeTabId: "query-b" });
-    const rows = makeQueryResult({ sql: "SELECT * FROM orders" });
-    slow.resolve([rows]);
+    const selected = makeHandle({ sql: "SELECT * FROM orders" });
+    slow.resolve([selected]);
     await pending;
 
     expect(useResultStore.getState().isExecuting).toBe(false);
-    expect(useResultStore.getState().results).toEqual([rows]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(selected)]);
     expect(useResultStore.getState().parked).toEqual({});
   });
 
   it("lets Ctrl+. stop a run handed over from no tab", async () => {
     useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
     useEditorStore.setState({ tabs: [], activeTabId: null });
-    executeQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
+    runQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
     void useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)");
     useEditorStore.setState({ tabs: [queryTab("query-b")], activeTabId: "query-b" });
 
@@ -2092,14 +2118,14 @@ describe("per-tab results", () => {
     // pane to go to yet, and filing it under the designer hid it for good.
     useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
     useEditorStore.setState({ tabs: [designerTab("designer-d")], activeTabId: "designer-d" });
-    const rows = makeQueryResult({ sql: "SELECT * FROM orders" });
-    executeQueryMock.mockResolvedValueOnce([rows]);
+    const selected = makeHandle({ sql: "SELECT * FROM orders" });
+    runQueryMock.mockResolvedValueOnce([selected]);
 
     await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders");
     expect(useResultStore.getState().results).toEqual([]);
 
     useEditorStore.setState({ tabs: [designerTab("designer-d"), queryTab("query-b")], activeTabId: "query-b" });
-    expect(useResultStore.getState().results).toEqual([rows]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(selected)]);
   });
 
   it("hands a run from before any tab to the first query tab, not a designer", async () => {
@@ -2107,7 +2133,7 @@ describe("per-tab results", () => {
     // the query tab opened next never saw either.
     useResultStore.setState({ viewTabId: null, runTabId: null });
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const pending = useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
 
     useResultStore.getState().showTab("designer-d", false);
@@ -2115,10 +2141,10 @@ describe("per-tab results", () => {
     useResultStore.getState().showTab("query-b");
     expect(useResultStore.getState().isExecuting).toBe(true);
 
-    const rows = makeQueryResult({ sql: "SELECT * FROM big" });
-    slow.resolve([rows]);
+    const selected = makeHandle({ sql: "SELECT * FROM big" });
+    slow.resolve([selected]);
     await pending;
-    expect(useResultStore.getState().results).toEqual([rows]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(selected)]);
     expect(useResultStore.getState().isExecuting).toBe(false);
   });
 
@@ -2126,14 +2152,14 @@ describe("per-tab results", () => {
     // Left parked under no tab, it attached to whichever tab opened second.
     useResultStore.setState({ viewTabId: null, runTabId: null });
     useResultStore.getState().showTab("designer-d", false);
-    const rows = makeQueryResult({ sql: "SELECT * FROM orders" });
-    executeQueryMock.mockResolvedValueOnce([rows]);
+    const selected = makeHandle({ sql: "SELECT * FROM orders" });
+    runQueryMock.mockResolvedValueOnce([selected]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT * FROM orders");
     useResultStore.getState().showTab(null);
     useResultStore.getState().forgetTabs([]);
 
     useResultStore.getState().showTab("query-a");
-    expect(useResultStore.getState().results).toEqual([rows]);
+    expect(useResultStore.getState().results).toEqual([fromHandle(selected)]);
     useResultStore.getState().showTab("query-b");
     expect(useResultStore.getState().results).toEqual([]);
   });
@@ -2141,14 +2167,14 @@ describe("per-tab results", () => {
   it("still counts a closed tab's statement as running until it settles", async () => {
     // An app update restarting now would cut the statement off mid-way.
     const slow = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slow.promise);
+    runQueryMock.mockReturnValueOnce(slow.promise);
     const pending = useResultStore.getState().executeQuery("conn-1", "UPDATE t SET a = 1", undefined, "tab-1");
     useResultStore.getState().showTab("tab-2");
     useResultStore.getState().forgetTabs(["tab-2"]);
 
     expect(anyTabExecuting(useResultStore.getState())).toBe(true);
 
-    slow.resolve([makeQueryResult({ sql: "UPDATE t SET a = 1", rows: [] })]);
+    slow.resolve([makeHandle({ sql: "UPDATE t SET a = 1", row_count: 0 })]);
     await pending;
     expect(anyTabExecuting(useResultStore.getState())).toBe(false);
     expect(useResultStore.getState().parked).toEqual({});
@@ -2157,7 +2183,7 @@ describe("per-tab results", () => {
   it("cancels only the shown tab's session, leaving another tab's run alone", async () => {
     const slowA = deferred<unknown[]>();
     const slowB = deferred<unknown[]>();
-    executeQueryMock.mockReturnValueOnce(slowA.promise).mockReturnValueOnce(slowB.promise);
+    runQueryMock.mockReturnValueOnce(slowA.promise).mockReturnValueOnce(slowB.promise);
     useResultStore.getState().showTab("tab-A");
     const runA = useResultStore.getState().executeQuery("conn-1", "SELECT SLEEP(5)", undefined, "tab-A");
     useResultStore.getState().showTab("tab-B");
@@ -2170,17 +2196,17 @@ describe("per-tab results", () => {
     expect(cancelQueryMock).toHaveBeenCalledWith("conn-1", "tab-A");
     useResultStore.getState().showTab("tab-B");
     expect(useResultStore.getState().isExecuting).toBe(true);
-    const sleep = makeQueryResult({ sql: "SELECT SLEEP(6)", rows: [["0"]] });
+    const sleep = makeHandle({ sql: "SELECT SLEEP(6)", row_count: 1 });
     slowB.resolve([sleep]);
-    await expect(runB).resolves.toEqual({ status: "succeeded", results: [sleep] });
-    expect(useResultStore.getState().results).toEqual([sleep]);
+    await expect(runB).resolves.toEqual({ status: "succeeded", results: [fromHandle(sleep)] });
+    expect(useResultStore.getState().results).toEqual([fromHandle(sleep)]);
     slowA.resolve([]);
     await expect(runA).resolves.toEqual({ status: "cancelled" });
   });
 
   it("names no session when cancelling a run on the shared pool", async () => {
     useEditorStore.setState({ tabs: [queryTab("query-a")], activeTabId: "query-a" });
-    executeQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
+    runQueryMock.mockReturnValueOnce(deferred<unknown[]>().promise);
     void useResultStore.getState().executeQuery("conn-1", "SELECT * FROM big");
 
     await useResultStore.getState().cancelActiveQuery();
@@ -2202,7 +2228,7 @@ describe("per-tab results", () => {
   });
 
   it("keeps what was read on the tab's own connection", async () => {
-    executeQueryMock.mockResolvedValueOnce([makeQueryResult()]);
+    runQueryMock.mockResolvedValueOnce([makeHandle()]);
     await useResultStore.getState().executeQuery("conn-1", "SELECT 1", undefined, "tab-1");
 
     useResultStore.getState().dropForeignResults("conn-1");

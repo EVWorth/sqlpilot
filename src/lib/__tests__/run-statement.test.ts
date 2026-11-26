@@ -40,6 +40,14 @@ describe("runStatement", () => {
     activeConnections.value = [{ id: "conn-1", name: "prod", database: "app" }];
   });
 
+  it("reads every row unless a limit is asked for", async () => {
+    await runStatement({ connectionId: "conn-1", sql: "SHOW STATUS", origin: "admin" });
+    expect(executeQuery).toHaveBeenLastCalledWith("conn-1", "SHOW STATUS", undefined, undefined);
+
+    await runStatement({ connectionId: "conn-1", sql: "CALL big()", database: "app", origin: "routine", limit: 1000 });
+    expect(executeQuery).toHaveBeenLastCalledWith("conn-1", "CALL big()", "app", 1000);
+  });
+
   it("records the statement with its origin", async () => {
     await runStatement({ connectionId: "conn-1", sql: "UPDATE t SET a = 1", origin: "grid" });
 
