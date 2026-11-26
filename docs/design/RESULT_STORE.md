@@ -1,8 +1,10 @@
 # Backend-owned results
 
-Status: in progress. Editor results can be kept in the store behind a setting
-that is off by default ("Keep results in SQLPilot's result store", in the
-Appearance dialog's Editor section); everything else still uses the old path. Tracking issue: #967.
+Status: in progress. Editor results are kept in the store by default. A
+setting in the Appearance dialog's Editor section ("Load whole results into
+the window (the older way)") brings back the old path for one release, as a
+way back if something breaks; it goes when the old path is removed. Everything
+other than the editor still uses the old path. Tracking issue: #967.
 
 ## Why
 
@@ -167,8 +169,8 @@ result_release(result_ids)
 
 ## The grid over the store
 
-- **Behind a setting.** With "Keep results in SQLPilot's result store" on,
-  the editor's own runs (Run, Run at cursor, the refresh after a grid save)
+- **The default.** Unless "Load whole results into the window" is on, the
+  editor's own runs (Run, Run at cursor, the refresh after a grid save)
   go through `run_query` or `sqlite_run_query`. The admin tabs, schema tree,
   EXPLAIN, the routine viewer, import and agents keep the old path.
 - **A stored result** is a `QueryResult` with `rows` empty and a `stored`

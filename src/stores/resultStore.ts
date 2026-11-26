@@ -1322,7 +1322,7 @@ function recordSuccess(
 
 /** Whether a run asked for with these options keeps its rows in the result store. */
 function wantsStore(options: RunOptions | undefined): boolean {
-  return Boolean(options?.fromEditor) && Boolean(useSettingsStore.getState().querySettings.keepResultsInBackend);
+  return Boolean(options?.fromEditor) && !useSettingsStore.getState().querySettings.keepResultsInWebview;
 }
 
 /**
