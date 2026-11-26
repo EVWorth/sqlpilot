@@ -42,9 +42,10 @@ let release: ReturnType<typeof vi.spyOn>;
 /** Store ids freed so far. */
 const released = () => release.mock.calls.flatMap(([ids]) => ids as string[]);
 
+/** `on`: the store, the default; off: the old path, through the opt-out. */
 function useStoreSetting(on: boolean) {
   const { querySettings } = useSettingsStore.getState();
-  useSettingsStore.setState({ querySettings: { ...querySettings, keepResultsInBackend: on } });
+  useSettingsStore.setState({ querySettings: { ...querySettings, keepResultsInWebview: !on } });
 }
 
 const run = (sql = "SELECT id FROM t", tab = "tab-1") =>
@@ -72,7 +73,7 @@ afterEach(() => {
 });
 
 describe("running into the result store", () => {
-  it("runs through run_query when the setting is on, and shows a result without rows", async () => {
+  it("runs through run_query by default, and shows a result without rows", async () => {
     await run();
     expect(runQuery).toHaveBeenCalledWith(CONN, "SELECT id FROM t", "app", 1000, undefined, "tab-1");
     expect(executeQuery).not.toHaveBeenCalled();
@@ -82,7 +83,7 @@ describe("running into the result store", () => {
     expect(rowSourceFor(result).rowCount).toBe(3);
   });
 
-  it("keeps the old path when the setting is off", async () => {
+  it("takes the old path when the user opts out", async () => {
     useStoreSetting(false);
     await run();
     expect(executeQuery).toHaveBeenCalled();

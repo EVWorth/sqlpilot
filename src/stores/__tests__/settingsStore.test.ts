@@ -34,7 +34,7 @@ const defaultQuerySettings = {
   showMinimap: false,
   editorFontSize: 14,
   uiScale: 1,
-  keepResultsInBackend: false,
+  keepResultsInWebview: false,
 };
 const defaultFormatterSettings = {
   keywordCase: "upper" as const,
@@ -92,6 +92,22 @@ describe("settingsStore", () => {
         ...defaultQuerySettings,
         ...partial,
       });
+    });
+
+    it("drops the old opt-in, so settings saved by 1.6 get the result store", async () => {
+      // 1.6 saved every query setting together, so this false was written
+      // for anyone who changed any of them, chosen or not.
+      localStorage.setItem(QUERY_SETTINGS_KEY, JSON.stringify({ maxResultRows: 500, keepResultsInBackend: false }));
+      vi.resetModules();
+      const { useSettingsStore } = await import("../settingsStore");
+      expect(useSettingsStore.getState().querySettings).toEqual({ ...defaultQuerySettings, maxResultRows: 500 });
+    });
+
+    it("keeps an opt-out to the old path", async () => {
+      localStorage.setItem(QUERY_SETTINGS_KEY, JSON.stringify({ keepResultsInWebview: true }));
+      vi.resetModules();
+      const { useSettingsStore } = await import("../settingsStore");
+      expect(useSettingsStore.getState().querySettings.keepResultsInWebview).toBe(true);
     });
   });
 
