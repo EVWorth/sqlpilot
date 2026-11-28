@@ -47,7 +47,13 @@ export interface DataSource {
   getPartitions(connectionId: string, database: string, table: string): Promise<PartitionInfo[]>;
   getTableDdl(connectionId: string, database: string, table: string): Promise<string>;
   getViewDdl(connectionId: string, database: string, view: string): Promise<string>;
-  execute(
+  /**
+   * Run SQL for the results grid. The rows stay in the backend's result
+   * store (docs/design/RESULT_STORE.md): each result comes back with no rows
+   * and a `stored` reference, and the caller releases them. A failure carries
+   * the statements that completed as `completedHandles`.
+   */
+  runStored(
     connectionId: string,
     sql: string,
     database?: string,
@@ -58,20 +64,6 @@ export interface DataSource {
      * The editor tab running this, for a backend whose tabs keep their own
      * server session (#731). A backend without sessions ignores it.
      */
-    session?: string,
-  ): Promise<QueryResult[]>;
-  /**
-   * Run like `execute`, but leave the rows in the backend's result store
-   * (docs/design/RESULT_STORE.md). Each result comes back with no rows and a
-   * `stored` reference; the caller releases them. A failure carries the
-   * statements that completed as `completedHandles`.
-   */
-  runStored(
-    connectionId: string,
-    sql: string,
-    database?: string,
-    limit?: number,
-    offset?: number,
     session?: string,
   ): Promise<QueryResult[]>;
 }
@@ -91,7 +83,6 @@ const mysql: DataSource = {
   getPartitions: (c, d, t) => api.getPartitions(c, d, t),
   getTableDdl: (c, d, t) => api.getTableDdl(c, d, t),
   getViewDdl: (c, d, v) => api.getViewDdl(c, d, v),
-  execute: (c, sql, d, limit, offset, session) => api.executeQuery(c, sql, d, limit, offset, session),
   runStored: async (c, sql, d, limit, offset, session) =>
     (await api.runQuery(c, sql, d, limit, offset, session)).map(fromHandle),
 };
@@ -190,28 +181,6 @@ const sqlite: DataSource = {
   },
   // The row limit and page offset are applied while reading, as on MySQL
   // (#933). There are no sessions: one connection serves every tab.
-  execute: async (c, sql, _d, limit, offset) =>
-    (await api.sqliteExecute(c, sql, limit, offset)).map((r) => ({
-      query_id: r.query_id,
-      statement_index: r.statement_index,
-      // The statement this result came from, as the backend split it (#928).
-      sql: r.sql,
-      columns: r.columns.map((col) => ({
-        name: col.name,
-        data_type: col.data_type,
-        column_type: col.data_type,
-        nullable: col.nullable,
-        is_primary_key: col.is_primary_key,
-      })),
-      rows: r.rows,
-      rows_affected: r.rows_affected,
-      execution_time_ms: r.execution_time_ms,
-      warnings: r.warnings,
-      rows_truncated: r.rows_truncated,
-      truncation_reason: r.truncation_reason,
-      // SQLite answers for the whole connection, after every statement.
-      transaction: r.in_transaction ? "open" : "none",
-    })) as QueryResult[],
   // Every column is text and a BLOB is `<blob N bytes>` in the store, as
   // `sqlite_execute` shows them (docs/design/RESULT_STORE.md, "As built").
   runStored: async (c, sql, _d, limit, offset) => (await api.sqliteRunQuery(c, sql, limit, offset)).map(fromHandle),

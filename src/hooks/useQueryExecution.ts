@@ -49,7 +49,7 @@ export function useQueryExecution() {
   const executeQuery = useCallback(
     (sql: string) => {
       if (!connectionId) return Promise.reject(new Error("No active connection"));
-      return storeExecuteQuery(connectionId, sql, database, session, undefined, { fromEditor: true });
+      return storeExecuteQuery(connectionId, sql, database, session);
     },
     [connectionId, database, session, storeExecuteQuery],
   );
