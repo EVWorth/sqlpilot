@@ -27,10 +27,16 @@ its log.
 
 ## 2. Get it green
 
-CI's checks on the release PR come from CI's push run on the same `dev`
-commit (a PR opened by Actions gets no `pull_request` runs). A red check is
-fixed through a PR into `dev`, which moves the release PR with it. A new
+The release PR's checks come from two CI runs on the same `dev` commit: the
+push run, and a `pull_request` run against `main`. A red check is fixed
+through a PR into `dev`, which moves the release PR with it. A new
 `cargo audit` or `npm audit` advisory is fixed the same way, not deferred.
+
+**Dependency age** in the `pull_request` run compares against `main`, so it
+checks every version added since the last release again. A version that
+went into `dev` under the `dependency-age-exception` label fails again
+here until it is 7 days old. Tell the maintainer which versions it names;
+the release waits until they label the release PR or the versions age.
 
 ## 3. Merge with a merge commit
 
