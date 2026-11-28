@@ -137,8 +137,9 @@ describe("CreateUserDialog", () => {
     expect(api.executeQuery).toHaveBeenCalledWith(
       "conn-1",
       expect.stringContaining("CREATE USER 'newuser'"),
-      // runStatement passes the database through, so there is a third
-      // argument now — undefined for the admin paths (#586).
+      // runStatement passes the database through (#586) and a row limit;
+      // the admin paths set neither.
+      undefined,
       undefined,
     );
     expect(mockProps.onCreated).toHaveBeenCalled();
@@ -190,8 +191,9 @@ describe("CreateUserDialog", () => {
     expect(api.executeQuery).toHaveBeenCalledWith(
       "conn-1",
       expect.stringContaining("MAX_USER_CONNECTIONS 10"),
-      // runStatement passes the database through, so there is a third
-      // argument now — undefined for the admin paths (#586).
+      // runStatement passes the database through (#586) and a row limit;
+      // the admin paths set neither.
+      undefined,
       undefined,
     );
   });
@@ -219,8 +221,9 @@ describe("CreateUserDialog", () => {
     expect(api.executeQuery).toHaveBeenCalledWith(
       "conn-1",
       expect.stringContaining("ACCOUNT LOCK"),
-      // runStatement passes the database through, so there is a third
-      // argument now — undefined for the admin paths (#586).
+      // runStatement passes the database through (#586) and a row limit;
+      // the admin paths set neither.
+      undefined,
       undefined,
     );
   });

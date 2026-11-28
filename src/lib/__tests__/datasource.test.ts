@@ -26,7 +26,7 @@ vi.mock("../tauri-api", () => ({
     sqliteGetTableDdl: vi.fn(),
     sqliteGetForeignKeys: vi.fn(),
     getForeignKeys: vi.fn(),
-    sqliteExecute: vi.fn(),
+    sqliteRunQuery: vi.fn(),
   },
 }));
 
@@ -175,45 +175,45 @@ describe("the SQLite source", () => {
     expect(await source.listTriggers("c-sqlite", "main")).toEqual([]);
   });
 
-  it("maps a result set into the shape the grid renders", async () => {
-    vi.mocked(api.sqliteExecute).mockResolvedValue([{
-      query_id: "q1",
+  it("runs into the result store and hands back a result with no rows", async () => {
+    vi.mocked(api.sqliteRunQuery).mockResolvedValue([{
+      result_id: "r1",
       statement_index: 0,
       sql: "SELECT 1",
       columns: [{ name: "id", data_type: "INTEGER", nullable: false, is_primary_key: true }],
-      rows: [[1]],
+      row_count: 1,
       rows_affected: 0,
       execution_time_ms: 2,
       warnings: [],
-      rows_truncated: false,
-    }] as never);
+    }]);
 
-    const [result] = await dataSourceFor("c-sqlite").execute("c-sqlite", "SELECT 1");
+    const [result] = await dataSourceFor("c-sqlite").runStored("c-sqlite", "SELECT 1");
 
-    expect(result.rows).toEqual([[1]]);
+    expect(result.rows).toEqual([]);
+    expect(result.stored).toEqual({ result_id: "r1", row_count: 1 });
     expect(result.columns[0].name).toBe("id");
     expect(result.sql).toBe("SELECT 1");
-    expect(api.sqliteExecute).toHaveBeenCalledWith("c-sqlite", "SELECT 1", undefined, undefined);
+    expect(api.sqliteRunQuery).toHaveBeenCalledWith("c-sqlite", "SELECT 1", undefined, undefined);
   });
 
   it("passes the row limit and offset, and maps truncation and transaction state (#933)", async () => {
-    vi.mocked(api.sqliteExecute).mockResolvedValue([{
-      query_id: "q1",
+    vi.mocked(api.sqliteRunQuery).mockResolvedValue([{
+      result_id: "r1",
       statement_index: 0,
       sql: "SELECT * FROM t",
       columns: [{ name: "x", data_type: "TEXT", nullable: true, is_primary_key: false }],
-      rows: [[1], [2]],
+      row_count: 2,
       rows_affected: 0,
       execution_time_ms: 2,
       warnings: [],
-      rows_truncated: true,
       truncation_reason: "row_limit",
-      in_transaction: true,
+      transaction: "open",
     }]);
 
-    const [result] = await dataSourceFor("c-sqlite").execute("c-sqlite", "SELECT * FROM t", "main", 2, 4);
+    // The database argument is ignored: a SQLite file is one schema.
+    const [result] = await dataSourceFor("c-sqlite").runStored("c-sqlite", "SELECT * FROM t", "main", 2, 4);
 
-    expect(api.sqliteExecute).toHaveBeenCalledWith("c-sqlite", "SELECT * FROM t", 2, 4);
+    expect(api.sqliteRunQuery).toHaveBeenCalledWith("c-sqlite", "SELECT * FROM t", 2, 4);
     expect(result.rows_truncated).toBe(true);
     expect(result.truncation_reason).toBe("row_limit");
     expect(result.transaction).toBe("open");

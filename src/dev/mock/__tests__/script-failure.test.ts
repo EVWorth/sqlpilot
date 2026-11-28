@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ConnectionInfo } from "../../../lib/bindings";
+import { resultRowCount } from "../../../lib/stored-result";
 import { useResultStore } from "../../../stores/resultStore";
 import { call, install, settle } from "./helpers";
 
@@ -30,7 +31,9 @@ describe("a script whose second statement fails (?mock=connected)", () => {
     expect(state.failedStatement).toEqual({ index: 1, count: 3, sql: "SELECT * FROM nope", code: 1146 });
     expect(state.results).toHaveLength(1);
     expect(state.results[0].sql).toBe("SELECT * FROM products");
-    expect(state.results[0].rows.length).toBeGreaterThan(0);
+    // Its rows are kept in the result store, not in the result itself.
+    expect(state.results[0].stored?.row_count).toBeGreaterThan(0);
+    expect(resultRowCount(state.results[0])).toBe(state.results[0].stored?.row_count);
     expect(state.resultSource?.connectionId).toBe(conn.id);
   });
 });
