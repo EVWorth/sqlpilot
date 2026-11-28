@@ -49,8 +49,16 @@ The push to `main` starts `.github/workflows/auto-release.yml`:
    them and `latest.json` to one release, then publishes it.
 3. `sync-dev`: merges `main` back into `dev`.
 
-When it finishes, check the release has every platform's assets (list in
-`docs/RELEASING.md`) and is published. If a job fails, diagnose with the
+The whole run takes about half an hour, most of it the integration tests
+and the four builds. Don't poll it: schedule one check-in for about 30
+minutes after the merge, and another for a few minutes later if the last
+jobs are still running.
+
+When it finishes, run `node scripts/verify-release.mjs X.Y.Z`. It checks that
+there is one release for the tag, that it is published, that every
+platform's assets and signatures are attached, and that `latest.json` names
+the version and every updater key. Then confirm `dev` has the
+`release: X.Y.Z` commit. If a job fails, diagnose with the
 `ci-doctor` agent and follow "When a release fails" in `docs/RELEASING.md`.
 Re-pushing a tag needs the maintainer: cloud sessions get HTTP 403 on tag
 pushes. Never delete a published release or its tag without the maintainer.

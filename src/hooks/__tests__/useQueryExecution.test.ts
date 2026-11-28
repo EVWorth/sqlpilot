@@ -90,9 +90,7 @@ describe("useQueryExecution", () => {
 
     // The tab's id rides along as its server session, so what one run sets
     // up is there for the next (#731).
-    expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", "my_db", tabId, undefined, {
-      fromEditor: true,
-    });
+    expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", "my_db", tabId);
   });
 
   it("runs on the active tab's server even when another is selected (#788)", async () => {
@@ -110,7 +108,7 @@ describe("useQueryExecution", () => {
     expect(result.current.connectionId).toBe("prod");
     await act(() => result.current.executeQuery("SELECT 1"));
 
-    expect(mockExecuteQuery).toHaveBeenCalledWith("prod", "SELECT 1", "shop", tabId, undefined, { fromEditor: true });
+    expect(mockExecuteQuery).toHaveBeenCalledWith("prod", "SELECT 1", "shop", tabId);
   });
 
   it("executeQuery uses undefined database when no tab database is set", async () => {
@@ -122,9 +120,7 @@ describe("useQueryExecution", () => {
     const { result } = renderHook(() => useQueryExecution());
     await act(() => result.current.executeQuery("SELECT 1"));
 
-    expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, tabId, undefined, {
-      fromEditor: true,
-    });
+    expect(mockExecuteQuery).toHaveBeenCalledWith("conn-1", "SELECT 1", undefined, tabId);
   });
 
   it("executeQuery rejects when no connection is selected", async () => {

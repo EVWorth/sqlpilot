@@ -1,8 +1,8 @@
 # Backend-owned results
 
-Status: in progress. Editor results can be kept in the store behind a setting
-that is off by default ("Keep results in SQLPilot's result store", in the
-Appearance dialog's Editor section); everything else still uses the old path. Tracking issue: #967.
+Status: done for the results grid. Every result the grid shows is kept in the
+store, with no setting to turn it off. What still reads whole results is
+listed under "What still reads whole results" below. Tracking issue: #967.
 
 ## Why
 
@@ -167,10 +167,23 @@ result_release(result_ids)
 
 ## The grid over the store
 
-- **Behind a setting.** With "Keep results in SQLPilot's result store" on,
-  the editor's own runs (Run, Run at cursor, the refresh after a grid save)
-  go through `run_query` or `sqlite_run_query`. The admin tabs, schema tree,
-  EXPLAIN, the routine viewer, import and agents keep the old path.
+- **Every grid run.** Every run that fills the results grid goes through
+  `run_query` or `sqlite_run_query` (`resultStore.executeQuery`, through
+  `DataSource.runStored`). That covers the editor, the schema tree's table and
+  DDL tabs, history re-runs, statements from the designer and the routine
+  viewer's DROP, and the refresh after a grid save.
+- **What still reads whole results.** These reads are for the app's own use,
+  not for the grid, and they stay on `execute_query` (`lib/run-statement.ts`):
+  - the admin tabs (status, users, replication, variables)
+  - EXPLAIN, whose plan the app parses
+  - row counts
+  - import and restore
+
+  They are small by nature, and keeping them in the store would add round
+  trips for nothing. The routine viewer draws a procedure's result sets in
+  its own table, so it asks for at most the editor's row limit, or 10,000
+  rows with the limit off. Agents on the MCP server read through the
+  executor in Rust, which caps their results itself.
 - **A stored result** is a `QueryResult` with `rows` empty and a `stored`
   reference (`src/lib/stored-result.ts`), so result tabs, banners, history
   and paging read the same fields they always have. Its size is

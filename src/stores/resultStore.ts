@@ -44,8 +44,6 @@ interface ConfirmDialogState {
    * after switching tabs still files the results under that tab (#842).
    */
   tabKey?: string;
-  /** For `query`: whether the run keeps its results in the result store. */
-  stored?: boolean;
   /**
    * The plan format asked for, for `explain-analyze`. Kept here rather than
    * read back from the store on approval, where it is the shown tab's.
@@ -112,8 +110,6 @@ interface PageState {
   size: number;
   /** False once a page comes back short, which is how the end is recognised. */
   hasMore: boolean;
-  /** True when the page was read into the result store, so the next one is too. */
-  stored?: boolean;
 }
 
 /** Which statement of a script failed, for the error box and the editor (#845). */
@@ -126,16 +122,6 @@ export interface FailedStatement {
   sql: string | null;
   /** The driver's error number, when it gave one. */
   code: number | null;
-}
-
-/** How a run was asked for, beyond where it runs. */
-export interface RunOptions {
-  /**
-   * True for the editor's own runs: Run, Run at cursor, and the refresh
-   * after a grid save. Only these keep their results in the backend's result
-   * store, and only when the setting says so (docs/design/RESULT_STORE.md).
-   */
-  fromEditor?: boolean;
 }
 
 /** The connection, database and editor tab session a result was read on. */
@@ -251,7 +237,6 @@ interface ResultState {
     database?: string,
     session?: string,
     tabId?: string,
-    options?: RunOptions,
   ) => Promise<RunOutcome>;
   executeExplain: (
     connectionId: string,
@@ -712,7 +697,7 @@ export const useResultStore = create<ResultState>((set, get) => ({
     set({ ...(holdsStoredFrom(state) ? cleared : {}), parked });
   },
 
-  executeQuery: async (connectionId, sql, database, session, tabId, options) => {
+  executeQuery: async (connectionId, sql, database, session, tabId) => {
     const target = targetFor(session, tabId);
     // The run replaces the tab's results, and with them the grid's unsaved
     // edits, which are by row index and cannot follow (#865).
@@ -737,12 +722,11 @@ export const useResultStore = create<ResultState>((set, get) => ({
           database,
           session,
           tabKey: target.tab,
-          stored: wantsStore(options),
         },
       });
       return { status: "awaiting-confirmation" };
     }
-    return doExecuteQuery(connectionId, sql, target, database, undefined, session, wantsStore(options));
+    return doExecuteQuery(connectionId, sql, target, database, undefined, session);
   },
 
   confirmExecution: async () => {
@@ -770,7 +754,6 @@ export const useResultStore = create<ResultState>((set, get) => ({
       dialog.database,
       undefined,
       dialog.session,
-      dialog.stored ?? false,
     );
   },
 
@@ -848,7 +831,6 @@ export const useResultStore = create<ResultState>((set, get) => ({
       page.database,
       { index, size: page.size },
       page.session,
-      page.stored ?? false,
     );
   },
   setShowExplain: (show) => set({ showExplain: show }),
@@ -996,8 +978,6 @@ async function doExecuteQuery(
   paging?: { index: number; size: number },
   /** The editor tab whose session this runs on (#731). */
   session?: string,
-  /** Keep the rows in the backend's result store (docs/design/RESULT_STORE.md). */
-  stored = false,
 ): Promise<RunOutcome> {
   const startTime = Date.now();
   const connState = useConnectionStore.getState();
@@ -1040,7 +1020,9 @@ async function doExecuteQuery(
     const source = dataSourceFor(connectionId);
     if (session) bindTabToRun(session, connectionId, conn?.profile_id);
     if (session && source.kind === "mysql") noteSession(session, connectionId);
-    const results = await (stored ? source.runStored : source.execute)(
+    // Every result shown in the grid is kept in the backend's result store
+    // and read a window at a time (docs/design/RESULT_STORE.md).
+    const results = await source.runStored(
       connectionId,
       sql,
       effectiveDatabase,
@@ -1098,7 +1080,6 @@ async function doExecuteQuery(
           index: pageIndex,
           size: rowLimit,
           hasMore: filled,
-          ...(stored ? { stored } : {}),
         }
         : null,
     });
@@ -1109,11 +1090,9 @@ async function doExecuteQuery(
     // message with a raw database error and log the user's own cancellation
     // to history as a failed query.
     const structured = e instanceof CommandError ? e : undefined;
-    // What the statements before the failing one returned (#845): whole, or,
-    // for a run into the result store, as handles whose rows are kept there.
-    const completed: QueryResult[] = structured?.completedResults
-      ?? structured?.completedHandles?.map(fromHandle)
-      ?? [];
+    // What the statements before the failing one returned (#845), as handles
+    // whose rows are kept in the result store.
+    const completed: QueryResult[] = structured?.completedHandles?.map(fromHandle) ?? [];
     if (run.cancelled) {
       releaseStoredResults(storedIdsOf(completed));
       return { status: "cancelled" };
@@ -1318,11 +1297,6 @@ function recordSuccess(
       origin: "editor",
     });
   }
-}
-
-/** Whether a run asked for with these options keeps its rows in the result store. */
-function wantsStore(options: RunOptions | undefined): boolean {
-  return Boolean(options?.fromEditor) && Boolean(useSettingsStore.getState().querySettings.keepResultsInBackend);
 }
 
 /**

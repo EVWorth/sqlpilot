@@ -25,7 +25,7 @@ rmcp = { version = "=3.10.0", features = ["server", "transport-streamable-http-s
 # `limits` reads and sets SQLite's run-time limits: the store checks the
 # column limit the bundled SQLite was built with (.cargo/config.toml), and
 # mas-sqlite puts the stock one back for the user's own files.
-rusqlite = { version = "0.42", features = ["bundled", "collation", "functions", "limits"] }
+rusqlite = { version = "0.43", features = ["bundled", "collation", "functions", "limits"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Pre-1.0: specta has been in RC since 2023. Pinned exactly (no caret) so an

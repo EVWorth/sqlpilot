@@ -41,6 +41,12 @@ export interface RunStatementOptions {
   sql: string;
   database?: string;
   origin: StatementOrigin;
+  /**
+   * The most rows to read per result. Leave it out for statements the app
+   * reads for its own use; set it where a person sees the rows, so a large
+   * result cannot fill the window (the routine viewer).
+   */
+  limit?: number;
 }
 
 /**
@@ -54,14 +60,14 @@ export interface RunStatementOptions {
 export async function runStatement(
   options: RunStatementOptions,
 ): Promise<QueryResult[]> {
-  const { connectionId, sql, database, origin } = options;
+  const { connectionId, sql, database, origin, limit } = options;
   const startTime = Date.now();
   const connection = useConnectionStore
     .getState()
     .activeConnections.find((c) => c.id === connectionId);
 
   try {
-    const results = await api.executeQuery(connectionId, sql, database);
+    const results = await api.executeQuery(connectionId, sql, database, limit);
     // Recording is a side effect of running the statement. If it throws, the
     // statement still ran, and reporting it as a failure would tell the caller
     // to roll back something that already succeeded.

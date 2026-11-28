@@ -142,7 +142,7 @@ describe("adminStore", () => {
 
       await useAdminStore.getState().loadGrants("v1", "conn-1", "o'neil", "%");
 
-      expect(api.executeQuery).toHaveBeenCalledWith("conn-1", "SHOW GRANTS FOR 'o''neil'@'%'", undefined);
+      expect(api.executeQuery).toHaveBeenCalledWith("conn-1", "SHOW GRANTS FOR 'o''neil'@'%'", undefined, undefined);
       expect(grantsOf(useAdminStore.getState(), "v1")).toEqual({
         grants: ["GRANT USAGE ON *.* TO `o'neil`@`%`"],
         loading: false,
