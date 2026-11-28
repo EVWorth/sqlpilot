@@ -1,3 +1,17 @@
+## v1.7.0 (2026-11-28)
+
+### Feat
+
+- keep editor results in the store by default (#1000)
+
+### Fix
+
+- patch the url and cookie advisories (#1002)
+
+### Refactor
+
+- keep every grid result in the store (#1003)
+
 ## v1.6.0 (2026-11-20)
 
 ### Feat
