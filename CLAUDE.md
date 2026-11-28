@@ -109,6 +109,9 @@ Code, commits, PRs, issues and log lines are written in normal English.
   change, run `node scripts/check-dependency-age.mjs --base origin/dev`.
 - The GitHub MCP merge tool wants the head SHA in full (40 characters) in
   `expectedHeadSha`; a short one is refused. Take it from `pull_request_read`.
+- GitHub comments posted from a cloud session have their `@` mentions
+  escaped, so bot commands such as `@dependabot rebase` do nothing. The
+  `dependency-updates` skill says what to do instead.
 - Even `git stash list` is denied, not only the commands that change the
   stash. Use `git status` and `git worktree list` instead.
 - A worktree can share the main checkout's packages with
